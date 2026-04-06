@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.15
+
+- Fix : la sauvegarde des parametres ne duplique plus les flux RTSP (sources RTSP exclues du syncWithDOM)
+
 ## 2.2.14
 
 - Ajout de `libegl1` dans le Dockerfile pour corriger le crash MediaPipe (`libEGL.so.1` manquant)
