@@ -1,5 +1,4 @@
 import numpy as np
-import collections
 import threading
 from mediapipe.tasks import python
 from mediapipe.tasks.python import audio
@@ -57,7 +56,7 @@ class AudioDetector:
             self.source_ids[source_id] = numeric_id
             
             self.sources[source_id] = {
-                'buffer': collections.deque(maxlen=self.buffer_size),
+                'buffer': np.zeros(0, dtype=np.float32),
                 'detection_callback': detection_callback,
                 'labels_callback': labels_callback,
                 'numeric_id': numeric_id
@@ -169,10 +168,10 @@ class AudioDetector:
                     logging.error("Impossible de démarrer le classificateur")
                     return
 
-            # Rééchantillonnage si nécessaire
+            # Rééchantillonnage anti-aliasé si nécessaire
             if len(audio_data) > self.buffer_size:
-                resampled_data = audio_data[::3]
-                audio_data = resampled_data
+                from scipy.signal import resample_poly
+                audio_data = resample_poly(audio_data, 1, 3).astype(np.float32)
             
             # S'assurer que les données sont en float32
             if audio_data.dtype != np.float32:
@@ -183,12 +182,14 @@ class AudioDetector:
                 logging.debug(f"Audio stats (source {source_id}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
             
             # Ajouter les nouvelles données au buffer de la source
-            self.sources[source_id]['buffer'].extend(audio_data)
-            
+            self.sources[source_id]['buffer'] = np.concatenate([
+                self.sources[source_id]['buffer'], audio_data
+            ])
+
             # Traiter avec le classificateur
             if self.running and self.classifier and self.start_time_ms is not None:
                 block_size = 1600
-                buffer_array = np.array(list(self.sources[source_id]['buffer']))
+                buffer_array = self.sources[source_id]['buffer']
                 
                 blocks_processed = 0  # Compteur pour le debug
                 while len(buffer_array) >= block_size:
@@ -232,9 +233,7 @@ class AudioDetector:
                     logging.debug(f"Blocs traités pour {source_id}: {blocks_processed}")
                 
                 # Mettre à jour le buffer avec les données restantes
-                self.sources[source_id]['buffer'].clear()
-                if len(buffer_array) > 0:
-                    self.sources[source_id]['buffer'].extend(buffer_array)
+                self.sources[source_id]['buffer'] = buffer_array
             
         except Exception as e:
             logging.error(f"Erreur dans le traitement audio: {e}")

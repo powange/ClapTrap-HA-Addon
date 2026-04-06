@@ -2,6 +2,18 @@ import logging
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from url_validator import is_valid_url
+
+
+def validate_webhook_url(url):
+    """Valide une URL webhook. Retourne True si valide ou None, False sinon."""
+    if url is None or url == '':
+        return True
+    if not is_valid_url(url):
+        return False
+    if not url.startswith(('http://', 'https://')):
+        return False
+    return True
 
 
 class WebhookManager:
@@ -17,6 +29,8 @@ class WebhookManager:
 
     def send_webhook(self, url, data):
         """Envoie une requête webhook et retourne la réponse"""
+        if not validate_webhook_url(url):
+            raise ValueError(f"URL webhook invalide: {url}")
         try:
             response = self.session.post(url, json=data, timeout=5)
             response.raise_for_status()

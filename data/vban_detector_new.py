@@ -8,7 +8,7 @@ import scipy.signal
 import collections
 import threading
 import logging
-import json
+from settings_manager import load_settings as _load_settings_from_manager
 
 class VBANDetector:
     def __init__(self, port=6980):
@@ -302,26 +302,5 @@ class VBANDetector:
         return active_sources
 
     def _load_settings(self):
-        """Charge les paramètres de manière thread-safe avec mise en cache"""
-        current_time = time.time()
-        
-        with self._settings_lock:
-            # Utiliser le cache s'il est valide
-            if (self._settings_cache is not None and 
-                current_time - self._last_settings_load < self._settings_cache_duration):
-                return self._settings_cache
-            
-            try:
-                with open('settings.json', 'r') as f:
-                    self._settings_cache = json.load(f)
-                    self._last_settings_load = current_time
-                    return self._settings_cache
-            except FileNotFoundError:
-                self._settings_cache = {}
-                self._last_settings_load = current_time
-                return {}
-            except json.JSONDecodeError:
-                logging.error("Erreur lors de la lecture du fichier settings.json")
-                self._settings_cache = {}
-                self._last_settings_load = current_time
-                return {}
+        """Charge les paramètres via le module centralisé (avec cache TTL)."""
+        return _load_settings_from_manager()

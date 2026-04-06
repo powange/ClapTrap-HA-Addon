@@ -1,3 +1,8 @@
+// Logger conditionnel : n'affiche les logs que si le mode debug est actif
+const isDebug = window.settings?.debug || false;
+export const log = isDebug ? console.log.bind(console) : () => {};
+export const debug = isDebug ? console.debug.bind(console) : () => {};
+
 export function showError(message) {
     const errorDiv = document.getElementById('error');
     if (!errorDiv) {

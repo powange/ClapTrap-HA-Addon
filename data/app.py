@@ -9,7 +9,6 @@ import threading
 import time
 import os
 from datetime import datetime
-from events import socketio  # Importation de l'instance Socket.IO
 import socket
 import uuid
 from threading import Lock
@@ -17,6 +16,7 @@ import logging
 import psutil
 import secrets
 from webhook import WebhookManager
+from settings_manager import load_settings, save_settings, SETTINGS_FILE
 
 # Configuration du logging
 logging.basicConfig(
@@ -47,8 +47,8 @@ app = Flask(__name__)
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
-socketio = SocketIO(app, 
-    cors_allowed_origins="*",
+socketio = SocketIO(app,
+    cors_allowed_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     logger=False,  
     engineio_logger=False,  
     ping_timeout=60,
@@ -56,11 +56,6 @@ socketio = SocketIO(app,
     async_mode='threading'
 )
 
-# Définir le chemin absolu du dossier de l'application
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
-SETTINGS_BACKUP = os.path.join(BASE_DIR, 'settings.json.backup')
-SETTINGS_TEMP = os.path.join(BASE_DIR, 'settings.json.tmp')
 
 def get_audio_input_devices():
     """Récupère les périphériques audio d'entrée via l'API Supervisor HA, avec fallback sur sounddevice."""
@@ -137,129 +132,15 @@ class VBANSource:
             enabled=data.get("enabled", True)
         )
 
-class Settings:
-    def __init__(self):
-        self.lock = Lock()
-    
-    def save_settings(self, new_settings):
-        with self.lock:
-            with open('settings.json', 'w') as f:
-                json.dump(new_settings, f, indent=4)
-
-def save_settings(new_settings):
-    """Sauvegarde les paramètres avec une gestion d'erreurs améliorée"""
-    try:
-        # Charger les paramètres existants ou utiliser la structure par défaut
-        default_settings = {
-            "global": {
-                "threshold": "0.5",
-                "delay": "1.0"
-            },
-            "microphone": {
-                "device_index": "0",
-                "audio_source": "default",
-                "webhook_url": "",
-                "enabled": False
-            },
-            "rtsp_sources": [],
-            "saved_vban_sources": [],  # Ajout de la liste des sources VBAN sauvegardées
-            "vban": {
-                "stream_name": "",
-                "ip": "0.0.0.0",
-                "port": 6980,
-                "webhook_url": "",
-                "enabled": False
-            }
-        }
-
-        # Charger les paramètres existants s'ils existent
-        current_settings = default_settings.copy()
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r') as f:
-                current_settings.update(json.load(f))
-
-        # Préserver les sources RTSP existantes si elles ne sont pas dans les nouveaux paramètres
-        if 'rtsp_sources' not in new_settings:
-            new_settings['rtsp_sources'] = current_settings.get('rtsp_sources', [])
-
-        # Mettre à jour avec les nouveaux paramètres
-        current_settings.update(new_settings)
-
-        # Sauvegarder dans un fichier temporaire d'abord
-        with open(SETTINGS_TEMP, 'w') as f:
-            json.dump(current_settings, f, indent=4)
-
-        # Faire une sauvegarde de l'ancien fichier si nécessaire
-        if os.path.exists(SETTINGS_FILE):
-            os.replace(SETTINGS_FILE, SETTINGS_BACKUP)
-
-        # Renommer le fichier temporaire
-        os.replace(SETTINGS_TEMP, SETTINGS_FILE)
-
-        return True, "Paramètres sauvegardés avec succès"
-
-    except Exception as e:
-        return False, f"Erreur lors de la sauvegarde des paramètres: {str(e)}"
 
 def load_flux():
     try:
         with open('flux.json', 'r') as f:
             flux = json.load(f)
-            print("Flux chargés :", flux)  # Ajout d'un log pour le débogage
+            logging.debug("Flux chargés :", flux)  # Ajout d'un log pour le débogage
             return flux
     except FileNotFoundError:
         return {"audio_streams": []}
-
-def load_settings():
-    """Charge les paramètres avec gestion d'erreurs améliorée"""
-    default_settings = {
-        "global": {
-            "threshold": "0.5",
-            "delay": "1.0"
-        },
-        "microphone": {
-            "device_index": "0",
-            "audio_source": "default",
-            "webhook_url": "",
-            "enabled": False
-        },
-        "rtsp_sources": [],
-        "saved_vban_sources": [],
-        "vban": {
-            "stream_name": "",
-            "ip": "0.0.0.0",
-            "port": 6980,
-            "webhook_url": "",
-            "enabled": False
-        }
-    }
-    
-    try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r') as f:
-                settings = json.load(f)
-                
-            # Fusionner récursivement les paramètres par défaut avec les paramètres sauvegardés
-            def deep_merge(default, saved):
-                merged = default.copy()
-                for key, value in saved.items():
-                    if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                        merged[key] = deep_merge(merged[key], value)
-                    else:
-                        merged[key] = value
-                return merged
-                
-            merged_settings = deep_merge(default_settings, settings)
-            return merged_settings
-            
-    except Exception as e:
-        print(f"Erreur lors du chargement des paramètres: {str(e)}")
-        
-    # En cas d'erreur ou si le fichier n'existe pas, créer avec les paramètres par défaut
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(default_settings, f, indent=4)
-    
-    return default_settings
 
 @app.route('/')
 def index():
@@ -285,39 +166,39 @@ def verify_settings_saved(new_settings, saved_settings):
         if 'global' in new_settings:
             for field in ['threshold', 'delay', 'chunk_duration', 'buffer_duration']:
                 if new_settings['global'].get(field) != saved_settings['global'].get(field):
-                    print(f"Différence détectée pour global.{field}:")
-                    print(f"  Attendu: {new_settings['global'].get(field)}")
-                    print(f"  Sauvegardé: {saved_settings['global'].get(field)}")
+                    logging.debug(f"Différence détectée pour global.{field}:")
+                    logging.debug(f"  Attendu: {new_settings['global'].get(field)}")
+                    logging.debug(f"  Sauvegardé: {saved_settings['global'].get(field)}")
                     return False
 
         # Vérifier les paramètres du microphone
         if 'microphone' in new_settings:
             for field in ['device_index', 'audio_source', 'webhook_url']:
                 if new_settings['microphone'].get(field) != saved_settings['microphone'].get(field):
-                    print(f"Différence détectée pour microphone.{field}:")
-                    print(f"  Attendu: {new_settings['microphone'].get(field)}")
-                    print(f"  Sauvegardé: {saved_settings['microphone'].get(field)}")
+                    logging.debug(f"Différence détectée pour microphone.{field}:")
+                    logging.debug(f"  Attendu: {new_settings['microphone'].get(field)}")
+                    logging.debug(f"  Sauvegardé: {saved_settings['microphone'].get(field)}")
                     return False
 
         # Vérifier les sources RTSP si présentes
         if 'rtsp_sources' in new_settings:
             if len(new_settings['rtsp_sources']) != len(saved_settings.get('rtsp_sources', [])):
-                print("Différence dans le nombre de sources RTSP")
+                logging.debug("Différence dans le nombre de sources RTSP")
                 return False
             for i, (new_source, saved_source) in enumerate(zip(new_settings['rtsp_sources'], saved_settings['rtsp_sources'])):
                 for field in ['name', 'url', 'webhook_url']:
                     if new_source.get(field) != saved_source.get(field):
-                        print(f"Différence détectée pour rtsp_sources[{i}].{field}:")
-                        print(f"  Attendu: {new_source.get(field)}")
-                        print(f"  Sauvegardé: {saved_source.get(field)}")
+                        logging.debug(f"Différence détectée pour rtsp_sources[{i}].{field}:")
+                        logging.debug(f"  Attendu: {new_source.get(field)}")
+                        logging.debug(f"  Sauvegardé: {saved_source.get(field)}")
                         return False
 
         # Ne pas vérifier les champs à la racine car ils sont maintenant dans les sections appropriées
-        print("Tous les paramètres ont été correctement sauvegardés")
+        logging.debug("Tous les paramètres ont été correctement sauvegardés")
         return True
         
     except Exception as e:
-        print(f"Erreur lors de la vérification des paramètres: {str(e)}")
+        logging.error(f"Erreur lors de la vérification des paramètres: {str(e)}")
         return False
 
 @app.route('/api/detection/start', methods=['POST'])
@@ -347,7 +228,7 @@ def start_detection_route():
             microphone_enabled = False
             
         if not microphone_enabled:
-            print("Microphone désactivé - aucune capture audio ne sera effectuée")
+            logging.debug("Microphone désactivé - aucune capture audio ne sera effectuée")
             
         # Préparer les paramètres pour start_detection avec gestion des valeurs null
         try:
@@ -406,7 +287,7 @@ def start_detection_route():
             return jsonify({'error': 'Impossible de démarrer la détection'}), 400
             
     except Exception as e:
-        print(f"Erreur lors du démarrage de la détection: {str(e)}")
+        logging.error(f"Erreur lors du démarrage de la détection: {str(e)}")
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/detection/stop', methods=['POST'])
@@ -420,7 +301,7 @@ def stop_detection_route():
         else:
             return jsonify({'error': 'Impossible d\'arrêter la détection'}), 400
     except Exception as e:
-        print(f"Erreur lors de l'arrêt de la détection: {str(e)}")
+        logging.error(f"Erreur lors de l'arrêt de la détection: {str(e)}")
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/webhook/test', methods=['POST'])
@@ -459,11 +340,11 @@ def test_webhook():
 @app.route('/refresh_vban')
 def refresh_vban():
     try:
-        print("Récupération des sources VBAN...")  # Debug log
+        logging.debug("Récupération des sources VBAN...")  # Debug log
         
         # Utiliser l'instance globale
         sources = init_vban().get_active_sources()
-        print(f"Sources trouvées: {sources}")  # Debug log
+        logging.debug(f"Sources trouvées: {sources}")  # Debug log
         
         # Formater les sources pour l'interface
         formatted_sources = []
@@ -477,10 +358,10 @@ def refresh_vban():
                 'id': f"vban_{source.ip}_{source.port}"
             })
         
-        print(f"Sources formatées: {formatted_sources}")  # Debug log
+        logging.debug(f"Sources formatées: {formatted_sources}")  # Debug log
         return jsonify({'sources': formatted_sources})
     except Exception as e:
-        print(f"Erreur lors de la rcupération des sources VBAN: {str(e)}")  # Debug log
+        logging.error(f"Erreur lors de la rcupération des sources VBAN: {str(e)}")  # Debug log
         return jsonify({'error': str(e)}), 400
 
 @app.route('/clap_detected')  # Added route for clap detection
@@ -556,26 +437,26 @@ def validate_settings(settings):
 
 @socketio.on('clap_detected')
 def handle_clap(data):
-    print(f"🎯 Clap detected: {data}")  # Debug log
+    logging.debug(f"🎯 Clap detected: {data}")  # Debug log
     try:
         socketio.emit('clap', {
             'source_id': 'microphone',
             'timestamp': time.time()
         }, broadcast=True)
-        print(f"✅ Clap event emitted")
+        logging.debug(f"✅ Clap event emitted")
     except Exception as e:
-        print(f"❌ Error emitting clap event: {str(e)}")
+        logging.debug(f"❌ Error emitting clap event: {str(e)}")
 
 @app.route('/api/vban/save', methods=['POST'])
 def save_vban_source():
     try:
         source = request.json
-        print(f"Réception demande d'ajout source VBAN: {source}")  # Debug log
+        logging.debug(f"Réception demande d'ajout source VBAN: {source}")  # Debug log
         
         # Valider les données requises
         required_fields = ['name', 'ip', 'port']
         if not all(field in source for field in required_fields):
-            print(f"Champs manquants. Reçu: {source}")  # Debug log
+            logging.debug(f"Champs manquants. Reçu: {source}")  # Debug log
             return jsonify({
                 'success': False,
                 'error': 'Données manquantes pour la source VBAN'
@@ -596,7 +477,7 @@ def save_vban_source():
         )
         
         if existing_source:
-            print(f"Source déjà existante: {existing_source}")  # Debug log
+            logging.debug(f"Source déjà existante: {existing_source}")  # Debug log
             return jsonify({
                 'success': False,
                 'error': 'Cette source VBAN existe déjà'
@@ -618,20 +499,20 @@ def save_vban_source():
         success, message = save_settings(settings)
         
         if success:
-            print(f"Source VBAN sauvegardée avec succès: {new_source}")  # Debug log
+            logging.debug(f"Source VBAN sauvegardée avec succès: {new_source}")  # Debug log
             return jsonify({
                 'success': True,
                 'source': new_source
             })
         else:
-            print(f"Erreur lors de la sauvegarde des paramètres: {message}")  # Debug log
+            logging.error(f"Erreur lors de la sauvegarde des paramètres: {message}")  # Debug log
             return jsonify({
                 'success': False,
                 'error': f"Erreur lors de la sauvegarde: {message}"
             }), 500
             
     except Exception as e:
-        print(f"Erreur lors de la sauvegarde de la source VBAN: {str(e)}")
+        logging.error(f"Erreur lors de la sauvegarde de la source VBAN: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -680,7 +561,7 @@ def remove_vban_source():
             }), 500
             
     except Exception as e:
-        print(f"Erreur lors de la suppression de la source VBAN: {str(e)}")
+        logging.error(f"Erreur lors de la suppression de la source VBAN: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -690,7 +571,7 @@ def remove_vban_source():
 def update_vban_source():
     try:
         source = request.json
-        print(f"Mise à jour source VBAN reçue: {source}")  # Debug log
+        logging.debug(f"Mise à jour source VBAN reçue: {source}")  # Debug log
         
         if not source or 'ip' not in source or 'name' not in source:
             return jsonify({
@@ -714,11 +595,11 @@ def update_vban_source():
                 if 'enabled' in source:
                     s['enabled'] = source['enabled']
                 source_found = True
-                print(f"Source mise à jour: {s}")  # Debug log
+                logging.debug(f"Source mise à jour: {s}")  # Debug log
                 break
                 
         if not source_found:
-            print(f"Source non trouvée. Sources existantes: {settings['saved_vban_sources']}")  # Debug log
+            logging.debug(f"Source non trouvée. Sources existantes: {settings['saved_vban_sources']}")  # Debug log
             return jsonify({
                 'success': False,
                 'error': 'Source non trouvée'
@@ -736,7 +617,7 @@ def update_vban_source():
             }), 500
             
     except Exception as e:
-        print(f"Erreur lors de la mise à jour de la source VBAN: {str(e)}")
+        logging.error(f"Erreur lors de la mise à jour de la source VBAN: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -849,12 +730,12 @@ def get_vban_sources():
         # Utiliser la nouvelle méthode thread-safe pour obtenir les sources
         active_sources = detector.get_sources(timeout=1.0)
         
-        print(f"Sources VBAN actives trouvées: {len(active_sources)}")
-        print(f"Sources formatées: {active_sources}")
+        logging.debug(f"Sources VBAN actives trouvées: {len(active_sources)}")
+        logging.debug(f"Sources formatées: {active_sources}")
         return jsonify(active_sources)
         
     except Exception as e:
-        print(f"Erreur lors de la récupération des sources VBAN: {str(e)}")
+        logging.error(f"Erreur lors de la récupération des sources VBAN: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/vban/saved-sources', methods=['GET'])
@@ -862,11 +743,11 @@ def get_saved_vban_sources():
     try:
         settings = load_settings()
         saved_sources = settings.get('saved_vban_sources', [])
-        print(f"Sources VBAN sauvegardées trouvées: {len(saved_sources)}")  # Debug log
-        print(f"Sources: {saved_sources}")  # Debug log
+        logging.debug(f"Sources VBAN sauvegardées trouvées: {len(saved_sources)}")  # Debug log
+        logging.debug(f"Sources: {saved_sources}")  # Debug log
         return jsonify(saved_sources)
     except Exception as e:
-        print(f"Erreur lors de la récupération des sources VBAN sauvegardées: {str(e)}")
+        logging.error(f"Erreur lors de la récupération des sources VBAN sauvegardées: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/settings/save', methods=['POST'])
@@ -951,15 +832,15 @@ def update_rtsp_enabled():
 
 @socketio.on('connect')
 def handle_connect():
-    print("🔌 Client connecté")
+    logging.debug("🔌 Client connecté")
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print("🔌 Client déconnecté")
+    logging.debug("🔌 Client déconnecté")
 
 @socketio.on('test_connection')
 def handle_test():
-    print("🔔 Test de connexion reçu")
+    logging.debug("🔔 Test de connexion reçu")
     socketio.emit('debug', {'message': 'Test serveur'})
 
 if __name__ == '__main__':
@@ -969,5 +850,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         cleanup_vban_detector()
     except Exception as e:
-        print(f"Erreur lors du démarrage du serveur: {e}")
+        logging.error(f"Erreur lors du démarrage du serveur: {e}")
         cleanup_vban_detector()

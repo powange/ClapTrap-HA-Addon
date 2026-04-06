@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.9
+
+- Suppression du fichier events.py (instance SocketIO morte, code jamais appele)
+- Centralisation de la gestion des parametres dans settings_manager.py (cache TTL, une seule source de verite)
+- Remplacement du buffer deque par numpy array (suppression allocation list intermediaire dans le hot path)
+- Validation des URLs webhook (protection SSRF dans webhook.py)
+- Logs frontend gates derriere le flag debug (plus de console.log en production)
+- Multi-stage Docker build (build-essential retire de l'image finale, -200 MB)
+- Resampling audio anti-aliase via scipy.signal.resample_poly
+- Remplacement de tous les print() par logging dans app.py et vban_manager.py
+- CORS SocketIO configurable via variable d'environnement CORS_ORIGINS
+
 ## 2.2.8
 
 - Correction d'une race condition dans AudioDetector (mauvais routage des detections entre sources)

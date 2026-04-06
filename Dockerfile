@@ -1,9 +1,10 @@
 ARG BUILD_FROM
-FROM ${BUILD_FROM}
+
+# Stage 1: Build des dépendances Python
+FROM ${BUILD_FROM} AS builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Installation des dépendances système (build-essential pour compiler numpy/scipy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -14,20 +15,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudio2 \
     libportaudiocpp0 \
     portaudio19-dev \
-    ffmpeg \
-    libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*
 
-# Environnement virtuel Python
 WORKDIR /usr/src/app
 ENV VIRTUAL_ENV=/usr/src/app/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Installer les dépendances Python
 COPY data/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Stage 2: Image finale (sans build-essential)
+FROM ${BUILD_FROM}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    libportaudio2 \
+    libportaudiocpp0 \
+    ffmpeg \
+    libasound2-plugins \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier le venv compilé depuis le builder
+COPY --from=builder /usr/src/app/venv /usr/src/app/venv
+
+WORKDIR /usr/src/app
+ENV VIRTUAL_ENV=/usr/src/app/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Copier les fichiers de l'application
 COPY data/ ./

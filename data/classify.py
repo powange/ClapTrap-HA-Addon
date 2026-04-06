@@ -14,11 +14,11 @@ import wave
 import os
 import collections
 import sys
-from events import send_clap_event, send_labels
 import threading
-from vban_manager import get_vban_detector  # Import the get_vban_detector function
+from vban_manager import get_vban_detector
 import warnings
 from audio_detector import AudioDetector
+from settings_manager import load_settings
 
 # Configuration du logging en DEBUG
 logging.basicConfig(
@@ -41,67 +41,8 @@ current_audio_source = None
 _socketio = None  # Renamed to _socketio to avoid conflict with parameter
 
 def reload_settings():
-    """Recharge les paramètres depuis le fichier settings.json"""
-    try:
-        with open('settings.json', 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Erreur lors du rechargement des paramètres: {e}")
-        return None
-
-# Charger les paramètres depuis settings.json
-try:
-    with open('settings.json', 'r') as f:
-        settings = json.load(f)
-        
-    # Récupérer la source audio depuis la section microphone
-    microphone_settings = settings.get('microphone', {})
-    if microphone_settings is None:
-        microphone_settings = {}
-    AUDIO_SOURCE = microphone_settings.get('audio_source')
-    
-    # Ne pas lever d'erreur si audio_source n'est pas défini, on le gérera au moment de start_detection
-    if not AUDIO_SOURCE:
-        logging.warning("Aucune source audio n'est définie dans settings.json")
-        
-    # Récupérer les paramètres globaux avec des valeurs par défaut
-    global_settings = settings.get('global', {})
-    if global_settings is None:
-        global_settings = {}
-        
-    THRESHOLD = float(global_settings.get('threshold', 0.5))
-    DELAY = float(global_settings.get('delay', 2))
-    CHUNK_DURATION = float(global_settings.get('chunk_duration', 0.5))
-    BUFFER_DURATION = float(global_settings.get('buffer_duration', 1.0))
-    
-except FileNotFoundError:
-    logging.warning("Le fichier settings.json n'existe pas, utilisation des valeurs par défaut")
-    AUDIO_SOURCE = None
-    THRESHOLD = 0.5
-    DELAY = 2.0
-    CHUNK_DURATION = 0.5
-    BUFFER_DURATION = 1.0
-except json.JSONDecodeError:
-    logging.error("Le fichier settings.json est mal formaté")
-    raise
-except Exception as e:
-    logging.error(f"Erreur lors du chargement des paramètres: {str(e)}")
-    raise
-
-# Charger les flux RTSP et leurs webhooks associés
-try:
-    with open("settings.json") as f:
-        settings_data = json.load(f)
-        fluxes = settings_data.get('rtsp_streams', {})
-except FileNotFoundError:
-    logging.warning("Le fichier settings.json n'existe pas, aucun flux RTSP ne sera chargé")
-    fluxes = {}
-except json.JSONDecodeError:
-    logging.error("Le fichier settings.json est mal formaté")
-    fluxes = {}
-except Exception as e:
-    logging.error(f"Erreur lors du chargement des flux RTSP: {str(e)}")
-    fluxes = {}
+    """Recharge les paramètres depuis settings_manager (avec cache)."""
+    return load_settings()
 
 def save_audio_to_wav(audio_data, sample_rate, filename):
     if not audio_data.size:
