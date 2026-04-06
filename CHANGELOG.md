@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.10
+
+- Ajout de logging pour diagnostiquer la detection des peripheriques audio via l'API Supervisor
+- Meilleure gestion de la structure de reponse de l'API /audio/info
+
 ## 2.2.9
 
 - Suppression du fichier events.py (instance SocketIO morte, code jamais appele)

@@ -70,12 +70,21 @@ def get_audio_input_devices():
             )
             if resp.ok:
                 data = resp.json()
-                sources = data.get('data', {}).get('audio', {}).get('input', [])
+                logging.info(f"Réponse API audio: {json.dumps(data, indent=2)[:500]}")
+                # L'API retourne {"result": "ok", "data": {"audio": {"input": [...]}}}
+                audio_data = data.get('data', data)
+                sources = audio_data.get('audio', {}).get('input', [])
                 if sources:
-                    return [
+                    devices = [
                         {'index': source.get('index', idx), 'name': source.get('description', source.get('name', f'Device {idx}'))}
                         for idx, source in enumerate(sources)
                     ]
+                    logging.info(f"Périphériques audio détectés via Supervisor: {devices}")
+                    return devices
+                else:
+                    logging.warning("API Supervisor: aucune source audio d'entrée trouvée")
+            else:
+                logging.warning(f"API Supervisor audio: HTTP {resp.status_code}")
         except Exception as e:
             logging.warning(f"Impossible de récupérer les sources audio via l'API Supervisor: {e}")
 
