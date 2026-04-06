@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libasound2-plugins \
     libgles2 \
+    libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copier le venv compilé depuis le builder

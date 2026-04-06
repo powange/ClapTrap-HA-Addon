@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.14
+
+- Ajout de `libegl1` dans le Dockerfile pour corriger le crash MediaPipe (`libEGL.so.1` manquant)
+
 ## 2.2.13
 
 - Ajout de `libgles2` dans le Dockerfile pour corriger le crash MediaPipe (`libGLESv2.so.2` manquant)
