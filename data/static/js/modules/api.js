@@ -13,7 +13,8 @@ export async function callApi(endpoint, method = 'GET', data = null) {
             options.body = JSON.stringify(data);
         }
 
-        const response = await fetch(endpoint, options);
+        const url = (window.basePath || '') + endpoint;
+        const response = await fetch(url, options);
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));

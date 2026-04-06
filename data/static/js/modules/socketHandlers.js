@@ -2,7 +2,9 @@ import { showNotification, showSuccess, showError } from './notifications.js';
 
 export function initializeSocketIO() {
     console.log('🔌 Initializing Socket.IO...');
+    const basePath = window.basePath || '';
     const socket = io({
+        path: basePath + '/socket.io',
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,

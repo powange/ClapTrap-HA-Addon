@@ -2,7 +2,7 @@ import { callApi } from './api.js';
 import { showError, showSuccess } from './utils.js';
 import { getCurrentSettings, saveSettings } from './settings.js';
 
-let socket = io();
+let socket = io({ path: (window.basePath || '') + '/socket.io' });
 let isDetecting = false;
 
 export async function startDetection() {

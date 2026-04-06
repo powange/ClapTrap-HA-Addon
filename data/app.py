@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from flask import Flask, jsonify, request, render_template, send_from_directory, g
 from flask_socketio import SocketIO
 from classify import start_detection, stop_detection, is_running
 import sounddevice as sd
@@ -55,8 +55,10 @@ init_vban()
 
 @app.before_request
 def before_request():
-    """S'assure que le détecteur VBAN est actif avant chaque requête"""
+    """S'assure que le détecteur VBAN est actif et gère le chemin ingress"""
     init_vban()
+    # Capturer le chemin ingress de Home Assistant
+    g.ingress_path = request.headers.get('X-Ingress-Path', '')
 
 # Nettoyer lors de l'arrêt
 import atexit
@@ -238,12 +240,13 @@ def index():
     # Échapper correctement le JSON pour JavaScript
     settings_json = json.dumps(settings).replace("'", "\\'").replace('"', '\\"')
     
-    return render_template('index.html', 
-                         settings=settings, 
-                         devices=input_devices, 
+    return render_template('index.html',
+                         settings=settings,
+                         devices=input_devices,
                          flux=flux['audio_streams'],
                          debug=app.debug,
-                         settings_json=settings_json)
+                         settings_json=settings_json,
+                         ingress_path=g.ingress_path)
 
 def verify_settings_saved(new_settings, saved_settings):
     """Vérifie que les paramètres ont été correctement sauvegardés"""

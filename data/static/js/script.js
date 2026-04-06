@@ -82,7 +82,7 @@ async function toggleDetection() {
             }
         }
 
-        const response = await fetch('/api/detection/toggle', {
+        const response = await fetch((window.basePath || '') + '/api/detection/toggle', {
             method: 'POST'
         });
         
@@ -155,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function debugSocketIO() {
     console.log('Debugging Socket.IO connection...');
-    const socket = io();
+    const socket = io({ path: (window.basePath || '') + '/socket.io' });
     
     // Événements de connexion
     socket.on('connect', () => {

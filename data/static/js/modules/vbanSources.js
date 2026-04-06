@@ -29,7 +29,7 @@ export function refreshVbanSources() {
         refreshBtn.classList.add('rotating');
     }
 
-    fetch('/api/vban/sources')
+    fetch((window.basePath || '') + '/api/vban/sources')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -94,7 +94,7 @@ export function refreshSavedVbanSources() {
         return;
     }
 
-    fetch('/api/vban/saved-sources')
+    fetch((window.basePath || '') + '/api/vban/saved-sources')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -174,7 +174,7 @@ export function refreshSavedVbanSources() {
 }
 
 function removeVBANSource(source) {
-    fetch('/api/vban/remove', {
+    fetch((window.basePath || '') + '/api/vban/remove', {
         method: 'DELETE',
         headers: {
             'Content-Type': 'application/json',
@@ -200,7 +200,7 @@ function removeVBANSource(source) {
 }
 
 function saveVBANSource(source) {
-    fetch('/api/vban/save', {
+    fetch((window.basePath || '') + '/api/vban/save', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -224,7 +224,7 @@ function saveVBANSource(source) {
 }
 
 function updateVBANSourceWebhook(source, webhookUrl) {
-    fetch('/api/vban/update', {
+    fetch((window.basePath || '') + '/api/vban/update', {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json',

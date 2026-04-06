@@ -171,9 +171,10 @@
     <!-- Charger Socket.IO avant notre script -->
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
     
-    <!-- Initialiser les settings avant le script principal -->
+    <!-- Initialiser les settings et le chemin ingress avant le script principal -->
     <script type="text/javascript">
         window.settings = JSON.parse('{{ settings_json|safe }}');
+        window.basePath = '{{ ingress_path }}';
     </script>
     
     <!-- Charger notre script principal -->
