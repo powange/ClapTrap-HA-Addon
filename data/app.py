@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, send_from_directory, g
+from flask import Flask, jsonify, request, render_template, send_from_directory
 from flask_socketio import SocketIO
 from classify import start_detection, stop_detection, is_running
 import sounddevice as sd
@@ -31,8 +31,20 @@ logging.getLogger('socketio').setLevel(logging.WARNING)
 logging.getLogger('engineio.server').setLevel(logging.WARNING)
 logging.getLogger('socketio.server').setLevel(logging.WARNING)
 
+class IngressMiddleware:
+    """Middleware WSGI pour gérer le préfixe de chemin ingress de Home Assistant."""
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        ingress_path = environ.get('HTTP_X_INGRESS_PATH', '')
+        if ingress_path:
+            environ['SCRIPT_NAME'] = ingress_path
+        return self.app(environ, start_response)
+
 # Configurer Flask pour qu'il soit moins verbeux
 app = Flask(__name__)
+app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
 app.config['SECRET_KEY'] = 'votre_clé_secrète_ici'
 socketio = SocketIO(app, 
@@ -55,10 +67,8 @@ init_vban()
 
 @app.before_request
 def before_request():
-    """S'assure que le détecteur VBAN est actif et gère le chemin ingress"""
+    """S'assure que le détecteur VBAN est actif avant chaque requête"""
     init_vban()
-    # Capturer le chemin ingress de Home Assistant
-    g.ingress_path = request.headers.get('X-Ingress-Path', '')
 
 # Nettoyer lors de l'arrêt
 import atexit
@@ -246,7 +256,7 @@ def index():
                          flux=flux['audio_streams'],
                          debug=app.debug,
                          settings_json=settings_json,
-                         ingress_path=g.ingress_path)
+                         ingress_path=request.script_root)
 
 def verify_settings_saved(new_settings, saved_settings):
     """Vérifie que les paramètres ont été correctement sauvegardés"""
