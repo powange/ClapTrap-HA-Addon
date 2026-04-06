@@ -6,7 +6,7 @@ WORKDIR /usr/src/app
 
 COPY data/ ./
 RUN apt-get update
-RUN apt-get install libasound-dev libportaudio2 libportaudiocpp0 portaudio19-dev python3-opencv ffmpeg -y
+RUN apt-get install libasound-dev libportaudio2 libportaudiocpp0 portaudio19-dev python3-opencv ffmpeg libasound2-plugins -y
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 

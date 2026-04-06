@@ -1,5 +1,5 @@
 name: "ClapTrap"
-version: "2.2.0"
+version: "2.2.1"
 slug: "claptrap"
 description: "Application de détection d'applaudissements en temps réel utilisant YAMNet, compatible avec les flux audio locaux et RTSP"
 url: "https://github.com/lfpoulain/ClapTrap-HA-Addon"
@@ -11,6 +11,8 @@ arch:
   - i386
 startup: application
 host_network: true
+audio: true
+usb: true
 #ports:
 #  "16045/tcp": 16045
 #  "6980/tcp": 6980
