@@ -62,6 +62,40 @@ SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
 SETTINGS_BACKUP = os.path.join(BASE_DIR, 'settings.json.backup')
 SETTINGS_TEMP = os.path.join(BASE_DIR, 'settings.json.tmp')
 
+def get_audio_input_devices():
+    """Récupère les périphériques audio d'entrée via l'API Supervisor HA, avec fallback sur sounddevice."""
+    # Essayer l'API Supervisor de Home Assistant
+    supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
+    if supervisor_token:
+        try:
+            resp = requests.get(
+                'http://supervisor/audio/info',
+                headers={'Authorization': f'Bearer {supervisor_token}'},
+                timeout=5
+            )
+            if resp.ok:
+                data = resp.json()
+                sources = data.get('data', {}).get('audio', {}).get('input', [])
+                if sources:
+                    return [
+                        {'index': source.get('index', idx), 'name': source.get('description', source.get('name', f'Device {idx}'))}
+                        for idx, source in enumerate(sources)
+                    ]
+        except Exception as e:
+            logging.warning(f"Impossible de récupérer les sources audio via l'API Supervisor: {e}")
+
+    # Fallback sur sounddevice
+    try:
+        all_devices = sd.query_devices()
+        return [
+            {'index': idx, 'name': device['name']}
+            for idx, device in enumerate(all_devices)
+            if device['max_input_channels'] > 0
+        ]
+    except Exception as e:
+        logging.error(f"Impossible de lister les périphériques audio: {e}")
+        return []
+
 # Initialiser le détecteur VBAN
 init_vban()
 
@@ -235,17 +269,8 @@ def load_settings():
 @app.route('/')
 def index():
     settings = load_settings()  # Charge les paramètres depuis le fichier JSON
-    all_devices = sd.query_devices()  # Obtient la liste de tous les périphériques audio
+    input_devices = get_audio_input_devices()  # Obtient la liste des périphériques audio d'entrée
     flux = load_flux()
-    
-    # Convertir les périphériques en dictionnaire avec index et nom
-    input_devices = []
-    for idx, device in enumerate(all_devices):
-        if device['max_input_channels'] > 0:
-            input_devices.append({
-                'index': idx,
-                'name': device['name']
-            })
     
     # Échapper correctement le JSON pour JavaScript
     settings_json = json.dumps(settings).replace("'", "\\'").replace('"', '\\"')
@@ -828,15 +853,9 @@ def serve_js_module(filename):
 @app.route('/api/audio-sources', methods=['GET'])
 def get_audio_sources():
     try:
-        devices = sd.query_devices()
         audio_sources = [
-            {
-                'index': idx,
-                'name': device['name'],
-                'type': 'microphone'
-            }
-            for idx, device in enumerate(devices)
-            if device['max_input_channels'] > 0
+            {**device, 'type': 'microphone'}
+            for device in get_audio_input_devices()
         ]
         return jsonify(audio_sources)
     except Exception as e:
