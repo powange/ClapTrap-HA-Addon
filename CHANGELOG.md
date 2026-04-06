@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.11
+
+- Ajout de la permission `hassio_api` pour corriger le 403 sur l'endpoint Supervisor `/audio/info`
+
 ## 2.2.10
 
 - Ajout de logging pour diagnostiquer la detection des peripheriques audio via l'API Supervisor
