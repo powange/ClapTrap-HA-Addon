@@ -10,4 +10,3 @@ flask
 flask_socketio
 ffmpeg-python
 psutil
-opencv-python

@@ -12,9 +12,7 @@ import json
 import warnings
 import wave
 import os
-import pyaudio
 import collections
-import cv2
 import sys
 from events import send_clap_event, send_labels
 import threading

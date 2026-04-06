@@ -13,10 +13,10 @@ from events import socketio  # Importation de l'instance Socket.IO
 import socket
 import uuid
 from threading import Lock
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import logging
 import psutil
+import secrets
+from webhook import WebhookManager
 
 # Configuration du logging
 logging.basicConfig(
@@ -46,7 +46,7 @@ class IngressMiddleware:
 app = Flask(__name__)
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
-app.config['SECRET_KEY'] = 'votre_clé_secrète_ici'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 socketio = SocketIO(app, 
     cors_allowed_origins="*",
     logger=False,  
@@ -503,115 +503,16 @@ def status():
 
 @app.route('/refresh_vban_sources')
 def refresh_vban_sources():
-    # Make sure the detector is running
-    if not init_vban().running:
-        # Start listening in a separate thread
-        thread = threading.Thread(target=init_vban().start_listening)
-        thread.daemon = True
-        thread.start()
-        
-        # Give it a moment to detect sources
-        time.sleep(2)
-    
-    active_sources = init_vban().get_active_sources()
-    
-    vban_sources = []
-    for ip, info in active_sources.items():
-        source_name = info.get('name', '').strip()
-        if source_name:  # Only add sources with valid names
-            vban_sources.append({
-                "name": f"VBAN: {source_name} ({ip})",
-                "url": f"vban://{ip}"
-            })
-    
-    # Stop the detector if we started it just for the refresh
-    if not init_vban().running:
-        init_vban().stop_listening()
-    
-    return jsonify({"sources": vban_sources})
-
-def test_settings_validation():
-    """Test de la validation des paramètres"""
-    print("\n1. Test de validation des paramètres basiques")
-    test_settings = {
-        'global': {
-            'threshold': '0.5',
-            'delay': '1.0',
-            'chunk_duration': 0.5,
-            'buffer_duration': 1.0
-        },
-        'microphone': {
-            'device_index': '0',
-            'audio_source': 'Test Microphone',
-            'webhook_url': 'http://test.com/webhook'
-        }
-    }
-    
-    success, _ = save_settings(test_settings)
-    print(f"Test basique: {'✓' if success else '✗'}")
-
-    print("\n2. Test avec des valeurs invalides")
-    invalid_settings = {
-        'global': {
-            'threshold': 'invalid',
-            'delay': -1,
-        }
-    }
-    success, _ = save_settings(invalid_settings)
-    print(f"Test valeurs invalides: {'✓' if not success else '✗'}")
-
-def test_file_operations():
-    """Test des opérations sur les fichiers"""
-    print("\n1. Test de sauvegarde des paramètres")
-    test_settings = {
-        'global': {
-            'threshold': '0.5',
-            'delay': '1.0'
-        }
-    }
-    success, _ = save_settings(test_settings)
-    print(f"Sauvegarde: {'✓' if success else '✗'}")
-
-    print("\n2. Test de lecture des paramètres")
-    settings = load_settings()
-    print(f"Lecture: {'✓' if settings else '✗'}")
-
-def test_stop_detection_params():
-    """Test de la préservation des paramètres lors de l'arrêt"""
-    print("\n1. Test de sauvegarde avant arrêt")
-    initial_settings = load_settings()
-    print(f"Paramètres initiaux chargés: {'✓' if initial_settings else '✗'}")
-
-    print("\n2. Test après arrêt")
-    stop_detection()
-    final_settings = load_settings()
-    print(f"Paramètres préservés: {'✓' if final_settings == initial_settings else '✗'}")
-
-@app.route('/run_tests', methods=['POST'])
-def run_tests():
-    """Route pour exécuter les tests"""
     try:
-        print("\n=== Démarrage des tests ===")
-        
-        print("\nTests de validation des paramètres:")
-        test_settings_validation()
-        
-        print("\nTests des opérations sur les fichiers:")
-        test_file_operations()
-        
-        print("\nTest de préservation des paramètres:")
-        test_stop_detection_params()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Tests terminés avec succès'
-        })
+        detector = get_vban_detector()
+        if not detector:
+            return jsonify({"sources": []})
+
+        active_sources = detector.get_sources(timeout=1.0)
+        return jsonify({"sources": active_sources})
     except Exception as e:
-        print(f"Erreur lors de l'exécution des tests: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logging.error(f"Erreur lors du rafraîchissement des sources VBAN: {e}")
+        return jsonify({"sources": [], "error": str(e)}), 500
 
 @app.route('/save_settings', methods=['POST'])
 def save_settings_route():
@@ -1052,27 +953,6 @@ def update_rtsp_enabled():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-class WebhookManager:
-    def __init__(self):
-        self.session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[500, 502, 503, 504]
-        )
-        self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy))
-        self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy))
-    
-    def send_webhook(self, url, data):
-        """Envoie une requête webhook et retourne la réponse"""
-        try:
-            response = self.session.post(url, json=data, timeout=5)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Webhook failed: {str(e)}")
-            raise
 
 @socketio.on('connect')
 def handle_connect():

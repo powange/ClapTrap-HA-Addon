@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudio2 \
     libportaudiocpp0 \
     portaudio19-dev \
-    python3-opencv \
     ffmpeg \
     libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*

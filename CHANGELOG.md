@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.7
+
+- Securite : cle secrete Flask generee aleatoirement au lieu d'une valeur en dur
+- Performance : suppression du blocage de 2 secondes lors du rafraichissement VBAN
+- Docker : retrait de opencv-python et pyaudio (non utilises, -100 MB d'image)
+- Securite : suppression de la route /run_tests exposee sans authentification
+- Code : WebhookManager factorise dans un module partage (webhook.py)
+- Nettoyage des imports morts (cv2, pyaudio, HTTPAdapter, Retry)
+
 ## 2.2.6
 
 - Rattrapage du changelog pour toutes les versions precedentes

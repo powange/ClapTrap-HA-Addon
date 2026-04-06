@@ -1,5 +1,6 @@
 import time
 import logging
+import requests
 import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import audio
@@ -7,27 +8,7 @@ from mediapipe.tasks.python.components import containers
 from vban_manager import get_vban_detector
 from circular_buffer import CircularAudioBuffer
 from vban_signal_processor import VBANSignalProcessor
-
-class WebhookManager:
-    def __init__(self):
-        self.session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[500, 502, 503, 504]
-        )
-        self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy))
-        self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy))
-    
-    def send_webhook(self, url, data):
-        """Envoie une requête webhook et retourne la réponse"""
-        try:
-            response = self.session.post(url, json=data, timeout=5)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Webhook failed: {str(e)}")
-            raise
+from webhook import WebhookManager
 
 class VBANAudioProcessor:
     """
