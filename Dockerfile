@@ -3,7 +3,7 @@ FROM ${BUILD_FROM}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Installation des dépendances système
+# Installation des dépendances système (build-essential pour compiler numpy/scipy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -19,15 +19,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*
 
-# Créer et activer un environnement virtuel Python
+# Environnement virtuel Python
 WORKDIR /usr/src/app
 ENV VIRTUAL_ENV=/usr/src/app/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Installer les dépendances Python
-COPY data/requirements.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY data/requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copier les fichiers de l'application
 COPY data/ ./
