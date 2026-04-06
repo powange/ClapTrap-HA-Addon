@@ -1,12 +1,8 @@
-pytest>=7.4
-pytest-mock>=3.12
 numpy>=1.26,<2
 sounddevice>=0.4
 mediapipe>=0.10
 requests>=2.31
-pyvban
 scipy>=1.11
 flask
 flask_socketio
 ffmpeg-python
-psutil

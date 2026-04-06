@@ -13,9 +13,11 @@ import socket
 import uuid
 from threading import Lock
 import logging
-import psutil
 import secrets
 from webhook import WebhookManager
+
+# Singleton WebhookManager (réutilise le pool de connexions HTTP)
+_webhook_manager = WebhookManager()
 from settings_manager import load_settings, save_settings, SETTINGS_FILE
 
 # Configuration du logging
@@ -57,8 +59,16 @@ socketio = SocketIO(app,
 )
 
 
+_audio_devices_cache = None
+_audio_devices_cache_time = 0
+
 def get_audio_input_devices():
-    """Récupère les périphériques audio d'entrée via l'API Supervisor HA, avec fallback sur sounddevice."""
+    """Récupère les périphériques audio d'entrée via l'API Supervisor HA, avec fallback sur sounddevice. Cache 60s."""
+    global _audio_devices_cache, _audio_devices_cache_time
+    now = time.time()
+    if _audio_devices_cache is not None and (now - _audio_devices_cache_time) < 60:
+        return _audio_devices_cache
+
     # Essayer l'API Supervisor de Home Assistant
     supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
     if supervisor_token:
@@ -80,6 +90,8 @@ def get_audio_input_devices():
                         for idx, source in enumerate(sources)
                     ]
                     logging.info(f"Périphériques audio détectés via Supervisor: {devices}")
+                    _audio_devices_cache = devices
+                    _audio_devices_cache_time = now
                     return devices
                 else:
                     logging.warning("API Supervisor: aucune source audio d'entrée trouvée")
@@ -91,11 +103,14 @@ def get_audio_input_devices():
     # Fallback sur sounddevice
     try:
         all_devices = sd.query_devices()
-        return [
+        result = [
             {'index': idx, 'name': device['name']}
             for idx, device in enumerate(all_devices)
             if device['max_input_channels'] > 0
         ]
+        _audio_devices_cache = result
+        _audio_devices_cache_time = now
+        return result
     except Exception as e:
         logging.error(f"Impossible de lister les périphériques audio: {e}")
         return []
@@ -142,12 +157,19 @@ class VBANSource:
         )
 
 
+_flux_cache = None
+_flux_cache_time = 0
+
 def load_flux():
+    global _flux_cache, _flux_cache_time
+    now = time.time()
+    if _flux_cache is not None and (now - _flux_cache_time) < 60:
+        return _flux_cache
     try:
         with open('flux.json', 'r') as f:
-            flux = json.load(f)
-            logging.debug("Flux chargés :", flux)  # Ajout d'un log pour le débogage
-            return flux
+            _flux_cache = json.load(f)
+            _flux_cache_time = now
+            return _flux_cache
     except FileNotFoundError:
         return {"audio_streams": []}
 
@@ -332,9 +354,7 @@ def test_webhook():
         }
 
         try:
-            # Utiliser le WebhookManager pour envoyer la requête
-            webhook_manager = WebhookManager()
-            response = webhook_manager.send_webhook(url, test_data)
+            response = _webhook_manager.send_webhook(url, test_data)
             return jsonify({'success': True, 'message': 'Test réussi'})
             
         except requests.exceptions.RequestException as e:

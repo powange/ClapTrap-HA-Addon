@@ -1,5 +1,7 @@
 import numpy as np
 import threading
+import math
+from scipy.signal import resample_poly
 from mediapipe.tasks import python
 from mediapipe.tasks.python import audio
 from mediapipe.tasks.python.components import containers
@@ -55,8 +57,11 @@ class AudioDetector:
             self.next_source_id += 1
             self.source_ids[source_id] = numeric_id
             
+            # Ring buffer pré-alloué : buffer_size + marge pour un bloc
+            ring_size = self.buffer_size + 1600
             self.sources[source_id] = {
-                'buffer': np.zeros(0, dtype=np.float32),
+                'ring': np.zeros(ring_size, dtype=np.float32),
+                'ring_len': 0,
                 'detection_callback': detection_callback,
                 'labels_callback': labels_callback,
                 'numeric_id': numeric_id
@@ -170,43 +175,38 @@ class AudioDetector:
 
             # Rééchantillonnage anti-aliasé si nécessaire
             if len(audio_data) > self.buffer_size:
-                from scipy.signal import resample_poly
                 audio_data = resample_poly(audio_data, 1, 3).astype(np.float32)
-            
+
             # S'assurer que les données sont en float32
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
-            
-            # Log des statistiques audio
-            if len(audio_data) > 0:
+
+            # Log des statistiques audio (guard pour éviter le calcul inutile)
+            if logging.getLogger().isEnabledFor(logging.DEBUG) and len(audio_data) > 0:
                 logging.debug(f"Audio stats (source {source_id}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
-            
-            # Ajouter les nouvelles données au buffer de la source
-            self.sources[source_id]['buffer'] = np.concatenate([
-                self.sources[source_id]['buffer'], audio_data
-            ])
+
+            # Écrire dans le ring buffer pré-alloué (zéro allocation)
+            src = self.sources[source_id]
+            ring = src['ring']
+            rlen = src['ring_len']
+            n = len(audio_data)
+            if rlen + n > len(ring):
+                # Débordement : ne garder que les dernières données
+                keep = len(ring) - n
+                ring[:keep] = ring[rlen - keep:rlen]
+                rlen = keep
+            ring[rlen:rlen + n] = audio_data
+            rlen += n
+            src['ring_len'] = rlen
 
             # Traiter avec le classificateur
             if self.running and self.classifier and self.start_time_ms is not None:
                 block_size = 1600
-                buffer_array = self.sources[source_id]['buffer']
-                
-                blocks_processed = 0  # Compteur pour le debug
-                while len(buffer_array) >= block_size:
-                    block = buffer_array[:block_size]
-                    buffer_array = buffer_array[block_size:]
-                    blocks_processed += 1
-                    
-                    # Vérifier les statistiques du bloc avant classification
-                    block_max = np.max(np.abs(block))
-                    if block_max > 0.1:  # Seulement log les blocs avec du son significatif
-                        logging.debug(f"Classification d'un bloc audio (source {source_id}) - amplitude max: {block_max:.4f}")
-                    
-                    audio_data_container = containers.AudioData.create_from_array(
-                        block,
-                        self.sample_rate
-                    )
-                    
+                pos = 0
+                while pos + block_size <= rlen:
+                    block = ring[pos:pos + block_size]
+                    pos += block_size
+
                     # Calculer le prochain timestamp
                     block_duration_ms = int((block_size / self.sample_rate) * 1000)
                     next_timestamp = max(
@@ -214,26 +214,27 @@ class AudioDetector:
                         int(time.time() * 1000)
                     )
                     self.last_timestamp_ms[source_id] = next_timestamp
-                    
+
                     # Enregistrer le mapping timestamp → source pour le callback
                     with self.lock:
                         self._timestamp_to_source[next_timestamp] = source_id
+                        # Éviction des entrées périmées (> 5 secondes)
+                        stale = [ts for ts in self._timestamp_to_source if ts < next_timestamp - 5000]
+                        for ts in stale:
+                            del self._timestamp_to_source[ts]
 
-                    # Log avant la classification
-                    if block_max > 0.1:
-                        logging.debug(f"Envoi au classificateur - source: {source_id}, timestamp: {next_timestamp}")
-                    
                     # Classifier le bloc
                     try:
+                        audio_data_container = containers.AudioData.create_from_array(block, self.sample_rate)
                         self.classifier.classify_async(audio_data_container, next_timestamp)
                     except Exception as e:
                         logging.error(f"Erreur lors de la classification: {str(e)}")
-                
-                if blocks_processed > 0:
-                    logging.debug(f"Blocs traités pour {source_id}: {blocks_processed}")
-                
-                # Mettre à jour le buffer avec les données restantes
-                self.sources[source_id]['buffer'] = buffer_array
+
+                # Compacter le ring buffer (déplacer les données restantes au début)
+                remaining = rlen - pos
+                if remaining > 0:
+                    ring[:remaining] = ring[pos:rlen]
+                src['ring_len'] = remaining
             
         except Exception as e:
             logging.error(f"Erreur dans le traitement audio: {e}")

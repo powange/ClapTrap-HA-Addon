@@ -4,7 +4,8 @@ import time
 from collections import defaultdict
 import numpy as np
 import sounddevice as sd
-import scipy.signal
+import math
+from scipy.signal import resample_poly
 import collections
 import threading
 import logging
@@ -20,8 +21,9 @@ class VBANDetector:
         self.source_callback = None
         self.target_sample_rate = 16000  # Taux d'échantillonnage cible
         
-        # Buffer circulaire avec une capacité de 1 seconde au taux d'échantillonnage cible
-        self.buffer = collections.deque(maxlen=self.target_sample_rate)
+        # Ring buffer numpy pré-alloué (1 seconde + marge)
+        self._buf = np.zeros(self.target_sample_rate + 4800, dtype=np.float32)
+        self._buf_len = 0
         
         self.last_timestamp = 0
         self.stream = None
@@ -104,25 +106,32 @@ class VBANDetector:
                             audio_data = audio_data.reshape(-1, source.channels)
                             audio_data = np.mean(audio_data, axis=1)
                         
-                        # Rééchantillonner uniquement si absolument nécessaire pour YAMNet
+                        # Rééchantillonnage anti-aliasé si nécessaire
                         if source.sample_rate != self.target_sample_rate:
-                            # Calculer le nombre d'échantillons après rééchantillonnage
-                            target_length = int(len(audio_data) * self.target_sample_rate / source.sample_rate)
-                            if target_length > 0:
-                                audio_data = scipy.signal.resample(audio_data, target_length)
+                            gcd = math.gcd(self.target_sample_rate, source.sample_rate)
+                            up = self.target_sample_rate // gcd
+                            down = source.sample_rate // gcd
+                            audio_data = resample_poly(audio_data, up, down).astype(np.float32)
                         
                         # Log pour debug
                         if audio_data.max() > 0.3 or audio_data.min() < -0.3:  # Augmenté le seuil à 0.3
                             logging.info(f"Son fort détecté sur {addr[0]}, amplitude: min={audio_data.min():.3f}, max={audio_data.max():.3f}")
                         
-                        # Ajouter au buffer de manière thread-safe
+                        # Ajouter au ring buffer numpy de manière thread-safe
                         with self._lock:
-                            self.buffer.extend(audio_data)
-                            
+                            n = len(audio_data)
+                            if self._buf_len + n > len(self._buf):
+                                # Débordement : garder les dernières données
+                                keep = len(self._buf) - n
+                                self._buf[:keep] = self._buf[self._buf_len - keep:self._buf_len]
+                                self._buf_len = keep
+                            self._buf[self._buf_len:self._buf_len + n] = audio_data
+                            self._buf_len += n
+
                             # Appeler le callback audio si nous avons assez d'échantillons
-                            if self.audio_callback and len(self.buffer) >= self.target_sample_rate:
-                                audio_chunk = np.array(list(self.buffer)[:self.target_sample_rate])
-                                self.buffer.clear()
+                            if self.audio_callback and self._buf_len >= self.target_sample_rate:
+                                audio_chunk = self._buf[:self.target_sample_rate].copy()
+                                self._buf_len = 0
                                 current_time = time.time()
                                 self.audio_callback(audio_chunk, current_time)
                         

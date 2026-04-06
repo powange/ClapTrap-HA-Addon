@@ -15,10 +15,13 @@ import os
 import collections
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from vban_manager import get_vban_detector
-import warnings
 from audio_detector import AudioDetector
 from settings_manager import load_settings
+
+# Pool de threads pour les webhooks (non-bloquant)
+_webhook_executor = ThreadPoolExecutor(max_workers=2)
 
 # Configuration du logging en DEBUG
 logging.basicConfig(
@@ -170,10 +173,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             'score': detection_data['score']
                         })
                     
-                    # Utiliser le webhook_url passé au callback
+                    # Webhook non-bloquant via thread pool
                     if webhook_url:
                         logging.info(f"Envoi webhook pour {source_name} vers {webhook_url}")
-                        requests.post(webhook_url)
+                        _webhook_executor.submit(requests.post, webhook_url)
                 except Exception as e:
                     logging.error(f"Erreur lors de l'envoi de l'événement clap pour {source_name}: {str(e)}")
             return handle_detection

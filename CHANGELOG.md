@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.12
+
+- Build 15-25 min plus rapide : ajout --prefer-binary pour pip, .dockerignore, pytest retire du runtime
+- Retrait des dependances inutilisees : psutil, pyvban
+- Ring buffer numpy pre-alloue dans AudioDetector (zero allocation dans le hot path)
+- Import scipy.signal au niveau module (plus de resolution dynamique par appel)
+- Webhooks non-bloquants via ThreadPoolExecutor (ne bloque plus le thread MediaPipe)
+- Cache TTL 60s sur get_audio_input_devices() et load_flux()
+- Eviction automatique des entrees perimees dans _timestamp_to_source
+- Guard isEnabledFor sur les logs debug numpy
+- VBAN : resample_poly au lieu de FFT, ring buffer numpy au lieu de deque
+- Singleton WebhookManager (reutilise le pool de connexions HTTP)
+
 ## 2.2.11
 
 - Ajout de la permission `hassio_api` pour corriger le 403 sur l'endpoint Supervisor `/audio/info`

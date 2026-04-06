@@ -24,7 +24,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY data/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+    pip install --no-cache-dir --prefer-binary -r /tmp/requirements.txt
 
 # Stage 2: Image finale (sans build-essential)
 FROM ${BUILD_FROM}

@@ -1,0 +1,11 @@
+.git/
+.github/
+.claude/
+data/tests/
+data/*.old
+data/__pycache__/
+data/**/__pycache__/
+data/.pytest_cache/
+data/requirements-dev.txt
+*.md
+.history/
