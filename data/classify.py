@@ -293,25 +293,39 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     time.sleep(1)  # Attendre un peu plus longtemps avant la prochaine vérification
                     
         else:  # Microphone
-            # Récupérer l'index du périphérique depuis les paramètres
+            # Récupérer les paramètres du périphérique
             settings = reload_settings()
-            device_index = int(settings.get('microphone', {}).get('device_index', 0))
+            device_name = settings.get('microphone', {}).get('audio_source', 'default')
+            saved_index = int(settings.get('microphone', {}).get('device_index', 0))
+
+            # Résoudre le device par nom pour gérer les changements d'index entre redémarrages
+            device_index = saved_index
+            try:
+                all_devices = sd.query_devices()
+                for idx, dev in enumerate(all_devices):
+                    if dev['max_input_channels'] > 0 and device_name in dev['name']:
+                        device_index = idx
+                        break
+                logging.info(f"Device résolu: '{device_name}' -> index {device_index} (sauvegardé: {saved_index})")
+            except Exception as e:
+                logging.warning(f"Impossible de résoudre le device par nom, utilisation de l'index sauvegardé {saved_index}: {e}")
+
             source_id = f"mic_{device_index}"
-            
+
             # Récupérer le webhook_url depuis les paramètres du microphone
             microphone_webhook_url = settings.get('microphone', {}).get('webhook_url')
             webhook_url_to_use = microphone_webhook_url or webhook_url
-            
+
             detector.add_source(
                 source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url_to_use),
                 labels_callback=create_labels_callback(source_id)
             )
-            
+
             # Démarrer la détection
             detector.start()
             logging.info(f"Détection démarrée pour la source microphone {source_id}")
-            
+
             with sd.InputStream(
                 device=device_index,
                 channels=1,

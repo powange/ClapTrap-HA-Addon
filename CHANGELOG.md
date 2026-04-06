@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.17
+
+- Fix : resolution du micro par nom au lieu de l'index (les index Supervisor et sounddevice different)
+
 ## 2.2.16
 
 - Reset de settings.json aux valeurs par defaut (suppression des donnees de test embarquees dans l'image Docker)
