@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.2.6
+
+- Rattrapage du changelog pour toutes les versions precedentes
+
+## 2.2.5
+
+- Correction du cache Docker qui empechait la reconstruction
+- Suppression des architectures obsoletes (armhf, armv7, i386)
+- Mise a jour de pip avant installation des dependances
+
+## 2.2.4
+
+- Ajout de build-essential et python3-dev pour la compilation des dependances
+- Versions des dependances Python relachees pour compatibilite avec l'image de base HA
+
+## 2.2.3
+
+- Mise en conformite avec les conventions HAOS
+- Dockerfile base sur l'image HA Debian (`ghcr.io/hassio-addons/debian-base`)
+- Ajout de build.yaml, run.sh, CHANGELOG.md, DOCS.md
+- Labels Docker Home Assistant
+
 ## 2.2.2
 
 - Liste les vrais peripheriques audio via l'API Supervisor HA (micro USB, etc.)
