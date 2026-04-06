@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.16
+
+- Reset de settings.json aux valeurs par defaut (suppression des donnees de test embarquees dans l'image Docker)
+
 ## 2.2.15
 
 - Fix : la sauvegarde des parametres ne duplique plus les flux RTSP (sources RTSP exclues du syncWithDOM)
