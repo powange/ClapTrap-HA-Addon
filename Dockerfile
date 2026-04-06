@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudiocpp0 \
     ffmpeg \
     libasound2-plugins \
+    libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copier le venv compilé depuis le builder

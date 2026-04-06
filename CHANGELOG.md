@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.13
+
+- Ajout de `libgles2` dans le Dockerfile pour corriger le crash MediaPipe (`libGLESv2.so.2` manquant)
+
 ## 2.2.12
 
 - Build 15-25 min plus rapide : ajout --prefer-binary pour pip, .dockerignore, pytest retire du runtime
