@@ -96,13 +96,8 @@ def get_audio_input_devices():
         logging.error(f"Impossible de lister les périphériques audio: {e}")
         return []
 
-# Initialiser le détecteur VBAN
+# Initialiser le détecteur VBAN au démarrage (singleton)
 init_vban()
-
-@app.before_request
-def before_request():
-    """S'assure que le détecteur VBAN est actif avant chaque requête"""
-    init_vban()
 
 # Nettoyer lors de l'arrêt
 import atexit

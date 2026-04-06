@@ -73,14 +73,13 @@ class VBANAudioProcessor:
         self.detector = None
         self._socketio = None  # Pour les notifications websocket
         
-        # Initialisation du classificateur
-        self.initialize_classifier()
-        
         # Gestionnaire de webhooks
         self.webhook_manager = WebhookManager()
         
     def initialize_classifier(self):
-        """Configure et initialise le classificateur audio YAMNet."""
+        """Configure et initialise le classificateur audio YAMNet (lazy, appelé uniquement si nécessaire)."""
+        if self.classifier:
+            return
         try:
             base_options = python.BaseOptions(model_asset_path="yamnet.tflite")
             options = audio.AudioClassifierOptions(

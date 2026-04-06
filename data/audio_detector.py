@@ -23,7 +23,7 @@ class AudioDetector:
         self.last_detection_time = {}  # Dict pour stocker le dernier temps de détection par source
         self.last_timestamp_ms = {}  # Dict pour stocker le dernier timestamp par source
         self.start_time_ms = None
-        self.current_source_id = None  # Pour suivre la source actuelle dans le callback
+        self._timestamp_to_source = {}  # Mappe timestamp → source_id (thread-safe via self.lock)
 
     def initialize(self, max_results=5, score_threshold=0.3):
         """Initialise le classificateur audio"""
@@ -80,11 +80,16 @@ class AudioDetector:
     def _handle_result(self, result, timestamp):
         """Gère les résultats de classification"""
         try:
-            if not result or not result.classifications or not self.current_source_id:
+            if not result or not result.classifications:
                 return
-                
+
+            # Retrouver la source à partir du timestamp
+            with self.lock:
+                source_id = self._timestamp_to_source.pop(timestamp, None)
+            if not source_id or source_id not in self.sources:
+                return
+
             classification = result.classifications[0]
-            source_id = self.current_source_id
             
             # Log pour déboguer les résultats bruts
             logging.debug(f"Résultats bruts pour source {source_id}:")
@@ -209,9 +214,10 @@ class AudioDetector:
                     )
                     self.last_timestamp_ms[source_id] = next_timestamp
                     
-                    # Définir la source actuelle pour le callback
-                    self.current_source_id = source_id
-                    
+                    # Enregistrer le mapping timestamp → source pour le callback
+                    with self.lock:
+                        self._timestamp_to_source[next_timestamp] = source_id
+
                     # Log avant la classification
                     if block_max > 0.1:
                         logging.debug(f"Envoi au classificateur - source: {source_id}, timestamp: {next_timestamp}")

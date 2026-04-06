@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.8
+
+- Correction d'une race condition dans AudioDetector (mauvais routage des detections entre sources)
+- YAMNet n'est plus instancie deux fois (economie ~200-400 MB de RAM)
+- Suppression de la lecture de settings.json a chaque requete HTTP (init VBAN au demarrage uniquement)
+- Reconnexion automatique des flux RTSP avec backoff exponentiel en cas de coupure
+
 ## 2.2.7
 
 - Securite : cle secrete Flask generee aleatoirement au lieu d'une valeur en dur

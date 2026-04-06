@@ -278,10 +278,25 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             detector.start()
             logging.info(f"Détection démarrée pour la source RTSP {source_id}")
             
-            rtsp_reader = read_audio_from_rtsp(rtsp_url, int(16000 * 0.1))  # Buffer de 100ms
+            reconnect_delay = 1
             while detection_running:
-                audio_data = next(rtsp_reader)
-                detector.process_audio(audio_data, source_id)
+                try:
+                    rtsp_reader = read_audio_from_rtsp(rtsp_url, int(16000 * 0.1))
+                    for audio_data in rtsp_reader:
+                        if not detection_running:
+                            break
+                        if audio_data is not None:
+                            detector.process_audio(audio_data, source_id)
+                    # Le flux s'est terminé normalement, tenter une reconnexion
+                    if detection_running:
+                        logging.warning(f"Flux RTSP {rtsp_url} interrompu, reconnexion dans {reconnect_delay}s...")
+                        time.sleep(reconnect_delay)
+                        reconnect_delay = min(reconnect_delay * 2, 30)  # Backoff exponentiel, max 30s
+                except Exception as e:
+                    if detection_running:
+                        logging.error(f"Erreur RTSP {rtsp_url}: {e}, reconnexion dans {reconnect_delay}s...")
+                        time.sleep(reconnect_delay)
+                        reconnect_delay = min(reconnect_delay * 2, 30)
                 
         elif audio_source.startswith("vban://"):
             vban_ip = audio_source.replace("vban://", "")
