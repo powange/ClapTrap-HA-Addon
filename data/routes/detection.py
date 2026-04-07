@@ -58,6 +58,8 @@ def start_detection_route():
             if not isinstance(microphone_settings, dict):
                 microphone_settings = {}
 
+            global_threshold = float(global_settings.get('threshold', 0.5))
+
             # Collecter TOUTES les sources activées
             sources = []
 
@@ -68,6 +70,7 @@ def start_detection_route():
                     'type': 'mic',
                     'audio_source': mic_source,
                     'webhook_url': microphone_settings.get('webhook_url', ''),
+                    'threshold': float(microphone_settings.get('threshold', global_threshold)),
                     'label': f'Micro: {mic_source}' if mic_source != 'default' else 'Microphone'
                 })
                 logging.info(f"Source micro activée: {mic_source}")
@@ -83,6 +86,7 @@ def start_detection_route():
                         'rtsp_url': source['url'],
                         'webhook_url': source.get('webhook_url', ''),
                         'gain': source.get('gain', 10),
+                        'threshold': float(source.get('threshold', global_threshold)),
                         'label': f'RTSP: {source.get("name", source["url"][:30])}'
                     })
                     logging.info(f"Source RTSP activée: {source.get('name', '')} ({source['url']})")
@@ -95,6 +99,7 @@ def start_detection_route():
                         'type': 'vban',
                         'audio_source': f"vban://{source['ip']}",
                         'webhook_url': source.get('webhook_url', ''),
+                        'threshold': float(source.get('threshold', global_threshold)),
                         'label': f'VBAN: {source.get("name", source["ip"])}'
                     })
                     logging.info(f"Source VBAN activée: {source.get('name', '')} ({source['ip']})")

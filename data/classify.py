@@ -158,10 +158,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        def create_detector(source_id, webhook_url):
+        def create_detector(source_id, webhook_url, threshold=None):
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-            det.initialize(max_results=max_results, score_threshold=score_threshold, clap_window=delay)
+            det.initialize(max_results=max_results, score_threshold=threshold or score_threshold, clap_window=delay)
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
                 labels_callback=create_labels_callback(source_id))
@@ -199,7 +199,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     pass
 
             source_id = f"mic_{saved_index}"
-            detector = create_detector(source_id, src.get('webhook_url'))
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
             if pulse_name:
@@ -232,7 +232,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             rtsp_url = src.get('rtsp_url', src['audio_source'])
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
-            detector = create_detector(source_id, src.get('webhook_url'))
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
@@ -269,7 +269,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         def run_vban_source(src):
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
-            detector = create_detector(source_id, src.get('webhook_url'))
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'))
             logging.info(f"VBAN: démarrage capture {vban_ip}")
 
             vban_det = get_vban_detector()

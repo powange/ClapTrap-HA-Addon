@@ -1040,3 +1040,200 @@ footer a:hover {
         padding: 1.5rem;
     }
 }
+
+/* ===== Control Bar ===== */
+.control-bar {
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+
+.control-bar .detection-circle {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--color-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    border: 2px solid var(--color-border);
+    transition: all 0.3s;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.control-bar .detection-circle.clap {
+    background: var(--color-success);
+    border-color: var(--color-success);
+}
+
+.control-bar .detection-circle #waiting-emoji {
+    font-size: 24px;
+    opacity: 0.4;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.3s;
+    animation: breathe 3s ease-in-out infinite;
+}
+
+.control-bar .detection-circle .clap-emoji {
+    font-size: 24px;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.control-settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    flex: 1;
+}
+
+.control-setting {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+}
+
+.control-setting input[type="number"] {
+    width: 50px;
+    padding: 0.2rem 0.3rem;
+    font-size: 0.8rem;
+}
+
+/* ===== Tabs ===== */
+.sources-section {
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: visible;
+    position: relative;
+}
+
+.tabs-header {
+    display: flex;
+    border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+    gap: 0;
+}
+
+.tab-btn {
+    padding: 0.6rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: all var(--transition);
+}
+
+.tab-btn:hover {
+    color: var(--color-text);
+    background: var(--color-bg);
+}
+
+.tab-btn.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+#addSourceBtn {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.tab-panel {
+    display: none;
+    padding: 1rem;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+/* Add source dropdown */
+.add-source-menu {
+    position: absolute;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    z-index: 50;
+    padding: 0.25rem;
+}
+
+.add-source-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: none;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+}
+
+.add-source-menu button:hover {
+    background: var(--color-bg);
+}
+
+/* Source tab content */
+.source-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.source-config {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* RTSP status dot */
+.rtsp-status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-border);
+    flex-shrink: 0;
+}
+
+.rtsp-status-dot.status-connected {
+    background: var(--color-success);
+}
+
+.rtsp-status-dot.status-connecting,
+.rtsp-status-dot.status-reconnecting {
+    background: var(--color-warning);
+}
+
+.rtsp-status-dot.status-error {
+    background: var(--color-danger);
+}
+
+.btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+}

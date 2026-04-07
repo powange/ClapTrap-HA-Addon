@@ -122,6 +122,8 @@ def update_rtsp_stream(stream_id):
                     stream['webhook_url'] = data['webhook_url']
                 if 'enabled' in data:
                     stream['enabled'] = data['enabled']
+                if 'threshold' in data:
+                    stream['threshold'] = float(data['threshold'])
                 if 'gain' in data:
                     stream['gain'] = int(data['gain'])
                     # Appliquer le gain en temps réel si la détection tourne
@@ -376,6 +378,9 @@ def update_vban_source():
                 # Mettre à jour enabled s'il est fourni
                 if 'enabled' in source:
                     s['enabled'] = source['enabled']
+                # Mettre à jour threshold s'il est fourni
+                if 'threshold' in source:
+                    s['threshold'] = float(source['threshold'])
                 source_found = True
                 logging.debug(f"Source mise à jour: {s}")  # Debug log
                 break
@@ -431,6 +436,22 @@ def update_microphone_webhook():
         save_settings(settings)
 
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@sources_bp.route('/api/microphone/threshold', methods=['PUT'])
+def update_microphone_threshold():
+    try:
+        data = request.get_json()
+        threshold = float(data.get('threshold', 0.5))
+        threshold = max(0.0, min(1.0, threshold))
+
+        settings = load_settings()
+        settings['microphone']['threshold'] = threshold
+        save_settings(settings)
+
+        return jsonify({'success': True, 'threshold': threshold})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -21,9 +21,9 @@
     </div>
 
     <main class="dashboard">
-        <!-- Detection -->
-        <section class="visualization-panel">
-            <div id="detection_display">
+        <!-- Control Bar -->
+        <section class="control-bar">
+            <div id="detection_display" class="detection-circle">
                 <span id="waiting-emoji">&#x1F442;</span>
                 <span class="clap-emoji" data-source="microphone" style="display: none;">&#x1F44F;</span>
             </div>
@@ -31,15 +31,21 @@
                 <button id="startButton" class="btn btn-primary">Demarrer</button>
                 <button id="stopButton" class="btn btn-danger" style="display: none;">Arreter</button>
             </div>
-            <div id="active-sources" class="active-sources"></div>
-            <div id="detected_labels" class="labels-container"></div>
-        </section>
-
-        <!-- Configuration -->
-        <section class="config-panel">
-            <div class="config-header">
-                <h2>Configuration</h2>
-                <div class="config-actions">
+            <div class="control-settings">
+                <div class="control-setting">
+                    <label for="delay">Multi-clap :</label>
+                    <input type="number" id="delay" name="delay" min="0.5" max="5" step="0.1" value="{{ settings['global']['delay'] }}">
+                    <span class="unit">sec</span>
+                </div>
+                <div class="control-setting">
+                    <label>Auto-start :</label>
+                    <label class="switch">
+                        <input type="checkbox" id="auto-start"
+                               {% if settings.microphone.auto_start %}checked{% endif %}>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-setting">
                     <button id="exportConfigBtn" class="btn btn-secondary" title="Exporter la config">&#x1F4E5;</button>
                     <label class="btn btn-secondary" title="Importer une config" style="cursor:pointer;margin:0;">
                         &#x1F4E4;
@@ -50,141 +56,27 @@
                     </button>
                 </div>
             </div>
+            <div id="active-sources" class="active-sources"></div>
+        </section>
 
-            <!-- Detection settings -->
-            <div class="config-card">
-                <h3>Detection</h3>
-                <div class="settings-grid">
-                    <div class="setting-item">
-                        <label for="threshold">Precision</label>
-                        <input type="range" id="threshold" min="0" max="1" step="0.1" value="{{ settings['global']['threshold'] }}">
-                        <span id="threshold-value">{{ settings['global']['threshold'] }}</span>
-                    </div>
-                    <div class="setting-item">
-                        <label for="delay">Fenetre multi-clap</label>
-                        <div class="setting-control">
-                            <input type="number" id="delay" name="delay" min="0.5" max="5" step="0.1" value="{{ settings['global']['delay'] }}">
-                            <span class="unit">sec</span>
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label>Demarrage automatique</label>
-                        <div class="auto-start-toggle">
-                            <label class="switch">
-                                <input type="checkbox" id="auto-start"
-                                       {% if settings.microphone.auto_start %}checked{% endif %}>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
+        <!-- Sources Tabs -->
+        <section class="sources-section">
+            <div class="tabs-header">
+                <button id="addSourceBtn" class="tab-btn" type="button">+ Ajouter</button>
+                <div id="source-tabs" style="display:contents;"></div>
             </div>
-
-            <!-- Sources -->
-            <div class="config-card webhooks">
-                <h3>Sources audio</h3>
-                <div class="webhook-grid">
-
-                    <!-- Microphone -->
-                    <div class="webhook-card">
-                        <div class="webhook-header">
-                            <h4>&#x1F3A4; Microphone</h4>
-                            <label class="switch" title="Activer/Desactiver">
-                                <input type="checkbox" id="webhook-mic-enabled"
-                                       {% if settings.microphone.enabled %}checked{% endif %}>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                        <div class="webhook-content" {% if not settings.microphone.enabled %}style="display: none;"{% endif %}>
-                            <div class="webhook-input-group mb-3">
-                                <label class="form-label">Webhook</label>
-                                <div class="webhook-input-with-test">
-                                    <input type="url" id="webhook-mic-url"
-                                           value="{{ settings.microphone.webhook_url }}"
-                                           placeholder="https://votre-serveur.com/webhook"
-                                           aria-label="URL du webhook">
-                                    <button type="button" class="test-webhook" data-source="mic">
-                                        &#x1F514; Tester
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="source-selector">
-                                <label for="micro_source">Source :</label>
-                                <select name="micro_source" id="micro_source">
-                                    {% for device in devices %}
-                                    <option value="{{ device.index }}|{{ device.name }}|{{ device.pulse_name|default('', true) }}"
-                                            {% if device.name == settings.microphone.audio_source %}selected{% endif %}>
-                                        {{ device.name }}
-                                    </option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="mic-volume-section">
-                                <div class="mic-volume-header">
-                                    <label for="mic-volume">Volume : <span id="mic-volume-value">{{ settings.microphone.volume|default(100) }}%</span></label>
-                                    <div class="auto-volume-toggle">
-                                        <label class="switch" title="Volume automatique">
-                                            <input type="checkbox" id="mic-auto-volume"
-                                                   {% if settings.microphone.auto_volume %}checked{% endif %}>
-                                            <span class="slider round"></span>
-                                        </label>
-                                        <span class="auto-volume-label">Auto</span>
-                                    </div>
-                                </div>
-                                <input type="range" id="mic-volume" min="0" max="150" step="5"
-                                       value="{{ settings.microphone.volume|default(100) }}" class="mic-volume-slider"
-                                       {% if settings.microphone.auto_volume %}disabled{% endif %}>
-                            </div>
-                            <div class="mic-test-section">
-                                <button type="button" id="mic-test-btn" class="btn-mic-test">
-                                    &#x1F3A4; Tester le micro
-                                </button>
-                                <div id="mic-test-vu" class="vu-meter" style="display: none;">
-                                    <div class="vu-meter-track">
-                                        <div id="mic-test-bar" class="vu-meter-bar"></div>
-                                    </div>
-                                    <span id="mic-test-db" class="vu-meter-label">-60 dB</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- VBAN -->
-                    <div class="webhook-card">
-                        <div class="card-header">
-                            <h4>&#x1F3B5; Sources VBAN</h4>
-                            <button id="refreshVBANBtn" class="refresh-btn">
-                                <img src="{{ url_for('static', filename='img/refresh.svg') }}" alt="Rafraichir">
-                            </button>
-                        </div>
-                        <div class="webhook-content">
-                            <div class="vban-section">
-                                <h5>Detectees</h5>
-                                <div id="detectedVBANSources" class="list-group mb-3">
-                                    <div class="list-group-item text-muted">Aucune source VBAN detectee</div>
-                                </div>
-                            </div>
-                            <div class="vban-section">
-                                <h5>Configurees</h5>
-                                <div id="savedVBANSources" class="list-group">
-                                    <div class="list-group-item text-muted">Aucune source VBAN configuree</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- RTSP -->
-                    <div class="webhook-card">
-                        <div class="card-header">
-                            <h4>&#x1F4F9; Flux RTSP</h4>
-                        </div>
-                        <div class="webhook-content">
-                            <div id="rtspStreamsContainer"></div>
-                        </div>
-                    </div>
-
-                </div>
+            <div class="add-source-menu" id="addSourceMenu" style="display:none;">
+                <button type="button" data-type="mic">&#x1F3A4; Microphone</button>
+                <button type="button" data-type="rtsp">&#x1F4F9; RTSP</button>
+                <button type="button" data-type="vban">&#x1F3B5; VBAN</button>
             </div>
+            <div id="source-tab-content"></div>
+        </section>
+
+        <!-- History -->
+        <section class="config-card">
+            <h3>Historique</h3>
+            <div id="detected_labels" class="labels-container"></div>
         </section>
     </main>
 
@@ -201,6 +93,7 @@
         window.settings = {{ settings|tojson }};
         window.settings.debug = {{ 'true' if debug else 'false' }};
         window.basePath = '{{ ingress_path }}';
+        window.devices = {{ devices|tojson }};
     </script>
 
     <script type="module" src="{{ ingress_path }}/js/{{ cache_bust }}/script.js"></script>
@@ -209,6 +102,372 @@
     <script type="text/javascript">
     (function() {
         var testing = false;
+
+        // ===== Tab System =====
+        function buildTabs() {
+            var tabs = document.getElementById('source-tabs');
+            var content = document.getElementById('source-tab-content');
+            if (!tabs || !content) return;
+            tabs.innerHTML = '';
+            content.innerHTML = '';
+
+            var sources = [];
+            var settings = window.settings || {};
+
+            // Micro
+            if (settings.microphone) {
+                sources.push({type: 'mic', id: 'mic', name: settings.microphone.audio_source || 'Microphone', data: settings.microphone});
+            }
+
+            // RTSP
+            (settings.rtsp_sources || []).forEach(function(s) {
+                sources.push({type: 'rtsp', id: 'rtsp_' + s.id, name: s.name || 'RTSP', data: s});
+            });
+
+            // VBAN
+            (settings.saved_vban_sources || []).forEach(function(s, i) {
+                sources.push({type: 'vban', id: 'vban_' + i, name: s.name || 'VBAN', data: s});
+            });
+
+            sources.forEach(function(src, idx) {
+                // Tab button
+                var tab = document.createElement('button');
+                tab.className = 'tab-btn' + (idx === 0 ? ' active' : '');
+                tab.textContent = src.name;
+                tab.setAttribute('data-tab', src.id);
+                tab.addEventListener('click', function() { switchTab(src.id); });
+                tabs.appendChild(tab);
+
+                // Tab content
+                var panel = document.createElement('div');
+                panel.className = 'tab-panel' + (idx === 0 ? ' active' : '');
+                panel.id = 'panel-' + src.id;
+                panel.innerHTML = buildTabContent(src);
+                content.appendChild(panel);
+            });
+
+            // Re-bind events inside tabs
+            bindTabEvents();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+            document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+            var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+            var panel = document.getElementById('panel-' + tabId);
+            if (btn) btn.classList.add('active');
+            if (panel) panel.classList.add('active');
+        }
+
+        function buildTabContent(src) {
+            if (src.type === 'mic') return buildMicTab(src);
+            if (src.type === 'rtsp') return buildRtspTab(src);
+            if (src.type === 'vban') return buildVbanTab(src);
+            return '';
+        }
+
+        function buildMicTab(src) {
+            var d = src.data;
+            var devices = window.devices || [];
+            var deviceOptions = '';
+            devices.forEach(function(dev) {
+                var val = dev.index + '|' + dev.name + '|' + (dev.pulse_name || '');
+                var sel = (dev.name === d.audio_source) ? ' selected' : '';
+                deviceOptions += '<option value="' + escAttr(val) + '"' + sel + '>' + esc(dev.name) + '</option>';
+            });
+            var enabled = d.enabled ? ' checked' : '';
+            var autoVol = d.auto_volume ? ' checked' : '';
+            var volDisabled = d.auto_volume ? ' disabled' : '';
+            var volume = d.volume !== undefined ? d.volume : 100;
+            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
+            var webhookUrl = d.webhook_url || '';
+
+            return '<div class="source-header">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;">' +
+                    '<label class="switch" title="Activer/Desactiver"><input type="checkbox" id="webhook-mic-enabled"' + enabled + '><span class="slider round"></span></label>' +
+                    '<strong>&#x1F3A4; Microphone</strong>' +
+                '</div>' +
+                '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="mic" data-id="mic">&#x274C; Supprimer</button>' +
+            '</div>' +
+            '<div class="source-config">' +
+                '<div class="source-selector">' +
+                    '<label for="micro_source">Source :</label>' +
+                    '<select name="micro_source" id="micro_source">' + deviceOptions + '</select>' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label for="threshold">Precision : <span id="threshold-value">' + threshold + '</span></label>' +
+                    '<input type="range" id="threshold" min="0" max="1" step="0.1" value="' + threshold + '">' +
+                '</div>' +
+                '<div class="mic-volume-section">' +
+                    '<div class="mic-volume-header">' +
+                        '<label for="mic-volume">Volume : <span id="mic-volume-value">' + volume + '%</span></label>' +
+                        '<div class="auto-volume-toggle">' +
+                            '<label class="switch" title="Volume automatique"><input type="checkbox" id="mic-auto-volume"' + autoVol + '><span class="slider round"></span></label>' +
+                            '<span class="auto-volume-label">Auto</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<input type="range" id="mic-volume" min="0" max="150" step="5" value="' + volume + '" class="mic-volume-slider"' + volDisabled + '>' +
+                '</div>' +
+                '<div class="webhook-input-group">' +
+                    '<label class="form-label">Webhook</label>' +
+                    '<div class="webhook-input-with-test">' +
+                        '<input type="url" id="webhook-mic-url" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook" aria-label="URL du webhook">' +
+                        '<button type="button" class="test-webhook" data-source="mic">&#x1F514; Tester</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="mic-test-section">' +
+                    '<button type="button" id="mic-test-btn" class="btn-mic-test">&#x1F3A4; Tester le micro</button>' +
+                    '<div id="mic-test-vu" class="vu-meter" style="display: none;">' +
+                        '<div class="vu-meter-track"><div id="mic-test-bar" class="vu-meter-bar"></div></div>' +
+                        '<span id="mic-test-db" class="vu-meter-label">-60 dB</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        function buildRtspTab(src) {
+            var d = src.data;
+            var enabled = d.enabled ? ' checked' : '';
+            var volume = d.volume !== undefined ? d.volume : 10;
+            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
+            var webhookUrl = d.webhook_url || '';
+            var name = d.name || 'RTSP';
+            var url = d.url || '';
+            var streamId = d.id || '';
+
+            return '<div class="source-header">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;">' +
+                    '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="rtsp-enabled-toggle" data-id="' + escAttr(streamId) + '"' + enabled + '><span class="slider round"></span></label>' +
+                    '<input type="text" class="rtsp-name-input" data-id="' + escAttr(streamId) + '" value="' + escAttr(name) + '">' +
+                    '<span class="rtsp-status-dot status-connecting" data-url="' + escAttr(url) + '" title="Connexion..."></span>' +
+                '</div>' +
+                '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="rtsp" data-id="' + escAttr(streamId) + '">&#x274C; Supprimer</button>' +
+            '</div>' +
+            '<div class="source-config">' +
+                '<div class="setting-item">' +
+                    '<label>URL RTSP</label>' +
+                    '<input type="url" class="rtsp-url-input" data-id="' + escAttr(streamId) + '" value="' + escAttr(url) + '" placeholder="rtsp://camera:554/stream">' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Precision : <span class="rtsp-threshold-value">' + threshold + '</span></label>' +
+                    '<input type="range" class="rtsp-threshold" data-id="' + escAttr(streamId) + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Volume : <span class="rtsp-volume-value">' + volume + 'x</span></label>' +
+                    '<input type="range" class="rtsp-volume" data-id="' + escAttr(streamId) + '" min="1" max="50" step="1" value="' + volume + '">' +
+                '</div>' +
+                '<div class="webhook-input-group">' +
+                    '<label class="form-label">Webhook</label>' +
+                    '<div class="webhook-input-with-test">' +
+                        '<input type="url" class="rtsp-webhook-url" data-id="' + escAttr(streamId) + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
+                        '<button type="button" class="test-webhook" data-source="rtsp_' + escAttr(streamId) + '">&#x1F514; Tester</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="mic-test-section">' +
+                    '<button type="button" class="btn-mic-test rtsp-test-btn" data-id="' + escAttr(streamId) + '">&#x1F4F9; Tester le flux</button>' +
+                    '<div class="vu-meter rtsp-test-vu" style="display: none;">' +
+                        '<div class="vu-meter-track"><div class="vu-meter-bar rtsp-test-bar"></div></div>' +
+                        '<span class="vu-meter-label rtsp-test-db">-60 dB</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        function buildVbanTab(src) {
+            var d = src.data;
+            var enabled = d.enabled !== undefined ? d.enabled : true;
+            var enabledAttr = enabled ? ' checked' : '';
+            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
+            var webhookUrl = d.webhook_url || '';
+            var name = d.name || 'VBAN';
+            var ip = d.ip || '';
+            var port = d.port || '';
+
+            return '<div class="source-header">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;">' +
+                    '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="vban-enabled-toggle" data-index="' + src.id.replace('vban_', '') + '"' + enabledAttr + '><span class="slider round"></span></label>' +
+                    '<strong>&#x1F3B5; ' + esc(name) + '</strong>' +
+                '</div>' +
+                '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + src.id.replace('vban_', '') + '">&#x274C; Supprimer</button>' +
+            '</div>' +
+            '<div class="source-config">' +
+                '<div class="setting-item">' +
+                    '<label>Nom</label>' +
+                    '<span>' + esc(name) + '</span>' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>IP</label>' +
+                    '<span>' + esc(ip) + '</span>' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Port</label>' +
+                    '<span>' + esc(String(port)) + '</span>' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Precision : <span class="vban-threshold-value">' + threshold + '</span></label>' +
+                    '<input type="range" class="vban-threshold" data-index="' + src.id.replace('vban_', '') + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
+                '</div>' +
+                '<div class="webhook-input-group">' +
+                    '<label class="form-label">Webhook</label>' +
+                    '<div class="webhook-input-with-test">' +
+                        '<input type="url" class="vban-webhook-url webhook-url" data-index="' + src.id.replace('vban_', '') + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
+                        '<button type="button" class="test-webhook" data-source="vban_' + src.id.replace('vban_', '') + '">&#x1F514; Tester</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        // HTML escaping helpers
+        function esc(s) {
+            if (!s) return '';
+            var d = document.createElement('div');
+            d.appendChild(document.createTextNode(s));
+            return d.innerHTML;
+        }
+        function escAttr(s) {
+            return esc(s).replace(/"/g, '&quot;');
+        }
+
+        // ===== Add Source Menu =====
+        var addBtn = document.getElementById('addSourceBtn');
+        var addMenu = document.getElementById('addSourceMenu');
+        if (addBtn && addMenu) {
+            addBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var rect = addBtn.getBoundingClientRect();
+                addMenu.style.top = rect.bottom + 'px';
+                addMenu.style.left = rect.left + 'px';
+                addMenu.style.display = addMenu.style.display === 'none' ? 'block' : 'none';
+            });
+            document.addEventListener('click', function() {
+                addMenu.style.display = 'none';
+            });
+            addMenu.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var btn = e.target.closest('button[data-type]');
+                if (!btn) return;
+                var type = btn.getAttribute('data-type');
+                addMenu.style.display = 'none';
+                addSource(type);
+            });
+        }
+
+        function addSource(type) {
+            var basePath = window.basePath || '';
+            var settings = window.settings || {};
+            if (type === 'mic') {
+                if (settings.microphone) {
+                    alert('Un microphone est deja configure.');
+                    return;
+                }
+                settings.microphone = {enabled: true, audio_source: '', webhook_url: '', volume: 100, auto_volume: false, threshold: 0.5, auto_start: false};
+                window.settings = settings;
+                buildTabs();
+                switchTab('mic');
+            } else if (type === 'rtsp') {
+                fetch(basePath + '/api/rtsp/stream', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: 'Nouveau RTSP', url: '', enabled: false, volume: 10, threshold: 0.5})
+                }).then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.success || data.id) {
+                          // Reload settings
+                          fetch(basePath + '/api/settings').then(function(r) { return r.json(); }).then(function(s) {
+                              window.settings = s;
+                              buildTabs();
+                              var newId = data.id || '';
+                              if (newId) switchTab('rtsp_' + newId);
+                          });
+                      }
+                  })
+                  .catch(function(err) { console.error('Add RTSP error:', err); });
+            } else if (type === 'vban') {
+                // Show VBAN discovery - refresh
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/vban/refresh', {method: 'POST'})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        alert('Recherche VBAN lancee. Les sources detectees apparaitront automatiquement.');
+                    })
+                    .catch(function(err) { console.error('VBAN refresh error:', err); });
+            }
+        }
+
+        // ===== Bind events inside tab panels =====
+        function bindTabEvents() {
+            // Threshold slider
+            var thresholdSlider = document.getElementById('threshold');
+            var thresholdValue = document.getElementById('threshold-value');
+            if (thresholdSlider && thresholdValue) {
+                thresholdSlider.addEventListener('input', function() {
+                    thresholdValue.textContent = thresholdSlider.value;
+                });
+            }
+
+            // RTSP threshold sliders
+            document.querySelectorAll('.rtsp-threshold').forEach(function(slider) {
+                slider.addEventListener('input', function() {
+                    var label = slider.parentElement.querySelector('.rtsp-threshold-value');
+                    if (label) label.textContent = slider.value;
+                });
+            });
+
+            // RTSP volume sliders
+            document.querySelectorAll('.rtsp-volume').forEach(function(slider) {
+                slider.addEventListener('input', function() {
+                    var label = slider.parentElement.querySelector('.rtsp-volume-value');
+                    if (label) label.textContent = slider.value + 'x';
+                });
+            });
+
+            // VBAN threshold sliders
+            document.querySelectorAll('.vban-threshold').forEach(function(slider) {
+                slider.addEventListener('input', function() {
+                    var label = slider.parentElement.querySelector('.vban-threshold-value');
+                    if (label) label.textContent = slider.value;
+                });
+            });
+
+            // Delete source buttons
+            document.querySelectorAll('.delete-source-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var type = btn.getAttribute('data-type');
+                    var id = btn.getAttribute('data-id');
+                    if (!confirm('Supprimer cette source ?')) return;
+                    deleteSource(type, id);
+                });
+            });
+        }
+
+        function deleteSource(type, id) {
+            var basePath = window.basePath || '';
+            var settings = window.settings || {};
+            if (type === 'mic') {
+                settings.microphone = null;
+                window.settings = settings;
+                buildTabs();
+            } else if (type === 'rtsp') {
+                fetch(basePath + '/api/rtsp/stream/' + id, {method: 'DELETE'})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        fetch(basePath + '/api/settings').then(function(r) { return r.json(); }).then(function(s) {
+                            window.settings = s;
+                            buildTabs();
+                        });
+                    })
+                    .catch(function(err) { console.error('Delete RTSP error:', err); });
+            } else if (type === 'vban') {
+                var idx = parseInt(id);
+                if (settings.saved_vban_sources && settings.saved_vban_sources[idx]) {
+                    settings.saved_vban_sources.splice(idx, 1);
+                    window.settings = settings;
+                    buildTabs();
+                }
+            }
+        }
+
+        // ===== Mic test (inline fallback) =====
         document.addEventListener('click', function(e) {
             var btn = e.target.closest && e.target.closest('#mic-test-btn');
             if (!btn) return;
@@ -254,36 +513,32 @@
         }
 
         // Volume slider
-        var volSlider = document.getElementById('mic-volume');
-        var volLabel = document.getElementById('mic-volume-value');
-        if (volSlider) {
-            volSlider.addEventListener('input', function() {
-                volLabel.textContent = volSlider.value + '%';
-            });
-            var volTimeout;
-            volSlider.addEventListener('change', function() {
-                var volume = parseInt(volSlider.value);
-                clearTimeout(volTimeout);
-                volTimeout = setTimeout(function() {
-                    var basePath = window.basePath || '';
-                    fetch(basePath + '/api/microphone/volume', {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({volume: volume, pulse_name: getSelectedPulseName()})
-                    }).then(function(r) { return r.json(); })
-                      .then(function(data) {
-                          if (data.success) console.log('Volume mis a jour:', volume + '%');
-                      })
-                      .catch(function(err) { console.error('Erreur volume:', err); });
-                }, 300);
-            });
-        }
+        document.addEventListener('input', function(e) {
+            if (e.target.id === 'mic-volume') {
+                var volLabel = document.getElementById('mic-volume-value');
+                if (volLabel) volLabel.textContent = e.target.value + '%';
+            }
+        });
+        document.addEventListener('change', function(e) {
+            if (e.target.id === 'mic-volume') {
+                var volume = parseInt(e.target.value);
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/microphone/volume', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({volume: volume, pulse_name: getSelectedPulseName()})
+                }).then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.success) console.log('Volume mis a jour:', volume + '%');
+                  })
+                  .catch(function(err) { console.error('Erreur volume:', err); });
+            }
+        });
 
         // Auto-volume toggle
-        var autoVolCheck = document.getElementById('mic-auto-volume');
-        if (autoVolCheck) {
-            autoVolCheck.addEventListener('change', function() {
-                var enabled = autoVolCheck.checked;
+        document.addEventListener('change', function(e) {
+            if (e.target.id === 'mic-auto-volume') {
+                var enabled = e.target.checked;
                 var basePath = window.basePath || '';
                 fetch(basePath + '/api/microphone/auto-volume', {
                     method: 'PUT',
@@ -296,16 +551,16 @@
                           if (slider) slider.disabled = enabled;
                           console.log('Auto-volume:', enabled ? 'active' : 'desactive');
                       } else {
-                          autoVolCheck.checked = !enabled;
+                          e.target.checked = !enabled;
                           console.error('Auto-volume erreur:', data.error);
                       }
                   })
                   .catch(function(err) {
-                      autoVolCheck.checked = !enabled;
+                      e.target.checked = !enabled;
                       console.error('Auto-volume erreur:', err);
                   });
-            });
-        }
+            }
+        });
 
         // Export/Import config
         var exportBtn = document.getElementById('exportConfigBtn');
@@ -339,17 +594,16 @@
         }
 
         // Auto-start toggle
-        var autoStartCheck = document.getElementById('auto-start');
-        if (autoStartCheck) {
-            autoStartCheck.addEventListener('change', function() {
+        document.addEventListener('change', function(e) {
+            if (e.target.id === 'auto-start') {
                 var basePath = window.basePath || '';
                 fetch(basePath + '/api/microphone/auto-start', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: autoStartCheck.checked})
+                    body: JSON.stringify({enabled: e.target.checked})
                 });
-            });
-        }
+            }
+        });
 
         // Socket.io mic levels
         var checkSocket = setInterval(function() {
@@ -377,7 +631,6 @@
 
                 // RTSP test VU-metre
                 sock.on('rtsp_level', function(data) {
-                    // Trouver la barre et le label correspondants
                     var bars = document.querySelectorAll('.rtsp-test-bar');
                     var labels = document.querySelectorAll('.rtsp-test-db');
                     bars.forEach(function(bar) {
@@ -460,6 +713,13 @@
                 })
                 .catch(function() {});
         })();
+
+        // Build tabs on load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', buildTabs);
+        } else {
+            buildTabs();
+        }
     })();
     </script>
 

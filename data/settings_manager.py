@@ -27,7 +27,8 @@ DEFAULT_SETTINGS = {
         "enabled": False,
         "volume": 100,
         "auto_volume": False,
-        "auto_start": False
+        "auto_start": False,
+        "threshold": 0.5
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],

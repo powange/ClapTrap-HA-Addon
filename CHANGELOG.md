@@ -1,5 +1,22 @@
 # Changelog
 
+## 5.0.0
+
+### Refonte complete de l'interface
+
+- **Systeme d'onglets par source** : chaque source configuree (micro, RTSP, VBAN) a son propre onglet avec sa configuration complete
+- **Barre de controle compacte** : cercle de detection, boutons Start/Stop, fenetre multi-clap, auto-start, export/import — tout en haut, toujours visible
+- **Bouton "+ Ajouter une source"** : menu deroulant pour choisir le type (Microphone, RTSP, VBAN) avant de configurer
+- **Precision par source** : chaque source a son propre slider de precision (score_threshold). Permet d'avoir un seuil bas pour une camera lointaine et un seuil haut pour un micro proche
+- **Onglets dynamiques** : construits depuis les settings au chargement, mis a jour automatiquement
+
+### Backend precision par source
+
+- Nouveau champ `threshold` dans les settings de chaque source (microphone, RTSP, VBAN)
+- Chaque classifier MediaPipe utilise le seuil de sa source
+- Nouvel endpoint PUT /api/microphone/threshold
+- Les endpoints RTSP et VBAN acceptent aussi `threshold` dans les updates
+
 ## 4.1.0
 
 ### Un classifier YAMNet par source audio
