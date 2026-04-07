@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.6
+
+- Fix cache service worker HA : le script principal est maintenant servi via une route dynamique /js/app.js qui reecrit tous les imports avec un timestamp unique. Les sous-modules sont servis avec Cache-Control no-cache.
+- CSS versionne avec cache_bust
+
 ## 3.1.5
 
 - Fix cache navigateur/service worker : desactivation du cache Flask sur tous les fichiers statiques (SEND_FILE_MAX_AGE_DEFAULT=0), headers Cache-Control/Pragma/Expires sur les modules JS et CSS

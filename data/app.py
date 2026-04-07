@@ -600,15 +600,33 @@ def serve_js_module(filename):
     response = send_from_directory('static/js/modules', filename, mimetype='application/javascript')
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
     return response
 
-@app.route('/static/css/<path:filename>')
-def serve_css(filename):
-    response = send_from_directory('static/css', filename, mimetype='text/css')
+@app.route('/js/app.js')
+def serve_main_js():
+    """Sert le script principal avec les imports versionnés pour contourner le cache du service worker HA."""
+    v = int(time.time())
+    base = request.script_root + '/static/js/modules'
+    js = f'''
+import {{ initAudioSources }} from '{base}/audioSources.js?v={v}';
+import {{ initVbanSources, refreshVbanSources }} from '{base}/vbanSources.js?v={v}';
+import {{ initRtspSources }} from '{base}/rtspSources.js?v={v}';
+import {{ initWebhooks }} from '{base}/webhooks.js?v={v}';
+import {{ setupEventListeners }} from '{base}/events.js?v={v}';
+import {{ updateSettings, saveSettings, initSettings }} from '{base}/settings.js?v={v}';
+import {{ initializeSocketIO }} from '{base}/socketHandlers.js?v={v}';
+import {{ initMicTest }} from '{base}/micTest.js?v={v}';
+import {{ showError }} from '{base}/utils.js?v={v}';
+'''
+    # Lire le contenu de script.js (sans les imports)
+    script_path = os.path.join(app.static_folder, 'js', 'script.js')
+    with open(script_path, 'r') as f:
+        content = f.read()
+    # Retirer les imports originaux (lignes import)
+    lines = content.split('\n')
+    body = '\n'.join(line for line in lines if not line.strip().startswith('import '))
+    response = app.response_class(js + body, mimetype='application/javascript')
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
     return response
 
 @app.route('/api/audio-sources', methods=['GET'])
