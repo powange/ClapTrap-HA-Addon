@@ -217,12 +217,10 @@ class AudioDetector:
                     block = ring[pos:pos + block_size]
                     pos += block_size
 
-                    # Calculer le prochain timestamp
+                    # Calculer le prochain timestamp (monotone, sans time.time() pour éviter les collisions)
                     block_duration_ms = int((block_size / self.sample_rate) * 1000)
-                    next_timestamp = max(
-                        self.last_timestamp_ms.get(source_id, 0) + block_duration_ms,
-                        int(time.time() * 1000)
-                    )
+                    last_ts = self.last_timestamp_ms.get(source_id, self.start_time_ms)
+                    next_timestamp = last_ts + block_duration_ms
                     self.last_timestamp_ms[source_id] = next_timestamp
 
                     # Enregistrer le mapping timestamp → source pour le callback

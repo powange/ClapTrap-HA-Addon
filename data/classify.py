@@ -156,10 +156,11 @@ def start_detection(
 
 def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, webhook_url, delay, audio_source, rtsp_url):
     """Fonction qui exécute la détection dans un thread séparé"""
+    global detection_running
     try:
         # Initialiser le détecteur audio
         detector = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-        detector.initialize()
+        detector.initialize(max_results=max_results, score_threshold=score_threshold)
         
         def create_detection_callback(source_name, webhook_url=None):
             def handle_detection(detection_data):
@@ -356,7 +357,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 while detection_running:
                     data = proc.stdout.read(bytes_per_block)
                     if not data:
-                        stderr = proc.stderr.read().decode(errors='replace')
+                        stderr = proc.stderr.read(4096).decode(errors='replace')
                         logging.error(f"parecord a cessé de produire des données: {stderr}")
                         break
                     samples = np.frombuffer(data, dtype=np.float32)
@@ -374,10 +375,16 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     
         detector.stop()
         return True
-        
+
     except Exception as e:
         logging.error(f"Erreur dans run_detection: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
         return False
+    finally:
+        with _detection_lock:
+            detection_running = False
+        logging.info("run_detection terminé, detection_running remis à False")
 
 def stop_detection():
     """Arrête la détection"""

@@ -66,46 +66,19 @@ function updateDetectionUI(isActive) {
 }
 
 function setupSocketListeners() {
-    socket.on('detection_event', handleDetectionEvent);
+    socket.on('clap', handleClapEvent);
 }
 
 function removeSocketListeners() {
-    socket.off('detection_event', handleDetectionEvent);
+    socket.off('clap', handleClapEvent);
 }
 
-function handleDetectionEvent(data) {
-    console.log('Detection event received:', data);
+function handleClapEvent(data) {
+    console.log('Clap event received:', data);
     const display = document.getElementById('detection_display');
-    const waitingEmoji = document.getElementById('waiting-emoji');
-    console.log('Found elements:', { display, waitingEmoji });
-    const detectedLabel = document.createElement('div');
-    detectedLabel.textContent = `Détection: ${data.label}`;
-    
-    if (display) {
-        // Remplacer le texte de détection s'il existe déjà
-        const existingLabel = display.querySelector('.detected-label');
-        if (existingLabel) {
-            existingLabel.remove();
-        }
-        detectedLabel.classList.add('detected-label');
-        display.appendChild(detectedLabel);
 
-        if (data.label === 'Burping, eructation') {
-            console.log('Burping detected, changing emoji...');
-            if (waitingEmoji) {
-                console.log('Current emoji:', waitingEmoji.textContent);
-                waitingEmoji.textContent = '😱';
-                console.log('New emoji set:', waitingEmoji.textContent);
-                // Remettre l'emoji d'écoute après 2 secondes
-                setTimeout(() => {
-                    console.log('Resetting emoji...');
-                    waitingEmoji.textContent = '👂';
-                    console.log('Emoji reset to:', waitingEmoji.textContent);
-                }, 2000);
-            }
-        } else if (data.label.toLowerCase().includes('clap')) {
-            display.classList.add('clap');
-            setTimeout(() => display.classList.remove('clap'), 1000);
-        }
+    if (display) {
+        display.classList.add('clap');
+        setTimeout(() => display.classList.remove('clap'), 1500);
     }
 } 

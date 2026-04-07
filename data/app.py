@@ -978,7 +978,7 @@ def start_mic_test():
             while _mic_test_running:
                 data = proc.stdout.read(bytes_per_block)
                 if not data:
-                    stderr = proc.stderr.read().decode(errors='replace')
+                    stderr = proc.stderr.read(4096).decode(errors='replace')
                     logging.error(f"Test micro: parecord a cessé de produire des données. stderr: {stderr}")
                     socketio.emit('mic_level', {'error': f'parecord: {stderr[:200]}'})
                     break

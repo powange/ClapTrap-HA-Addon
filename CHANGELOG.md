@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0
+
+### Fix : 6 bugs critiques dans le pipeline de detection
+
+- **detection_running jamais reset** : quand le thread de detection mourait (parecord crash, erreur...), `detection_running` restait a `True`, empechant tout redemarrage sans restart de l'addon. Ajout d'un `finally` qui reset le flag.
+- **Collision de timestamps** : `time.time()` dans le calcul de timestamp causait des collisions qui faisaient silencieusement dropper des resultats du classifier. Remplace par un compteur monotone.
+- **score_threshold ignore** : `detector.initialize()` etait appele sans les parametres utilisateur (`max_results`, `score_threshold`), utilisant toujours les valeurs par defaut. Le seuil configure dans l'UI n'avait aucun effet.
+- **stderr.read() bloquant** : si parecord fermait stdout sans fermer stderr, `proc.stderr.read()` bloquait indefiniment le thread de detection. Limite a 4096 bytes.
+- **detection.js ecoutait le mauvais event** : ecoutait `'detection_event'` au lieu de `'clap'` (ce que le backend emet). L'animation de detection dans l'UI ne se declenchait jamais via ce module.
+- Ajout de logging diagnostique dans le pipeline de detection
+
 ## 2.3.7
 
 - Ajout de logging INFO dans le flux de detection micro : nombre de blocs lus, peak, etat du detector
