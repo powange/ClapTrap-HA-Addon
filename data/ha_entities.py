@@ -79,7 +79,7 @@ def _init_mqtt():
     try:
         import paho.mqtt.client as mqtt_module
     except ImportError:
-        logging.debug("paho-mqtt non installe, fallback API REST")
+        logging.warning("paho-mqtt non installe (rebuild l'addon pour l'installer), fallback API REST")
         _mqtt_available = False
         return False
 

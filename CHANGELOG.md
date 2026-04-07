@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.3.3
+
+- Le message "paho-mqtt non installe" est maintenant visible en WARNING (avant il fallait le debug). Si vous voyez ce message, reconstruisez l'addon (Parametres > Modules complementaires > ClapTrap > Reconstruire).
+
 ## 5.3.2
 
 - Fix MQTT Discovery : compatibilite paho-mqtt v2.x (callback_api_version). L'ancienne API v1 est aussi supportee.
