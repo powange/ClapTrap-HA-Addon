@@ -825,6 +825,32 @@ def update_microphone_enabled():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/microphone/volume', methods=['PUT'])
+def update_microphone_volume():
+    try:
+        data = request.get_json()
+        volume = int(data.get('volume', 100))
+        volume = max(0, min(150, volume))
+
+        settings = load_settings()
+        settings['microphone']['volume'] = volume
+        save_settings(settings)
+
+        # Appliquer immédiatement via pactl si un pulse_name est connu
+        pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+        if pulse_name:
+            try:
+                import subprocess
+                subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume}%'],
+                               capture_output=True, text=True, timeout=5)
+                logging.info(f"Volume PulseAudio mis à {volume}% pour {pulse_name}")
+            except Exception as e:
+                logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
+
+        return jsonify({'success': True, 'volume': volume})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/rtsp/webhook', methods=['PUT'])
 def update_rtsp_webhook():
     try:
@@ -903,28 +929,42 @@ def start_mic_test():
             if pulse_name:
                 os.environ['PULSE_SOURCE'] = pulse_name
                 logging.info(f"Test micro: PULSE_SOURCE={pulse_name}")
-                # Monter le volume de la source PulseAudio à 100%
+                # Régler le volume de la source PulseAudio selon les settings
                 try:
                     import subprocess
+                    mic_volume = settings.get('microphone', {}).get('volume', 100)
                     # Lister les sources pour le diagnostic
                     result = subprocess.run(['pactl', 'list', 'sources', 'short'], capture_output=True, text=True, timeout=5)
                     logging.info(f"Sources PulseAudio: {result.stdout.strip()}")
-                    # Mettre le volume à 100% (65536 = 100%)
-                    subprocess.run(['pactl', 'set-source-volume', pulse_name, '100%'], capture_output=True, text=True, timeout=5)
-                    logging.info(f"Volume PulseAudio mis à 100% pour {pulse_name}")
+                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'], capture_output=True, text=True, timeout=5)
+                    logging.info(f"Volume PulseAudio mis à {mic_volume}% pour {pulse_name}")
                 except Exception as e:
                     logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
             else:
                 logging.warning("Test micro: pas de pulse_name, utilisation du device par défaut")
 
+            _cb_count = [0]
             def callback(indata, frames, time_info, status):
                 if not _mic_test_running:
                     return
+                if status:
+                    logging.warning(f"Test micro status: {status}")
                 peak = float(np.max(np.abs(indata)))
+                _cb_count[0] += 1
+                if _cb_count[0] <= 5 or _cb_count[0] % 50 == 0:
+                    logging.info(f"Test micro callback #{_cb_count[0]}: peak brut={peak:.6f}, indata.shape={indata.shape}, dtype={indata.dtype}")
                 # Appliquer un gain de 10x pour compenser le niveau faible de PulseAudio
                 peak_amplified = min(1.0, peak * 50)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
                 socketio.emit('mic_level', {'peak': peak_amplified, 'db': round(db, 1)})
+
+            # Lister les devices vus par sounddevice
+            try:
+                default_dev = sd.default.device
+                logging.info(f"Test micro: sounddevice default device={default_dev}")
+                logging.info(f"Test micro: PULSE_SOURCE={os.environ.get('PULSE_SOURCE', 'NON DÉFINI')}")
+            except Exception as e:
+                logging.warning(f"Test micro: impossible de lister les devices: {e}")
 
             logging.info(f"Test micro: ouverture du stream audio...")
             with sd.InputStream(device=None, channels=1, samplerate=16000,

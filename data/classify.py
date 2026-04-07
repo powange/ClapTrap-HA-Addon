@@ -321,11 +321,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             if pulse_name:
                 os.environ['PULSE_SOURCE'] = pulse_name
                 logging.info(f"PULSE_SOURCE configuré: {pulse_name}")
-                # Monter le volume à 100%
+                # Régler le volume selon les settings
                 try:
                     import subprocess
-                    subprocess.run(['pactl', 'set-source-volume', pulse_name, '100%'], capture_output=True, text=True, timeout=5)
-                    logging.info(f"Volume PulseAudio mis à 100% pour {pulse_name}")
+                    mic_volume = settings.get('microphone', {}).get('volume', 100)
+                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'], capture_output=True, text=True, timeout=5)
+                    logging.info(f"Volume PulseAudio mis à {mic_volume}% pour {pulse_name}")
                 except Exception as e:
                     logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
             else:

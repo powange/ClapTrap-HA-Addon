@@ -628,6 +628,53 @@ footer a {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* Volume micro */
+.mic-volume-section {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mic-volume-section label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.mic-volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #dee2e6;
+    outline: none;
+    cursor: pointer;
+}
+
+.mic-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.mic-volume-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
 /* VU-mètre test micro */
 .mic-test-section {
     margin-top: 12px;

@@ -46,6 +46,30 @@ function setupMicrophoneWebhook() {
             });
         });
     }
+
+    const volumeSlider = document.getElementById('mic-volume');
+    const volumeLabel = document.getElementById('mic-volume-value');
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', (e) => {
+            volumeLabel.textContent = e.target.value + '%';
+        });
+        let volumeTimeout;
+        volumeSlider.addEventListener('change', (e) => {
+            const volume = parseInt(e.target.value);
+            clearTimeout(volumeTimeout);
+            volumeTimeout = setTimeout(() => {
+                updateSettings({
+                    microphone: {
+                        ...getCurrentSettings().microphone,
+                        volume: volume
+                    }
+                });
+                callApi('/api/microphone/volume', 'PUT', { volume: volume })
+                    .then(() => showSuccess('Volume du micro mis a jour'))
+                    .catch(() => showError('Erreur lors du reglage du volume'));
+            }, 300);
+        });
+    }
 }
 
 async function updateMicrophoneWebhook(webhookUrl) {

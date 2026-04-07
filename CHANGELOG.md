@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.32
+
+- Ajout d'un slider de volume du micro dans l'interface (0% a 150%)
+- Le volume est sauvegarde dans les settings et applique via pactl
+- Nouvel endpoint API PUT /api/microphone/volume
+- Ajout de logging diagnostique dans le callback du test micro
+
 ## 2.2.31
 
 - Ajout de pulseaudio-utils (pactl) dans le Dockerfile
