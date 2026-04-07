@@ -195,7 +195,7 @@
         window.basePath = '{{ ingress_path }}';
     </script>
 
-    <script type="module" src="{{ ingress_path }}/js/app.js?v={{ cache_bust }}"></script>
+    <script type="module" src="{{ ingress_path }}/js/{{ cache_bust }}/script.js"></script>
 
     <!-- Fallback inline -->
     <script type="text/javascript">

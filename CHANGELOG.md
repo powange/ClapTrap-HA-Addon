@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.7
+
+- Fix definitif du cache service worker HA : la version est maintenant dans le CHEMIN des modules JS (/js/1712490000/script.js) au lieu d'un query string. Le service worker cache par URL, donc un nouveau chemin = cache miss garanti. Tous les imports internes entre modules sont reecrits dynamiquement avec le meme chemin versionne.
+
 ## 3.1.6
 
 - Fix cache service worker HA : le script principal est maintenant servi via une route dynamique /js/app.js qui reecrit tous les imports avec un timestamp unique. Les sous-modules sont servis avec Cache-Control no-cache.

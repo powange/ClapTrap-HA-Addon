@@ -1,5 +1,5 @@
 name: "ClapTrap"
-version: "3.1.6"
+version: "3.1.7"
 slug: "claptrap"
 description: "Application de détection d'applaudissements en temps réel utilisant YAMNet, compatible avec les flux audio locaux et RTSP"
 url: "https://github.com/powange/ClapTrap-HA-Addon"

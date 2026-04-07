@@ -595,38 +595,41 @@ def update_vban_source():
             'error': str(e)
         }), 500
 
-@app.route('/static/js/modules/<path:filename>')
-def serve_js_module(filename):
-    response = send_from_directory('static/js/modules', filename, mimetype='application/javascript')
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    return response
+import re as _re
 
-@app.route('/js/app.js')
-def serve_main_js():
-    """Sert le script principal avec les imports versionnés pour contourner le cache du service worker HA."""
-    v = int(time.time())
-    base = request.script_root + '/static/js/modules'
-    js = f'''
-import {{ initAudioSources }} from '{base}/audioSources.js?v={v}';
-import {{ initVbanSources, refreshVbanSources }} from '{base}/vbanSources.js?v={v}';
-import {{ initRtspSources }} from '{base}/rtspSources.js?v={v}';
-import {{ initWebhooks }} from '{base}/webhooks.js?v={v}';
-import {{ setupEventListeners }} from '{base}/events.js?v={v}';
-import {{ updateSettings, saveSettings, initSettings }} from '{base}/settings.js?v={v}';
-import {{ initializeSocketIO }} from '{base}/socketHandlers.js?v={v}';
-import {{ initMicTest }} from '{base}/micTest.js?v={v}';
-import {{ showError }} from '{base}/utils.js?v={v}';
-'''
-    # Lire le contenu de script.js (sans les imports)
-    script_path = os.path.join(app.static_folder, 'js', 'script.js')
-    with open(script_path, 'r') as f:
+# Version pour le cache bust des modules JS (change à chaque restart)
+_js_version = str(int(time.time()))
+
+@app.route('/js/<version>/<path:filename>')
+def serve_versioned_js(version, filename):
+    """Sert les modules JS avec la version dans le chemin (bypass service worker cache).
+    Réécrit les imports relatifs pour pointer vers le même chemin versionné."""
+    file_path = os.path.join(app.static_folder, 'js', 'modules', filename)
+    if not os.path.exists(file_path):
+        # Essayer dans js/ directement
+        file_path = os.path.join(app.static_folder, 'js', filename)
+    if not os.path.exists(file_path):
+        return 'Not found', 404
+
+    with open(file_path, 'r') as f:
         content = f.read()
-    # Retirer les imports originaux (lignes import)
-    lines = content.split('\n')
-    body = '\n'.join(line for line in lines if not line.strip().startswith('import '))
-    response = app.response_class(js + body, mimetype='application/javascript')
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+    # Réécrire les imports relatifs : ./modules/foo.js ou ./foo.js -> chemin versionné absolu
+    base = request.script_root + f'/js/{version}'
+    content = _re.sub(
+        r"""from\s+['"]\.\/modules\/([^'"]+)['"]""",
+        lambda m: f"from '{base}/{m.group(1)}'",
+        content
+    )
+    content = _re.sub(
+        r"""from\s+['"]\.\/([^'"]+)['"]""",
+        lambda m: f"from '{base}/{m.group(1)}'",
+        content
+    )
+
+    response = app.response_class(content, mimetype='application/javascript')
+    # Le chemin contient la version, donc on peut cacher longtemps
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
     return response
 
 @app.route('/api/audio-sources', methods=['GET'])
