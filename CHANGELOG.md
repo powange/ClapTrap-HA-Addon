@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.12
+
+- Fix multi-clap : 3 claps rapides etaient comptes comme 1 car le signal ne redescendait pas assez entre les claps. Seuil de retour assoupli (60% au lieu de 30%), cooldown reduit (80ms au lieu de 120ms), ratio de pic reduit (3x au lieu de 5x). La moyenne glissante exclut les pics pour ne pas gonfler le seuil. Logging debug des pics detectes.
+
 ## 5.2.11
 
 - Fix critique : la majorite des resultats du classifier etaient perdus ("source_id introuvable"). Le mapping timestamp→source_id ne fonctionnait pas car le timestamp initial du start() ne correspondait pas. Maintenant chaque detector a une seule source (_active_source_id), plus besoin de mapping timestamp. Tous les resultats sont traites.

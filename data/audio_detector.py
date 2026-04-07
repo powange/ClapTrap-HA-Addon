@@ -31,8 +31,8 @@ class AudioDetector:
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
         self._clap_window_duration = 1.5  # durée de la fenêtre multi-clap (configurable)
         self._energy_state = {}  # source_id -> state dict
-        self._peak_cooldown = 0.12  # minimum entre deux pics (secondes)
-        self._peak_ratio = 5.0  # un pic doit etre 5x le niveau moyen pour compter
+        self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
+        self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
 
     def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5):
         """Initialise le classificateur audio"""
@@ -237,11 +237,12 @@ class AudioDetector:
             es = self._energy_state[source_id]
             current_time = time.time()
 
-            # Mettre à jour le niveau moyen (moyenne glissante lente)
-            es['avg_level'] = es['avg_level'] * 0.99 + peak * 0.01
+            # Mettre à jour le niveau moyen (moyenne glissante lente, exclure les pics)
+            if not es.get('above', False):
+                es['avg_level'] = es['avg_level'] * 0.995 + peak * 0.005
 
-            # Seuil dynamique : pic doit être 5x le niveau moyen (minimum 0.01)
-            dynamic_threshold = max(0.01, es['avg_level'] * self._peak_ratio)
+            # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.008)
+            dynamic_threshold = max(0.008, es['avg_level'] * self._peak_ratio)
 
             # Nettoyer les pics de plus de 2 secondes
             es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
@@ -251,8 +252,10 @@ class AudioDetector:
                 if (current_time - es['last_peak_time']) > self._peak_cooldown:
                     es['last_peak_time'] = current_time
                     es['peak_times'].append(current_time)
+                    logging.debug(f"[{source_id}] Pic #{len(es['peak_times'])}: peak={peak:.4f}, seuil={dynamic_threshold:.4f}, avg={es['avg_level']:.4f}")
                 es['above'] = True
-            elif peak < dynamic_threshold * 0.3:
+            elif peak < dynamic_threshold * 0.6:
+                # Seuil de retour plus souple (60% du seuil au lieu de 30%)
                 es['above'] = False
 
             # Écrire dans le ring buffer pré-alloué (zéro allocation)
