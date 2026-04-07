@@ -101,7 +101,15 @@ def _init_mqtt():
         username = mqtt_info.get('username', '')
         password = mqtt_info.get('password', '')
 
-        client = mqtt_module.Client(client_id="claptrap_addon")
+        # Compatibilité paho-mqtt v1 et v2
+        try:
+            # paho-mqtt v2.x
+            from paho.mqtt.enums import CallbackAPIVersion
+            client = mqtt_module.Client(client_id="claptrap_addon", callback_api_version=CallbackAPIVersion.VERSION1)
+        except (ImportError, AttributeError):
+            # paho-mqtt v1.x
+            client = mqtt_module.Client(client_id="claptrap_addon")
+
         if username:
             client.username_pw_set(username, password)
         client.connect(host, port, keepalive=60)
@@ -112,7 +120,7 @@ def _init_mqtt():
         return True
 
     except Exception as e:
-        logging.debug(f"MQTT non disponible: {e}")
+        logging.warning(f"MQTT non disponible: {e}")
         _mqtt_available = False
         return False
 
@@ -120,7 +128,11 @@ def _init_mqtt():
 def _mqtt_publish(topic, payload, retain=True):
     """Publie un message MQTT."""
     if _mqtt_client:
-        _mqtt_client.publish(topic, json.dumps(payload), retain=retain)
+        if isinstance(payload, (dict, list)):
+            data = json.dumps(payload)
+        else:
+            data = str(payload)
+        _mqtt_client.publish(topic, data, retain=retain)
 
 
 def _register_mqtt_entity(component, object_id, config):

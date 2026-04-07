@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.3.2
+
+- Fix MQTT Discovery : compatibilite paho-mqtt v2.x (callback_api_version). L'ancienne API v1 est aussi supportee.
+- Fix MQTT publish : les states sont envoyes en string (pas JSON) pour les state_topics. Les attributes restent en JSON.
+- L'erreur MQTT est maintenant loggee en WARNING (visible sans debug) au lieu de DEBUG.
+
 ## 5.3.1
 
 - Schema SVG explicatif dans les parametres avances montrant la forme d'onde, les pics de claps, le seuil dynamique, le cooldown et la fenetre multi-clap
