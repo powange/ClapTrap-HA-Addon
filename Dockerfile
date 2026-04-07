@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2-plugins \
     libgles2 \
     libegl1 \
+    pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copier le venv compilé depuis le builder

@@ -903,6 +903,17 @@ def start_mic_test():
             if pulse_name:
                 os.environ['PULSE_SOURCE'] = pulse_name
                 logging.info(f"Test micro: PULSE_SOURCE={pulse_name}")
+                # Monter le volume de la source PulseAudio à 100%
+                try:
+                    import subprocess
+                    # Lister les sources pour le diagnostic
+                    result = subprocess.run(['pactl', 'list', 'sources', 'short'], capture_output=True, text=True, timeout=5)
+                    logging.info(f"Sources PulseAudio: {result.stdout.strip()}")
+                    # Mettre le volume à 100% (65536 = 100%)
+                    subprocess.run(['pactl', 'set-source-volume', pulse_name, '100%'], capture_output=True, text=True, timeout=5)
+                    logging.info(f"Volume PulseAudio mis à 100% pour {pulse_name}")
+                except Exception as e:
+                    logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
             else:
                 logging.warning("Test micro: pas de pulse_name, utilisation du device par défaut")
 

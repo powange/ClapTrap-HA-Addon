@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.31
+
+- Ajout de pulseaudio-utils (pactl) dans le Dockerfile
+- Le volume du micro PulseAudio est automatiquement mis a 100% au demarrage du test et de la detection
+- Logging des sources PulseAudio disponibles pour le diagnostic
+
 ## 2.2.30
 
 - Fix : resolution automatique du pulse_name depuis l'API Supervisor si absent des settings
