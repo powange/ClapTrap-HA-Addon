@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.35
+
+- Layout passe en single-column (flex) pour s'adapter aux panneaux HA ingress etroits
+- Detection circle + boutons sur une meme ligne horizontale
+- Max-width 720px centre, responsive jusqu'a 320px
+- Breakpoint 480px : cards compactes, inputs empiles, header reduit
+- Cercle de detection reduit (100px, 80px sur mobile)
+
 ## 2.2.34
 
 - Refonte complete de l'interface : design moderne, palette de couleurs plus douce, layout plus compact

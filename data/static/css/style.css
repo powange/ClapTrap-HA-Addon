@@ -65,11 +65,11 @@ h1 {
 
 /* ===== Layout ===== */
 .dashboard {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 1.5rem;
-    padding: 1.5rem;
-    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    max-width: 720px;
     margin: 0 auto;
     width: 100%;
 }
@@ -87,23 +87,25 @@ h1 {
 /* ===== Detection Display ===== */
 .visualization-panel {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 1.25rem;
+    justify-content: center;
+    gap: 1rem;
 }
 
 #detection_display {
-    width: 140px;
-    height: 140px;
+    width: 100px;
+    height: 100px;
     border-radius: 50%;
     background: var(--color-bg);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 56px;
+    font-size: 44px;
     position: relative;
     border: 3px solid var(--color-border);
     transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 
 #detection_display.clap {
@@ -118,7 +120,7 @@ h1 {
 }
 
 #waiting-emoji {
-    font-size: 56px;
+    font-size: 44px;
     opacity: 0.4;
     position: absolute;
     left: 50%;
@@ -139,7 +141,7 @@ h1 {
     transition: opacity 0.3s;
     position: absolute;
     z-index: 10;
-    font-size: 56px;
+    font-size: 44px;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
@@ -163,8 +165,6 @@ h1 {
 .control-panel {
     display: flex;
     gap: 0.5rem;
-    justify-content: center;
-    width: 100%;
 }
 
 /* ===== Labels Container ===== */
@@ -823,31 +823,15 @@ footer a:hover {
 }
 
 /* ===== Responsive ===== */
-@media (max-width: 900px) {
-    .dashboard {
-        grid-template-columns: 1fr;
-        padding: 1rem;
-    }
 
-    .visualization-panel {
-        order: -1;
-    }
-
-    #detection_display {
-        width: 120px;
-        height: 120px;
-        font-size: 48px;
-    }
-
-    #waiting-emoji,
-    .clap-emoji {
-        font-size: 48px;
-    }
+/* Labels full width under the detection row */
+#detected_labels {
+    flex-basis: 100%;
 }
 
 @media (max-width: 480px) {
     header {
-        padding: 0.5rem 1rem;
+        padding: 0.5rem 0.75rem;
     }
 
     header img {
@@ -859,8 +843,25 @@ footer a:hover {
     }
 
     .dashboard {
+        padding: 0.5rem;
+        gap: 0.5rem;
+    }
+
+    .visualization-panel,
+    .config-card,
+    .webhook-card {
         padding: 0.75rem;
-        gap: 0.75rem;
+    }
+
+    #detection_display {
+        width: 80px;
+        height: 80px;
+        font-size: 36px;
+    }
+
+    #waiting-emoji,
+    .clap-emoji {
+        font-size: 36px;
     }
 
     .webhook-input-with-test {
@@ -870,5 +871,25 @@ footer a:hover {
     .source-selector {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .config-header {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+
+    .notifications {
+        width: calc(100% - 1rem);
+        left: 0.5rem;
+        right: 0.5rem;
+    }
+}
+
+/* HA ingress panel is often narrow */
+@media (min-width: 900px) {
+    .dashboard {
+        max-width: 800px;
+        padding: 1.5rem;
     }
 }
