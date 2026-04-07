@@ -1,5 +1,5 @@
 name: "ClapTrap"
-version: "5.1.0"
+version: "5.1.1"
 slug: "claptrap"
 description: "Application de détection d'applaudissements en temps réel utilisant YAMNet, compatible avec les flux audio locaux et RTSP"
 url: "https://github.com/powange/ClapTrap-HA-Addon"
@@ -10,6 +10,7 @@ startup: application
 host_network: true
 audio: true
 hassio_api: true
+homeassistant_api: true
 usb: true
 #ports:
 #  "16045/tcp": 16045

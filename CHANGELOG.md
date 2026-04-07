@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.1
+
+- Fix entites HA : ajout de `homeassistant_api: true` dans config.yaml. Sans ca, le Supervisor ne donne pas acces a l'API HA Core (POST /core/api/states/ echoue silencieusement).
+
 ## 5.1.0
 
 ### Entites Home Assistant par source
