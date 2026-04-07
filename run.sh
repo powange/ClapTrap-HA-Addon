@@ -5,37 +5,30 @@
 
 bashio::log.info "Demarrage de ClapTrap..."
 
-# Chercher le socket PulseAudio (HA peut le monter à différents endroits)
-PULSE_SOCKET=""
-for path in /run/pulse/native /run/pulse/pulseaudio.socket /var/run/pulse/native; do
-    if [ -e "${path}" ]; then
-        PULSE_SOCKET="${path}"
-        break
-    fi
-done
-
-if [ -n "${PULSE_SOCKET}" ]; then
-    export PULSE_SERVER="unix:${PULSE_SOCKET}"
-    bashio::log.info "PulseAudio: socket trouve (${PULSE_SOCKET})"
-elif [ -n "${PULSE_SERVER:-}" ]; then
-    bashio::log.info "PulseAudio: PULSE_SERVER deja defini (${PULSE_SERVER})"
-else
-    # Pas de socket, essayer TCP vers le host audio HA
-    export PULSE_SERVER="tcp:172.30.32.1"
-    bashio::log.warning "PulseAudio: aucun socket trouve, tentative TCP (${PULSE_SERVER})"
+# HA definit PULSE_SERVER automatiquement quand audio: true dans config.yaml
+# Ne pas surcharger si deja defini par le systeme
+if [ -z "${PULSE_SERVER:-}" ]; then
+    # Chercher le socket PulseAudio manuellement
+    for path in /run/pulse/native /run/pulse/pulseaudio.socket /var/run/pulse/native; do
+        if [ -e "${path}" ]; then
+            export PULSE_SERVER="unix:${path}"
+            break
+        fi
+    done
 fi
 
-bashio::log.info "PULSE_SERVER=${PULSE_SERVER}"
+bashio::log.info "PULSE_SERVER=${PULSE_SERVER:-NON DEFINI}"
 
-# Diagnostic audio (avec timeout pour ne pas bloquer)
+# Diagnostic : lister tout ce qui est dans /run/pulse/
+bashio::log.info "Contenu de /run/pulse/:"
+ls -la /run/pulse/ 2>/dev/null || bashio::log.warning "/run/pulse/ n'existe pas"
+
+# Diagnostic audio (avec timeout)
 if command -v pactl > /dev/null 2>&1; then
-    timeout 3 pactl list sources short 2>/dev/null && bashio::log.info "Sources PulseAudio listees" || bashio::log.warning "pactl: sources non disponibles au demarrage (normal, PulseAudio sera disponible plus tard)"
+    timeout 3 pactl info 2>&1 | head -3 || true
+    timeout 3 pactl list sources short 2>&1 || true
 fi
 
 cd /usr/src/app || exit 1
-
-# Activer l'environnement virtuel Python
 source /usr/src/app/venv/bin/activate
-
-# Lancer l'application
 exec python app.py

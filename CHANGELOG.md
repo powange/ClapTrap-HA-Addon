@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.6
+
+- Fix "Connection refused" : ne plus surcharger PULSE_SERVER si deja defini par le systeme HA (s6/contenv)
+- Ajout diagnostic : listing de /run/pulse/, pactl info, pactl list sources au demarrage
+- Suppression du fallback TCP qui ne fonctionnait pas
+
 ## 2.3.5
 
 - Remplacement de sounddevice/PortAudio par parecord pour la capture audio micro
