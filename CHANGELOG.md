@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.0
+
+### Fix majeur : la detection micro fonctionne enfin
+
+- **Bridge ALSA→PulseAudio** : ajout de `libpulse0` dans le Dockerfile et creation de `/etc/asound.conf` pour router ALSA default vers PulseAudio. Sans ca, sounddevice/PortAudio parlait directement a ALSA et ignorait PULSE_SOURCE, recevant du silence.
+- **PULSE_SERVER** : `run.sh` configure automatiquement `PULSE_SERVER=unix:/run/pulse/native` pour se connecter au daemon PulseAudio de Home Assistant. Fallback dans `app.py` si non defini.
+- **Diagnostic audio au demarrage** : `run.sh` log les infos PulseAudio et les sources disponibles.
+- **Fix priorite sources** : RTSP ne prend plus priorite sur le micro quand le micro est active.
+- **Fix pulse_name stale** : `_resolve_pulse_name()` verifie maintenant que le pulse_name en cache correspond toujours au device selectionne, et le re-resout sinon.
+- **Fix double-reload settings** : `start_detection()` n'ecrase plus l'audio_source avec une relecture du disque.
+
 ## 2.2.35
 
 - Layout passe en single-column (flex) pour s'adapter aux panneaux HA ingress etroits

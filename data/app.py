@@ -27,6 +27,18 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# Vérifier la configuration PulseAudio
+pulse_server = os.environ.get('PULSE_SERVER', '')
+if pulse_server:
+    logging.info(f"PulseAudio PULSE_SERVER={pulse_server}")
+else:
+    # Fallback si run.sh n'a pas défini PULSE_SERVER
+    if os.path.exists('/run/pulse/native'):
+        os.environ['PULSE_SERVER'] = 'unix:/run/pulse/native'
+        logging.info("PulseAudio: PULSE_SERVER auto-configuré vers /run/pulse/native")
+    else:
+        logging.warning("PulseAudio: PULSE_SERVER non défini et socket absent - l'audio micro risque de ne pas fonctionner")
+
 # Réduire le niveau de log des modules trop verbeux
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
 logging.getLogger('engineio').setLevel(logging.WARNING)
@@ -285,16 +297,17 @@ def start_detection_route():
                 'rtsp_url': None
             }
 
-            # Check for RTSP sources first
-            rtsp_sources = detection_settings.get('rtsp_sources', [])
-            for source in rtsp_sources:
-                if source.get('enabled', False):
-                    detection_params['audio_source'] = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
-                    detection_params['rtsp_url'] = source['url']
-                    logging.info(f"Utilisation de la source RTSP: {source.get('name', 'Unknown')} ({source['url']})")
-                    break
+            # Check for RTSP sources only if microphone is NOT enabled
+            if not microphone_enabled:
+                rtsp_sources = detection_settings.get('rtsp_sources', [])
+                for source in rtsp_sources:
+                    if source.get('enabled', False):
+                        detection_params['audio_source'] = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
+                        detection_params['rtsp_url'] = source['url']
+                        logging.info(f"Utilisation de la source RTSP: {source.get('name', 'Unknown')} ({source['url']})")
+                        break
 
-            # If no RTSP source is enabled, check for VBAN sources
+            # If no RTSP source is enabled and mic is off, check for VBAN sources
             if not detection_params['audio_source'] and not microphone_enabled:
                 # Vérifier d'abord saved_vban_sources
                 saved_vban_sources = detection_settings.get('saved_vban_sources', [])
@@ -892,24 +905,37 @@ _mic_test_thread = None
 _mic_test_running = False
 
 def _resolve_pulse_name(settings):
-    """Résout le pulse_name depuis les settings ou l'API Supervisor."""
-    pulse_name = settings.get('microphone', {}).get('pulse_name', '')
-    if pulse_name:
-        return pulse_name
-
-    # Fallback : chercher dans les devices Supervisor par nom
+    """Résout le pulse_name depuis les settings ou l'API Supervisor.
+    Vérifie toujours que le pulse_name correspond à l'audio_source actuel."""
     audio_source = settings.get('microphone', {}).get('audio_source', '')
     if not audio_source or audio_source == 'default':
+        # Pas de source spécifique, effacer le pulse_name stale
+        if settings.get('microphone', {}).get('pulse_name'):
+            settings['microphone']['pulse_name'] = ''
+            save_settings(settings)
         return ''
 
+    # Vérifier si le pulse_name en cache correspond au device actuel
+    cached_pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+    if cached_pulse_name:
+        # Valider que le device correspond toujours
+        devices = get_audio_input_devices()
+        for dev in devices:
+            if dev.get('name') == audio_source and dev.get('pulse_name') == cached_pulse_name:
+                return cached_pulse_name
+        # pulse_name stale : ne correspond plus au device sélectionné
+        logging.warning(f"pulse_name '{cached_pulse_name}' ne correspond plus à '{audio_source}', re-résolution...")
+
+    # Résoudre depuis l'API Supervisor
     devices = get_audio_input_devices()
     for dev in devices:
         if dev.get('name') == audio_source and dev.get('pulse_name'):
-            # Sauvegarder pour la prochaine fois
             settings['microphone']['pulse_name'] = dev['pulse_name']
             save_settings(settings)
             logging.info(f"pulse_name résolu et sauvegardé: {dev['pulse_name']}")
             return dev['pulse_name']
+
+    logging.warning(f"Impossible de résoudre pulse_name pour '{audio_source}'")
     return ''
 
 @app.route('/api/mic/test/start', methods=['POST'])

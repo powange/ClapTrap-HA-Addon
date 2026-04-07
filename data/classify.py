@@ -125,15 +125,9 @@ def start_detection(
                 return False
             detection_running = True
 
-        # Recharger les paramètres pour avoir les dernières modifications
-        settings = reload_settings()
-        if settings:
-            microphone_settings = settings.get('microphone', {})
-            if isinstance(microphone_settings, dict) and microphone_settings.get('enabled', False):
-                # Utiliser les paramètres du microphone les plus récents
-                audio_source = microphone_settings.get('audio_source')
-                logging.info(f"Utilisation du microphone: {audio_source}")
-
+        # Utiliser l'audio_source déjà résolu par start_detection_route
+        # (ne pas recharger depuis le disque pour éviter les incohérences)
+        logging.info(f"Démarrage détection avec audio_source={audio_source}")
         current_audio_source = audio_source
         _socketio = socketio  # Store the socketio instance globally
 

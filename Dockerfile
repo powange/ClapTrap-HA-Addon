@@ -38,10 +38,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudiocpp0 \
     ffmpeg \
     libasound2-plugins \
+    libpulse0 \
     libgles2 \
     libegl1 \
     pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# Configurer ALSA pour router vers PulseAudio
+RUN printf 'pcm.default pulse\nctl.default pulse\n' > /etc/asound.conf
 
 # Copier le venv compilé depuis le builder
 COPY --from=builder /usr/src/app/venv /usr/src/app/venv
