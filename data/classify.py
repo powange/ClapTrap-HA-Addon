@@ -298,19 +298,17 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             device_name = settings.get('microphone', {}).get('audio_source', 'default')
             saved_index = int(settings.get('microphone', {}).get('device_index', 0))
 
-            # Résoudre le device par nom pour gérer les changements d'index entre redémarrages
-            device_index = saved_index
+            # Lister les devices visibles par sounddevice pour le diagnostic
             try:
                 all_devices = sd.query_devices()
-                for idx, dev in enumerate(all_devices):
-                    if dev['max_input_channels'] > 0 and device_name in dev['name']:
-                        device_index = idx
-                        break
-                logging.info(f"Device résolu: '{device_name}' -> index {device_index} (sauvegardé: {saved_index})")
+                input_devices = [(idx, dev['name']) for idx, dev in enumerate(all_devices) if dev['max_input_channels'] > 0]
+                logging.info(f"Devices audio d'entrée visibles par sounddevice: {input_devices}")
             except Exception as e:
-                logging.warning(f"Impossible de résoudre le device par nom, utilisation de l'index sauvegardé {saved_index}: {e}")
+                logging.warning(f"Impossible de lister les devices sounddevice: {e}")
 
-            source_id = f"mic_{device_index}"
+            # Utiliser le nom du device pour l'ouverture (plus fiable que l'index dans un container)
+            sd_device = device_name if device_name != 'default' else None
+            source_id = f"mic_{saved_index}"
 
             # Récupérer le webhook_url depuis les paramètres du microphone
             microphone_webhook_url = settings.get('microphone', {}).get('webhook_url')
@@ -326,8 +324,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             detector.start()
             logging.info(f"Détection démarrée pour la source microphone {source_id}")
 
+            logging.info(f"Ouverture du stream audio avec device='{sd_device}'")
             with sd.InputStream(
-                device=device_index,
+                device=sd_device,
                 channels=1,
                 samplerate=16000,
                 blocksize=int(16000 * 0.1),  # Buffer de 100ms

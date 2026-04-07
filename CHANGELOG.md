@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.18
+
+- Fix : ouverture du micro par nom au lieu de l'index numerique (PortAudio ne peut pas ouvrir les devices par index Supervisor)
+- Ajout de logging des devices visibles par sounddevice pour le diagnostic
+
 ## 2.2.17
 
 - Fix : resolution du micro par nom au lieu de l'index (les index Supervisor et sounddevice different)
