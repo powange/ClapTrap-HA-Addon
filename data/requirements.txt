@@ -6,3 +6,4 @@ scipy>=1.11
 flask
 flask_socketio
 ffmpeg-python
+paho-mqtt>=1.6

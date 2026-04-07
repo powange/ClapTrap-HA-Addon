@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.2.0
+
+### Entites HA via MQTT Discovery avec appareil ClapTrap
+
+- Si un broker MQTT est disponible (Mosquitto), les entites sont creees via MQTT Discovery et regroupees dans un appareil "ClapTrap"
+- Sinon fallback sur l'API REST (entites orphelines comme avant)
+- Les slugs d'entites utilisent des IDs stables : `mic_7` pour le micro, `rtsp_a1b2c3d4` (8 premiers chars de l'UUID) pour les RTSP
+- Suppression propre des entites quand une source est retiree (via MQTT Discovery)
+- Ajout de paho-mqtt dans les dependances
+
 ## 5.1.2
 
 - Fix noms d'entites HA : les entites utilisent maintenant des slugs courts (claptrap_mic_1, claptrap_rtsp_1, claptrap_rtsp_2) au lieu de l'URL complete dans le nom. Le friendly_name affiche le label lisible (ex: "ClapTrap chambre").

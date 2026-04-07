@@ -164,7 +164,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        def create_detector(source_id, webhook_url, threshold=None, label=None):
+        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None):
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
             det.initialize(max_results=max_results, score_threshold=threshold or score_threshold, clap_window=delay)
@@ -176,7 +176,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
-                register_source(source_id, label=label)
+                register_source(entity_id or source_id, label=label)
             except Exception:
                 pass
             return det
@@ -243,7 +243,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             rtsp_url = src.get('rtsp_url', src['audio_source'])
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'))
+            stream_id = src.get('stream_id', '')
+            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else source_id
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id)
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
@@ -297,7 +299,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         logging.info(f"Détection démarrée avec {len(sources)} source(s) (1 classifier par source)")
 
         try:
-            from ha_entities import update_detection_state
+            from ha_entities import init_entities, update_detection_state
+            init_entities()
             source_labels = [s['label'] for s in sources]
             update_detection_state(True, source_labels)
         except Exception:

@@ -82,6 +82,7 @@ def start_detection_route():
                     url = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
                     sources.append({
                         'type': 'rtsp',
+                        'stream_id': source.get('id', ''),
                         'audio_source': url,
                         'rtsp_url': source['url'],
                         'webhook_url': source.get('webhook_url', ''),
