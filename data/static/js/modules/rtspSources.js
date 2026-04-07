@@ -61,14 +61,25 @@ function createStreamElement(stream) {
         <div class="webhook-input-group mt-2">
             <label class="form-label">URL Webhook</label>
             <div class="webhook-input-with-test">
-                <input type="url" class="webhook-input webhook-url" 
-                       value="${stream.webhook_url || ''}" 
+                <input type="url" class="webhook-input webhook-url"
+                       value="${stream.webhook_url || ''}"
                        data-id="${stream.id}"
                        placeholder="https://votre-serveur.com/webhook">
                 <button type="button" class="test-webhook" data-source="rtsp-${stream.id}">
                     <span class="icon">🔔</span>
                     Tester
                 </button>
+            </div>
+        </div>
+        <div class="mic-test-section">
+            <button type="button" class="btn-mic-test rtsp-test-btn" data-url="${stream.url}" data-id="${stream.id}">
+                🔊 Tester le flux
+            </button>
+            <div class="vu-meter rtsp-test-vu" data-id="${stream.id}" style="display: none;">
+                <div class="vu-meter-track">
+                    <div class="vu-meter-bar rtsp-test-bar" data-id="${stream.id}"></div>
+                </div>
+                <span class="vu-meter-label rtsp-test-db" data-id="${stream.id}">-60 dB</span>
             </div>
         </div>
     `;
@@ -116,6 +127,40 @@ function setupStreamEventListeners(element, stream) {
             deleteStream(stream.id);
         }
     });
+
+    // RTSP test button
+    const testBtn = element.querySelector('.rtsp-test-btn');
+    if (testBtn) {
+        let testing = false;
+        testBtn.addEventListener('click', () => {
+            const basePath = window.basePath || '';
+            const url = element.querySelector('.rtsp-url')?.value || stream.url;
+            if (testing) {
+                fetch(basePath + '/api/rtsp/test/stop', {method: 'POST'});
+                testing = false;
+                testBtn.textContent = '🔊 Tester le flux';
+                testBtn.classList.remove('active');
+                const vu = element.querySelector('.rtsp-test-vu');
+                if (vu) vu.style.display = 'none';
+            } else {
+                fetch(basePath + '/api/rtsp/test/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                }).then(r => r.json()).then(data => {
+                    if (data.success) {
+                        testing = true;
+                        testBtn.textContent = '⏹ Arreter le test';
+                        testBtn.classList.add('active');
+                        const vu = element.querySelector('.rtsp-test-vu');
+                        if (vu) vu.style.display = 'flex';
+                    } else {
+                        showError(data.error || 'Erreur test RTSP');
+                    }
+                }).catch(err => showError('Erreur test RTSP'));
+            }
+        });
+    }
 }
 
 function showAddStreamForm() {

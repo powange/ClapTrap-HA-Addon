@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.0
+
+- Ajout d'un bouton "Tester le flux" sur chaque source RTSP avec VU-metre en temps reel
+- Utilise ffmpeg pour lire le flux RTSP et afficher les niveaux audio via socket.io
+- Le test utilise l'URL actuellement saisie dans le champ (pas celle sauvegardee)
+- Endpoints API: POST /api/rtsp/test/start et POST /api/rtsp/test/stop
+
 ## 3.0.4
 
 - Fix : le reglage de volume et l'auto-volume utilisent maintenant le device selectionne dans le dropdown (pas celui sauvegarde)

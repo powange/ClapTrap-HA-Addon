@@ -336,6 +336,26 @@
                     }
                 });
 
+                // RTSP test VU-metre
+                sock.on('rtsp_level', function(data) {
+                    // Trouver la barre et le label correspondants
+                    var bars = document.querySelectorAll('.rtsp-test-bar');
+                    var labels = document.querySelectorAll('.rtsp-test-db');
+                    bars.forEach(function(bar) {
+                        if (!data.error) {
+                            var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
+                            bar.style.width = pct + '%';
+                        }
+                    });
+                    labels.forEach(function(label) {
+                        if (data.error) {
+                            label.textContent = 'Erreur';
+                        } else {
+                            label.textContent = data.db + ' dB';
+                        }
+                    });
+                });
+
                 // Ecouter les changements d'etat de detection (auto-start, stop)
                 sock.on('detection_status', function(data) {
                     var startBtn = document.getElementById('startButton');

@@ -993,6 +993,85 @@ def stop_mic_test():
     _mic_test_running = False
     return jsonify({'success': True})
 
+# --- Test RTSP (VU-mètre) ---
+_rtsp_test_thread = None
+_rtsp_test_running = False
+
+@app.route('/api/rtsp/test/start', methods=['POST'])
+def start_rtsp_test():
+    global _rtsp_test_thread, _rtsp_test_running
+    if _rtsp_test_running:
+        return jsonify({'success': True, 'message': 'Déjà en cours'})
+
+    data = request.get_json(silent=True) or {}
+    rtsp_url = data.get('url', '')
+    if not rtsp_url:
+        return jsonify({'error': 'URL RTSP requise'}), 400
+
+    _rtsp_test_running = True
+
+    def stream_rtsp_levels():
+        global _rtsp_test_running
+        import subprocess as sp
+        proc = None
+        try:
+            # Utiliser ffmpeg pour lire le flux RTSP et produire du PCM float32
+            cmd = [
+                'ffmpeg', '-i', rtsp_url,
+                '-vn',  # pas de video
+                '-f', 'f32le', '-acodec', 'pcm_f32le',
+                '-ac', '1', '-ar', '16000',
+                '-loglevel', 'error',
+                'pipe:1'
+            ]
+            logging.info(f"Test RTSP: lancement de ffmpeg pour {rtsp_url}")
+            proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+
+            # Drainer stderr
+            import threading as _thr
+            _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+
+            block_size = 1600  # 100ms à 16kHz
+            bytes_per_block = block_size * 4
+            cb_count = 0
+
+            while _rtsp_test_running:
+                raw = proc.stdout.read(bytes_per_block)
+                if not raw:
+                    socketio.emit('rtsp_level', {'error': 'Flux RTSP interrompu ou URL invalide'})
+                    break
+
+                samples = np.frombuffer(raw, dtype=np.float32)
+                peak = float(np.max(np.abs(samples)))
+                cb_count += 1
+                if cb_count <= 3 or cb_count % 50 == 0:
+                    logging.info(f"Test RTSP #{cb_count}: peak={peak:.6f}")
+
+                peak_amplified = min(1.0, peak * 50)
+                db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
+                socketio.emit('rtsp_level', {'peak': peak_amplified, 'db': round(db, 1), 'url': rtsp_url})
+
+        except Exception as e:
+            logging.error(f"Erreur test RTSP: {e}")
+            socketio.emit('rtsp_level', {'error': str(e)})
+        finally:
+            _rtsp_test_running = False
+            if proc:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except Exception:
+                    proc.kill()
+
+    _rtsp_test_thread = socketio.start_background_task(stream_rtsp_levels)
+    return jsonify({'success': True})
+
+@app.route('/api/rtsp/test/stop', methods=['POST'])
+def stop_rtsp_test():
+    global _rtsp_test_running
+    _rtsp_test_running = False
+    return jsonify({'success': True})
+
 @app.route('/api/detections/history', methods=['GET'])
 def detection_history():
     from classify import get_detection_history
