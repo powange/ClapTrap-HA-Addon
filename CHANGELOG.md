@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.23
+
+- Fix : bouton "Tester le micro" deplace hors de la zone conditionnelle (visible meme si le micro est desactive)
+
 ## 2.2.22
 
 - Ajout d'un VU-metre en temps reel pour tester le microphone (bouton "Tester le micro")
