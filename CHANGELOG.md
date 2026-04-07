@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.5
+
+- Remplacement de sounddevice/PortAudio par parecord pour la capture audio micro
+- parecord utilise directement libpulse (comme pactl) et bypass la chaine PortAudio/ALSA qui ne voyait aucun device dans le conteneur HA
+- Le device TONOR selectionne est passe via --device=pulse_name a parecord
+- Applique au test micro ET a la detection
+
 ## 2.3.4
 
 - Fix "Error querying device -1" : sounddevice ne trouvait aucun device par defaut. Le code cherche maintenant explicitement un device "pulse" ou "default" dans la liste des devices disponibles, au lieu de passer device=None (qui echoue quand PortAudio n'a pas de default configure).

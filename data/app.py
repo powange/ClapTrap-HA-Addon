@@ -954,74 +954,59 @@ def start_mic_test():
 
     def stream_levels():
         global _mic_test_running
+        import subprocess as sp
+        proc = None
         try:
+            # Régler le volume
+            mic_volume = settings.get('microphone', {}).get('volume', 100)
             if pulse_name:
-                os.environ['PULSE_SOURCE'] = pulse_name
-                logging.info(f"Test micro: PULSE_SOURCE={pulse_name}")
-                # Régler le volume de la source PulseAudio selon les settings
                 try:
-                    import subprocess
-                    mic_volume = settings.get('microphone', {}).get('volume', 100)
-                    # Lister les sources pour le diagnostic
-                    result = subprocess.run(['pactl', 'list', 'sources', 'short'], capture_output=True, text=True, timeout=5)
-                    logging.info(f"Sources PulseAudio: {result.stdout.strip()}")
-                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'], capture_output=True, text=True, timeout=5)
+                    sp.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'],
+                           capture_output=True, text=True, timeout=5)
                     logging.info(f"Volume PulseAudio mis à {mic_volume}% pour {pulse_name}")
                 except Exception as e:
                     logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
-            else:
-                logging.warning("Test micro: pas de pulse_name, utilisation du device par défaut")
 
-            _cb_count = [0]
-            def callback(indata, frames, time_info, status):
-                if not _mic_test_running:
-                    return
-                if status:
-                    logging.warning(f"Test micro status: {status}")
-                peak = float(np.max(np.abs(indata)))
-                _cb_count[0] += 1
-                if _cb_count[0] <= 5 or _cb_count[0] % 50 == 0:
-                    logging.info(f"Test micro callback #{_cb_count[0]}: peak brut={peak:.6f}, indata.shape={indata.shape}, dtype={indata.dtype}")
-                # Appliquer un gain de 10x pour compenser le niveau faible de PulseAudio
+            # Utiliser parecord pour capturer l'audio (bypass sounddevice/PortAudio)
+            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
+            if pulse_name:
+                cmd.append(f'--device={pulse_name}')
+            logging.info(f"Test micro: lancement de {' '.join(cmd)}")
+            proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+
+            block_size = 1600  # 100ms à 16kHz
+            bytes_per_block = block_size * 4  # float32 = 4 bytes
+            cb_count = 0
+
+            while _mic_test_running:
+                data = proc.stdout.read(bytes_per_block)
+                if not data:
+                    stderr = proc.stderr.read().decode(errors='replace')
+                    logging.error(f"Test micro: parecord a cessé de produire des données. stderr: {stderr}")
+                    socketio.emit('mic_level', {'error': f'parecord: {stderr[:200]}'})
+                    break
+
+                samples = np.frombuffer(data, dtype=np.float32)
+                peak = float(np.max(np.abs(samples)))
+                cb_count += 1
+                if cb_count <= 5 or cb_count % 50 == 0:
+                    logging.info(f"Test micro #{cb_count}: peak={peak:.6f}, samples={len(samples)}")
+
                 peak_amplified = min(1.0, peak * 50)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
                 socketio.emit('mic_level', {'peak': peak_amplified, 'db': round(db, 1)})
 
-            # Lister les devices vus par sounddevice
-            try:
-                default_dev = sd.default.device
-                logging.info(f"Test micro: sounddevice default device={default_dev}")
-                logging.info(f"Test micro: PULSE_SOURCE={os.environ.get('PULSE_SOURCE', 'NON DÉFINI')}")
-            except Exception as e:
-                logging.warning(f"Test micro: impossible de lister les devices: {e}")
-
-            # Chercher un device valide : "pulse", "default", ou None
-            sd_device = None
-            try:
-                devs = sd.query_devices()
-                dev_names = [d['name'] for d in devs] if isinstance(devs, list) else []
-                logging.info(f"Test micro: devices disponibles: {dev_names}")
-                for candidate in ['pulse', 'default']:
-                    for i, d in enumerate(devs if isinstance(devs, list) else []):
-                        if candidate in d['name'].lower() and d.get('max_input_channels', 0) > 0:
-                            sd_device = i
-                            logging.info(f"Test micro: utilisation device #{i} ({d['name']})")
-                            break
-                    if sd_device is not None:
-                        break
-            except Exception as e:
-                logging.warning(f"Test micro: erreur query_devices: {e}")
-
-            logging.info(f"Test micro: ouverture du stream audio (device={sd_device})...")
-            with sd.InputStream(device=sd_device, channels=1, samplerate=16000,
-                                blocksize=1600, callback=callback):
-                while _mic_test_running:
-                    socketio.sleep(0.1)
         except Exception as e:
             logging.error(f"Erreur test micro: {e}")
             socketio.emit('mic_level', {'error': str(e)})
         finally:
             _mic_test_running = False
+            if proc:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except Exception:
+                    proc.kill()
 
     _mic_test_thread = socketio.start_background_task(stream_levels)
     return jsonify({'success': True})

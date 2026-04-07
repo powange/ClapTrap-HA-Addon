@@ -311,35 +311,18 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 except Exception as e:
                     logging.warning(f"Impossible de résoudre pulse_name: {e}")
 
-            # Configurer PulseAudio pour utiliser la bonne source d'entrée
+            # Régler le volume PulseAudio
             if pulse_name:
-                os.environ['PULSE_SOURCE'] = pulse_name
-                logging.info(f"PULSE_SOURCE configuré: {pulse_name}")
-                # Régler le volume selon les settings
                 try:
                     import subprocess
                     mic_volume = settings.get('microphone', {}).get('volume', 100)
-                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'], capture_output=True, text=True, timeout=5)
+                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'],
+                                   capture_output=True, text=True, timeout=5)
                     logging.info(f"Volume PulseAudio mis à {mic_volume}% pour {pulse_name}")
                 except Exception as e:
                     logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
             else:
-                logging.warning(f"Pas de pulse_name pour '{device_name}', utilisation du device PulseAudio par défaut")
-
-            # Chercher un device valide : "pulse", "default", ou None
-            sd_device = None
-            try:
-                devs = sd.query_devices()
-                for candidate in ['pulse', 'default']:
-                    for i, d in enumerate(devs if isinstance(devs, list) else []):
-                        if candidate in d['name'].lower() and d.get('max_input_channels', 0) > 0:
-                            sd_device = i
-                            logging.info(f"Détection micro: utilisation device #{i} ({d['name']})")
-                            break
-                    if sd_device is not None:
-                        break
-            except Exception as e:
-                logging.warning(f"Détection micro: erreur query_devices: {e}")
+                logging.warning(f"Pas de pulse_name pour '{device_name}'")
 
             source_id = f"mic_{saved_index}"
 
@@ -357,17 +340,32 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             detector.start()
             logging.info(f"Détection démarrée pour la source microphone {source_id}")
 
-            logging.info(f"Ouverture du stream audio avec device='{sd_device}'")
-            with sd.InputStream(
-                device=sd_device,
-                channels=1,
-                samplerate=16000,
-                blocksize=int(16000 * 0.1),  # Buffer de 100ms
-                callback=lambda indata, frames, time, status: detector.process_audio(indata[:, 0], source_id)
-            ):
-                logging.info("Stream audio démarré pour le microphone")
+            # Utiliser parecord pour capturer l'audio (bypass sounddevice/PortAudio)
+            import subprocess
+            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
+            if pulse_name:
+                cmd.append(f'--device={pulse_name}')
+            logging.info(f"Lancement capture audio: {' '.join(cmd)}")
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            block_size = 1600  # 100ms à 16kHz
+            bytes_per_block = block_size * 4  # float32 = 4 bytes
+
+            try:
                 while detection_running:
-                    time.sleep(0.1)
+                    data = proc.stdout.read(bytes_per_block)
+                    if not data:
+                        stderr = proc.stderr.read().decode(errors='replace')
+                        logging.error(f"parecord a cessé de produire des données: {stderr}")
+                        break
+                    samples = np.frombuffer(data, dtype=np.float32)
+                    detector.process_audio(samples, source_id)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except Exception:
+                    proc.kill()
                     
         detector.stop()
         return True
