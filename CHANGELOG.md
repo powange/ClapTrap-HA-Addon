@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.2
+
+- Fix : la detection utilise maintenant les flux RTSP et VBAN sauvegardes sur disque si le frontend ne les envoie pas (le module JS detection.js n'avait pas les RTSP en memoire)
+
 ## 3.2.1
 
 - Fix : les flux RTSP et sources VBAN ne sont plus ecrases lors d'une sauvegarde globale des settings. Le save_settings fait maintenant un deep merge et preserve les listes de sources si le frontend envoie un tableau vide.

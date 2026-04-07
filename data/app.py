@@ -207,8 +207,15 @@ def start_detection_route():
         detection_settings = request.json
         if not detection_settings:
             return jsonify({'error': 'Aucun paramètre fourni'}), 400
-            
-        # Vérifier la présence des sections requises et initialiser avec des valeurs par défaut si nécessaire
+
+        # Compléter avec les settings sauvegardés (le frontend n'envoie pas toujours les RTSP/VBAN)
+        saved = load_settings()
+        if not detection_settings.get('rtsp_sources'):
+            detection_settings['rtsp_sources'] = saved.get('rtsp_sources', [])
+        if not detection_settings.get('saved_vban_sources'):
+            detection_settings['saved_vban_sources'] = saved.get('saved_vban_sources', [])
+
+        # Vérifier la présence des sections requises
         if 'global' not in detection_settings or detection_settings['global'] is None:
             detection_settings['global'] = {'threshold': '0.2', 'delay': '1.0'}
             
