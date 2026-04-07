@@ -23,10 +23,18 @@ from settings_manager import load_settings
 _webhook_executor = ThreadPoolExecutor(max_workers=2)
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
+# Appliquer le niveau de log depuis les settings
+try:
+    _cls_settings = load_settings()
+    if _cls_settings.get('global', {}).get('debug', False):
+        logging.getLogger().setLevel(logging.DEBUG)
+except Exception:
+    pass
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 

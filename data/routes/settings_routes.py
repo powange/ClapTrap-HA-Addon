@@ -47,6 +47,23 @@ def save_settings_api():
         return jsonify({'error': str(e)}), 400
 
 
+@settings_bp.route('/api/settings/debug', methods=['PUT'])
+def toggle_debug():
+    try:
+        data = request.get_json()
+        enabled = bool(data.get('enabled', False))
+        settings = load_settings()
+        settings['global']['debug'] = enabled
+        save_settings(settings)
+        # Appliquer immédiatement
+        level = logging.DEBUG if enabled else logging.INFO
+        logging.getLogger().setLevel(level)
+        logging.info(f"Logs debug {'actives' if enabled else 'desactives'}")
+        return jsonify({'success': True, 'debug': enabled})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @settings_bp.route('/api/settings/export', methods=['GET'])
 def export_settings():
     from flask import send_file

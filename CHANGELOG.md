@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.2.5
+
+- Toggle debug dans la barre de controle : active/desactive les logs DEBUG en temps reel
+- Les logs sont en INFO par defaut (moins verbeux). Le mode debug affiche les stats audio par bloc, les labels du classifier, etc.
+- Le parametre est persiste dans les settings (survive au redemarrage)
+- classify.py passe de DEBUG permanent a INFO par defaut
+
 ## 5.2.4
 
 - Fix VU-metre : suppression de l'amplification artificielle x50 sur les tests micro et RTSP. Le VU-metre montre maintenant le signal reel (avec le gain configure). La voix ne sature plus a 0dB.

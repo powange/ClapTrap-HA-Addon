@@ -24,6 +24,15 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# Appliquer le niveau de log depuis les settings
+try:
+    _init_settings = load_settings()
+    if _init_settings.get('global', {}).get('debug', False):
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.info("Mode debug active depuis les settings")
+except Exception:
+    pass
+
 # Vérifier la configuration PulseAudio
 pulse_server = os.environ.get('PULSE_SERVER', '')
 if not pulse_server:

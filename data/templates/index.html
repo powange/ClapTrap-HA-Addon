@@ -46,6 +46,14 @@
                     </label>
                 </div>
                 <div class="control-setting">
+                    <label>Debug :</label>
+                    <label class="switch">
+                        <input type="checkbox" id="debug-toggle"
+                               {% if settings['global'].get('debug', false) %}checked{% endif %}>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-setting">
                     <button id="exportConfigBtn" class="btn btn-secondary" title="Exporter la config">&#x1F4E5;</button>
                     <label class="btn btn-secondary" title="Importer une config" style="cursor:pointer;margin:0;">
                         &#x1F4E4;
@@ -746,6 +754,18 @@
                 importInput.value = '';
             });
         }
+
+        // Debug toggle
+        document.addEventListener('change', function(e) {
+            if (e.target.id === 'debug-toggle') {
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/settings/debug', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: e.target.checked})
+                });
+            }
+        });
 
         // Auto-start toggle
         document.addEventListener('change', function(e) {
