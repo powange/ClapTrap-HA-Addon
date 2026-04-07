@@ -2,9 +2,32 @@ import { showNotification, showSuccess, showError } from './notifications.js';
 
 function formatSourceId(sourceId) {
     if (!sourceId) return '';
-    if (sourceId.startsWith('mic_')) return 'Micro';
-    if (sourceId.startsWith('rtsp_')) return 'RTSP';
-    if (sourceId.startsWith('vban_')) return 'VBAN';
+    const settings = window.settings || {};
+
+    if (sourceId.startsWith('mic_')) {
+        const name = settings.microphone?.audio_source;
+        return name && name !== 'default' ? name : 'Micro';
+    }
+    if (sourceId.startsWith('rtsp_')) {
+        // Chercher le nom du flux RTSP par URL
+        const rtspUrl = sourceId.replace('rtsp_', '');
+        const sources = settings.rtsp_sources || [];
+        for (const s of sources) {
+            if (rtspUrl.includes(s.url) || s.url?.includes(rtspUrl.substring(0, 30))) {
+                return s.name || 'RTSP';
+            }
+        }
+        return 'RTSP';
+    }
+    if (sourceId.startsWith('vban_')) {
+        const vbanSources = settings.saved_vban_sources || [];
+        for (const s of vbanSources) {
+            if (sourceId.includes(s.ip)) {
+                return s.name || 'VBAN';
+            }
+        }
+        return 'VBAN';
+    }
     return sourceId;
 }
 

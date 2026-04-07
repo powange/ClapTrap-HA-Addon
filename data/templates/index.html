@@ -85,7 +85,10 @@
 
         <!-- History -->
         <section class="config-card">
-            <h3>Historique</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;">Historique</h3>
+                <button type="button" id="clearHistoryBtn" class="btn btn-secondary btn-sm">Effacer</button>
+            </div>
             <div id="detected_labels" class="labels-container"></div>
         </section>
     </main>
@@ -757,6 +760,14 @@
                 importInput.value = '';
             });
         }
+
+        // Clear history
+        document.addEventListener('click', function(e) {
+            if (e.target.id === 'clearHistoryBtn' || e.target.closest('#clearHistoryBtn')) {
+                var container = document.getElementById('detected_labels');
+                if (container) container.innerHTML = '';
+            }
+        });
 
         // Debug toggle
         document.addEventListener('change', function(e) {

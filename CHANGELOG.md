@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.2.7
+
+- L'historique affiche maintenant le nom du flux (ex: "Bureau", "chambre") au lieu de juste "RTSP". Idem pour les micros et VBAN.
+- Bouton "Effacer" pour vider l'historique sur l'interface.
+
 ## 5.2.6
 
 - Affichage des entites HA liees dans chaque onglet source (binary_sensor et sensor). Les noms sont cliquables pour les copier. Endpoint GET /api/ha/entities.
