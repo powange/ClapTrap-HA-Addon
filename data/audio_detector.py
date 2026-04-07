@@ -34,10 +34,13 @@ class AudioDetector:
         self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
 
-    def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5):
+    def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5,
+                   peak_cooldown=0.08, peak_ratio=3.0):
         """Initialise le classificateur audio"""
         self.score_threshold = score_threshold
         self._clap_window_duration = clap_window
+        self._peak_cooldown = peak_cooldown
+        self._peak_ratio = peak_ratio
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             

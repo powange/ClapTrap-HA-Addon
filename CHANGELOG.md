@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.3.0
+
+### Parametres avances configurables
+
+- Nouvelle section "Parametres avances" (depliable) dans l'interface avec :
+  - **Fenetre multi-clap** (0.5-5s) : duree pendant laquelle les pics sont accumules
+  - **Cooldown entre pics** (0.01-0.5s) : temps minimum entre deux pics pour eviter les doublons
+  - **Ratio pic/bruit** (1.5-10x) : un pic doit etre N fois au-dessus du bruit moyen pour compter
+- Les parametres sont sauvegardes automatiquement et pris en compte au prochain demarrage de la detection
+- Deplace depuis la barre de controle vers la section avancee
+
 ## 5.2.12
 
 - Fix multi-clap : 3 claps rapides etaient comptes comme 1 car le signal ne redescendait pas assez entre les claps. Seuil de retour assoupli (60% au lieu de 30%), cooldown reduit (80ms au lieu de 120ms), ratio de pic reduit (3x au lieu de 5x). La moyenne glissante exclut les pics pour ne pas gonfler le seuil. Logging debug des pics detectes.

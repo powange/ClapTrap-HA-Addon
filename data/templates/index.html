@@ -33,11 +33,6 @@
             </div>
             <div class="control-settings">
                 <div class="control-setting">
-                    <label for="delay">Multi-clap :</label>
-                    <input type="number" id="delay" name="delay" min="0.5" max="5" step="0.1" value="{{ settings['global']['delay'] }}">
-                    <span class="unit">sec</span>
-                </div>
-                <div class="control-setting">
                     <label>Auto-start :</label>
                     <label class="switch">
                         <input type="checkbox" id="auto-start"
@@ -65,6 +60,39 @@
                 </div>
             </div>
             <div id="active-sources" class="active-sources"></div>
+        </section>
+
+        <!-- Advanced Settings (collapsible) -->
+        <section class="config-card advanced-card">
+            <div class="advanced-header" id="advancedToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;font-size:0.85rem;">Parametres avances</h3>
+                <span id="advancedArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
+            </div>
+            <div id="advancedContent" style="display:none;margin-top:0.75rem;">
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label for="adv-delay">Fenetre multi-clap</label>
+                        <div class="setting-control">
+                            <input type="number" id="adv-delay" min="0.5" max="5" step="0.1" value="{{ settings['global']['delay'] }}">
+                            <span class="unit">sec</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="adv-cooldown">Cooldown entre pics</label>
+                        <div class="setting-control">
+                            <input type="number" id="adv-cooldown" min="0.01" max="0.5" step="0.01" value="{{ settings['global'].get('peak_cooldown', 0.08) }}">
+                            <span class="unit">sec</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="adv-ratio">Ratio pic/bruit</label>
+                        <div class="setting-control">
+                            <input type="number" id="adv-ratio" min="1.5" max="10" step="0.5" value="{{ settings['global'].get('peak_ratio', 3.0) }}">
+                            <span class="unit">x</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- Sources Tabs -->
@@ -810,6 +838,42 @@
                 var container = document.getElementById('detected_labels');
                 if (container) container.innerHTML = '';
             }
+        });
+
+        // Advanced settings toggle
+        document.addEventListener('click', function(e) {
+            if (e.target.id === 'advancedToggle' || e.target.closest('#advancedToggle')) {
+                var content = document.getElementById('advancedContent');
+                var arrow = document.getElementById('advancedArrow');
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    arrow.innerHTML = '&#x25B2;';
+                } else {
+                    content.style.display = 'none';
+                    arrow.innerHTML = '&#x25BC;';
+                }
+            }
+        });
+
+        // Advanced settings save on change
+        ['adv-delay', 'adv-cooldown', 'adv-ratio'].forEach(function(id) {
+            document.addEventListener('change', function(e) {
+                if (e.target.id === id) {
+                    var basePath = window.basePath || '';
+                    var payload = {};
+                    var delayEl = document.getElementById('adv-delay');
+                    var cooldownEl = document.getElementById('adv-cooldown');
+                    var ratioEl = document.getElementById('adv-ratio');
+                    if (delayEl) payload.delay = parseFloat(delayEl.value);
+                    if (cooldownEl) payload.peak_cooldown = parseFloat(cooldownEl.value);
+                    if (ratioEl) payload.peak_ratio = parseFloat(ratioEl.value);
+                    fetch(basePath + '/api/settings/advanced', {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                }
+            });
         });
 
         // Debug toggle

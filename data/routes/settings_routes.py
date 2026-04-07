@@ -64,6 +64,20 @@ def toggle_debug():
         return jsonify({'error': str(e)}), 500
 
 
+@settings_bp.route('/api/settings/advanced', methods=['PUT'])
+def update_advanced_settings():
+    try:
+        data = request.get_json()
+        settings = load_settings()
+        for key in ['delay', 'peak_cooldown', 'peak_ratio']:
+            if key in data:
+                settings['global'][key] = float(data[key])
+        save_settings(settings)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @settings_bp.route('/api/ha/entities', methods=['GET'])
 def get_ha_entities():
     try:

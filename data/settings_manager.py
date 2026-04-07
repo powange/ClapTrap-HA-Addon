@@ -19,7 +19,9 @@ DEFAULT_SETTINGS = {
     "global": {
         "threshold": 0.5,
         "delay": 1.5,
-        "debug": False
+        "debug": False,
+        "peak_cooldown": 0.08,
+        "peak_ratio": 3.0
     },
     "microphone": {
         "device_index": 0,

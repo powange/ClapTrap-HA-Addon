@@ -115,7 +115,9 @@ def start_detection_route():
                 'overlapping_factor': 0.8,
                 'socketio': _socketio,
                 'delay': float(global_settings.get('delay', 1.0)),
-                'sources': sources
+                'sources': sources,
+                'peak_cooldown': float(global_settings.get('peak_cooldown', 0.08)),
+                'peak_ratio': float(global_settings.get('peak_ratio', 3.0))
             }
 
         except (ValueError, TypeError) as e:

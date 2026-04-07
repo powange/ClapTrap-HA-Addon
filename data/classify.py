@@ -103,6 +103,7 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
         detection_thread = threading.Thread(
             target=run_detection,
             args=(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources),
+            kwargs={'peak_cooldown': kwargs.get('peak_cooldown', 0.08), 'peak_ratio': kwargs.get('peak_ratio', 3.0)},
             daemon=True
         )
         detection_thread.start()
@@ -115,7 +116,8 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
         return False
 
 
-def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources):
+def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources,
+                   peak_cooldown=0.08, peak_ratio=3.0):
     """Exécute la détection multi-source. Un classifier par source (isolation complète)."""
     global detection_running
     source_threads = []
@@ -175,7 +177,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None):
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-            det.initialize(max_results=max_results, score_threshold=threshold or score_threshold, clap_window=delay)
+            det.initialize(max_results=max_results, score_threshold=threshold or score_threshold,
+                          clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
                 labels_callback=create_labels_callback(source_id))
