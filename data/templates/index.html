@@ -61,14 +61,16 @@
 
         <!-- Sources Tabs -->
         <section class="sources-section">
-            <div class="tabs-header">
-                <button id="addSourceBtn" class="tab-btn" type="button">+ Ajouter</button>
+            <div class="tabs-header" style="position:relative;">
+                <div style="position:relative;display:inline-block;">
+                    <button id="addSourceBtn" class="tab-btn" type="button">+ Ajouter</button>
+                    <div class="add-source-menu" id="addSourceMenu" style="display:none;top:100%;left:0;">
+                        <button type="button" data-type="mic">&#x1F3A4; Microphone</button>
+                        <button type="button" data-type="rtsp">&#x1F4F9; RTSP</button>
+                        <button type="button" data-type="vban">&#x1F3B5; VBAN</button>
+                    </div>
+                </div>
                 <div id="source-tabs" style="display:contents;"></div>
-            </div>
-            <div class="add-source-menu" id="addSourceMenu" style="display:none;">
-                <button type="button" data-type="mic">&#x1F3A4; Microphone</button>
-                <button type="button" data-type="rtsp">&#x1F4F9; RTSP</button>
-                <button type="button" data-type="vban">&#x1F3B5; VBAN</button>
             </div>
             <div id="source-tab-content"></div>
         </section>
@@ -334,21 +336,23 @@
         if (addBtn && addMenu) {
             addBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                var rect = addBtn.getBoundingClientRect();
-                addMenu.style.top = rect.bottom + 'px';
-                addMenu.style.left = rect.left + 'px';
-                addMenu.style.display = addMenu.style.display === 'none' ? 'block' : 'none';
+                e.preventDefault();
+                addMenu.style.display = addMenu.style.display === 'block' ? 'none' : 'block';
             });
-            document.addEventListener('click', function() {
-                addMenu.style.display = 'none';
+            document.addEventListener('click', function(e) {
+                if (!addMenu.contains(e.target) && e.target !== addBtn) {
+                    addMenu.style.display = 'none';
+                }
             });
-            addMenu.addEventListener('click', function(e) {
-                e.stopPropagation();
-                var btn = e.target.closest('button[data-type]');
-                if (!btn) return;
-                var type = btn.getAttribute('data-type');
-                addMenu.style.display = 'none';
-                addSource(type);
+            // Délégation sur les boutons du menu
+            var menuBtns = addMenu.querySelectorAll('button[data-type]');
+            menuBtns.forEach(function(mbtn) {
+                mbtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var type = mbtn.getAttribute('data-type');
+                    addMenu.style.display = 'none';
+                    addSource(type);
+                });
             });
         }
 

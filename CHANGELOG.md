@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.0.3
+
+- Fix bouton Ajouter : le dropdown est maintenant positionne juste sous le bouton (CSS relatif au parent, plus de getBoundingClientRect). Les clics sur les options fonctionnent (event listeners individuels au lieu de delegation).
+
 ## 5.0.2
 
 - Fix : tous les event handlers sont maintenant bindes dans les onglets dynamiques (test RTSP, sliders precision/volume, toggle enabled, URL, nom, webhook pour chaque source). Avant, seuls les sliders visuels etaient bindes, les appels API manquaient.
