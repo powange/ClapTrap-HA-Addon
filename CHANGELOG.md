@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.33
+
+- Fix : le slider volume du micro fonctionne maintenant via le script fallback inline
+- Le label pourcentage se met a jour en temps reel lors du deplacement du slider
+- L'appel API PUT /api/microphone/volume est envoye au relachement du slider
+
 ## 2.2.32
 
 - Ajout d'un slider de volume du micro dans l'interface (0% a 150%)

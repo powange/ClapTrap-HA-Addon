@@ -227,6 +227,32 @@
             }
         });
 
+        // Volume micro slider
+        var volSlider = document.getElementById('mic-volume');
+        var volLabel = document.getElementById('mic-volume-value');
+        if (volSlider) {
+            volSlider.addEventListener('input', function() {
+                volLabel.textContent = volSlider.value + '%';
+            });
+            var volTimeout;
+            volSlider.addEventListener('change', function() {
+                var volume = parseInt(volSlider.value);
+                clearTimeout(volTimeout);
+                volTimeout = setTimeout(function() {
+                    var basePath = window.basePath || '';
+                    fetch(basePath + '/api/microphone/volume', {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({volume: volume})
+                    }).then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (data.success) console.log('Volume mis a jour:', volume + '%');
+                      })
+                      .catch(function(err) { console.error('Erreur volume:', err); });
+                }, 300);
+            });
+        }
+
         // Ecouter les niveaux via socket.io
         var checkSocket = setInterval(function() {
             if (typeof io !== 'undefined') {
