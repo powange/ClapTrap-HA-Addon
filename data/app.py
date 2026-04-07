@@ -269,6 +269,18 @@ import re as _re
 # Version pour le cache bust des modules JS (change à chaque restart)
 _js_version = str(int(time.time()))
 
+@app.route('/css/<version>/<path:filename>')
+def serve_versioned_css(version, filename):
+    """Sert le CSS avec la version dans le chemin (bypass service worker cache)."""
+    file_path = os.path.join(app.static_folder, 'css', filename)
+    if not os.path.exists(file_path):
+        return 'Not found', 404
+    with open(file_path, 'r') as f:
+        content = f.read()
+    response = app.response_class(content, mimetype='text/css')
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return response
+
 @app.route('/js/<version>/<path:filename>')
 def serve_versioned_js(version, filename):
     """Sert les modules JS avec la version dans le chemin (bypass service worker cache).
