@@ -33,11 +33,14 @@ if pulse_server:
     logging.info(f"PulseAudio PULSE_SERVER={pulse_server}")
 else:
     # Fallback si run.sh n'a pas défini PULSE_SERVER
-    if os.path.exists('/run/pulse/native'):
-        os.environ['PULSE_SERVER'] = 'unix:/run/pulse/native'
-        logging.info("PulseAudio: PULSE_SERVER auto-configuré vers /run/pulse/native")
+    for pulse_path in ['/run/pulse/native', '/run/pulse/pulseaudio.socket', '/var/run/pulse/native']:
+        if os.path.exists(pulse_path):
+            os.environ['PULSE_SERVER'] = f'unix:{pulse_path}'
+            logging.info(f"PulseAudio: PULSE_SERVER auto-configuré vers {pulse_path}")
+            break
     else:
-        logging.warning("PulseAudio: PULSE_SERVER non défini et socket absent - l'audio micro risque de ne pas fonctionner")
+        os.environ['PULSE_SERVER'] = 'tcp:172.30.32.1'
+        logging.warning("PulseAudio: aucun socket trouvé, fallback TCP vers 172.30.32.1")
 
 # Réduire le niveau de log des modules trop verbeux
 logging.getLogger('werkzeug').setLevel(logging.WARNING)

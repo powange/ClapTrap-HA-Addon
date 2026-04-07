@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.3
+
+- Recherche du socket PulseAudio a plusieurs chemins (/run/pulse/native, /run/pulse/pulseaudio.socket, /var/run/pulse/native)
+- Fallback TCP vers 172.30.32.1 (host audio HA) si aucun socket unix trouve
+- Ajout de timeout sur pactl pour eviter de bloquer le demarrage
+- Meme logique de fallback dans app.py
+
 ## 2.3.2
 
 - Fix crash au demarrage : le diagnostic pactl dans run.sh pouvait echouer si PulseAudio n'etait pas pret, causant un exit sous bashio (set -e implicite). Le diagnostic est maintenant non-bloquant.
