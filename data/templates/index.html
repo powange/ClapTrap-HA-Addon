@@ -761,6 +761,49 @@
             });
         }
 
+        // Start/Stop detection
+        document.addEventListener('click', function(e) {
+            var basePath = window.basePath || '';
+            if (e.target.id === 'startButton' || e.target.closest('#startButton')) {
+                // Sauvegarder d'abord
+                fetch(basePath + '/api/settings/save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(window.settings || {})
+                }).then(function() {
+                    return fetch(basePath + '/api/detection/start', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(window.settings || {})
+                    });
+                }).then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.success) {
+                          document.getElementById('startButton').style.display = 'none';
+                          document.getElementById('stopButton').style.display = 'block';
+                          updateSourceDisplay(data.source || null);
+                          // Rafraichir les entites HA apres un delai
+                          setTimeout(refreshHaEntities, 3000);
+                      } else {
+                          alert('Erreur: ' + (data.error || 'Impossible de demarrer'));
+                      }
+                  })
+                  .catch(function(err) { console.error('Start error:', err); });
+            }
+            if (e.target.id === 'stopButton' || e.target.closest('#stopButton')) {
+                fetch(basePath + '/api/detection/stop', {method: 'POST'})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            document.getElementById('startButton').style.display = 'block';
+                            document.getElementById('stopButton').style.display = 'none';
+                            updateSourceDisplay(null);
+                        }
+                    })
+                    .catch(function(err) { console.error('Stop error:', err); });
+            }
+        });
+
         // Clear history
         document.addEventListener('click', function(e) {
             if (e.target.id === 'clearHistoryBtn' || e.target.closest('#clearHistoryBtn')) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.10
+
+- Fix bouton Demarrer/Arreter : le handler etait dans l'ancien module detection.js qui n'est plus appele. Ajoute directement dans le script inline avec sauvegarde des settings avant demarrage.
+
 ## 5.2.9
 
 - Fix sources qui ne s'affichent pas : les anciens modules JS (rtspSources, vbanSources, audioSources) ecrasaient les onglets dynamiques. Ils ne sont plus appeles dans script.js.
