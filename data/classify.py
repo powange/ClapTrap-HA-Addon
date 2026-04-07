@@ -108,14 +108,12 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
 
 
 def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources):
-    """Exécute la détection multi-source. Un thread par source, un seul detector partagé."""
+    """Exécute la détection multi-source. Un classifier par source (isolation complète)."""
     global detection_running
     source_threads = []
+    detectors = []  # Pour cleanup
 
     try:
-        detector = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-        detector.initialize(max_results=max_results, score_threshold=score_threshold, clap_window=delay)
-
         def create_detection_callback(source_name, webhook_url=None):
             def handle_detection(detection_data):
                 try:
@@ -126,7 +124,6 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
                             'score': detection_data['score'], 'clap_count': clap_count
                         })
-                    # Event HA natif
                     supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
                     if supervisor_token:
                         try:
@@ -138,13 +135,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             )
                         except Exception:
                             pass
-                    # Historique
                     with _history_lock:
                         _detection_history.appendleft({
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
                             'score': round(detection_data['score'], 3), 'clap_count': clap_count
                         })
-                    # Webhook
                     if webhook_url:
                         _webhook_executor.submit(
                             requests.post, webhook_url,
@@ -163,7 +158,19 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        # --- Runners par type de source ---
+        def create_detector(source_id, webhook_url):
+            """Crée un AudioDetector dédié pour une source."""
+            det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
+            det.initialize(max_results=max_results, score_threshold=score_threshold, clap_window=delay)
+            det.add_source(source_id=source_id,
+                detection_callback=create_detection_callback(source_id, webhook_url),
+                labels_callback=create_labels_callback(source_id))
+            det.start()
+            detectors.append(det)
+            logging.info(f"Classifier dédié créé pour {source_id}")
+            return det
+
+        # --- Runners par type de source (chacun avec son propre detector) ---
 
         def run_mic_source(src):
             import subprocess
@@ -192,9 +199,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     pass
 
             source_id = f"mic_{saved_index}"
-            detector.add_source(source_id=source_id,
-                detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
-                labels_callback=create_labels_callback(source_id))
+            detector = create_detector(source_id, src.get('webhook_url'))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
             if pulse_name:
@@ -221,14 +226,13 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     proc.wait(timeout=2)
                 except Exception:
                     proc.kill()
+                detector.stop()
 
         def run_rtsp_source(src):
             rtsp_url = src.get('rtsp_url', src['audio_source'])
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
-            detector.add_source(source_id=source_id,
-                detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
-                labels_callback=create_labels_callback(source_id))
+            detector = create_detector(source_id, src.get('webhook_url'))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
@@ -243,7 +247,6 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         if not detection_running:
                             break
                         if audio_data is not None:
-                            # Appliquer le gain logiciel (relu dynamiquement)
                             gain = _rtsp_gains.get(rtsp_url, 10)
                             if gain != 1.0:
                                 audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
@@ -261,13 +264,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         logging.error(f"Erreur RTSP: {e}")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
+            detector.stop()
 
         def run_vban_source(src):
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
-            detector.add_source(source_id=source_id,
-                detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
-                labels_callback=create_labels_callback(source_id))
+            detector = create_detector(source_id, src.get('webhook_url'))
             logging.info(f"VBAN: démarrage capture {vban_ip}")
 
             vban_det = get_vban_detector()
@@ -278,10 +280,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             while detection_running:
                 time.sleep(0.5)
+            detector.stop()
 
-        # --- Démarrer le detector puis un thread par source ---
-        detector.start()
-        logging.info(f"Détection démarrée avec {len(sources)} source(s)")
+        # --- Lancer un thread par source ---
+        logging.info(f"Détection démarrée avec {len(sources)} source(s) (1 classifier par source)")
 
         runners = {'mic': run_mic_source, 'rtsp': run_rtsp_source, 'vban': run_vban_source}
         for src in sources:
@@ -299,7 +301,6 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 break
             time.sleep(0.5)
 
-        detector.stop()
         return True
 
     except Exception as e:
@@ -308,6 +309,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         logging.error(traceback.format_exc())
         return False
     finally:
+        # Stopper tous les detectors restants
+        for det in detectors:
+            try:
+                det.stop()
+            except Exception:
+                pass
         with _detection_lock:
             detection_running = False
         logging.info("run_detection terminé")

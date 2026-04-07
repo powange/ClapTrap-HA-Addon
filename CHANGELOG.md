@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.1.0
+
+### Un classifier YAMNet par source audio
+
+- Chaque source (micro, RTSP, VBAN) a maintenant son propre modele MediaPipe YAMNet isole
+- Plus de probleme de timestamps partages entre sources
+- Chaque source traite ses blocs audio independamment en parallele
+- Le stop d'une source n'affecte pas les autres
+- Environ 15MB de RAM par source supplementaire
+
 ## 4.0.3
 
 - Renommage "Gain audio" en "Volume" sur les flux RTSP pour la coherence avec le micro (les deux font la meme chose : amplifier le signal)
