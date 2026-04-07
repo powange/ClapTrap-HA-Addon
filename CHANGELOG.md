@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.4
+
+- Fix "Error querying device -1" : sounddevice ne trouvait aucun device par defaut. Le code cherche maintenant explicitement un device "pulse" ou "default" dans la liste des devices disponibles, au lieu de passer device=None (qui echoue quand PortAudio n'a pas de default configure).
+- Meme fix applique au test micro et a la detection.
+
 ## 2.3.3
 
 - Recherche du socket PulseAudio a plusieurs chemins (/run/pulse/native, /run/pulse/pulseaudio.socket, /var/run/pulse/native)

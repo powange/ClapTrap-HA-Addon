@@ -326,7 +326,21 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             else:
                 logging.warning(f"Pas de pulse_name pour '{device_name}', utilisation du device PulseAudio par défaut")
 
-            sd_device = None  # Utiliser le device par défaut PulseAudio (routé via PULSE_SOURCE)
+            # Chercher un device valide : "pulse", "default", ou None
+            sd_device = None
+            try:
+                devs = sd.query_devices()
+                for candidate in ['pulse', 'default']:
+                    for i, d in enumerate(devs if isinstance(devs, list) else []):
+                        if candidate in d['name'].lower() and d.get('max_input_channels', 0) > 0:
+                            sd_device = i
+                            logging.info(f"Détection micro: utilisation device #{i} ({d['name']})")
+                            break
+                    if sd_device is not None:
+                        break
+            except Exception as e:
+                logging.warning(f"Détection micro: erreur query_devices: {e}")
+
             source_id = f"mic_{saved_index}"
 
             # Récupérer le webhook_url depuis les paramètres du microphone

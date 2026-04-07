@@ -995,8 +995,25 @@ def start_mic_test():
             except Exception as e:
                 logging.warning(f"Test micro: impossible de lister les devices: {e}")
 
-            logging.info(f"Test micro: ouverture du stream audio...")
-            with sd.InputStream(device=None, channels=1, samplerate=16000,
+            # Chercher un device valide : "pulse", "default", ou None
+            sd_device = None
+            try:
+                devs = sd.query_devices()
+                dev_names = [d['name'] for d in devs] if isinstance(devs, list) else []
+                logging.info(f"Test micro: devices disponibles: {dev_names}")
+                for candidate in ['pulse', 'default']:
+                    for i, d in enumerate(devs if isinstance(devs, list) else []):
+                        if candidate in d['name'].lower() and d.get('max_input_channels', 0) > 0:
+                            sd_device = i
+                            logging.info(f"Test micro: utilisation device #{i} ({d['name']})")
+                            break
+                    if sd_device is not None:
+                        break
+            except Exception as e:
+                logging.warning(f"Test micro: erreur query_devices: {e}")
+
+            logging.info(f"Test micro: ouverture du stream audio (device={sd_device})...")
+            with sd.InputStream(device=sd_device, channels=1, samplerate=16000,
                                 blocksize=1600, callback=callback):
                 while _mic_test_running:
                     socketio.sleep(0.1)
