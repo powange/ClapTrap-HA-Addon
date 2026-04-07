@@ -74,6 +74,7 @@ app = Flask(__name__)
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Désactiver le cache des fichiers statiques
 socketio = SocketIO(app,
     cors_allowed_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     logger=False,  
@@ -596,7 +597,19 @@ def update_vban_source():
 
 @app.route('/static/js/modules/<path:filename>')
 def serve_js_module(filename):
-    return send_from_directory('static/js/modules', filename, mimetype='application/javascript')
+    response = send_from_directory('static/js/modules', filename, mimetype='application/javascript')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+@app.route('/static/css/<path:filename>')
+def serve_css(filename):
+    response = send_from_directory('static/css', filename, mimetype='text/css')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/api/audio-sources', methods=['GET'])
 def get_audio_sources():

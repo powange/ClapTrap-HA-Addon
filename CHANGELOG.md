@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.5
+
+- Fix cache navigateur/service worker : desactivation du cache Flask sur tous les fichiers statiques (SEND_FILE_MAX_AGE_DEFAULT=0), headers Cache-Control/Pragma/Expires sur les modules JS et CSS
+- Suppression de l'importmap (ne fonctionnait pas avec le service worker HA)
+
 ## 3.1.4
 
 - Ajout d'un importmap pour versionner tous les modules JS avec le cache_bust. Chaque mise a jour de l'addon force le rechargement de tous les modules JS (plus de probleme de cache navigateur).
