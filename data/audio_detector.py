@@ -30,9 +30,9 @@ class AudioDetector:
         self._result_count = 0
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
         self._clap_window_duration = 1.5  # durée de la fenêtre multi-clap (configurable)
-        self._energy_state = {}  # source_id -> {'above': bool, 'last_peak_time': float, 'peaks': int, 'peak_times': []}
-        self._peak_threshold = 0.1  # seuil d'amplitude pour détecter un pic (un clap)
-        self._peak_cooldown = 0.15  # minimum entre deux pics (secondes)
+        self._energy_state = {}  # source_id -> state dict
+        self._peak_cooldown = 0.12  # minimum entre deux pics (secondes)
+        self._peak_ratio = 5.0  # un pic doit etre 5x le niveau moyen pour compter
 
     def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5):
         """Initialise le classificateur audio"""
@@ -175,7 +175,8 @@ class AudioDetector:
                 recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
                 clap_count = max(1, len(recent_peaks))
 
-                logging.info(f"[{source_id}] CLAP: {clap_count} pic(s), score={score_sum:.2f}, threshold={self._peak_threshold}")
+                avg = es.get('avg_level', 0)
+                logging.info(f"[{source_id}] CLAP: {clap_count} pic(s), score={score_sum:.2f}, avg_level={avg:.4f}")
 
                 if detection_callback:
                     try:
@@ -230,20 +231,29 @@ class AudioDetector:
             # Compter les pics d'énergie (pour le multi-clap)
             peak = float(np.max(np.abs(audio_data)))
             if source_id not in self._energy_state:
-                self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peak_times': []}
+                self._energy_state[source_id] = {
+                    'above': False, 'last_peak_time': 0, 'peak_times': [],
+                    'avg_level': 0.001  # niveau moyen du bruit de fond
+                }
             es = self._energy_state[source_id]
             current_time = time.time()
+
+            # Mettre à jour le niveau moyen (moyenne glissante lente)
+            es['avg_level'] = es['avg_level'] * 0.99 + peak * 0.01
+
+            # Seuil dynamique : pic doit être 5x le niveau moyen (minimum 0.01)
+            dynamic_threshold = max(0.01, es['avg_level'] * self._peak_ratio)
 
             # Nettoyer les pics de plus de 2 secondes
             es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
 
-            if peak > self._peak_threshold and not es['above']:
+            if peak > dynamic_threshold and not es['above']:
                 # Front montant : nouveau pic détecté
                 if (current_time - es['last_peak_time']) > self._peak_cooldown:
                     es['last_peak_time'] = current_time
                     es['peak_times'].append(current_time)
                 es['above'] = True
-            elif peak < self._peak_threshold * 0.3:
+            elif peak < dynamic_threshold * 0.3:
                 es['above'] = False
 
             # Écrire dans le ring buffer pré-alloué (zéro allocation)
