@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.34
+
+- Refonte complete de l'interface : design moderne, palette de couleurs plus douce, layout plus compact
+- CSS entierement reecrit : suppression de 500+ lignes de code duplique
+- Header sticky et plus fin, cards avec ombres subtiles, typographie amelioree
+- Slider volume et range inputs avec nouveau style unifie
+- Toggle switches plus compacts, animations plus fluides
+- Responsive ameliore pour tablettes et mobiles
+- Ajout de la meta viewport pour un meilleur rendu mobile
+
 ## 2.2.33
 
 - Fix : le slider volume du micro fonctionne maintenant via le script fallback inline

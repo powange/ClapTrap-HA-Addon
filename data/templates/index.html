@@ -3,14 +3,15 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>ClapTrap - Détection d'Applaudissements</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClapTrap</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.ico') }}">
 </head>
 
 <body>
     <header>
-        <img src="{{ url_for('static', filename='img/logo.webp') }}" alt="Logo ClapTrap" id="logo">
+        <img src="{{ url_for('static', filename='img/logo.webp') }}" alt="ClapTrap" id="logo">
         <h1>ClapTrap</h1>
     </header>
 
@@ -20,84 +21,78 @@
     </div>
 
     <main class="dashboard">
-        <!-- Panneau de visualisation -->
+        <!-- Detection -->
         <section class="visualization-panel">
             <div id="detection_display">
-                <span id="waiting-emoji">👂</span>
-                <span class="clap-emoji" data-source="microphone" style="display: none;">👏</span>
+                <span id="waiting-emoji">&#x1F442;</span>
+                <span class="clap-emoji" data-source="microphone" style="display: none;">&#x1F44F;</span>
             </div>
             <div class="control-panel">
-                <button id="startButton" class="btn btn-primary">Démarrer la détection</button>
-                <button id="stopButton" class="btn btn-danger" style="display: none;">Arrêter la détection</button>
+                <button id="startButton" class="btn btn-primary">Demarrer</button>
+                <button id="stopButton" class="btn btn-danger" style="display: none;">Arreter</button>
             </div>
             <div id="detected_labels" class="labels-container"></div>
         </section>
 
-        <!-- Configuration des sources -->
+        <!-- Configuration -->
         <section class="config-panel">
             <div class="config-header">
                 <h2>Configuration</h2>
                 <button id="saveConfigButton" class="btn btn-primary">
-                    <span>💾</span>
-                    Sauvegarder
+                    <span>&#x1F4BE;</span> Sauvegarder
                 </button>
             </div>
-            
-            <!-- Paramètres de détection -->
+
+            <!-- Detection settings -->
             <div class="config-card">
-                <h3>Paramètres de détection</h3>
+                <h3>Detection</h3>
                 <div class="settings-grid">
                     <div class="setting-item">
-                        <label for="threshold">Précision</label>
+                        <label for="threshold">Precision</label>
                         <input type="range" id="threshold" min="0" max="1" step="0.1" value="{{ settings['global']['threshold'] }}">
                         <span id="threshold-value">{{ settings['global']['threshold'] }}</span>
                     </div>
                     <div class="setting-item">
-                        <label for="delay">Délai entre détections</label>
+                        <label for="delay">Delai entre detections</label>
                         <div class="setting-control">
-                            <input type="number" id="delay" name="delay" 
-                                   min="0" step="0.1" value="{{ settings.get('delay', 1.0) }}">
+                            <input type="number" id="delay" name="delay" min="0" step="0.1" value="{{ settings.get('delay', 1.0) }}">
                             <span class="unit">sec</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Configuration des webhooks -->
+            <!-- Sources -->
             <div class="config-card webhooks">
-                <h3>Webhooks</h3>
+                <h3>Sources audio</h3>
                 <div class="webhook-grid">
-                    <!-- Webhook Microphone -->
+
+                    <!-- Microphone -->
                     <div class="webhook-card">
                         <div class="webhook-header">
-                            <h4>
-                                <span class="webhook-icon">🎤</span>
-                                Microphone
-                            </h4>
-                            <label class="switch" title="Activer/Désactiver le webhook">
-                                <input type="checkbox" id="webhook-mic-enabled" 
+                            <h4>&#x1F3A4; Microphone</h4>
+                            <label class="switch" title="Activer/Desactiver">
+                                <input type="checkbox" id="webhook-mic-enabled"
                                        {% if settings.microphone.enabled %}checked{% endif %}>
                                 <span class="slider round"></span>
                             </label>
                         </div>
                         <div class="webhook-content" {% if not settings.microphone.enabled %}style="display: none;"{% endif %}>
                             <div class="webhook-input-group mb-3">
-                                <label class="form-label">URL du webhook</label>
+                                <label class="form-label">Webhook</label>
                                 <div class="webhook-input-with-test">
-                                    <input type="url" id="webhook-mic-url" 
-                                           class="webhook-input" 
+                                    <input type="url" id="webhook-mic-url"
                                            value="{{ settings.microphone.webhook_url }}"
                                            placeholder="https://votre-serveur.com/webhook"
-                                           aria-label="URL du webhook pour le microphone">
+                                           aria-label="URL du webhook">
                                     <button type="button" class="test-webhook" data-source="mic">
-                                        <span class="icon">🔔</span>
-                                        Tester
+                                        &#x1F514; Tester
                                     </button>
                                 </div>
                             </div>
                             <div class="source-selector">
-                                <label for="micro_source">Source Audio :</label>
-                                <select name="micro_source" id="micro_source" class="form-select">
+                                <label for="micro_source">Source :</label>
+                                <select name="micro_source" id="micro_source">
                                     {% for device in devices %}
                                     <option value="{{ device.index }}|{{ device.name }}|{{ device.pulse_name|default('', true) }}"
                                             {% if device.name == settings.microphone.audio_source %}selected{% endif %}>
@@ -107,13 +102,13 @@
                                 </select>
                             </div>
                             <div class="mic-volume-section">
-                                <label for="mic-volume">Volume du micro : <span id="mic-volume-value">{{ settings.microphone.volume|default(100) }}%</span></label>
+                                <label for="mic-volume">Volume : <span id="mic-volume-value">{{ settings.microphone.volume|default(100) }}%</span></label>
                                 <input type="range" id="mic-volume" min="0" max="150" step="5"
                                        value="{{ settings.microphone.volume|default(100) }}" class="mic-volume-slider">
                             </div>
                             <div class="mic-test-section">
                                 <button type="button" id="mic-test-btn" class="btn-mic-test">
-                                    <span class="icon">🎤</span> Tester le micro
+                                    &#x1F3A4; Tester le micro
                                 </button>
                                 <div id="mic-test-vu" class="vu-meter" style="display: none;">
                                     <div class="vu-meter-track">
@@ -125,50 +120,40 @@
                         </div>
                     </div>
 
-                    <!-- Webhook VBAN -->
+                    <!-- VBAN -->
                     <div class="webhook-card">
                         <div class="card-header">
-                            <h4>
-                                <span class="webhook-icon">🎵</span>
-                                Sources VBAN
-                            </h4>
+                            <h4>&#x1F3B5; Sources VBAN</h4>
                             <button id="refreshVBANBtn" class="refresh-btn">
-                                <img src="{{ url_for('static', filename='img/refresh.svg') }}" alt="Rafraîchir">
+                                <img src="{{ url_for('static', filename='img/refresh.svg') }}" alt="Rafraichir">
                             </button>
                         </div>
                         <div class="webhook-content">
-                            <!-- Sources détectées -->
                             <div class="vban-section">
-                                <h5>Sources détectées</h5>
+                                <h5>Detectees</h5>
                                 <div id="detectedVBANSources" class="list-group mb-3">
-                                    <div class="list-group-item text-muted">Aucune source VBAN détectée</div>
+                                    <div class="list-group-item text-muted">Aucune source VBAN detectee</div>
                                 </div>
                             </div>
-                            
-                            <!-- Sources sauvegardées -->
                             <div class="vban-section">
-                                <h5>Sources configurées</h5>
+                                <h5>Configurees</h5>
                                 <div id="savedVBANSources" class="list-group">
-                                    <div class="list-group-item text-muted">Aucune source VBAN configurée</div>
+                                    <div class="list-group-item text-muted">Aucune source VBAN configuree</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Webhooks RTSP -->
+                    <!-- RTSP -->
                     <div class="webhook-card">
                         <div class="card-header">
-                            <h4>
-                                <span class="webhook-icon">📹</span>
-                                Flux RTSP
-                            </h4>
+                            <h4>&#x1F4F9; Flux RTSP</h4>
                         </div>
                         <div class="webhook-content">
-                            <div id="rtspStreamsContainer">
-                                <!-- Le contenu sera généré dynamiquement par rtspSources.js -->
-                            </div>
+                            <div id="rtspStreamsContainer"></div>
                         </div>
                     </div>
+
                 </div>
             </div>
         </section>
@@ -176,26 +161,22 @@
 
     <footer>
         {% if debug %}
-        <p><a href="#" onclick="runTests(); return false;">Exécuter les tests</a> | <a href="https://korben.info">Un projet de Korben</a> & <a href="https://lesfrerespoulain.fr/">des Frères Poulain</a></p>
-        {% else %}
-        <p><a href="https://korben.info">Un projet de Korben</a> & <a href="https://lesfrerespoulain.fr/">des Frères Poulain</a></p>
+        <a href="#" onclick="runTests(); return false;">Tests</a> |
         {% endif %}
+        <a href="https://korben.info">Korben</a> & <a href="https://lesfrerespoulain.fr/">Les Freres Poulain</a>
     </footer>
 
-    <!-- Charger Socket.IO avant notre script -->
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
-    
-    <!-- Initialiser les settings et le chemin ingress avant le script principal -->
+
     <script type="text/javascript">
         window.settings = {{ settings|tojson }};
         window.settings.debug = {{ 'true' if debug else 'false' }};
         window.basePath = '{{ ingress_path }}';
     </script>
-    
-    <!-- Charger notre script principal -->
+
     <script type="module" src="{{ url_for('static', filename='js/script.js') }}?v={{ cache_bust }}"></script>
 
-    <!-- Fallback test micro (indépendant des modules ES) -->
+    <!-- Fallback inline -->
     <script type="text/javascript">
     (function() {
         var testing = false;
@@ -207,7 +188,7 @@
             if (testing) {
                 fetch(basePath + '/api/mic/test/stop', {method: 'POST'});
                 testing = false;
-                btn.innerHTML = '<span class="icon">🎤</span> Tester le micro';
+                btn.innerHTML = '&#x1F3A4; Tester le micro';
                 btn.classList.remove('active');
                 var vu = document.getElementById('mic-test-vu');
                 if (vu) vu.style.display = 'none';
@@ -217,7 +198,7 @@
                     .then(function(data) {
                         if (data.success) {
                             testing = true;
-                            btn.innerHTML = '<span class="icon">⏹</span> Arrêter le test';
+                            btn.innerHTML = '&#x23F9; Arreter le test';
                             btn.classList.add('active');
                             var vu = document.getElementById('mic-test-vu');
                             if (vu) vu.style.display = 'flex';
@@ -227,7 +208,7 @@
             }
         });
 
-        // Volume micro slider
+        // Volume slider
         var volSlider = document.getElementById('mic-volume');
         var volLabel = document.getElementById('mic-volume-value');
         if (volSlider) {
@@ -253,7 +234,7 @@
             });
         }
 
-        // Ecouter les niveaux via socket.io
+        // Socket.io mic levels
         var checkSocket = setInterval(function() {
             if (typeof io !== 'undefined') {
                 clearInterval(checkSocket);
@@ -278,9 +259,7 @@
                 <strong class="source-name"></strong>
                 <small class="text-muted d-block">IP: <span class="source-ip"></span> - Port: <span class="source-port"></span></small>
             </div>
-            <button class="btn btn-sm btn-success add-vban-btn">
-                <i class="fas fa-plus"></i> Ajouter
-            </button>
+            <button class="btn btn-sm btn-success add-vban-btn">Ajouter</button>
         </div>
     </template>
 
@@ -292,23 +271,22 @@
                     <small class="text-muted d-block">IP: <span class="source-ip"></span> - Port: <span class="source-port"></span></small>
                 </div>
                 <div class="source-controls">
-                    <label class="switch" title="Activer/Désactiver la source">
+                    <label class="switch" title="Activer/Desactiver">
                         <input type="checkbox" class="source-enabled">
                         <span class="slider round"></span>
                     </label>
                     <button type="button" class="btn btn-light btn-sm delete-vban-btn">
-                        <span class="icon" style="color: #dc3545;">❌</span>
+                        <span class="icon" style="color: var(--color-danger);">&#x274C;</span>
                     </button>
                 </div>
             </div>
             <div class="webhook-input-group mt-2">
-                <label class="form-label">URL du webhook</label>
+                <label class="form-label">Webhook</label>
                 <div class="webhook-input-with-test">
-                    <input type="url" class="webhook-input webhook-url" 
+                    <input type="url" class="webhook-input webhook-url"
                            placeholder="https://votre-serveur.com/webhook">
                     <button type="button" class="test-webhook">
-                        <span class="icon">🔔</span>
-                        Tester
+                        &#x1F514; Tester
                     </button>
                 </div>
             </div>
