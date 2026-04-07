@@ -55,8 +55,18 @@
                     <div class="setting-item">
                         <label for="delay">Delai entre detections</label>
                         <div class="setting-control">
-                            <input type="number" id="delay" name="delay" min="0" step="0.1" value="{{ settings.get('delay', 1.0) }}">
+                            <input type="number" id="delay" name="delay" min="0" step="0.1" value="{{ settings['global']['delay'] }}">
                             <span class="unit">sec</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Demarrage automatique</label>
+                        <div class="auto-start-toggle">
+                            <label class="switch">
+                                <input type="checkbox" id="auto-start"
+                                       {% if settings.microphone.auto_start %}checked{% endif %}>
+                                <span class="slider round"></span>
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -270,6 +280,19 @@
                       autoVolCheck.checked = !enabled;
                       console.error('Auto-volume erreur:', err);
                   });
+            });
+        }
+
+        // Auto-start toggle
+        var autoStartCheck = document.getElementById('auto-start');
+        if (autoStartCheck) {
+            autoStartCheck.addEventListener('change', function() {
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/microphone/auto-start', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: autoStartCheck.checked})
+                });
             });
         }
 

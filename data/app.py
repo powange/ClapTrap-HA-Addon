@@ -72,65 +72,7 @@ socketio = SocketIO(app,
 )
 
 
-_audio_devices_cache = None
-_audio_devices_cache_time = 0
-
-def get_audio_input_devices():
-    """Récupère les périphériques audio d'entrée via l'API Supervisor HA, avec fallback sur sounddevice. Cache 60s."""
-    global _audio_devices_cache, _audio_devices_cache_time
-    now = time.time()
-    if _audio_devices_cache is not None and (now - _audio_devices_cache_time) < 60:
-        return _audio_devices_cache
-
-    # Essayer l'API Supervisor de Home Assistant
-    supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
-    if supervisor_token:
-        try:
-            resp = requests.get(
-                'http://supervisor/audio/info',
-                headers={'Authorization': f'Bearer {supervisor_token}'},
-                timeout=5
-            )
-            if resp.ok:
-                data = resp.json()
-                logging.info(f"Réponse API audio: {json.dumps(data, indent=2)[:500]}")
-                # L'API retourne {"result": "ok", "data": {"audio": {"input": [...]}}}
-                audio_data = data.get('data', data)
-                sources = audio_data.get('audio', {}).get('input', [])
-                if sources:
-                    devices = [
-                        {
-                            'index': source.get('index', idx),
-                            'name': source.get('description', source.get('name', f'Device {idx}')),
-                            'pulse_name': source.get('name', '')
-                        }
-                        for idx, source in enumerate(sources)
-                    ]
-                    logging.info(f"Périphériques audio détectés via Supervisor: {devices}")
-                    _audio_devices_cache = devices
-                    _audio_devices_cache_time = now
-                    return devices
-                else:
-                    logging.warning("API Supervisor: aucune source audio d'entrée trouvée")
-            else:
-                logging.warning(f"API Supervisor audio: HTTP {resp.status_code}")
-        except Exception as e:
-            logging.warning(f"Impossible de récupérer les sources audio via l'API Supervisor: {e}")
-
-    # Fallback sur sounddevice
-    try:
-        all_devices = sd.query_devices()
-        result = [
-            {'index': idx, 'name': device['name']}
-            for idx, device in enumerate(all_devices)
-            if device['max_input_channels'] > 0
-        ]
-        _audio_devices_cache = result
-        _audio_devices_cache_time = now
-        return result
-    except Exception as e:
-        logging.error(f"Impossible de lister les périphériques audio: {e}")
-        return []
+from audio_utils import get_audio_input_devices
 
 # Initialiser le détecteur VBAN au démarrage (singleton)
 init_vban()
@@ -288,11 +230,11 @@ def start_detection_route():
             detection_params = {
                 'model': "yamnet.tflite",
                 'max_results': 5,
-                'score_threshold': float(global_settings.get('threshold', '0.2')),
+                'score_threshold': float(global_settings.get('threshold', 0.5)),
                 'overlapping_factor': 0.8,
                 'socketio': socketio,
                 'webhook_url': microphone_settings.get('webhook_url') if microphone_enabled else None,
-                'delay': float(global_settings.get('delay', '1.0')),
+                'delay': float(global_settings.get('delay', 1.0)),
                 'audio_source': microphone_settings.get('audio_source') if microphone_enabled else None,
                 'rtsp_url': None
             }
@@ -380,33 +322,6 @@ def test_webhook():
 
     except Exception as e:
         return jsonify({'error': f'Erreur: {str(e)}'}), 500
-
-@app.route('/refresh_vban')
-def refresh_vban():
-    try:
-        logging.debug("Récupération des sources VBAN...")  # Debug log
-        
-        # Utiliser l'instance globale
-        sources = init_vban().get_active_sources()
-        logging.debug(f"Sources trouvées: {sources}")  # Debug log
-        
-        # Formater les sources pour l'interface
-        formatted_sources = []
-        for source in sources:
-            formatted_sources.append({
-                'name': source.stream_name,
-                'ip': source.ip,
-                'port': source.port,
-                'channels': source.channels,
-                'sample_rate': source.sample_rate,
-                'id': f"vban_{source.ip}_{source.port}"
-            })
-        
-        logging.debug(f"Sources formatées: {formatted_sources}")  # Debug log
-        return jsonify({'sources': formatted_sources})
-    except Exception as e:
-        logging.error(f"Erreur lors de la rcupération des sources VBAN: {str(e)}")  # Debug log
-        return jsonify({'error': str(e)}), 400
 
 @app.route('/clap_detected')  # Added route for clap detection
 def clap_detected():
@@ -838,6 +753,18 @@ def update_microphone_enabled():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/microphone/auto-start', methods=['PUT'])
+def toggle_auto_start():
+    try:
+        data = request.get_json()
+        enabled = bool(data.get('enabled', False))
+        settings = load_settings()
+        settings['microphone']['auto_start'] = enabled
+        save_settings(settings)
+        return jsonify({'success': True, 'auto_start': enabled})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/microphone/volume', methods=['PUT'])
 def update_microphone_volume():
     try:
@@ -998,6 +925,10 @@ def start_mic_test():
             logging.info(f"Test micro: lancement de {' '.join(cmd)}")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
+            # Drainer stderr en background pour eviter que le pipe se remplisse et bloque parecord
+            import threading as _thr
+            _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+
             block_size = 1600  # 100ms à 16kHz
             bytes_per_block = block_size * 4  # float32 = 4 bytes
             cb_count = 0
@@ -1041,6 +972,11 @@ def stop_mic_test():
     _mic_test_running = False
     return jsonify({'success': True})
 
+@app.route('/api/detections/history', methods=['GET'])
+def detection_history():
+    from classify import get_detection_history
+    return jsonify(get_detection_history())
+
 @socketio.on('connect')
 def handle_connect():
     logging.debug("🔌 Client connecté")
@@ -1055,6 +991,38 @@ def handle_test():
     socketio.emit('debug', {'message': 'Test serveur'})
 
 if __name__ == '__main__':
+    # Auto-start detection si configuré
+    settings = load_settings()
+    if settings.get('microphone', {}).get('auto_start', False):
+        def _delayed_auto_start():
+            import time
+            time.sleep(3)  # Attendre que PulseAudio soit prêt
+            try:
+                logging.info("Auto-start: démarrage automatique de la détection...")
+                from classify import start_detection
+                detection_settings = load_settings()
+                mic = detection_settings.get('microphone', {})
+                if mic.get('enabled', False):
+                    global_s = detection_settings.get('global', {})
+                    start_detection(
+                        model="yamnet.tflite",
+                        max_results=5,
+                        score_threshold=float(global_s.get('threshold', 0.5)),
+                        overlapping_factor=0.8,
+                        socketio=socketio,
+                        webhook_url=mic.get('webhook_url', ''),
+                        delay=float(global_s.get('delay', 1.0)),
+                        audio_source=mic.get('audio_source', 'default'),
+                        rtsp_url=None
+                    )
+                    logging.info("Auto-start: détection démarrée")
+                else:
+                    logging.warning("Auto-start: microphone non activé, détection non démarrée")
+            except Exception as e:
+                logging.error(f"Auto-start: erreur - {e}")
+
+        threading.Thread(target=_delayed_auto_start, daemon=True).start()
+
     try:
         # Désactiver le mode debug
         socketio.run(app, host='0.0.0.0', port=16045, debug=False, allow_unsafe_werkzeug=True)

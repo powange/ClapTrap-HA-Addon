@@ -35,6 +35,8 @@ class AutoVolume:
         self._peaks = []
         self._lock = threading.Lock()
         self._thread = None
+        self._last_save_time = 0
+        self._SAVE_DEBOUNCE = 30
 
     @property
     def running(self):
@@ -61,6 +63,8 @@ class AutoVolume:
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
+        # Persister le volume final avant l'arret
+        self._persist_volume(self._current_volume)
         logging.info("Auto-volume arrete")
 
     def feed_peak(self, peak):
@@ -93,6 +97,21 @@ class AutoVolume:
                 self._current_volume = new_volume
                 self._apply_volume(new_volume)
 
+                # Persister sur disque seulement toutes les _SAVE_DEBOUNCE secondes
+                now = time.time()
+                if (now - self._last_save_time) >= self._SAVE_DEBOUNCE:
+                    self._last_save_time = now
+                    self._persist_volume(new_volume)
+
+    def _persist_volume(self, volume):
+        """Persiste le volume actuel dans les settings sur disque."""
+        try:
+            settings = load_settings()
+            settings['microphone']['volume'] = volume
+            save_settings(settings)
+        except Exception as e:
+            logging.warning(f"Auto-volume: erreur sauvegarde settings: {e}")
+
     def _apply_volume(self, volume):
         try:
             subprocess.run(
@@ -100,11 +119,6 @@ class AutoVolume:
                 capture_output=True, text=True, timeout=5
             )
             logging.info(f"Auto-volume: ajuste a {volume}%")
-
-            # Persister dans les settings
-            settings = load_settings()
-            settings['microphone']['volume'] = volume
-            save_settings(settings)
 
             # Notifier le frontend
             if self._socketio:

@@ -25,9 +25,16 @@ class AudioDetector:
         self.last_timestamp_ms = {}  # Dict pour stocker le dernier timestamp par source
         self.start_time_ms = None
         self._timestamp_to_source = {}  # Mappe timestamp → source_id (thread-safe via self.lock)
+        self.score_threshold = 0.3
+        self.detection_delay = 1.0
+        self._result_count = 0
+        self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
+        self._clap_window_duration = 1.5  # seconds to count claps
 
-    def initialize(self, max_results=5, score_threshold=0.3):
+    def initialize(self, max_results=5, score_threshold=0.3, detection_delay=1.0):
         """Initialise le classificateur audio"""
+        self.score_threshold = score_threshold
+        self.detection_delay = detection_delay
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             
@@ -81,15 +88,13 @@ class AudioDetector:
                 del self.last_timestamp_ms[source_id]
                 logging.info(f"Source audio supprimée: {source_id} (ID interne: {numeric_id})")
 
-    _result_count = 0
-
     def _handle_result(self, result, timestamp):
         """Gère les résultats de classification"""
         try:
-            AudioDetector._result_count += 1
-            if AudioDetector._result_count <= 5 or AudioDetector._result_count % 100 == 0:
+            self._result_count += 1
+            if self._result_count <= 5 or self._result_count % 100 == 0:
                 has_results = bool(result and result.classifications)
-                logging.info(f"Classifier result #{AudioDetector._result_count}: has_results={has_results}, timestamp={timestamp}")
+                logging.info(f"Classifier result #{self._result_count}: has_results={has_results}, timestamp={timestamp}")
 
             if not result or not result.classifications:
                 return
@@ -98,8 +103,8 @@ class AudioDetector:
             with self.lock:
                 source_id = self._timestamp_to_source.pop(timestamp, None)
                 if not source_id or source_id not in self.sources:
-                    if AudioDetector._result_count <= 10:
-                        logging.warning(f"Result #{AudioDetector._result_count}: source_id introuvable pour timestamp {timestamp}")
+                    if self._result_count <= 10:
+                        logging.warning(f"Result #{self._result_count}: source_id introuvable pour timestamp {timestamp}")
                     return
                 labels_callback = self.sources[source_id]['labels_callback']
                 detection_callback = self.sources[source_id]['detection_callback']
@@ -107,21 +112,24 @@ class AudioDetector:
             classification = result.classifications[0]
 
             # Log top results periodiquement
-            if AudioDetector._result_count <= 10 or AudioDetector._result_count % 100 == 0:
+            if self._result_count <= 10 or self._result_count % 100 == 0:
                 top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
                 logging.info(f"Classifier top labels: {top}")
 
-            # Calculer le score pour la détection de clap
+            # Scoring pondéré pour la détection de clap
+            CLAP_WEIGHTS = {"Hands": 0.8, "Clapping": 1.0}
+            NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3}
             score_sum = sum(
-                category.score
+                category.score * CLAP_WEIGHTS[category.category_name]
                 for category in classification.categories
-                if category.category_name in ["Hands", "Clapping", "Cap gun"]
+                if category.category_name in CLAP_WEIGHTS
             )
             score_sum -= sum(
-                category.score
+                category.score * NOISE_WEIGHTS[category.category_name]
                 for category in classification.categories
-                if category.category_name == "Finger snapping"
+                if category.category_name in NOISE_WEIGHTS
             )
+            score_sum = max(0.0, score_sum)
 
             # Log du score calculé
             if score_sum > 0.1:
@@ -151,26 +159,58 @@ class AudioDetector:
 
             # Vérifier si on a détecté un clap
             current_time = time.time()
-            if score_sum > 0.3 and (current_time - self.last_detection_time.get(source_id, 0)) > 1.0:
-                if detection_callback:
-                    try:
-                        detection_callback({
-                            'timestamp': current_time,
-                            'score': float(score_sum),
-                            'source_id': source_id
-                        })
-                    except Exception as e:
-                        logging.error(f"Erreur dans le callback de détection pour source {source_id}: {str(e)}")
+            if score_sum > self.score_threshold and (current_time - self.last_detection_time.get(source_id, 0)) > 0.3:
                 self.last_detection_time[source_id] = current_time
+
+                window = self._clap_windows.get(source_id)
+                if window and (current_time - window['first_clap_time']) < self._clap_window_duration:
+                    window['count'] += 1
+                else:
+                    # Start new window - emit previous if exists
+                    if window and detection_callback:
+                        try:
+                            detection_callback({
+                                'timestamp': window['first_clap_time'],
+                                'score': float(score_sum),
+                                'source_id': source_id,
+                                'clap_count': window['count']
+                            })
+                        except Exception as e:
+                            logging.error(f"Erreur dans le callback de détection pour source {source_id}: {str(e)}")
+                    self._clap_windows[source_id] = {
+                        'first_clap_time': current_time,
+                        'count': 1
+                    }
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
             import traceback
             logging.error(traceback.format_exc())
 
+    def _check_clap_windows(self):
+        """Émet les événements pour les fenêtres de claps expirées."""
+        current_time = time.time()
+        expired = []
+        for source_id, window in self._clap_windows.items():
+            if (current_time - window['first_clap_time']) >= self._clap_window_duration:
+                expired.append(source_id)
+                if source_id in self.sources:
+                    cb = self.sources[source_id]['detection_callback']
+                    if cb:
+                        cb({
+                            'timestamp': window['first_clap_time'],
+                            'score': 1.0,
+                            'source_id': source_id,
+                            'clap_count': window['count']
+                        })
+        for sid in expired:
+            del self._clap_windows[sid]
+
     def process_audio(self, audio_data, source_id):
         """Traite les données audio pour une source spécifique"""
         try:
+            self._check_clap_windows()
+
             if source_id not in self.sources:
                 logging.warning(f"Source inconnue: {source_id}")
                 return

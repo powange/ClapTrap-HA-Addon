@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.0.0
+
+### Nouvelles fonctionnalites
+
+- **Detection multi-claps** : compte le nombre de claps dans une fenetre de 1.5s. Les events incluent `clap_count` (1, 2, 3...). Permet des automations differenciees (2 claps = lumiere, 3 claps = scene).
+- **Auto-start** : toggle dans la config pour demarrer la detection automatiquement au boot de l'addon (delai de 3s pour PulseAudio).
+- **Events Home Assistant natifs** : chaque clap emet un evenement `claptrap_clap` via l'API Supervisor. Plus besoin de webhooks pour les automations HA simples.
+- **Webhook avec payload** : les webhooks envoient maintenant un JSON `{event, source_id, timestamp, score, clap_count}` au lieu d'un POST vide.
+- **Historique des detections** : endpoint GET /api/detections/history retourne les 50 dernieres detections.
+- **Seuil en temps reel** : le score du classifier s'affiche a cote du slider Precision pour aider au reglage.
+
+### Ameliorations detection
+
+- **Scoring pondere** : labels Hands (0.8) et Clapping (1.0) avec penalite Finger snapping (0.5) et Writing (0.3). Suppression de "Cap gun" (faux positifs).
+- **Seuil configurable** : le score_threshold et le delay utilisateur sont maintenant effectivement passes au classifier (avant ils etaient ignores).
+
+### Architecture
+
+- **Fix import circulaire** : `get_audio_input_devices()` extrait dans `audio_utils.py` (plus d'import app.py depuis classify.py).
+- **Drain stderr parecord** : thread daemon qui vide stderr pour eviter que parecord se bloque quand le pipe est plein.
+- **Debounce ecriture auto-volume** : le volume n'est persiste sur disque que toutes les 30s (au lieu de chaque seconde). Reduit l'usure SD card.
+- **Code mort supprime** : `vban_signal_processor.py` (300 lignes jamais importees), route dupliquee `/refresh_vban`.
+- **Types normalises** : threshold et delay stockes en float (plus en string), device_index en int.
+
 ## 2.5.0
 
 ### Nouvelle fonctionnalite : Volume automatique du micro (AGC)

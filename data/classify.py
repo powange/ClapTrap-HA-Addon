@@ -44,6 +44,9 @@ output_file = "recorded_audio.wav"
 current_audio_source = None
 _socketio = None  # Renamed to _socketio to avoid conflict with parameter
 
+_detection_history = collections.deque(maxlen=50)
+_history_lock = threading.Lock()
+
 def reload_settings():
     """Recharge les paramètres depuis settings_manager (avec cache)."""
     return load_settings()
@@ -160,7 +163,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
     try:
         # Initialiser le détecteur audio
         detector = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-        detector.initialize(max_results=max_results, score_threshold=score_threshold)
+        detector.initialize(max_results=max_results, score_threshold=score_threshold, detection_delay=delay)
         
         def create_detection_callback(source_name, webhook_url=None):
             def handle_detection(detection_data):
@@ -170,13 +173,52 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         socketio.emit('clap', {
                             'source_id': source_name,
                             'timestamp': detection_data['timestamp'],
-                            'score': detection_data['score']
+                            'score': detection_data['score'],
+                            'clap_count': detection_data.get('clap_count', 1)
                         })
-                    
+
+                    # Émettre un événement HA natif
+                    supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
+                    if supervisor_token:
+                        try:
+                            requests.post(
+                                'http://supervisor/core/api/events/claptrap_clap',
+                                headers={
+                                    'Authorization': f'Bearer {supervisor_token}',
+                                    'Content-Type': 'application/json'
+                                },
+                                json={
+                                    'source_id': source_name,
+                                    'score': detection_data['score'],
+                                    'clap_count': detection_data.get('clap_count', 1)
+                                },
+                                timeout=3
+                            )
+                        except Exception as e:
+                            logging.debug(f"Erreur événement HA: {e}")
+
+                    with _history_lock:
+                        _detection_history.appendleft({
+                            'source_id': source_name,
+                            'timestamp': detection_data['timestamp'],
+                            'score': round(detection_data['score'], 3),
+                            'clap_count': detection_data.get('clap_count', 1)
+                        })
+
                     # Webhook non-bloquant via thread pool
                     if webhook_url:
                         logging.info(f"Envoi webhook pour {source_name} vers {webhook_url}")
-                        _webhook_executor.submit(requests.post, webhook_url, timeout=5)
+                        _webhook_executor.submit(
+                            requests.post, webhook_url,
+                            json={
+                                'event': 'clap',
+                                'source_id': source_name,
+                                'timestamp': detection_data['timestamp'],
+                                'score': detection_data['score'],
+                                'clap_count': detection_data.get('clap_count', 1)
+                            },
+                            timeout=5
+                        )
                 except Exception as e:
                     logging.error(f"Erreur lors de l'envoi de l'événement clap pour {source_name}: {str(e)}")
             return handle_detection
@@ -302,7 +344,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             # Résoudre le pulse_name depuis l'API Supervisor si absent
             if not pulse_name and device_name and device_name != 'default':
                 try:
-                    from app import get_audio_input_devices
+                    from audio_utils import get_audio_input_devices
                     devices = get_audio_input_devices()
                     for dev in devices:
                         if dev.get('name') == device_name and dev.get('pulse_name'):
@@ -348,6 +390,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 cmd.append(f'--device={pulse_name}')
             logging.info(f"Lancement capture audio: {' '.join(cmd)}")
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            # Drainer stderr en background pour eviter que le pipe se remplisse et bloque parecord
+            threading.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
 
             block_size = 1600  # 100ms à 16kHz
             bytes_per_block = block_size * 4  # float32 = 4 bytes
@@ -432,6 +477,10 @@ def stop_detection():
 def is_running():
     with _detection_lock:
         return detection_running
+
+def get_detection_history():
+    with _history_lock:
+        return list(_detection_history)
 
 # Ajout d'une commande simple pour démarrer et arrêter la détection pour les tests
 if __name__ == "__main__":

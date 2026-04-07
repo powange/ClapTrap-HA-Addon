@@ -17,14 +17,17 @@ SETTINGS_TEMP = os.path.join(PERSISTENT_DIR, 'settings.json.tmp')
 
 DEFAULT_SETTINGS = {
     "global": {
-        "threshold": "0.5",
-        "delay": "1.0"
+        "threshold": 0.5,
+        "delay": 1.0
     },
     "microphone": {
-        "device_index": "0",
+        "device_index": 0,
         "audio_source": "default",
         "webhook_url": "",
-        "enabled": False
+        "enabled": False,
+        "volume": 100,
+        "auto_volume": False,
+        "auto_start": False
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],

@@ -63,6 +63,16 @@ export function initializeSocketIO() {
                 container.appendChild(labelElement);
             });
         }
+
+        // Afficher le score max à côté du seuil
+        if (data.detected && data.detected.length > 0) {
+            var maxScore = Math.max(...data.detected.map(function(l) { return l.score; }));
+            var thresholdLabel = document.getElementById('threshold-value');
+            if (thresholdLabel) {
+                var threshold = parseFloat(document.getElementById('threshold')?.value || 0.5);
+                thresholdLabel.textContent = threshold.toFixed(1) + ' (score: ' + maxScore.toFixed(2) + ')';
+            }
+        }
     });
 
     return socket;
