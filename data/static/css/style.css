@@ -628,6 +628,65 @@ footer a {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* VU-mètre test micro */
+.mic-test-section {
+    margin-top: 12px;
+}
+
+.btn-mic-test {
+    padding: 6px 14px;
+    font-size: 14px;
+    background-color: var(--primary-color);
+    border: none;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+    transition: background-color 0.15s;
+}
+
+.btn-mic-test:hover {
+    background-color: var(--primary-color-dark);
+}
+
+.btn-mic-test.active {
+    background-color: var(--danger-color);
+}
+
+.vu-meter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.vu-meter-track {
+    flex: 1;
+    height: 12px;
+    background: #e9ecef;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.vu-meter-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--success-color) 0%, #ffc107 60%, var(--danger-color) 100%);
+    transition: width 0.08s ease-out;
+}
+
+.vu-meter-label {
+    font-size: 12px;
+    color: var(--secondary-color);
+    min-width: 50px;
+    text-align: right;
+    font-family: monospace;
+}
+
 .clap-emoji {
     display: none;
     opacity: 0;

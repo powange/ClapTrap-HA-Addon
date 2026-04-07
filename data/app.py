@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, render_template, send_from_directory
 from flask_socketio import SocketIO
 from classify import start_detection, stop_detection, is_running
 import sounddevice as sd
+import numpy as np
 import json
 import requests
 from vban_manager import init_vban_detector as init_vban, cleanup_vban_detector, get_vban_detector
@@ -858,6 +859,53 @@ def update_rtsp_enabled():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# --- Test micro (VU-mètre) ---
+_mic_test_thread = None
+_mic_test_running = False
+
+@app.route('/api/mic/test/start', methods=['POST'])
+def start_mic_test():
+    global _mic_test_thread, _mic_test_running
+    if _mic_test_running:
+        return jsonify({'success': True, 'message': 'Déjà en cours'})
+
+    settings = load_settings()
+    pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+
+    _mic_test_running = True
+
+    def stream_levels():
+        global _mic_test_running
+        try:
+            if pulse_name:
+                os.environ['PULSE_SOURCE'] = pulse_name
+
+            def callback(indata, frames, time_info, status):
+                if not _mic_test_running:
+                    return
+                peak = float(np.max(np.abs(indata)))
+                db = max(-60, 20 * np.log10(peak + 1e-10))
+                socketio.emit('mic_level', {'peak': peak, 'db': round(db, 1)})
+
+            with sd.InputStream(device=None, channels=1, samplerate=16000,
+                                blocksize=1600, callback=callback):
+                while _mic_test_running:
+                    socketio.sleep(0.1)
+        except Exception as e:
+            logging.error(f"Erreur test micro: {e}")
+            socketio.emit('mic_level', {'error': str(e)})
+        finally:
+            _mic_test_running = False
+
+    _mic_test_thread = socketio.start_background_task(stream_levels)
+    return jsonify({'success': True})
+
+@app.route('/api/mic/test/stop', methods=['POST'])
+def stop_mic_test():
+    global _mic_test_running
+    _mic_test_running = False
+    return jsonify({'success': True})
 
 @socketio.on('connect')
 def handle_connect():

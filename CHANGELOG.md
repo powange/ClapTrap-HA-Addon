@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.22
+
+- Ajout d'un VU-metre en temps reel pour tester le microphone (bouton "Tester le micro")
+- Affichage du niveau audio en dB via WebSocket
+
 ## 2.2.21
 
 - Les parametres utilisateur (settings.json) sont maintenant stockes dans /data (volume persistant HA)

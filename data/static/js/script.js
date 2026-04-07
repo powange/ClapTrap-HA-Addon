@@ -5,6 +5,7 @@ import { initWebhooks } from './modules/webhooks.js';
 import { setupEventListeners } from './modules/events.js';
 import { updateSettings, saveSettings, initSettings } from './modules/settings.js';
 import { initializeSocketIO } from './modules/socketHandlers.js';
+import { initMicTest } from './modules/micTest.js';
 import { showError } from './modules/utils.js';
 
 window.showClap = function(sourceId) {
@@ -125,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             
             const socket = initializeSocketIO();
+            initMicTest(socket);
             console.log('✅ Socket.IO initialized');
         } else {
             console.error('❌ Échec de l\'initialisation des paramètres');
