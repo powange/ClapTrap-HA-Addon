@@ -4,14 +4,11 @@ import { showError } from './utils.js';
 let testing = false;
 
 export function initMicTest(socket) {
-    const btn = document.getElementById('mic-test-btn');
-    if (!btn) {
-        console.error('🎤 mic-test-btn non trouvé dans le DOM');
-        return;
-    }
-    console.log('🎤 initMicTest: bouton trouvé, ajout du listener');
+    // Délégation d'événements sur document — fonctionne même si le bouton est caché au chargement
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('#mic-test-btn');
+        if (!btn) return;
 
-    btn.addEventListener('click', () => {
         console.log('🎤 Bouton cliqué, testing =', testing);
         if (testing) {
             stopTest();
@@ -29,6 +26,8 @@ export function initMicTest(socket) {
         }
         updateVuMeter(data.peak, data.db);
     });
+
+    console.log('🎤 initMicTest: délégation d\'événements activée');
 }
 
 async function startTest() {
@@ -57,15 +56,20 @@ async function stopTest() {
     }
     testing = false;
     const btn = document.getElementById('mic-test-btn');
-    btn.innerHTML = '<span class="icon">🎤</span> Tester le micro';
-    btn.classList.remove('active');
-    document.getElementById('mic-test-vu').style.display = 'none';
-    document.getElementById('mic-test-bar').style.width = '0%';
+    if (btn) {
+        btn.innerHTML = '<span class="icon">🎤</span> Tester le micro';
+        btn.classList.remove('active');
+    }
+    const vu = document.getElementById('mic-test-vu');
+    if (vu) vu.style.display = 'none';
+    const bar = document.getElementById('mic-test-bar');
+    if (bar) bar.style.width = '0%';
 }
 
 function updateVuMeter(peak, db) {
     const bar = document.getElementById('mic-test-bar');
     const label = document.getElementById('mic-test-db');
+    if (!bar || !label) return;
     // Mapper -60dB..0dB sur 0%..100%
     const pct = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
     bar.style.width = pct + '%';

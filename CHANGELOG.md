@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.26
+
+- Fix : bouton "Tester le micro" remis dans la section conditionnelle (cache quand micro desactive)
+- Fix : delegation d'evenements pour le bouton test micro (fonctionne meme si cache au chargement)
+
 ## 2.2.25
 
 - Fix : ajout cache-buster sur script.js pour forcer le rechargement apres mise a jour
