@@ -120,9 +120,13 @@ def start_rtsp_test():
 
     data = request.get_json(silent=True) or {}
     rtsp_url = data.get('url', '')
-    gain = float(data.get('gain', 10))
+    initial_gain = float(data.get('gain', 10))
     if not rtsp_url:
         return jsonify({'error': 'URL RTSP requise'}), 400
+
+    # Initialiser le gain dans le dict partagé pour le temps réel
+    from classify import _rtsp_gains, update_rtsp_gain
+    _rtsp_gains[rtsp_url] = initial_gain
 
     _rtsp_test_running = True
 
@@ -139,7 +143,7 @@ def start_rtsp_test():
                 '-loglevel', 'error',
                 'pipe:1'
             ]
-            logging.info(f"Test RTSP: ffmpeg {rtsp_url} (gain={gain}x)")
+            logging.info(f"Test RTSP: ffmpeg {rtsp_url} (gain={initial_gain}x)")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
             import threading as _thr
@@ -156,7 +160,8 @@ def start_rtsp_test():
                     break
 
                 samples = np.frombuffer(raw, dtype=np.float32)
-                # Appliquer le gain logiciel
+                # Relire le gain en temps réel
+                gain = _rtsp_gains.get(rtsp_url, initial_gain)
                 peak = float(np.max(np.abs(samples))) * gain
                 cb_count += 1
                 if cb_count <= 3 or cb_count % 50 == 0:

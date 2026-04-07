@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.1
+
+- Fix : le gain RTSP se met a jour en temps reel aussi pendant le test VU-metre (pas seulement pendant la detection). Bouger le slider de gain pendant un test met a jour le VU-metre immediatement.
+
 ## 4.0.0
 
 ### Architecture : app.py decoupe en Blueprints Flask
