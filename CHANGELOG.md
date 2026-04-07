@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.21
+
+- Les parametres utilisateur (settings.json) sont maintenant stockes dans /data (volume persistant HA)
+- La configuration survit aux mises a jour et rebuilds de l'addon
+
 ## 2.2.20
 
 - Fix : utilisation de PULSE_SOURCE pour router PulseAudio vers le bon micro USB dans le container HA

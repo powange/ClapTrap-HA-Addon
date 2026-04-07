@@ -5,10 +5,15 @@ import time
 import logging
 from threading import Lock
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
-SETTINGS_BACKUP = os.path.join(BASE_DIR, 'settings.json.backup')
-SETTINGS_TEMP = os.path.join(BASE_DIR, 'settings.json.tmp')
+# /data est le volume persistant HA (survit aux mises à jour de l'addon)
+PERSISTENT_DIR = '/data'
+# Fallback sur le répertoire de l'app pour le dev local
+if not os.path.isdir(PERSISTENT_DIR):
+    PERSISTENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SETTINGS_FILE = os.path.join(PERSISTENT_DIR, 'settings.json')
+SETTINGS_BACKUP = os.path.join(PERSISTENT_DIR, 'settings.json.backup')
+SETTINGS_TEMP = os.path.join(PERSISTENT_DIR, 'settings.json.tmp')
 
 DEFAULT_SETTINGS = {
     "global": {
