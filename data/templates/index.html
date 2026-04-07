@@ -395,29 +395,148 @@
         }
 
         // ===== Bind events inside tab panels =====
+        var _rtspTesting = {};  // {streamId: true/false}
+
         function bindTabEvents() {
-            // Threshold slider
+            var basePath = window.basePath || '';
+
+            // Mic threshold slider
             var thresholdSlider = document.getElementById('threshold');
             var thresholdValue = document.getElementById('threshold-value');
             if (thresholdSlider && thresholdValue) {
                 thresholdSlider.addEventListener('input', function() {
                     thresholdValue.textContent = thresholdSlider.value;
                 });
+                thresholdSlider.addEventListener('change', function() {
+                    fetch(basePath + '/api/microphone/threshold', {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({threshold: parseFloat(thresholdSlider.value)})
+                    });
+                });
             }
 
-            // RTSP threshold sliders
+            // Mic enabled toggle
+            var micEnabled = document.getElementById('webhook-mic-enabled');
+            if (micEnabled) {
+                micEnabled.addEventListener('change', function() {
+                    fetch(basePath + '/api/microphone/enabled', {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({enabled: micEnabled.checked})
+                    });
+                });
+            }
+
+            // RTSP sliders + inputs
             document.querySelectorAll('.rtsp-threshold').forEach(function(slider) {
+                var sid = slider.getAttribute('data-id');
                 slider.addEventListener('input', function() {
                     var label = slider.parentElement.querySelector('.rtsp-threshold-value');
                     if (label) label.textContent = slider.value;
                 });
+                slider.addEventListener('change', function() {
+                    fetch(basePath + '/api/rtsp/stream/' + sid, {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({threshold: parseFloat(slider.value)})
+                    });
+                });
             });
 
-            // RTSP volume sliders
             document.querySelectorAll('.rtsp-volume').forEach(function(slider) {
+                var sid = slider.getAttribute('data-id');
                 slider.addEventListener('input', function() {
                     var label = slider.parentElement.querySelector('.rtsp-volume-value');
                     if (label) label.textContent = slider.value + 'x';
+                });
+                slider.addEventListener('change', function() {
+                    fetch(basePath + '/api/rtsp/stream/' + sid, {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({gain: parseInt(slider.value)})
+                    });
+                });
+            });
+
+            document.querySelectorAll('.rtsp-url-input').forEach(function(input) {
+                var sid = input.getAttribute('data-id');
+                var timeout;
+                input.addEventListener('input', function() {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(function() {
+                        fetch(basePath + '/api/rtsp/stream/' + sid, {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({url: input.value.trim()})
+                        });
+                    }, 500);
+                });
+            });
+
+            document.querySelectorAll('.rtsp-name-input').forEach(function(input) {
+                var sid = input.getAttribute('data-id');
+                var timeout;
+                input.addEventListener('input', function() {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(function() {
+                        fetch(basePath + '/api/rtsp/stream/' + sid, {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({name: input.value.trim()})
+                        });
+                    }, 500);
+                });
+            });
+
+            document.querySelectorAll('.rtsp-enabled-toggle').forEach(function(toggle) {
+                var sid = toggle.getAttribute('data-id');
+                toggle.addEventListener('change', function() {
+                    fetch(basePath + '/api/rtsp/stream/' + sid, {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({enabled: toggle.checked})
+                    });
+                });
+            });
+
+            document.querySelectorAll('.rtsp-webhook-url').forEach(function(input) {
+                var sid = input.getAttribute('data-id');
+                var timeout;
+                input.addEventListener('input', function() {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(function() {
+                        fetch(basePath + '/api/rtsp/stream/' + sid, {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({webhook_url: input.value.trim()})
+                        });
+                    }, 500);
+                });
+            });
+
+            // RTSP test buttons
+            document.querySelectorAll('.rtsp-test-btn').forEach(function(btn) {
+                var sid = btn.getAttribute('data-id');
+                btn.addEventListener('click', function() {
+                    var panel = btn.closest('.tab-panel');
+                    var urlInput = panel ? panel.querySelector('.rtsp-url-input') : null;
+                    var volSlider = panel ? panel.querySelector('.rtsp-volume') : null;
+                    var url = urlInput ? urlInput.value : '';
+                    var gain = volSlider ? parseInt(volSlider.value) : 10;
+                    var vu = panel ? panel.querySelector('.rtsp-test-vu') : null;
+
+                    if (_rtspTesting[sid]) {
+                        fetch(basePath + '/api/rtsp/test/stop', {method: 'POST'});
+                        _rtspTesting[sid] = false;
+                        btn.textContent = '📹 Tester le flux';
+                        btn.classList.remove('active');
+                        if (vu) vu.style.display = 'none';
+                    } else {
+                        fetch(basePath + '/api/rtsp/test/start', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({url: url, gain: gain})
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.success) {
+                                _rtspTesting[sid] = true;
+                                btn.textContent = '⏹ Arreter le test';
+                                btn.classList.add('active');
+                                if (vu) vu.style.display = 'flex';
+                            }
+                        }).catch(function(err) { console.error('RTSP test error:', err); });
+                    }
                 });
             });
 

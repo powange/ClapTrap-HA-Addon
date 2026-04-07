@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.0.2
+
+- Fix : tous les event handlers sont maintenant bindes dans les onglets dynamiques (test RTSP, sliders precision/volume, toggle enabled, URL, nom, webhook pour chaque source). Avant, seuls les sliders visuels etaient bindes, les appels API manquaient.
+
 ## 5.0.1
 
 - Fix rendu UI : le CSS est maintenant servi avec la version dans le chemin (/css/timestamp/style.css) pour contourner le cache du service worker HA. L'ancien CSS etait cache et les nouveaux styles (onglets, barre de controle) n'etaient pas appliques.
