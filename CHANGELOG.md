@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.3.1
+
+- Schema SVG explicatif dans les parametres avances montrant la forme d'onde, les pics de claps, le seuil dynamique, le cooldown et la fenetre multi-clap
+- Textes d'aide sous chaque parametre expliquant son effet
+- "Ratio pic/bruit" renomme en "Sensibilite pic (ratio minimum)" pour plus de clarte
+
 ## 5.3.0
 
 ### Parametres avances configurables

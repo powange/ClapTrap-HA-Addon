@@ -1263,6 +1263,28 @@ footer a:hover {
     border-color: var(--color-primary);
 }
 
+/* ===== Advanced Settings ===== */
+.advanced-card {
+    border: 1px solid var(--color-border);
+}
+
+.advanced-diagram {
+    text-align: center;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+}
+
+.setting-hint {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--color-text-secondary);
+    margin-top: -0.15rem;
+    margin-bottom: 0.25rem;
+    line-height: 1.3;
+}
+
 .btn-sm {
     padding: 0.3rem 0.6rem;
     font-size: 0.75rem;
