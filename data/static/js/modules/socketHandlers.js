@@ -1,5 +1,13 @@
 import { showNotification, showSuccess, showError } from './notifications.js';
 
+function formatSourceId(sourceId) {
+    if (!sourceId) return '';
+    if (sourceId.startsWith('mic_')) return 'Micro';
+    if (sourceId.startsWith('rtsp_')) return 'RTSP';
+    if (sourceId.startsWith('vban_')) return 'VBAN';
+    return sourceId;
+}
+
 export function initializeSocketIO() {
     console.log('🔌 Initializing Socket.IO...');
     const basePath = window.basePath || '';
@@ -17,11 +25,24 @@ export function initializeSocketIO() {
     
     // Gestionnaire pour les claps
     socket.on('clap', (data) => {
-        console.log('🎯 Clap event received:', data);
+        console.log('Clap event received:', data);
         if (typeof window.showClap === 'function') {
             window.showClap(data.source_id);
-        } else {
-            console.error('❌ showClap function not found in window object');
+        }
+        // Afficher la source et le nombre de claps
+        const container = document.getElementById('detected_labels');
+        if (container) {
+            const sourceLabel = formatSourceId(data.source_id);
+            const claps = data.clap_count || 1;
+            const clapText = claps > 1 ? `${claps} claps` : '1 clap';
+            const el = document.createElement('div');
+            el.className = 'clap-event-label';
+            el.innerHTML = `<strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span> <span class="label-score">${Math.round((data.score || 0) * 100)}%</span>`;
+            container.prepend(el);
+            // Garder max 10 events
+            while (container.children.length > 10) {
+                container.removeChild(container.lastChild);
+            }
         }
     });
 
@@ -48,17 +69,20 @@ export function initializeSocketIO() {
             }
         }
 
-        // Vider le conteneur
-        container.innerHTML = '';
+        // Ne pas vider les events clap, juste mettre a jour les labels en bas
+        // Supprimer les anciens labels (pas les clap-event-label)
+        container.querySelectorAll('.label').forEach(el => el.remove());
 
         // Ajouter les nouveaux labels
         if (data.detected && Array.isArray(data.detected)) {
+            const sourceTag = data.source ? formatSourceId(data.source) : '';
             data.detected.forEach(label => {
                 const labelElement = document.createElement('span');
                 labelElement.className = 'label';
                 labelElement.innerHTML = `
                     ${label.label}
                     <span class="label-score">${Math.round(label.score * 100)}%</span>
+                    ${sourceTag ? `<span class="source-tag">${sourceTag}</span>` : ''}
                 `;
                 container.appendChild(labelElement);
             });

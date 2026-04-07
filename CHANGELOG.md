@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.4
+
+- L'interface affiche maintenant la source de chaque detection (Micro, RTSP, VBAN) avec un badge colore
+- Les events clap affichent le nombre de claps, le score et la source dans un bandeau vert
+- Les labels de classification affichent aussi la source d'ou ils proviennent
+- Historique des 10 derniers claps visible dans la zone de labels
+
 ## 3.2.3
 
 ### Fix multi-source : 3 bugs critiques
