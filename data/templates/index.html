@@ -230,7 +230,7 @@
         function buildRtspTab(src) {
             var d = src.data;
             var enabled = d.enabled ? ' checked' : '';
-            var volume = d.volume !== undefined ? d.volume : 10;
+            var volume = d.gain !== undefined ? d.gain : 10;
             var threshold = d.threshold !== undefined ? d.threshold : 0.5;
             var webhookUrl = d.webhook_url || '';
             var name = d.name || 'RTSP';

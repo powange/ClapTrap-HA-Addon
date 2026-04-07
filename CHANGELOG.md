@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.0.8
+
+- Fix volume RTSP non persiste : le template lisait `d.volume` mais le backend stocke `d.gain`. Le slider revenait toujours a 10x au rechargement.
+
 ## 5.0.7
 
 - Fix ajout RTSP : la route refusait la creation d'un flux avec une URL vide (400 Bad Request). Maintenant on peut creer un flux vide et remplir l'URL ensuite.
