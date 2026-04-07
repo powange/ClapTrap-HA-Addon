@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.4
+
+- Ajout d'un importmap pour versionner tous les modules JS avec le cache_bust. Chaque mise a jour de l'addon force le rechargement de tous les modules JS (plus de probleme de cache navigateur).
+
 ## 3.1.3
 
 - Le nom des flux RTSP a maintenant un style "editable" : bordure transparente au repos, bordure visible au hover, focus avec highlight bleu. Plus intuitif qu'un champ standard.

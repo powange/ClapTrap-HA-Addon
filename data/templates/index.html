@@ -195,6 +195,27 @@
         window.basePath = '{{ ingress_path }}';
     </script>
 
+    <script type="importmap">
+    {
+        "imports": {
+            "./modules/api.js": "{{ url_for('static', filename='js/modules/api.js') }}?v={{ cache_bust }}",
+            "./modules/audioSources.js": "{{ url_for('static', filename='js/modules/audioSources.js') }}?v={{ cache_bust }}",
+            "./modules/detection.js": "{{ url_for('static', filename='js/modules/detection.js') }}?v={{ cache_bust }}",
+            "./modules/events.js": "{{ url_for('static', filename='js/modules/events.js') }}?v={{ cache_bust }}",
+            "./modules/labels.js": "{{ url_for('static', filename='js/modules/labels.js') }}?v={{ cache_bust }}",
+            "./modules/micTest.js": "{{ url_for('static', filename='js/modules/micTest.js') }}?v={{ cache_bust }}",
+            "./modules/notifications.js": "{{ url_for('static', filename='js/modules/notifications.js') }}?v={{ cache_bust }}",
+            "./modules/rtspSources.js": "{{ url_for('static', filename='js/modules/rtspSources.js') }}?v={{ cache_bust }}",
+            "./modules/settings.js": "{{ url_for('static', filename='js/modules/settings.js') }}?v={{ cache_bust }}",
+            "./modules/settingsValidator.js": "{{ url_for('static', filename='js/modules/settingsValidator.js') }}?v={{ cache_bust }}",
+            "./modules/socket.js": "{{ url_for('static', filename='js/modules/socket.js') }}?v={{ cache_bust }}",
+            "./modules/socketHandlers.js": "{{ url_for('static', filename='js/modules/socketHandlers.js') }}?v={{ cache_bust }}",
+            "./modules/utils.js": "{{ url_for('static', filename='js/modules/utils.js') }}?v={{ cache_bust }}",
+            "./modules/vbanSources.js": "{{ url_for('static', filename='js/modules/vbanSources.js') }}?v={{ cache_bust }}",
+            "./modules/webhooks.js": "{{ url_for('static', filename='js/modules/webhooks.js') }}?v={{ cache_bust }}"
+        }
+    }
+    </script>
     <script type="module" src="{{ url_for('static', filename='js/script.js') }}?v={{ cache_bust }}"></script>
 
     <!-- Fallback inline -->
