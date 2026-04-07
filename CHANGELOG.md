@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.7
+
+- Fix ajout RTSP : la route refusait la creation d'un flux avec une URL vide (400 Bad Request). Maintenant on peut creer un flux vide et remplir l'URL ensuite.
+- Les champs gain et threshold sont inclus dans le stream a la creation.
+
 ## 5.0.6
 
 - Fix ajout VBAN : utilise /refresh_vban_sources pour decouvrir les sources, propose un choix, et sauvegarde via /api/vban/save

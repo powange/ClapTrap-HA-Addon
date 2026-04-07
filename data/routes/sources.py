@@ -74,13 +74,10 @@ def get_rtsp_streams():
 def add_rtsp_stream():
     try:
         data = request.get_json()
-        url = data.get('url')
+        url = data.get('url', '')
         name = data.get('name', '')
         webhook_url = data.get('webhook_url', '')
         enabled = data.get('enabled', True)
-
-        if not url:
-            return jsonify({'error': 'URL RTSP requise'}), 400
 
         settings = load_settings()
         if 'rtsp_sources' not in settings:
@@ -94,7 +91,9 @@ def add_rtsp_stream():
             'name': name,
             'url': url,
             'webhook_url': webhook_url,
-            'enabled': enabled
+            'enabled': enabled,
+            'gain': int(data.get('gain', 10)),
+            'threshold': float(data.get('threshold', 0.5))
         }
 
         settings['rtsp_sources'].append(new_stream)
