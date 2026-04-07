@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.0.5
+
+- Fix ajout/suppression RTSP : le code tentait de recharger les settings via GET /api/settings (route inexistante). Maintenant met a jour window.settings localement avec le stream retourne par l'API et rebuild les onglets.
+
 ## 5.0.4
 
 - Fix dropdown Ajouter : overflow-x:auto sur .tabs-header cachait le menu. Change en overflow:visible. Z-index du menu monte a 200 pour passer au-dessus du header.

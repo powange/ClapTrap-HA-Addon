@@ -372,17 +372,14 @@
                 fetch(basePath + '/api/rtsp/stream', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name: 'Nouveau RTSP', url: '', enabled: false, volume: 10, threshold: 0.5})
+                    body: JSON.stringify({name: 'Nouveau RTSP', url: '', enabled: false, gain: 10, threshold: 0.5})
                 }).then(function(r) { return r.json(); })
                   .then(function(data) {
-                      if (data.success || data.id) {
-                          // Reload settings
-                          fetch(basePath + '/api/settings').then(function(r) { return r.json(); }).then(function(s) {
-                              window.settings = s;
-                              buildTabs();
-                              var newId = data.id || '';
-                              if (newId) switchTab('rtsp_' + newId);
-                          });
+                      if (data.success && data.stream) {
+                          if (!window.settings.rtsp_sources) window.settings.rtsp_sources = [];
+                          window.settings.rtsp_sources.push(data.stream);
+                          buildTabs();
+                          switchTab('rtsp_' + data.stream.id);
                       }
                   })
                   .catch(function(err) { console.error('Add RTSP error:', err); });
@@ -574,10 +571,11 @@
                 fetch(basePath + '/api/rtsp/stream/' + id, {method: 'DELETE'})
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
-                        fetch(basePath + '/api/settings').then(function(r) { return r.json(); }).then(function(s) {
-                            window.settings = s;
+                        if (data.success) {
+                            settings.rtsp_sources = (settings.rtsp_sources || []).filter(function(s) { return s.id !== id; });
+                            window.settings = settings;
                             buildTabs();
-                        });
+                        }
                     })
                     .catch(function(err) { console.error('Delete RTSP error:', err); });
             } else if (type === 'vban') {
