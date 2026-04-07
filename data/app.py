@@ -90,6 +90,26 @@ from audio_utils import get_audio_input_devices
 # Initialiser le détecteur VBAN au démarrage (singleton)
 init_vban()
 
+# Appliquer le volume micro sauvegardé au démarrage
+def _apply_saved_mic_volume():
+    try:
+        import subprocess
+        settings = load_settings()
+        mic = settings.get('microphone', {})
+        pulse_name = mic.get('pulse_name', '')
+        volume = mic.get('volume', 100)
+        if pulse_name and volume != 100:
+            result = subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume}%'],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                logging.info(f"Volume micro restauré à {volume}% pour {pulse_name}")
+            else:
+                logging.debug(f"pactl set-source-volume: {result.stderr.strip()}")
+    except Exception as e:
+        logging.debug(f"Impossible de restaurer le volume micro au démarrage: {e}")
+
+_apply_saved_mic_volume()
+
 # Nettoyer lors de l'arrêt
 import atexit
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.5
+
+- Fix : le volume du micro sauvegarde est maintenant applique via pactl au demarrage de l'addon (avant, PulseAudio remettait le volume par defaut a chaque redemarrage)
+
 ## 3.2.4
 
 - L'interface affiche maintenant la source de chaque detection (Micro, RTSP, VBAN) avec un badge colore
