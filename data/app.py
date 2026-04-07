@@ -1016,6 +1016,7 @@ if __name__ == '__main__':
                         rtsp_url=None
                     )
                     logging.info("Auto-start: détection démarrée")
+                    socketio.emit('detection_status', {'status': 'running'})
                 else:
                     logging.warning("Auto-start: microphone non activé, détection non démarrée")
             except Exception as e:

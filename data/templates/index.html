@@ -319,8 +319,38 @@
                         label.textContent = data.volume + '%';
                     }
                 });
+
+                // Ecouter les changements d'etat de detection (auto-start, stop)
+                sock.on('detection_status', function(data) {
+                    var startBtn = document.getElementById('startButton');
+                    var stopBtn = document.getElementById('stopButton');
+                    if (!startBtn || !stopBtn) return;
+                    if (data.status === 'running') {
+                        startBtn.style.display = 'none';
+                        stopBtn.style.display = 'block';
+                    } else {
+                        startBtn.style.display = 'block';
+                        stopBtn.style.display = 'none';
+                    }
+                });
             }
         }, 200);
+
+        // Verifier l'etat de detection au chargement
+        (function() {
+            var basePath = window.basePath || '';
+            fetch(basePath + '/status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.running) {
+                        var startBtn = document.getElementById('startButton');
+                        var stopBtn = document.getElementById('stopButton');
+                        if (startBtn) startBtn.style.display = 'none';
+                        if (stopBtn) stopBtn.style.display = 'block';
+                    }
+                })
+                .catch(function() {});
+        })();
     })();
     </script>
 

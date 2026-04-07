@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.1
+
+- Fix : quand la detection demarre en auto-start, l'UI affiche maintenant le bouton "Arreter" au lieu de "Demarrer"
+- L'UI verifie l'etat de detection au chargement de la page via /status
+- L'auto-start emet un event socket `detection_status` pour synchroniser les clients connectes
+
 ## 3.0.0
 
 ### Nouvelles fonctionnalites
