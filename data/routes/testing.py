@@ -80,7 +80,7 @@ def start_mic_test():
                 if cb_count <= 5 or cb_count % 50 == 0:
                     logging.info(f"Test micro #{cb_count}: peak={peak:.6f}, samples={len(samples)}")
 
-                peak_amplified = min(1.0, peak * 50)
+                peak_amplified = min(1.0, peak)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
                 _socketio.emit('mic_level', {'peak': peak_amplified, 'db': round(db, 1)})
 
@@ -165,9 +165,9 @@ def start_rtsp_test():
                 peak = float(np.max(np.abs(samples))) * gain
                 cb_count += 1
                 if cb_count <= 3 or cb_count % 50 == 0:
-                    logging.info(f"Test RTSP #{cb_count}: peak={peak:.6f}")
+                    logging.info(f"Test RTSP #{cb_count}: peak={peak:.6f} (gain={gain}x)")
 
-                peak_amplified = min(1.0, peak * 50)
+                peak_amplified = min(1.0, peak)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
                 _socketio.emit('rtsp_level', {'peak': peak_amplified, 'db': round(db, 1), 'url': rtsp_url})
 

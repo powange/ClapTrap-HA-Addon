@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.4
+
+- Fix VU-metre : suppression de l'amplification artificielle x50 sur les tests micro et RTSP. Le VU-metre montre maintenant le signal reel (avec le gain configure). La voix ne sature plus a 0dB.
+
 ## 5.2.3
 
 - Fix multi-clap : seuil de pic dynamique base sur le niveau moyen du bruit de fond (x5). S'adapte automatiquement a chaque source (micro silencieux ou camera bruyante). Un clap est un pic 5x au-dessus du bruit ambiant.
