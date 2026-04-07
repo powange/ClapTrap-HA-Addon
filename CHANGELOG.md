@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.2
+
+- Fix multi-clap aberrant : seuil de pic monte de 0.03 a 0.1 (le bruit ambiant generait des faux pics). Les pics de plus de 2 secondes sont ignores. Le compteur est reset apres chaque emission.
+
 ## 5.2.1
 
 ### Fix multi-clap : comptage par pics d'energie
