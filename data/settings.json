@@ -8,7 +8,8 @@
         "audio_source": "default",
         "webhook_url": "",
         "enabled": false,
-        "volume": 100
+        "volume": 100,
+        "auto_volume": false
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],

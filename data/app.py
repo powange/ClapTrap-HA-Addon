@@ -841,6 +841,10 @@ def update_microphone_enabled():
 @app.route('/api/microphone/volume', methods=['PUT'])
 def update_microphone_volume():
     try:
+        from auto_volume import auto_volume_mgr
+        if auto_volume_mgr.running:
+            return jsonify({'error': 'Auto-volume actif, desactivez-le pour regler manuellement'}), 400
+
         data = request.get_json()
         volume = int(data.get('volume', 100))
         volume = max(0, min(150, volume))
@@ -849,7 +853,6 @@ def update_microphone_volume():
         settings['microphone']['volume'] = volume
         save_settings(settings)
 
-        # Appliquer immédiatement via pactl si un pulse_name est connu
         pulse_name = settings.get('microphone', {}).get('pulse_name', '')
         if pulse_name:
             try:
@@ -861,6 +864,30 @@ def update_microphone_volume():
                 logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
 
         return jsonify({'success': True, 'volume': volume})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/microphone/auto-volume', methods=['PUT'])
+def toggle_auto_volume():
+    try:
+        data = request.get_json()
+        enabled = bool(data.get('enabled', False))
+
+        settings = load_settings()
+        settings['microphone']['auto_volume'] = enabled
+        save_settings(settings)
+
+        from auto_volume import auto_volume_mgr
+        if enabled:
+            pulse_name = _resolve_pulse_name(settings)
+            if pulse_name:
+                auto_volume_mgr.start(pulse_name, socketio)
+            else:
+                return jsonify({'error': 'Aucun device PulseAudio trouve'}), 400
+        else:
+            auto_volume_mgr.stop()
+
+        return jsonify({'success': True, 'auto_volume': enabled})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

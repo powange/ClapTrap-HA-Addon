@@ -461,10 +461,34 @@ input::placeholder {
     gap: 0.25rem;
 }
 
+.mic-volume-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 .mic-volume-section label {
     font-size: 0.8rem;
     font-weight: 500;
     color: var(--color-text-secondary);
+}
+
+.auto-volume-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.auto-volume-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.mic-volume-slider:disabled,
+input[type="range"]:disabled {
+    opacity: 0.35;
+    pointer-events: none;
 }
 
 .mic-volume-slider,

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.0
+
+### Nouvelle fonctionnalite : Volume automatique du micro (AGC)
+
+- Toggle "Auto" a cote du slider de volume du micro
+- Quand active, le systeme ajuste automatiquement le volume PulseAudio pour maintenir un niveau de signal optimal pour la detection de claps
+- Algorithme : si le signal est trop faible (peak < 0.005) le volume augmente de 5%, si trop fort (peak > 0.3) il diminue de 10%, intervalle d'ajustement de 1 seconde
+- Le slider se met a jour en temps reel via socket.io quand l'AGC ajuste
+- Le slider manuel est desactive quand l'auto-volume est actif
+- L'AGC piggybacke sur les donnees parecord de la detection (pas de second processus)
+- Nouvel endpoint API PUT /api/microphone/auto-volume
+- L'auto-volume s'arrete automatiquement quand la detection s'arrete
+
 ## 2.4.0
 
 ### Fix : 6 bugs critiques dans le pipeline de detection

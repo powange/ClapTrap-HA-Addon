@@ -102,9 +102,20 @@
                                 </select>
                             </div>
                             <div class="mic-volume-section">
-                                <label for="mic-volume">Volume : <span id="mic-volume-value">{{ settings.microphone.volume|default(100) }}%</span></label>
+                                <div class="mic-volume-header">
+                                    <label for="mic-volume">Volume : <span id="mic-volume-value">{{ settings.microphone.volume|default(100) }}%</span></label>
+                                    <div class="auto-volume-toggle">
+                                        <label class="switch" title="Volume automatique">
+                                            <input type="checkbox" id="mic-auto-volume"
+                                                   {% if settings.microphone.auto_volume %}checked{% endif %}>
+                                            <span class="slider round"></span>
+                                        </label>
+                                        <span class="auto-volume-label">Auto</span>
+                                    </div>
+                                </div>
                                 <input type="range" id="mic-volume" min="0" max="150" step="5"
-                                       value="{{ settings.microphone.volume|default(100) }}" class="mic-volume-slider">
+                                       value="{{ settings.microphone.volume|default(100) }}" class="mic-volume-slider"
+                                       {% if settings.microphone.auto_volume %}disabled{% endif %}>
                             </div>
                             <div class="mic-test-section">
                                 <button type="button" id="mic-test-btn" class="btn-mic-test">
@@ -234,6 +245,34 @@
             });
         }
 
+        // Auto-volume toggle
+        var autoVolCheck = document.getElementById('mic-auto-volume');
+        if (autoVolCheck) {
+            autoVolCheck.addEventListener('change', function() {
+                var enabled = autoVolCheck.checked;
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/microphone/auto-volume', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: enabled})
+                }).then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.success) {
+                          var slider = document.getElementById('mic-volume');
+                          if (slider) slider.disabled = enabled;
+                          console.log('Auto-volume:', enabled ? 'active' : 'desactive');
+                      } else {
+                          autoVolCheck.checked = !enabled;
+                          console.error('Auto-volume erreur:', data.error);
+                      }
+                  })
+                  .catch(function(err) {
+                      autoVolCheck.checked = !enabled;
+                      console.error('Auto-volume erreur:', err);
+                  });
+            });
+        }
+
         // Socket.io mic levels
         var checkSocket = setInterval(function() {
             if (typeof io !== 'undefined') {
@@ -247,6 +286,15 @@
                     var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
                     bar.style.width = pct + '%';
                     label.textContent = data.db + ' dB';
+                });
+                // Auto-volume : mettre a jour le slider quand l'AGC ajuste
+                sock.on('auto_volume_update', function(data) {
+                    var slider = document.getElementById('mic-volume');
+                    var label = document.getElementById('mic-volume-value');
+                    if (slider && label && data.volume !== undefined) {
+                        slider.value = data.volume;
+                        label.textContent = data.volume + '%';
+                    }
                 });
             }
         }, 200);
