@@ -18,7 +18,7 @@ SETTINGS_TEMP = os.path.join(PERSISTENT_DIR, 'settings.json.tmp')
 DEFAULT_SETTINGS = {
     "global": {
         "threshold": 0.5,
-        "delay": 1.0
+        "delay": 1.5
     },
     "microphone": {
         "device_index": 0,

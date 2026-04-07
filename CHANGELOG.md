@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.2
+
+- Le parametre "Delai entre detections" est remplace par "Fenetre multi-clap" (0.5s a 5s, defaut 1.5s). C'est la duree pendant laquelle l'addon compte les claps successifs avant d'emettre l'evenement (1 clap, 2 claps, 3 claps...). L'ancien parametre n'avait plus d'effet depuis l'ajout du multi-clap.
+
 ## 4.0.1
 
 - Fix : le gain RTSP se met a jour en temps reel aussi pendant le test VU-metre (pas seulement pendant la detection). Bouger le slider de gain pendant un test met a jour le VU-metre immediatement.

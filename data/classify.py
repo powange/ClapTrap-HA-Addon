@@ -114,7 +114,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
     try:
         detector = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-        detector.initialize(max_results=max_results, score_threshold=score_threshold, detection_delay=delay)
+        detector.initialize(max_results=max_results, score_threshold=score_threshold, clap_window=delay)
 
         def create_detection_callback(source_name, webhook_url=None):
             def handle_detection(detection_data):

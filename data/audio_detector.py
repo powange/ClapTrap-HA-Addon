@@ -27,15 +27,14 @@ class AudioDetector:
         self.start_time_ms = None
         self._timestamp_to_source = {}  # Mappe timestamp → source_id (thread-safe via self.lock)
         self.score_threshold = 0.3
-        self.detection_delay = 1.0
         self._result_count = 0
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
-        self._clap_window_duration = 1.5  # seconds to count claps
+        self._clap_window_duration = 1.5  # durée de la fenêtre multi-clap (configurable)
 
-    def initialize(self, max_results=5, score_threshold=0.3, detection_delay=1.0):
+    def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5):
         """Initialise le classificateur audio"""
         self.score_threshold = score_threshold
-        self.detection_delay = detection_delay
+        self._clap_window_duration = clap_window
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             

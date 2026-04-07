@@ -61,9 +61,9 @@
                         <span id="threshold-value">{{ settings['global']['threshold'] }}</span>
                     </div>
                     <div class="setting-item">
-                        <label for="delay">Delai entre detections</label>
+                        <label for="delay">Fenetre multi-clap</label>
                         <div class="setting-control">
-                            <input type="number" id="delay" name="delay" min="0" step="0.1" value="{{ settings['global']['delay'] }}">
+                            <input type="number" id="delay" name="delay" min="0.5" max="5" step="0.1" value="{{ settings['global']['delay'] }}">
                             <span class="unit">sec</span>
                         </div>
                     </div>
