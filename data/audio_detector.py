@@ -23,6 +23,7 @@ class AudioDetector:
         self.lock = threading.Lock()
         self.last_detection_time = {}  # Dict pour stocker le dernier temps de détection par source
         self.last_timestamp_ms = {}  # Dict pour stocker le dernier timestamp par source
+        self._global_timestamp_ms = 0  # Timestamp global monotone pour classify_async (partagé entre toutes les sources)
         self.start_time_ms = None
         self._timestamp_to_source = {}  # Mappe timestamp → source_id (thread-safe via self.lock)
         self.score_threshold = 0.3
@@ -227,7 +228,9 @@ class AudioDetector:
             if len(audio_data) > self.buffer_size:
                 audio_data = resample_poly(audio_data, 1, 3).astype(np.float32)
 
-            # S'assurer que les données sont en float32
+            # S'assurer que les données sont 1D float32
+            if audio_data.ndim > 1:
+                audio_data = audio_data.flatten()
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
 
@@ -257,14 +260,11 @@ class AudioDetector:
                     block = ring[pos:pos + block_size]
                     pos += block_size
 
-                    # Calculer le prochain timestamp (monotone, sans time.time() pour éviter les collisions)
+                    # Timestamp global monotone (MediaPipe exige des timestamps strictement croissants)
                     block_duration_ms = int((block_size / self.sample_rate) * 1000)
-                    last_ts = self.last_timestamp_ms.get(source_id, self.start_time_ms)
-                    next_timestamp = last_ts + block_duration_ms
-                    self.last_timestamp_ms[source_id] = next_timestamp
-
-                    # Enregistrer le mapping timestamp → source pour le callback
                     with self.lock:
+                        self._global_timestamp_ms += block_duration_ms
+                        next_timestamp = self._global_timestamp_ms
                         self._timestamp_to_source[next_timestamp] = source_id
                         # Éviction des entrées périmées (> 5 secondes)
                         stale = [ts for ts in self._timestamp_to_source if ts < next_timestamp - 5000]
@@ -296,6 +296,7 @@ class AudioDetector:
         
         # Réinitialiser les timestamps
         self.start_time_ms = int(time.time() * 1000)
+        self._global_timestamp_ms = self.start_time_ms
         for source_id in self.sources:
             self.last_timestamp_ms[source_id] = self.start_time_ms
         

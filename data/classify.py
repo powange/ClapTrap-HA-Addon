@@ -63,7 +63,7 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
                 break
             audio_chunk = np.frombuffer(in_bytes, np.float32)
             if len(audio_chunk) > 0:
-                yield audio_chunk.reshape(-1, 1)
+                yield audio_chunk
     except Exception as e:
         logging.error(f"Erreur lecture RTSP: {e}")
         yield None

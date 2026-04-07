@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2.3
+
+### Fix multi-source : 3 bugs critiques
+
+- **RTSP shape mismatch** : `read_audio_from_rtsp` renvoyait des arrays (1600,1) au lieu de (1600,). Le ring buffer attendait du 1D. Suppression du `reshape(-1, 1)` + guard `flatten()` dans `process_audio`.
+- **Timestamps non monotones** : chaque source avait son propre compteur de timestamps, mais MediaPipe `classify_async` exige un timestamp global strictement croissant. Remplacement par un compteur global atomique protege par lock.
+- **source_id introuvable** : consequence des collisions de timestamps, le mapping timestamp→source etait corrompu. Resolu par le fix du timestamp global.
+
 ## 3.2.2
 
 - Fix : la detection utilise maintenant les flux RTSP et VBAN sauvegardes sur disque si le frontend ne les envoie pas (le module JS detection.js n'avait pas les RTSP en memoire)
