@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.3
+
+- Fix : le test micro utilise maintenant le device selectionne dans le dropdown (pas celui sauvegarde). Permet de tester un micro avant de sauvegarder.
+
 ## 3.0.2
 
 - Fix PulseAudio : le socket est a /run/audio/pulse.sock (pas /run/pulse/native) dans les addons HA

@@ -911,7 +911,14 @@ def start_mic_test():
         return jsonify({'success': True, 'message': 'Déjà en cours'})
 
     settings = load_settings()
-    pulse_name = _resolve_pulse_name(settings)
+
+    # Utiliser le device envoyé par le frontend (sélection courante) si disponible
+    body = request.get_json(silent=True) or {}
+    if body.get('pulse_name'):
+        pulse_name = body['pulse_name']
+        logging.info(f"Test micro: utilisation du device sélectionné: {pulse_name}")
+    else:
+        pulse_name = _resolve_pulse_name(settings)
 
     _mic_test_running = True
 

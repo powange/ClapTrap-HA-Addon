@@ -214,7 +214,14 @@
                 var vu = document.getElementById('mic-test-vu');
                 if (vu) vu.style.display = 'none';
             } else {
-                fetch(basePath + '/api/mic/test/start', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                // Envoyer le device actuellement selectionne dans le dropdown
+                var micSelect = document.getElementById('micro_source');
+                var body = {};
+                if (micSelect && micSelect.value) {
+                    var parts = micSelect.value.split('|');
+                    body = {pulse_name: parts[2] || '', audio_source: parts[1] || ''};
+                }
+                fetch(basePath + '/api/mic/test/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         if (data.success) {
