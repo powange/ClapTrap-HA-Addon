@@ -39,9 +39,16 @@
         <section class="config-panel">
             <div class="config-header">
                 <h2>Configuration</h2>
-                <button id="saveConfigButton" class="btn btn-primary">
-                    <span>&#x1F4BE;</span> Sauvegarder
-                </button>
+                <div class="config-actions">
+                    <button id="exportConfigBtn" class="btn btn-secondary" title="Exporter la config">&#x1F4E5;</button>
+                    <label class="btn btn-secondary" title="Importer une config" style="cursor:pointer;margin:0;">
+                        &#x1F4E4;
+                        <input type="file" id="importConfigInput" accept=".json" style="display:none;">
+                    </label>
+                    <button id="saveConfigButton" class="btn btn-primary">
+                        <span>&#x1F4BE;</span> Sauvegarder
+                    </button>
+                </div>
             </div>
 
             <!-- Detection settings -->
@@ -300,6 +307,37 @@
             });
         }
 
+        // Export/Import config
+        var exportBtn = document.getElementById('exportConfigBtn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function() {
+                var basePath = window.basePath || '';
+                window.location.href = basePath + '/api/settings/export';
+            });
+        }
+        var importInput = document.getElementById('importConfigInput');
+        if (importInput) {
+            importInput.addEventListener('change', function(e) {
+                var file = e.target.files[0];
+                if (!file) return;
+                var formData = new FormData();
+                formData.append('file', file);
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/settings/import', {method: 'POST', body: formData})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            alert('Configuration importee. La page va se recharger.');
+                            window.location.reload();
+                        } else {
+                            alert('Erreur: ' + (data.error || 'Import echoue'));
+                        }
+                    })
+                    .catch(function(err) { alert('Erreur import: ' + err); });
+                importInput.value = '';
+            });
+        }
+
         // Auto-start toggle
         var autoStartCheck = document.getElementById('auto-start');
         if (autoStartCheck) {
@@ -357,6 +395,23 @@
                     });
                 });
 
+                // RTSP status indicators
+                sock.on('rtsp_status', function(data) {
+                    var dots = document.querySelectorAll('.rtsp-status-dot');
+                    dots.forEach(function(dot) {
+                        if (dot.getAttribute('data-url') === data.url) {
+                            dot.className = 'rtsp-status-dot status-' + data.status;
+                            var titles = {
+                                'connecting': 'Connexion...',
+                                'connected': 'Connecte',
+                                'reconnecting': 'Reconnexion...',
+                                'error': 'Erreur: ' + (data.error || '')
+                            };
+                            dot.title = titles[data.status] || data.status;
+                        }
+                    });
+                });
+
                 // Ecouter les changements d'etat de detection (auto-start, stop)
                 sock.on('detection_status', function(data) {
                     var startBtn = document.getElementById('startButton');
@@ -375,12 +430,15 @@
             }
         }, 200);
 
-        // Afficher/masquer la source active
+        // Afficher/masquer les sources actives (en liste)
         function updateSourceDisplay(source) {
             var el = document.getElementById('active-sources');
             if (!el) return;
             if (source) {
-                el.innerHTML = '<span class="source-badge">' + source + '</span>';
+                var sources = source.split(' + ');
+                el.innerHTML = sources.map(function(s) {
+                    return '<span class="source-badge">' + s.trim() + '</span>';
+                }).join('');
             } else {
                 el.innerHTML = '';
             }

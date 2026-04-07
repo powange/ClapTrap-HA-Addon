@@ -41,6 +41,7 @@ _socketio = None
 
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
+_rtsp_gains = {}  # {rtsp_url: gain_float} — modifiable en temps réel
 
 
 def reload_settings():
@@ -223,30 +224,40 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
         def run_rtsp_source(src):
             rtsp_url = src.get('rtsp_url', src['audio_source'])
-            gain = float(src.get('gain', 10))
+            _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
             detector.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
                 labels_callback=create_labels_callback(source_id))
-            logging.info(f"RTSP: démarrage capture {rtsp_url} (gain={gain}x)")
+            logging.info(f"RTSP: démarrage capture {rtsp_url} (gain={_rtsp_gains[rtsp_url]}x)")
+
+            if socketio:
+                socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connecting'})
 
             reconnect_delay = 1
             while detection_running:
                 try:
+                    if socketio:
+                        socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connected'})
                     for audio_data in read_audio_from_rtsp(rtsp_url, int(16000 * 0.1)):
                         if not detection_running:
                             break
                         if audio_data is not None:
-                            # Appliquer le gain logiciel
+                            # Appliquer le gain logiciel (relu dynamiquement)
+                            gain = _rtsp_gains.get(rtsp_url, 10)
                             if gain != 1.0:
                                 audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                             detector.process_audio(audio_data, source_id)
                     if detection_running:
+                        if socketio:
+                            socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'reconnecting'})
                         logging.warning(f"RTSP {rtsp_url} interrompu, reconnexion dans {reconnect_delay}s...")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
                 except Exception as e:
                     if detection_running:
+                        if socketio:
+                            socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'error', 'error': str(e)})
                         logging.error(f"Erreur RTSP: {e}")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
@@ -348,3 +359,8 @@ def get_current_source():
 def get_detection_history():
     with _history_lock:
         return list(_detection_history)
+
+def update_rtsp_gain(rtsp_url, gain):
+    """Met à jour le gain d'une source RTSP en temps réel."""
+    _rtsp_gains[rtsp_url] = float(gain)
+    logging.info(f"Gain RTSP mis à jour: {rtsp_url} -> {gain}x")

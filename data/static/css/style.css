@@ -170,11 +170,14 @@ h1 {
 /* ===== Active Sources ===== */
 .active-sources {
     width: 100%;
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
 }
 
 .source-badge {
-    display: inline-block;
+    display: block;
     font-size: 0.75rem;
     font-weight: 500;
     color: var(--color-primary);
@@ -282,6 +285,24 @@ h1 {
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
+}
+
+.config-actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.btn-secondary {
+    background: var(--color-bg);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.btn-secondary:hover {
+    background: var(--color-border);
 }
 
 h2, h3, h4 {
@@ -596,6 +617,40 @@ input[type="range"]::-moz-range-thumb {
     background: var(--color-surface);
     outline: none;
     box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.12);
+}
+
+/* ===== RTSP Status Dot ===== */
+.rtsp-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #94a3b8;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.rtsp-status-dot.status-connecting {
+    background: #f59e0b;
+    animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.rtsp-status-dot.status-connected {
+    background: #22c55e;
+}
+
+.rtsp-status-dot.status-reconnecting {
+    background: #f59e0b;
+    animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.rtsp-status-dot.status-error {
+    background: #ef4444;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 /* ===== Mic Test ===== */

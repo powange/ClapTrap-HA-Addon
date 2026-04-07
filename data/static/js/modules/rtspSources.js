@@ -43,6 +43,7 @@ function createStreamElement(stream) {
                        value="${stream.name || 'Flux RTSP'}"
                        data-id="${stream.id}"
                        placeholder="Nom du flux">
+                <span class="rtsp-status-dot" data-url="${stream.url}" title="Status inconnu"></span>
             </div>
             <div class="source-controls">
                 <label class="switch" title="Activer/Désactiver le flux">

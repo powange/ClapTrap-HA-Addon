@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.0.0
+
+### Architecture : app.py decoupe en Blueprints Flask
+
+- `app.py` reduit de 1250 a ~300 lignes
+- `routes/detection.py` : start/stop detection, status, historique
+- `routes/sources.py` : RTSP/VBAN/microphone CRUD, gain, volume, auto-volume
+- `routes/settings_routes.py` : sauvegarde, export/import config
+- `routes/testing.py` : test micro et test RTSP (VU-metre)
+
+### Export/Import configuration
+
+- Boutons export (telecharger settings.json) et import (restaurer depuis un fichier) dans l'en-tete Configuration
+- GET /api/settings/export et POST /api/settings/import
+
+### Indicateur sante RTSP
+
+- Point colore a cote du nom de chaque flux RTSP (gris=inconnu, jaune=connexion, vert=connecte, rouge=erreur)
+- Mis a jour en temps reel via socket.io pendant la detection
+
+### Gain RTSP en temps reel
+
+- Changer le gain d'un flux RTSP pendant la detection l'applique immediatement (plus besoin de relancer)
+
+### Sources en liste
+
+- Les sources actives s'affichent en liste verticale (une par ligne) au lieu d'une seule ligne
+
 ## 3.3.1
 
 - Fix multi-clap : cooldown reduit de 0.3s a 0.15s (deux claps rapides etaient filtres car trop proches)
