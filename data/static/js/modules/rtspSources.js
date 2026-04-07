@@ -74,6 +74,13 @@ function createStreamElement(stream) {
                 </button>
             </div>
         </div>
+        <div class="mic-volume-section">
+            <div class="mic-volume-header">
+                <label>Gain audio : <span class="rtsp-gain-value" data-id="${stream.id}">${stream.gain || 10}x</span></label>
+            </div>
+            <input type="range" class="mic-volume-slider rtsp-gain" min="1" max="50" step="1"
+                   value="${stream.gain || 10}" data-id="${stream.id}">
+        </div>
         <div class="mic-test-section">
             <button type="button" class="btn-mic-test rtsp-test-btn" data-url="${stream.url}" data-id="${stream.id}">
                 🔊 Tester le flux
@@ -126,6 +133,22 @@ function setupStreamEventListeners(element, stream) {
         }, 500);
     });
 
+    // Gain slider
+    const gainSlider = element.querySelector('.rtsp-gain');
+    const gainLabel = element.querySelector('.rtsp-gain-value');
+    if (gainSlider) {
+        gainSlider.addEventListener('input', (e) => {
+            gainLabel.textContent = e.target.value + 'x';
+        });
+        let gainTimeout;
+        gainSlider.addEventListener('change', (e) => {
+            clearTimeout(gainTimeout);
+            gainTimeout = setTimeout(() => {
+                updateStream(stream.id, { ...stream, gain: parseInt(e.target.value) });
+            }, 300);
+        });
+    }
+
     // Enabled switch
     const enabledSwitch = element.querySelector('.stream-enabled');
     enabledSwitch.addEventListener('change', (e) => {
@@ -156,10 +179,11 @@ function setupStreamEventListeners(element, stream) {
                 const vu = element.querySelector('.rtsp-test-vu');
                 if (vu) vu.style.display = 'none';
             } else {
+                const currentGain = parseInt(element.querySelector('.rtsp-gain')?.value || 10);
                 fetch(basePath + '/api/rtsp/test/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({url: url})
+                    body: JSON.stringify({url: url, gain: currentGain})
                 }).then(r => r.json()).then(data => {
                     if (data.success) {
                         testing = true;

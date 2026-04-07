@@ -291,6 +291,7 @@ def start_detection_route():
                         'audio_source': url,
                         'rtsp_url': source['url'],
                         'webhook_url': source.get('webhook_url', ''),
+                        'gain': source.get('gain', 10),
                         'label': f'RTSP: {source.get("name", source["url"][:30])}'
                     })
                     logging.info(f"Source RTSP activée: {source.get('name', '')} ({source['url']})")
@@ -1100,6 +1101,7 @@ def start_rtsp_test():
 
     data = request.get_json(silent=True) or {}
     rtsp_url = data.get('url', '')
+    gain = float(data.get('gain', 10))
     if not rtsp_url:
         return jsonify({'error': 'URL RTSP requise'}), 400
 
@@ -1110,23 +1112,21 @@ def start_rtsp_test():
         import subprocess as sp
         proc = None
         try:
-            # Utiliser ffmpeg pour lire le flux RTSP et produire du PCM float32
             cmd = [
                 'ffmpeg', '-i', rtsp_url,
-                '-vn',  # pas de video
+                '-vn',
                 '-f', 'f32le', '-acodec', 'pcm_f32le',
                 '-ac', '1', '-ar', '16000',
                 '-loglevel', 'error',
                 'pipe:1'
             ]
-            logging.info(f"Test RTSP: lancement de ffmpeg pour {rtsp_url}")
+            logging.info(f"Test RTSP: ffmpeg {rtsp_url} (gain={gain}x)")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
-            # Drainer stderr
             import threading as _thr
             _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
 
-            block_size = 1600  # 100ms à 16kHz
+            block_size = 1600
             bytes_per_block = block_size * 4
             cb_count = 0
 
@@ -1137,7 +1137,8 @@ def start_rtsp_test():
                     break
 
                 samples = np.frombuffer(raw, dtype=np.float32)
-                peak = float(np.max(np.abs(samples)))
+                # Appliquer le gain logiciel
+                peak = float(np.max(np.abs(samples))) * gain
                 cb_count += 1
                 if cb_count <= 3 or cb_count % 50 == 0:
                     logging.info(f"Test RTSP #{cb_count}: peak={peak:.6f}")
@@ -1212,6 +1213,7 @@ if __name__ == '__main__':
                         sources.append({
                             'type': 'rtsp', 'audio_source': url, 'rtsp_url': src['url'],
                             'webhook_url': src.get('webhook_url', ''),
+                            'gain': src.get('gain', 10),
                             'label': f'RTSP: {src.get("name", src["url"][:30])}'
                         })
                 for src in s.get('saved_vban_sources', []):

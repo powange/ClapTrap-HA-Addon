@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.3.0
+
+### Gain audio par source RTSP
+
+- Slider de gain (1x a 50x, defaut 10x) sur chaque flux RTSP
+- Le gain est applique en logiciel sur les samples audio avant le classifier
+- Le gain est aussi applique dans le test de flux RTSP (VU-metre)
+- Le gain est sauvegarde par flux dans les settings
+- Permet de compenser les micros faibles des cameras de surveillance
+
 ## 3.2.6
 
 - Fix detection : le seuil MediaPipe est maintenant fixe a 0.05 (tres bas) pour laisser passer tous les labels. Le seuil utilisateur (slider Precision) est applique uniquement sur le scoring custom de clap. Avant, MediaPipe filtrait les labels "Hands" et "Clapping" en amont si leur score etait sous le seuil, rendant la detection impossible.

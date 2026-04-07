@@ -223,11 +223,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
         def run_rtsp_source(src):
             rtsp_url = src.get('rtsp_url', src['audio_source'])
+            gain = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
             detector.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
                 labels_callback=create_labels_callback(source_id))
-            logging.info(f"RTSP: démarrage capture {rtsp_url}")
+            logging.info(f"RTSP: démarrage capture {rtsp_url} (gain={gain}x)")
 
             reconnect_delay = 1
             while detection_running:
@@ -236,6 +237,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         if not detection_running:
                             break
                         if audio_data is not None:
+                            # Appliquer le gain logiciel
+                            if gain != 1.0:
+                                audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                             detector.process_audio(audio_data, source_id)
                     if detection_running:
                         logging.warning(f"RTSP {rtsp_url} interrompu, reconnexion dans {reconnect_delay}s...")
