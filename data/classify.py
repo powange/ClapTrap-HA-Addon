@@ -301,24 +301,19 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             # Récupérer les paramètres du périphérique
             settings = reload_settings()
             device_name = settings.get('microphone', {}).get('audio_source', 'default')
+            pulse_name = settings.get('microphone', {}).get('pulse_name', '')
             saved_index = int(settings.get('microphone', {}).get('device_index', 0))
 
-            # Lister les devices visibles par sounddevice pour le diagnostic
-            sd_device = None
-            try:
-                all_devices = sd.query_devices()
-                input_devices = [(idx, dev['name']) for idx, dev in enumerate(all_devices) if dev['max_input_channels'] > 0]
-                logging.info(f"Devices audio d'entrée visibles par sounddevice: {input_devices}")
-                # Chercher le device par nom dans la liste sounddevice
-                for idx, dev in enumerate(all_devices):
-                    if dev['max_input_channels'] > 0 and device_name in dev['name']:
-                        sd_device = idx
-                        break
-            except Exception as e:
-                logging.warning(f"Impossible de lister les devices sounddevice: {e}")
-            # Dans un container HA, sounddevice voit souvent seulement 'pulse' et 'default'
-            # Si le device n'est pas trouvé par nom, utiliser None (device par défaut PulseAudio)
-            logging.info(f"Device demandé: '{device_name}', device sounddevice résolu: {sd_device}")
+            # Configurer PulseAudio pour utiliser la bonne source d'entrée
+            # Dans un container HA, sounddevice ne voit que 'pulse' et 'default'
+            # Il faut définir PULSE_SOURCE pour que PulseAudio route vers le bon device
+            if pulse_name:
+                os.environ['PULSE_SOURCE'] = pulse_name
+                logging.info(f"PULSE_SOURCE configuré: {pulse_name}")
+            else:
+                logging.warning(f"Pas de pulse_name pour '{device_name}', utilisation du device PulseAudio par défaut")
+
+            sd_device = None  # Utiliser le device par défaut PulseAudio (routé via PULSE_SOURCE)
             source_id = f"mic_{saved_index}"
 
             # Récupérer le webhook_url depuis les paramètres du microphone

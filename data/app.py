@@ -86,7 +86,11 @@ def get_audio_input_devices():
                 sources = audio_data.get('audio', {}).get('input', [])
                 if sources:
                     devices = [
-                        {'index': source.get('index', idx), 'name': source.get('description', source.get('name', f'Device {idx}'))}
+                        {
+                            'index': source.get('index', idx),
+                            'name': source.get('description', source.get('name', f'Device {idx}')),
+                            'pulse_name': source.get('name', '')
+                        }
                         for idx, source in enumerate(sources)
                     ]
                     logging.info(f"Périphériques audio détectés via Supervisor: {devices}")

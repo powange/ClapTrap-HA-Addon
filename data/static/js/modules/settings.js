@@ -21,7 +21,8 @@ function syncWithDOM() {
     const micUrl = document.getElementById('webhook-mic-url');
     const micSource = document.getElementById('micro_source');
 
-    const [deviceId, deviceName] = micSource ? micSource.value.split('|') : ['0', 'default'];
+    const micParts = micSource ? micSource.value.split('|') : ['0', 'default', ''];
+    const [deviceId, deviceName, pulseName] = micParts;
 
     // Synchroniser les paramètres globaux et du microphone
     const updatedSettings = {
@@ -36,7 +37,8 @@ function syncWithDOM() {
             enabled: micEnabled ? micEnabled.checked : false,
             webhook_url: micUrl ? micUrl.value : '',
             audio_source: deviceName || 'default',
-            device_index: deviceId || '0'
+            device_index: deviceId || '0',
+            pulse_name: pulseName || ''
         }
     };
 

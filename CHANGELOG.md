@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.20
+
+- Fix : utilisation de PULSE_SOURCE pour router PulseAudio vers le bon micro USB dans le container HA
+- Le pulse_name du device est maintenant stocke dans les settings et passe au backend
+
 ## 2.2.19
 
 - Fix : race condition sur detection_running avec threading.Lock (evite double demarrage)

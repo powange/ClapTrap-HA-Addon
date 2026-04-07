@@ -99,7 +99,7 @@
                                 <label for="micro_source">Source Audio :</label>
                                 <select name="micro_source" id="micro_source" class="form-select">
                                     {% for device in devices %}
-                                    <option value="{{ device.index }}|{{ device.name }}" 
+                                    <option value="{{ device.index }}|{{ device.name }}|{{ device.pulse_name|default('', true) }}"
                                             {% if device.name == settings.microphone.audio_source %}selected{% endif %}>
                                         {{ device.name }}
                                     </option>
