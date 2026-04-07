@@ -792,7 +792,8 @@ def update_microphone_volume():
         settings['microphone']['volume'] = volume
         save_settings(settings)
 
-        pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+        # Utiliser le pulse_name du frontend si fourni, sinon celui sauvegardé
+        pulse_name = data.get('pulse_name') or settings.get('microphone', {}).get('pulse_name', '')
         if pulse_name:
             try:
                 import subprocess
@@ -818,7 +819,8 @@ def toggle_auto_volume():
 
         from auto_volume import auto_volume_mgr
         if enabled:
-            pulse_name = _resolve_pulse_name(settings)
+            # Utiliser le pulse_name du frontend si fourni
+            pulse_name = data.get('pulse_name') or _resolve_pulse_name(settings)
             if pulse_name:
                 auto_volume_mgr.start(pulse_name, socketio)
             else:

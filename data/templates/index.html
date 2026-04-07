@@ -236,6 +236,15 @@
             }
         });
 
+        // Helper : lire le pulse_name du device selectionne
+        function getSelectedPulseName() {
+            var sel = document.getElementById('micro_source');
+            if (sel && sel.value) {
+                return sel.value.split('|')[2] || '';
+            }
+            return '';
+        }
+
         // Volume slider
         var volSlider = document.getElementById('mic-volume');
         var volLabel = document.getElementById('mic-volume-value');
@@ -252,7 +261,7 @@
                     fetch(basePath + '/api/microphone/volume', {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({volume: volume})
+                        body: JSON.stringify({volume: volume, pulse_name: getSelectedPulseName()})
                     }).then(function(r) { return r.json(); })
                       .then(function(data) {
                           if (data.success) console.log('Volume mis a jour:', volume + '%');
@@ -271,7 +280,7 @@
                 fetch(basePath + '/api/microphone/auto-volume', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: enabled})
+                    body: JSON.stringify({enabled: enabled, pulse_name: getSelectedPulseName()})
                 }).then(function(r) { return r.json(); })
                   .then(function(data) {
                       if (data.success) {

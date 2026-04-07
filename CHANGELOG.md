@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.4
+
+- Fix : le reglage de volume et l'auto-volume utilisent maintenant le device selectionne dans le dropdown (pas celui sauvegarde)
+- Le pulse_name est envoye depuis le frontend dans toutes les requetes micro (test, volume, auto-volume)
+
 ## 3.0.3
 
 - Fix : le test micro utilise maintenant le device selectionne dans le dropdown (pas celui sauvegarde). Permet de tester un micro avant de sauvegarder.
