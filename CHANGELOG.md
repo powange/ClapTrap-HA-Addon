@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.2.11
+
+- Fix critique : la majorite des resultats du classifier etaient perdus ("source_id introuvable"). Le mapping timestamp→source_id ne fonctionnait pas car le timestamp initial du start() ne correspondait pas. Maintenant chaque detector a une seule source (_active_source_id), plus besoin de mapping timestamp. Tous les resultats sont traites.
+- Le score "Hands: 0.148" avec volume 1x est trop faible. Monte le volume RTSP pour ameliorer la detection.
+
 ## 5.2.10
 
 - Fix bouton Demarrer/Arreter : le handler etait dans l'ancien module detection.js qui n'est plus appele. Ajoute directement dans le script inline avec sauvegarde des settings avant demarrage.

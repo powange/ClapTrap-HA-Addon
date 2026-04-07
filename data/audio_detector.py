@@ -23,9 +23,9 @@ class AudioDetector:
         self.lock = threading.Lock()
         self.last_detection_time = {}  # Dict pour stocker le dernier temps de détection par source
         self.last_timestamp_ms = {}  # Dict pour stocker le dernier timestamp par source
-        self._global_timestamp_ms = 0  # Timestamp global monotone pour classify_async (partagé entre toutes les sources)
+        self._global_timestamp_ms = 0  # Timestamp global monotone pour classify_async
         self.start_time_ms = None
-        self._timestamp_to_source = {}  # Mappe timestamp → source_id (thread-safe via self.lock)
+        self._active_source_id = None  # Source unique pour ce detector (1 detector = 1 source)
         self.score_threshold = 0.3
         self._result_count = 0
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
@@ -63,6 +63,7 @@ class AudioDetector:
         
     def add_source(self, source_id, detection_callback=None, labels_callback=None):
         """Ajoute une nouvelle source audio avec ses callbacks"""
+        self._active_source_id = source_id
         with self.lock:
             # Attribuer un ID numérique à la source
             numeric_id = self.next_source_id
@@ -104,13 +105,11 @@ class AudioDetector:
             if not result or not result.classifications:
                 return
 
-            # Retrouver la source et ses callbacks de manière thread-safe
+            # Utiliser la source unique de ce detector (1 detector = 1 source)
+            source_id = self._active_source_id
+            if not source_id or source_id not in self.sources:
+                return
             with self.lock:
-                source_id = self._timestamp_to_source.pop(timestamp, None)
-                if not source_id or source_id not in self.sources:
-                    if self._result_count <= 10:
-                        logging.warning(f"Result #{self._result_count}: source_id introuvable pour timestamp {timestamp}")
-                    return
                 labels_callback = self.sources[source_id]['labels_callback']
                 detection_callback = self.sources[source_id]['detection_callback']
 
@@ -278,16 +277,10 @@ class AudioDetector:
                     block = ring[pos:pos + block_size]
                     pos += block_size
 
-                    # Timestamp global monotone (MediaPipe exige des timestamps strictement croissants)
+                    # Timestamp monotone croissant (requis par MediaPipe)
                     block_duration_ms = int((block_size / self.sample_rate) * 1000)
-                    with self.lock:
-                        self._global_timestamp_ms += block_duration_ms
-                        next_timestamp = self._global_timestamp_ms
-                        self._timestamp_to_source[next_timestamp] = source_id
-                        # Éviction des entrées périmées (> 5 secondes)
-                        stale = [ts for ts in self._timestamp_to_source if ts < next_timestamp - 5000]
-                        for ts in stale:
-                            del self._timestamp_to_source[ts]
+                    self._global_timestamp_ms += block_duration_ms
+                    next_timestamp = self._global_timestamp_ms
 
                     # Classifier le bloc
                     try:
