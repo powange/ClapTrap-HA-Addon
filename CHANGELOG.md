@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.3.7
+
+- Bouton "Nettoyer les anciennes entites HA" dans les parametres avances. Marque toutes les entites ClapTrap comme unavailable. Apres un redemarrage de HA, elles disparaissent.
+- Endpoint POST /api/ha/cleanup
+
 ## 5.3.6
 
 - Fix entites MQTT qui ne se mettent pas a jour lors d'un clap : le mapping source_id technique → entity_id etait manquant. on_clap_detected ne retrouvait pas le slug.

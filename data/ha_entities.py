@@ -180,6 +180,7 @@ def _cleanup_old_rest_entities():
     if not token:
         return
     try:
+        # Lister toutes les entites
         resp = requests.get(
             f"{SUPERVISOR_URL}/states",
             headers=_get_headers(),
@@ -191,19 +192,40 @@ def _cleanup_old_rest_entities():
         removed = 0
         for state in states:
             entity_id = state.get('entity_id', '')
-            # Supprimer les entites claptrap creees par l'API REST (pas de unique_id)
-            if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
-                try:
-                    requests.delete(
-                        f"{SUPERVISOR_URL}/states/{entity_id}",
-                        headers=_get_headers(),
-                        timeout=5
-                    )
+            if not entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                continue
+            # Tenter la suppression via l'entity registry API
+            try:
+                # D'abord essayer entity registry (fonctionne pour les entites manuelles)
+                resp2 = requests.post(
+                    f"{SUPERVISOR_URL}/services/homeassistant/remove_entity",
+                    headers=_get_headers(),
+                    json={'entity_id': entity_id},
+                    timeout=5
+                )
+                if resp2.ok:
                     removed += 1
-                except Exception:
-                    pass
+                    continue
+            except Exception:
+                pass
+            # Fallback : marquer comme unavailable puis supprimer le state
+            try:
+                requests.post(
+                    f"{SUPERVISOR_URL}/states/{entity_id}",
+                    headers=_get_headers(),
+                    json={'state': 'unavailable', 'attributes': {}},
+                    timeout=5
+                )
+            except Exception:
+                pass
         if removed > 0:
-            logging.info(f"Nettoyage: {removed} ancienne(s) entite(s) REST supprimee(s)")
+            logging.info(f"Nettoyage: {removed} ancienne(s) entite(s) supprimee(s)")
+        else:
+            # Compter les entites claptrap non-MQTT restantes
+            old_count = sum(1 for s in states if s.get('entity_id', '').startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')))
+            if old_count > 0:
+                logging.warning(f"{old_count} ancienne(s) entite(s) ClapTrap ne peuvent pas etre supprimees automatiquement. "
+                              "Supprimez-les manuellement : Parametres > Appareils > Entites > chercher 'claptrap' > supprimer celles dans 'Non groupe'.")
     except Exception as e:
         logging.debug(f"Erreur nettoyage entites: {e}")
 

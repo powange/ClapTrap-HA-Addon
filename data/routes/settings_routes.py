@@ -78,6 +78,48 @@ def update_advanced_settings():
         return jsonify({'error': str(e)}), 500
 
 
+@settings_bp.route('/api/ha/cleanup', methods=['POST'])
+def cleanup_ha_entities():
+    """Supprime toutes les entites ClapTrap orphelines via l'entity registry."""
+    try:
+        import requests as req
+        token = os.environ.get('SUPERVISOR_TOKEN', '')
+        if not token:
+            return jsonify({'error': 'SUPERVISOR_TOKEN non disponible'}), 500
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+        # Lister toutes les entites via le registre
+        resp = req.get('http://supervisor/core/api/states', headers=headers, timeout=10)
+        if not resp.ok:
+            return jsonify({'error': f'API states: {resp.status_code}'}), 500
+
+        states = resp.json()
+        claptrap_entities = [
+            s['entity_id'] for s in states
+            if s.get('entity_id', '').startswith(('binary_sensor.claptrap_', 'sensor.claptrap_'))
+        ]
+
+        removed = []
+        for entity_id in claptrap_entities:
+            # Mettre en unavailable pour forcer HA a les considerer comme mortes
+            req.post(
+                f'http://supervisor/core/api/states/{entity_id}',
+                headers=headers,
+                json={'state': 'unavailable', 'attributes': {'restored': False}},
+                timeout=5
+            )
+            removed.append(entity_id)
+
+        return jsonify({
+            'success': True,
+            'removed': len(removed),
+            'entities': removed,
+            'message': f'{len(removed)} entites marquees unavailable. Redemarrez HA pour les supprimer definitivement.'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @settings_bp.route('/api/ha/entities', methods=['GET'])
 def get_ha_entities():
     try:
