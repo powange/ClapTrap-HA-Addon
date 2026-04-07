@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.30
+
+- Fix : resolution automatique du pulse_name depuis l'API Supervisor si absent des settings
+- Le pulse_name est sauvegarde automatiquement apres resolution
+- Gain VU-metre augmente a 50x pour le diagnostic
+
 ## 2.2.29
 
 - Ajout gain 10x sur le VU-metre pour compenser le niveau faible PulseAudio

@@ -865,6 +865,27 @@ def update_rtsp_enabled():
 _mic_test_thread = None
 _mic_test_running = False
 
+def _resolve_pulse_name(settings):
+    """Résout le pulse_name depuis les settings ou l'API Supervisor."""
+    pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+    if pulse_name:
+        return pulse_name
+
+    # Fallback : chercher dans les devices Supervisor par nom
+    audio_source = settings.get('microphone', {}).get('audio_source', '')
+    if not audio_source or audio_source == 'default':
+        return ''
+
+    devices = get_audio_input_devices()
+    for dev in devices:
+        if dev.get('name') == audio_source and dev.get('pulse_name'):
+            # Sauvegarder pour la prochaine fois
+            settings['microphone']['pulse_name'] = dev['pulse_name']
+            save_settings(settings)
+            logging.info(f"pulse_name résolu et sauvegardé: {dev['pulse_name']}")
+            return dev['pulse_name']
+    return ''
+
 @app.route('/api/mic/test/start', methods=['POST'])
 def start_mic_test():
     global _mic_test_thread, _mic_test_running
@@ -872,7 +893,7 @@ def start_mic_test():
         return jsonify({'success': True, 'message': 'Déjà en cours'})
 
     settings = load_settings()
-    pulse_name = settings.get('microphone', {}).get('pulse_name', '')
+    pulse_name = _resolve_pulse_name(settings)
 
     _mic_test_running = True
 
@@ -890,7 +911,7 @@ def start_mic_test():
                     return
                 peak = float(np.max(np.abs(indata)))
                 # Appliquer un gain de 10x pour compenser le niveau faible de PulseAudio
-                peak_amplified = min(1.0, peak * 10)
+                peak_amplified = min(1.0, peak * 50)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
                 socketio.emit('mic_level', {'peak': peak_amplified, 'db': round(db, 1)})
 

@@ -304,9 +304,20 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             pulse_name = settings.get('microphone', {}).get('pulse_name', '')
             saved_index = int(settings.get('microphone', {}).get('device_index', 0))
 
+            # Résoudre le pulse_name depuis l'API Supervisor si absent
+            if not pulse_name and device_name and device_name != 'default':
+                try:
+                    from app import get_audio_input_devices
+                    devices = get_audio_input_devices()
+                    for dev in devices:
+                        if dev.get('name') == device_name and dev.get('pulse_name'):
+                            pulse_name = dev['pulse_name']
+                            logging.info(f"pulse_name résolu depuis l'API Supervisor: {pulse_name}")
+                            break
+                except Exception as e:
+                    logging.warning(f"Impossible de résoudre pulse_name: {e}")
+
             # Configurer PulseAudio pour utiliser la bonne source d'entrée
-            # Dans un container HA, sounddevice ne voit que 'pulse' et 'default'
-            # Il faut définir PULSE_SOURCE pour que PulseAudio route vers le bon device
             if pulse_name:
                 os.environ['PULSE_SOURCE'] = pulse_name
                 logging.info(f"PULSE_SOURCE configuré: {pulse_name}")
