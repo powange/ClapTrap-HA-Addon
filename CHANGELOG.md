@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.3.4
+
+- Fix MQTT 403 Forbidden : ajout de `services: mqtt:need` dans config.yaml. Sans ca, le Supervisor refusait l'acces aux credentials MQTT. Necessite une reconstruction de l'addon.
+
 ## 5.3.3
 
 - Le message "paho-mqtt non installe" est maintenant visible en WARNING (avant il fallait le debug). Si vous voyez ce message, reconstruisez l'addon (Parametres > Modules complementaires > ClapTrap > Reconstruire).
