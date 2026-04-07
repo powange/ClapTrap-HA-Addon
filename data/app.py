@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request, render_template, send_from_directory
 from flask_socketio import SocketIO
-from classify import start_detection, stop_detection, is_running
+from classify import start_detection, stop_detection, is_running, get_current_source
 import sounddevice as sd
 import numpy as np
 import json
@@ -283,7 +283,17 @@ def start_detection_route():
         
         # Démarrer la détection
         if start_detection(**detection_params):
-            return jsonify({'success': True})
+            # Résoudre le label de la source pour l'UI
+            src = detection_params.get('audio_source', '')
+            if src and src.startswith('rtsp'):
+                source_label = f'RTSP'
+            elif src and src.startswith('vban://'):
+                source_label = f'VBAN ({src.replace("vban://", "")})'
+            else:
+                mic_name = detection_settings.get('microphone', {}).get('audio_source', 'Microphone')
+                source_label = f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
+            socketio.emit('detection_status', {'status': 'running', 'source': source_label})
+            return jsonify({'success': True, 'source': source_label})
         else:
             return jsonify({'error': 'Impossible de démarrer la détection'}), 400
             
@@ -345,7 +355,23 @@ def clap_detected():
 def status():
     try:
         running = is_running()
-        return jsonify({'running': running})
+        source = get_current_source() if running else None
+        # Résoudre un nom lisible pour la source
+        source_label = None
+        if source:
+            if source.startswith('rtsp'):
+                source_label = f'RTSP ({source[:50]}...)'
+            elif source.startswith('vban://'):
+                source_label = f'VBAN ({source.replace("vban://", "")})'
+            else:
+                # Microphone : utiliser le nom depuis les settings
+                settings = load_settings()
+                source_label = settings.get('microphone', {}).get('audio_source', source)
+                if source_label == 'default':
+                    source_label = 'Microphone'
+                else:
+                    source_label = f'Micro: {source_label}'
+        return jsonify({'running': running, 'source': source_label})
     except Exception as e:
         return jsonify({'running': False, 'error': str(e)})
 
@@ -1149,8 +1175,10 @@ if __name__ == '__main__':
                         audio_source=mic.get('audio_source', 'default'),
                         rtsp_url=None
                     )
-                    logging.info("Auto-start: détection démarrée")
-                    socketio.emit('detection_status', {'status': 'running'})
+                    mic_label = mic.get('audio_source', 'Microphone')
+                    source_label = f'Micro: {mic_label}' if mic_label != 'default' else 'Microphone'
+                    logging.info(f"Auto-start: détection démarrée ({source_label})")
+                    socketio.emit('detection_status', {'status': 'running', 'source': source_label})
                 else:
                     logging.warning("Auto-start: microphone non activé, détection non démarrée")
             except Exception as e:

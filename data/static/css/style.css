@@ -167,6 +167,23 @@ h1 {
     gap: 0.5rem;
 }
 
+/* ===== Active Sources ===== */
+.active-sources {
+    width: 100%;
+    text-align: center;
+}
+
+.source-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-primary);
+    background: rgba(79, 110, 247, 0.1);
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    border: 1px solid rgba(79, 110, 247, 0.2);
+}
+
 /* ===== Labels Container ===== */
 #detected_labels {
     width: 100%;

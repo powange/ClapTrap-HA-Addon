@@ -478,6 +478,10 @@ def is_running():
     with _detection_lock:
         return detection_running
 
+def get_current_source():
+    """Retourne la source audio actuellement utilisée pour la détection."""
+    return current_audio_source
+
 def get_detection_history():
     with _history_lock:
         return list(_detection_history)

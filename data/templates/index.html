@@ -31,6 +31,7 @@
                 <button id="startButton" class="btn btn-primary">Demarrer</button>
                 <button id="stopButton" class="btn btn-danger" style="display: none;">Arreter</button>
             </div>
+            <div id="active-sources" class="active-sources"></div>
             <div id="detected_labels" class="labels-container"></div>
         </section>
 
@@ -364,13 +365,26 @@
                     if (data.status === 'running') {
                         startBtn.style.display = 'none';
                         stopBtn.style.display = 'block';
+                        updateSourceDisplay(data.source || null);
                     } else {
                         startBtn.style.display = 'block';
                         stopBtn.style.display = 'none';
+                        updateSourceDisplay(null);
                     }
                 });
             }
         }, 200);
+
+        // Afficher/masquer la source active
+        function updateSourceDisplay(source) {
+            var el = document.getElementById('active-sources');
+            if (!el) return;
+            if (source) {
+                el.innerHTML = '<span class="source-badge">' + source + '</span>';
+            } else {
+                el.innerHTML = '';
+            }
+        }
 
         // Verifier l'etat de detection au chargement
         (function() {
@@ -383,6 +397,7 @@
                         var stopBtn = document.getElementById('stopButton');
                         if (startBtn) startBtn.style.display = 'none';
                         if (stopBtn) stopBtn.style.display = 'block';
+                        updateSourceDisplay(data.source);
                     }
                 })
                 .catch(function() {});
