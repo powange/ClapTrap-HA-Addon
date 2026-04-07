@@ -41,7 +41,7 @@ _socketio = None
 
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
-_rtsp_gains = {}  # {rtsp_url: gain_float} — modifiable en temps réel
+_rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
 
 
 def reload_settings():
@@ -229,7 +229,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             detector.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, src.get('webhook_url')),
                 labels_callback=create_labels_callback(source_id))
-            logging.info(f"RTSP: démarrage capture {rtsp_url} (gain={_rtsp_gains[rtsp_url]}x)")
+            logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
                 socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connecting'})
@@ -363,4 +363,4 @@ def get_detection_history():
 def update_rtsp_gain(rtsp_url, gain):
     """Met à jour le gain d'une source RTSP en temps réel."""
     _rtsp_gains[rtsp_url] = float(gain)
-    logging.info(f"Gain RTSP mis à jour: {rtsp_url} -> {gain}x")
+    logging.info(f"Volume RTSP mis à jour: {rtsp_url} -> {gain}x")

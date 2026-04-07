@@ -77,7 +77,7 @@ function createStreamElement(stream) {
         </div>
         <div class="mic-volume-section">
             <div class="mic-volume-header">
-                <label>Gain audio : <span class="rtsp-gain-value" data-id="${stream.id}">${stream.gain || 10}x</span></label>
+                <label>Volume : <span class="rtsp-gain-value" data-id="${stream.id}">${stream.gain || 10}x</span></label>
             </div>
             <input type="range" class="mic-volume-slider rtsp-gain" min="1" max="50" step="1"
                    value="${stream.gain || 10}" data-id="${stream.id}">

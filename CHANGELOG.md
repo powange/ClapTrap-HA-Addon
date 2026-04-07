@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.3
+
+- Renommage "Gain audio" en "Volume" sur les flux RTSP pour la coherence avec le micro (les deux font la meme chose : amplifier le signal)
+
 ## 4.0.2
 
 - Le parametre "Delai entre detections" est remplace par "Fenetre multi-clap" (0.5s a 5s, defaut 1.5s). C'est la duree pendant laquelle l'addon compte les claps successifs avant d'emettre l'evenement (1 clap, 2 claps, 3 claps...). L'ancien parametre n'avait plus d'effet depuis l'ajout du multi-clap.
