@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.27
+
+- Fix : ajout d'un script inline fallback pour le bouton test micro (independant des modules ES)
+
 ## 2.2.26
 
 - Fix : bouton "Tester le micro" remis dans la section conditionnelle (cache quand micro desactive)

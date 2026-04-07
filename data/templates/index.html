@@ -190,6 +190,57 @@
     <!-- Charger notre script principal -->
     <script type="module" src="{{ url_for('static', filename='js/script.js') }}?v={{ cache_bust }}"></script>
 
+    <!-- Fallback test micro (indépendant des modules ES) -->
+    <script type="text/javascript">
+    (function() {
+        var testing = false;
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest && e.target.closest('#mic-test-btn');
+            if (!btn) return;
+
+            var basePath = window.basePath || '';
+            if (testing) {
+                fetch(basePath + '/api/mic/test/stop', {method: 'POST'});
+                testing = false;
+                btn.innerHTML = '<span class="icon">🎤</span> Tester le micro';
+                btn.classList.remove('active');
+                var vu = document.getElementById('mic-test-vu');
+                if (vu) vu.style.display = 'none';
+            } else {
+                fetch(basePath + '/api/mic/test/start', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            testing = true;
+                            btn.innerHTML = '<span class="icon">⏹</span> Arrêter le test';
+                            btn.classList.add('active');
+                            var vu = document.getElementById('mic-test-vu');
+                            if (vu) vu.style.display = 'flex';
+                        }
+                    })
+                    .catch(function(err) { console.error('Mic test error:', err); });
+            }
+        });
+
+        // Ecouter les niveaux via socket.io
+        var checkSocket = setInterval(function() {
+            if (typeof io !== 'undefined') {
+                clearInterval(checkSocket);
+                var basePath = window.basePath || '';
+                var sock = io({path: basePath + '/socket.io'});
+                sock.on('mic_level', function(data) {
+                    var bar = document.getElementById('mic-test-bar');
+                    var label = document.getElementById('mic-test-db');
+                    if (!bar || !label || data.error) return;
+                    var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
+                    bar.style.width = pct + '%';
+                    label.textContent = data.db + ' dB';
+                });
+            }
+        }, 200);
+    })();
+    </script>
+
     <template id="vbanDetectedSourceTemplate">
         <div class="list-group-item d-flex justify-content-between align-items-center">
             <div>
