@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.2.0
+
+### Detection multi-source simultanee
+
+- Toutes les sources activees (micro, RTSP, VBAN) fonctionnent en parallele
+- Chaque source tourne dans son propre thread, toutes partagent le meme classifier MediaPipe
+- Le badge source affiche toutes les sources actives (ex: "Micro: TONOR + RTSP: chambre")
+- L'auto-start collecte aussi toutes les sources activees
+- Le code de classify.py a ete entierement reecrit pour supporter le multi-source
+
 ## 3.1.8
 
 - Affichage de la source audio active sous le bouton Demarrer/Arreter (badge avec le nom du micro, RTSP ou VBAN)

@@ -240,60 +240,68 @@ def start_detection_route():
             if not isinstance(microphone_settings, dict):
                 microphone_settings = {}
                 
+            # Collecter TOUTES les sources activées
+            sources = []
+
+            # Microphone
+            if microphone_enabled:
+                mic_source = microphone_settings.get('audio_source', 'default')
+                sources.append({
+                    'type': 'mic',
+                    'audio_source': mic_source,
+                    'webhook_url': microphone_settings.get('webhook_url', ''),
+                    'label': f'Micro: {mic_source}' if mic_source != 'default' else 'Microphone'
+                })
+                logging.info(f"Source micro activée: {mic_source}")
+
+            # RTSP
+            rtsp_sources = detection_settings.get('rtsp_sources', [])
+            for source in rtsp_sources:
+                if source.get('enabled', False) and source.get('url'):
+                    url = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
+                    sources.append({
+                        'type': 'rtsp',
+                        'audio_source': url,
+                        'rtsp_url': source['url'],
+                        'webhook_url': source.get('webhook_url', ''),
+                        'label': f'RTSP: {source.get("name", source["url"][:30])}'
+                    })
+                    logging.info(f"Source RTSP activée: {source.get('name', '')} ({source['url']})")
+
+            # VBAN
+            saved_vban_sources = detection_settings.get('saved_vban_sources', [])
+            for source in saved_vban_sources:
+                if source.get('enabled', True):
+                    sources.append({
+                        'type': 'vban',
+                        'audio_source': f"vban://{source['ip']}",
+                        'webhook_url': source.get('webhook_url', ''),
+                        'label': f'VBAN: {source.get("name", source["ip"])}'
+                    })
+                    logging.info(f"Source VBAN activée: {source.get('name', '')} ({source['ip']})")
+
+            if not sources:
+                return jsonify({'error': 'Aucune source audio activée'}), 400
+
             detection_params = {
                 'model': "yamnet.tflite",
                 'max_results': 5,
                 'score_threshold': float(global_settings.get('threshold', 0.5)),
                 'overlapping_factor': 0.8,
                 'socketio': socketio,
-                'webhook_url': microphone_settings.get('webhook_url') if microphone_enabled else None,
                 'delay': float(global_settings.get('delay', 1.0)),
-                'audio_source': microphone_settings.get('audio_source') if microphone_enabled else None,
-                'rtsp_url': None
+                'sources': sources
             }
 
-            # Check for RTSP sources only if microphone is NOT enabled
-            if not microphone_enabled:
-                rtsp_sources = detection_settings.get('rtsp_sources', [])
-                for source in rtsp_sources:
-                    if source.get('enabled', False):
-                        detection_params['audio_source'] = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
-                        detection_params['rtsp_url'] = source['url']
-                        logging.info(f"Utilisation de la source RTSP: {source.get('name', 'Unknown')} ({source['url']})")
-                        break
-
-            # If no RTSP source is enabled and mic is off, check for VBAN sources
-            if not detection_params['audio_source'] and not microphone_enabled:
-                # Vérifier d'abord saved_vban_sources
-                saved_vban_sources = detection_settings.get('saved_vban_sources', [])
-                if saved_vban_sources:
-                    # Utiliser la première source VBAN active
-                    for source in saved_vban_sources:
-                        if source.get('enabled', True):
-                            detection_params['audio_source'] = f"vban://{source['ip']}"
-                            logging.info(f"Utilisation de la source VBAN: {source['name']} ({source['ip']})")
-                            break
-                    else:
-                        if not any(source.get('enabled', True) for source in saved_vban_sources):
-                            logging.info("Aucune source VBAN active n'est activée")
-                else:
-                    logging.info("Aucune source VBAN configurée")
         except (ValueError, TypeError) as e:
             return jsonify({'error': f'Erreur dans les paramètres : {str(e)}'}), 400
-        
-        # Démarrer la détection
+
+        # Démarrer la détection multi-source
         if start_detection(**detection_params):
-            # Résoudre le label de la source pour l'UI
-            src = detection_params.get('audio_source', '')
-            if src and src.startswith('rtsp'):
-                source_label = f'RTSP'
-            elif src and src.startswith('vban://'):
-                source_label = f'VBAN ({src.replace("vban://", "")})'
-            else:
-                mic_name = detection_settings.get('microphone', {}).get('audio_source', 'Microphone')
-                source_label = f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
-            socketio.emit('detection_status', {'status': 'running', 'source': source_label})
-            return jsonify({'success': True, 'source': source_label})
+            source_labels = [s['label'] for s in sources]
+            source_display = ' + '.join(source_labels)
+            socketio.emit('detection_status', {'status': 'running', 'source': source_display})
+            return jsonify({'success': True, 'source': source_display})
         else:
             return jsonify({'error': 'Impossible de démarrer la détection'}), 400
             
@@ -1155,32 +1163,49 @@ if __name__ == '__main__':
     settings = load_settings()
     if settings.get('microphone', {}).get('auto_start', False):
         def _delayed_auto_start():
-            import time
-            time.sleep(3)  # Attendre que PulseAudio soit prêt
+            import time as _time
+            _time.sleep(3)
             try:
                 logging.info("Auto-start: démarrage automatique de la détection...")
                 from classify import start_detection
-                detection_settings = load_settings()
-                mic = detection_settings.get('microphone', {})
+                s = load_settings()
+                global_s = s.get('global', {})
+                sources = []
+                mic = s.get('microphone', {})
                 if mic.get('enabled', False):
-                    global_s = detection_settings.get('global', {})
+                    mic_name = mic.get('audio_source', 'default')
+                    sources.append({
+                        'type': 'mic', 'audio_source': mic_name,
+                        'webhook_url': mic.get('webhook_url', ''),
+                        'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
+                    })
+                for src in s.get('rtsp_sources', []):
+                    if src.get('enabled', False) and src.get('url'):
+                        url = src['url'] if src['url'].startswith('rtsp') else f"rtsp://{src['url']}"
+                        sources.append({
+                            'type': 'rtsp', 'audio_source': url, 'rtsp_url': src['url'],
+                            'webhook_url': src.get('webhook_url', ''),
+                            'label': f'RTSP: {src.get("name", src["url"][:30])}'
+                        })
+                for src in s.get('saved_vban_sources', []):
+                    if src.get('enabled', True):
+                        sources.append({
+                            'type': 'vban', 'audio_source': f"vban://{src['ip']}",
+                            'webhook_url': src.get('webhook_url', ''),
+                            'label': f'VBAN: {src.get("name", src["ip"])}'
+                        })
+                if sources:
                     start_detection(
-                        model="yamnet.tflite",
-                        max_results=5,
+                        model="yamnet.tflite", max_results=5,
                         score_threshold=float(global_s.get('threshold', 0.5)),
-                        overlapping_factor=0.8,
-                        socketio=socketio,
-                        webhook_url=mic.get('webhook_url', ''),
-                        delay=float(global_s.get('delay', 1.0)),
-                        audio_source=mic.get('audio_source', 'default'),
-                        rtsp_url=None
+                        overlapping_factor=0.8, socketio=socketio,
+                        delay=float(global_s.get('delay', 1.0)), sources=sources
                     )
-                    mic_label = mic.get('audio_source', 'Microphone')
-                    source_label = f'Micro: {mic_label}' if mic_label != 'default' else 'Microphone'
-                    logging.info(f"Auto-start: détection démarrée ({source_label})")
-                    socketio.emit('detection_status', {'status': 'running', 'source': source_label})
+                    source_display = ' + '.join(s['label'] for s in sources)
+                    logging.info(f"Auto-start: détection démarrée ({source_display})")
+                    socketio.emit('detection_status', {'status': 'running', 'source': source_display})
                 else:
-                    logging.warning("Auto-start: microphone non activé, détection non démarrée")
+                    logging.warning("Auto-start: aucune source activée")
             except Exception as e:
                 logging.error(f"Auto-start: erreur - {e}")
 
