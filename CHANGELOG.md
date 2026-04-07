@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.3.5
+
+- Nettoyage automatique des anciennes entites REST au demarrage quand MQTT est disponible. Supprime toutes les entites `claptrap_*` creees par l'API REST (sans unique_id) pour laisser place aux nouvelles entites MQTT Discovery.
+
 ## 5.3.4
 
 - Fix MQTT 403 Forbidden : ajout de `services: mqtt:need` dans config.yaml. Sans ca, le Supervisor refusait l'acces aux credentials MQTT. Necessite une reconstruction de l'addon.

@@ -173,10 +173,45 @@ def _set_rest_state(entity_id, state, attributes=None):
 
 # ===== Public API =====
 
+def _cleanup_old_rest_entities():
+    """Supprime les anciennes entites creees via l'API REST (avant MQTT Discovery)."""
+    token = os.environ.get('SUPERVISOR_TOKEN', '')
+    if not token:
+        return
+    try:
+        resp = requests.get(
+            f"{SUPERVISOR_URL}/states",
+            headers=_get_headers(),
+            timeout=10
+        )
+        if not resp.ok:
+            return
+        states = resp.json()
+        removed = 0
+        for state in states:
+            entity_id = state.get('entity_id', '')
+            # Supprimer les entites claptrap creees par l'API REST (pas de unique_id)
+            if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                try:
+                    requests.delete(
+                        f"{SUPERVISOR_URL}/states/{entity_id}",
+                        headers=_get_headers(),
+                        timeout=5
+                    )
+                    removed += 1
+                except Exception:
+                    pass
+        if removed > 0:
+            logging.info(f"Nettoyage: {removed} ancienne(s) entite(s) REST supprimee(s)")
+    except Exception as e:
+        logging.debug(f"Erreur nettoyage entites: {e}")
+
+
 def init_entities():
     """Initialise le systeme d'entites (tente MQTT, sinon REST)."""
     _init_mqtt()
     if _mqtt_available:
+        _cleanup_old_rest_entities()
         logging.info("Entites HA via MQTT Discovery (appareil ClapTrap)")
     else:
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")
