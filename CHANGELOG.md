@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.1
+
+- Fix barre VU-metre invisible : fond de track plus contraste, gradient fixe (vert→jaune→rouge proportionnel a la largeur totale), hauteur augmentee, min-width pour toujours afficher un indicateur
+
 ## 2.3.0
 
 ### Fix majeur : la detection micro fonctionne enfin
