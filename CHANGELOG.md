@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.6
+
+- Fix ajout VBAN : utilise /refresh_vban_sources pour decouvrir les sources, propose un choix, et sauvegarde via /api/vban/save
+- Fix suppression VBAN : appelle DELETE /api/vban/remove pour persister la suppression cote backend (avant c'etait seulement local)
+
 ## 5.0.5
 
 - Fix ajout/suppression RTSP : le code tentait de recharger les settings via GET /api/settings (route inexistante). Maintenant met a jour window.settings localement avec le stream retourne par l'API et rebuild les onglets.

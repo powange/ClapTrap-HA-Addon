@@ -384,14 +384,38 @@
                   })
                   .catch(function(err) { console.error('Add RTSP error:', err); });
             } else if (type === 'vban') {
-                // Show VBAN discovery - refresh
-                var basePath = window.basePath || '';
-                fetch(basePath + '/api/vban/refresh', {method: 'POST'})
+                // Récupérer les sources VBAN détectées sur le réseau
+                fetch(basePath + '/refresh_vban_sources')
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
-                        alert('Recherche VBAN lancee. Les sources detectees apparaitront automatiquement.');
+                        var sources = data.sources || [];
+                        if (sources.length === 0) {
+                            alert('Aucune source VBAN detectee sur le reseau.');
+                            return;
+                        }
+                        // Proposer la première source trouvée
+                        var names = sources.map(function(s) { return s.name + ' (' + s.ip + ')'; });
+                        var choice = prompt('Sources VBAN detectees :\n' + names.join('\n') + '\n\nEntrez le numero (1-' + sources.length + ') :');
+                        if (!choice) return;
+                        var idx = parseInt(choice) - 1;
+                        if (idx < 0 || idx >= sources.length) return;
+                        var src = sources[idx];
+                        // Sauvegarder la source VBAN
+                        fetch(basePath + '/api/vban/save', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({source: src})
+                        }).then(function(r) { return r.json(); })
+                          .then(function(result) {
+                              if (result.success) {
+                                  if (!window.settings.saved_vban_sources) window.settings.saved_vban_sources = [];
+                                  window.settings.saved_vban_sources.push(src);
+                                  buildTabs();
+                                  switchTab('vban_' + (window.settings.saved_vban_sources.length - 1));
+                              }
+                          });
                     })
-                    .catch(function(err) { console.error('VBAN refresh error:', err); });
+                    .catch(function(err) { console.error('VBAN discovery error:', err); });
             }
         }
 
@@ -580,10 +604,19 @@
                     .catch(function(err) { console.error('Delete RTSP error:', err); });
             } else if (type === 'vban') {
                 var idx = parseInt(id);
-                if (settings.saved_vban_sources && settings.saved_vban_sources[idx]) {
-                    settings.saved_vban_sources.splice(idx, 1);
-                    window.settings = settings;
-                    buildTabs();
+                var vbanSrc = settings.saved_vban_sources && settings.saved_vban_sources[idx];
+                if (vbanSrc) {
+                    fetch(basePath + '/api/vban/remove', {
+                        method: 'DELETE',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({source: vbanSrc})
+                    }).then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          settings.saved_vban_sources.splice(idx, 1);
+                          window.settings = settings;
+                          buildTabs();
+                      })
+                      .catch(function(err) { console.error('Delete VBAN error:', err); });
                 }
             }
         }
