@@ -187,7 +187,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
-                register_source(entity_id or source_id, label=label)
+                register_source(entity_id or source_id, label=label, technical_id=source_id)
             except Exception:
                 pass
             return det

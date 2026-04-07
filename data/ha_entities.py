@@ -22,7 +22,8 @@ SUPERVISOR_URL = "http://supervisor/core/api"
 MQTT_TOPIC_PREFIX = "homeassistant"
 
 # State
-_source_info = {}  # source_id -> {slug, label}
+_source_info = {}  # entity_id -> {slug, label}
+_source_id_map = {}  # source_id technique -> entity_id
 _mqtt_client = None
 _mqtt_available = False
 
@@ -237,11 +238,20 @@ def get_entities_info():
     return result
 
 
-def register_source(source_id, label=None):
-    """Enregistre les entites pour une source."""
+def register_source(source_id, label=None, technical_id=None):
+    """Enregistre les entites pour une source.
+
+    Args:
+        source_id: ID pour l'entite (ex: 'rtsp_5cabeef8', 'mic_7')
+        label: Nom lisible (ex: 'RTSP: Bureau 2')
+        technical_id: ID technique utilise dans les callbacks (ex: 'rtsp_rtsp://admin:...')
+    """
     display_name = label or source_id
     slug = _make_slug(source_id)
     _source_info[source_id] = {'slug': slug, 'label': display_name}
+    # Mapper le source_id technique vers l'entity_id
+    if technical_id:
+        _source_id_map[technical_id] = source_id
 
     if _mqtt_available:
         # Binary sensor (clap detected)
@@ -270,17 +280,7 @@ def register_source(source_id, label=None):
         # Init states
         _mqtt_publish(f'claptrap/{slug}/state', 'OFF')
         _mqtt_publish(f'claptrap/{slug}/clap_count', '0')
-    else:
-        _set_rest_state(f'binary_sensor.claptrap_{slug}', 'off', {
-            'friendly_name': f'ClapTrap {display_name}',
-            'icon': 'mdi:hand-clap',
-            'device_class': 'sound'
-        })
-        _set_rest_state(f'sensor.claptrap_{slug}_clap_count', '0', {
-            'friendly_name': f'ClapTrap {display_name} Clap Count',
-            'icon': 'mdi:counter',
-            'unit_of_measurement': 'claps'
-        })
+    # Pas de fallback REST (crée des entités orphelines)
 
     logging.info(f"Entite HA: claptrap_{slug} ({display_name})")
 
@@ -317,17 +317,14 @@ def update_detection_state(running, sources=None):
         _mqtt_publish('claptrap/detection/attributes', {
             'sources': sources or []
         })
-    else:
-        _set_rest_state('binary_sensor.claptrap_detection', 'on' if running else 'off', {
-            'friendly_name': 'ClapTrap Detection',
-            'icon': 'mdi:ear-hearing',
-            'sources': sources or []
-        })
+    # Pas de fallback REST (crée des entités orphelines sans unique_id)
 
 
 def on_clap_detected(source_id, score, clap_count):
     """Appele quand un clap est detecte."""
-    info = _source_info.get(source_id, {})
+    # Résoudre le source_id technique vers l'entity_id
+    entity_key = _source_id_map.get(source_id, source_id)
+    info = _source_info.get(entity_key, {})
     slug = info.get('slug', source_id)
     display_name = info.get('label', source_id)
 
@@ -343,26 +340,4 @@ def on_clap_detected(source_id, score, clap_count):
         def _off():
             time.sleep(2)
             _mqtt_publish(f'claptrap/{slug}/state', 'OFF')
-        threading.Thread(target=_off, daemon=True).start()
-    else:
-        _set_rest_state(f'binary_sensor.claptrap_{slug}', 'on', {
-            'friendly_name': f'ClapTrap {display_name}',
-            'icon': 'mdi:hand-clap',
-            'device_class': 'sound',
-            'score': round(score, 3),
-            'clap_count': clap_count,
-            'last_detection': time.strftime('%Y-%m-%dT%H:%M:%S')
-        })
-        _set_rest_state(f'sensor.claptrap_{slug}_clap_count', str(clap_count), {
-            'friendly_name': f'ClapTrap {display_name} Clap Count',
-            'icon': 'mdi:counter',
-            'unit_of_measurement': 'claps'
-        })
-        def _off():
-            time.sleep(2)
-            _set_rest_state(f'binary_sensor.claptrap_{slug}', 'off', {
-                'friendly_name': f'ClapTrap {display_name}',
-                'icon': 'mdi:hand-clap',
-                'device_class': 'sound'
-            })
         threading.Thread(target=_off, daemon=True).start()

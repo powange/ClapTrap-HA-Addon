@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.3.6
+
+- Fix entites MQTT qui ne se mettent pas a jour lors d'un clap : le mapping source_id technique → entity_id etait manquant. on_clap_detected ne retrouvait pas le slug.
+- Suppression du fallback REST : ne cree plus d'entites orphelines sans unique_id. Seul MQTT Discovery est utilise (necessite Mosquitto).
+- Les anciennes entites REST (section "Non groupe") doivent etre supprimees manuellement dans HA (clic sur le X).
+
 ## 5.3.5
 
 - Nettoyage automatique des anciennes entites REST au demarrage quand MQTT est disponible. Supprime toutes les entites `claptrap_*` creees par l'API REST (sans unique_id) pour laisser place aux nouvelles entites MQTT Discovery.
