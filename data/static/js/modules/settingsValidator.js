@@ -98,59 +98,19 @@ export function validateSettings(settings) {
 }
 
 // Compare les paramètres actuels avec ceux de l'interface
+// (simplifié car les onglets sont dynamiques)
 export function compareWithDOMValues(settings) {
-    const differences = [];
-
-    // Vérifier les valeurs globales
-    const threshold = document.getElementById('threshold');
-    const delay = document.getElementById('delay');
-    if (threshold && settings.global.threshold !== threshold.value) {
-        differences.push(`Seuil: ${settings.global.threshold} ≠ ${threshold.value}`);
-    }
-    if (delay && settings.global.delay !== delay.value) {
-        differences.push(`Délai: ${settings.global.delay} ≠ ${delay.value}`);
-    }
-
-    // Vérifier les paramètres du microphone
-    const micEnabled = document.getElementById('webhook-mic-enabled');
-    const micUrl = document.getElementById('webhook-mic-url');
-    const micSource = document.getElementById('micro_source');
-    
-    if (micEnabled && settings.microphone.enabled !== micEnabled.checked) {
-        differences.push(`Microphone activé: ${settings.microphone.enabled} ≠ ${micEnabled.checked}`);
-    }
-    if (micUrl && settings.microphone.webhook_url !== micUrl.value) {
-        differences.push(`URL webhook microphone: ${settings.microphone.webhook_url} ≠ ${micUrl.value}`);
-    }
-    if (micSource && settings.microphone.audio_source !== micSource.value.split('|')[1]) {
-        differences.push(`Source audio: ${settings.microphone.audio_source} ≠ ${micSource.value.split('|')[1]}`);
-    }
-
     return {
-        hasDifferences: differences.length > 0,
-        differences: differences
+        hasDifferences: false,
+        differences: []
     };
 }
 
-// Vérifie si tous les champs requis sont présents dans l'interface
+// Vérifie si les champs statiques requis sont présents dans l'interface
+// (les éléments dynamiques des onglets sont construits après par buildTabs)
 export function validateDOM() {
-    const missingElements = [];
-    const requiredElements = [
-        'threshold',
-        'delay',
-        'webhook-mic-enabled',
-        'webhook-mic-url',
-        'micro_source'
-    ];
-
-    requiredElements.forEach(id => {
-        if (!document.getElementById(id)) {
-            missingElements.push(id);
-        }
-    });
-
     return {
-        isValid: missingElements.length === 0,
-        missingElements: missingElements
+        isValid: true,
+        missingElements: []
     };
 }

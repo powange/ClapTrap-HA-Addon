@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.8
+
+- Fix erreur "initialisation des parametres" au chargement : le validateur DOM cherchait des elements (threshold, webhook-mic-enabled, micro_source) qui sont maintenant generes dynamiquement par les onglets. La validation DOM est desactivee car inutile avec l'interface dynamique.
+
 ## 5.2.7
 
 - L'historique affiche maintenant le nom du flux (ex: "Bureau", "chambre") au lieu de juste "RTSP". Idem pour les micros et VBAN.
