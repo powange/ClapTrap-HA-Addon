@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.2
+
+- Fix PulseAudio : le socket est a /run/audio/pulse.sock (pas /run/pulse/native) dans les addons HA
+- Fallback : si aucun socket trouve, extrait le Server String de `pactl info` (qui fonctionne via la config interne du conteneur)
+- Applique dans run.sh et app.py
+
 ## 3.0.1
 
 - Fix : quand la detection demarre en auto-start, l'UI affiche maintenant le bouton "Arreter" au lieu de "Demarrer"

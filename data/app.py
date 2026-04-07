@@ -29,15 +29,27 @@ logging.basicConfig(
 
 # Vérifier la configuration PulseAudio
 pulse_server = os.environ.get('PULSE_SERVER', '')
-logging.info(f"PulseAudio PULSE_SERVER={pulse_server or 'NON DEFINI'}")
 if not pulse_server:
-    for pulse_path in ['/run/pulse/native', '/run/pulse/pulseaudio.socket', '/var/run/pulse/native']:
+    for pulse_path in ['/run/audio/pulse.sock', '/run/pulse/native', '/run/pulse/pulseaudio.socket', '/var/run/pulse/native']:
         if os.path.exists(pulse_path):
             os.environ['PULSE_SERVER'] = f'unix:{pulse_path}'
-            logging.info(f"PulseAudio: PULSE_SERVER auto-configuré vers {pulse_path}")
+            pulse_server = os.environ['PULSE_SERVER']
             break
     else:
-        logging.warning("PulseAudio: PULSE_SERVER non défini et aucun socket trouvé")
+        # Fallback : extraire depuis pactl info
+        try:
+            import subprocess
+            result = subprocess.run(['pactl', 'info'], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.splitlines():
+                if 'Server String:' in line:
+                    server_str = line.split(':', 1)[1].strip()
+                    if server_str:
+                        os.environ['PULSE_SERVER'] = server_str
+                        pulse_server = server_str
+                    break
+        except Exception:
+            pass
+logging.info(f"PulseAudio PULSE_SERVER={os.environ.get('PULSE_SERVER', 'NON DEFINI')}")
 
 # Réduire le niveau de log des modules trop verbeux
 logging.getLogger('werkzeug').setLevel(logging.WARNING)

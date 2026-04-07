@@ -5,27 +5,31 @@
 
 bashio::log.info "Demarrage de ClapTrap..."
 
-# HA definit PULSE_SERVER automatiquement quand audio: true dans config.yaml
-# Ne pas surcharger si deja defini par le systeme
+# Configurer PULSE_SERVER si pas deja defini
 if [ -z "${PULSE_SERVER:-}" ]; then
-    # Chercher le socket PulseAudio manuellement
-    for path in /run/pulse/native /run/pulse/pulseaudio.socket /var/run/pulse/native; do
+    # Chercher le socket PulseAudio
+    for path in /run/audio/pulse.sock /run/pulse/native /run/pulse/pulseaudio.socket /var/run/pulse/native; do
         if [ -e "${path}" ]; then
             export PULSE_SERVER="unix:${path}"
+            bashio::log.info "PulseAudio: socket trouve (${path})"
             break
         fi
     done
 fi
 
+# Si toujours pas defini, extraire depuis pactl info
+if [ -z "${PULSE_SERVER:-}" ] && command -v pactl > /dev/null 2>&1; then
+    SERVER_STRING=$(timeout 3 pactl info 2>/dev/null | grep "Server String:" | sed 's/Server String: *//' || true)
+    if [ -n "${SERVER_STRING}" ]; then
+        export PULSE_SERVER="${SERVER_STRING}"
+        bashio::log.info "PulseAudio: server string extrait de pactl (${SERVER_STRING})"
+    fi
+fi
+
 bashio::log.info "PULSE_SERVER=${PULSE_SERVER:-NON DEFINI}"
 
-# Diagnostic : lister tout ce qui est dans /run/pulse/
-bashio::log.info "Contenu de /run/pulse/:"
-ls -la /run/pulse/ 2>/dev/null || bashio::log.warning "/run/pulse/ n'existe pas"
-
-# Diagnostic audio (avec timeout)
+# Diagnostic audio
 if command -v pactl > /dev/null 2>&1; then
-    timeout 3 pactl info 2>&1 | head -3 || true
     timeout 3 pactl list sources short 2>&1 || true
 fi
 
