@@ -189,7 +189,8 @@ def index():
                          devices=input_devices,
                          flux=flux['audio_streams'],
                          debug=app.debug,
-                         ingress_path=request.script_root)
+                         ingress_path=request.script_root,
+                         cache_bust=int(time.time()))
 
 def verify_settings_saved(new_settings, saved_settings):
     """Vérifie que les paramètres ont été correctement sauvegardés"""

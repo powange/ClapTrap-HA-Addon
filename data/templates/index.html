@@ -188,7 +188,7 @@
     </script>
     
     <!-- Charger notre script principal -->
-    <script type="module" src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/script.js') }}?v={{ cache_bust }}"></script>
 
     <template id="vbanDetectedSourceTemplate">
         <div class="list-group-item d-flex justify-content-between align-items-center">

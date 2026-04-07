@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.25
+
+- Fix : ajout cache-buster sur script.js pour forcer le rechargement apres mise a jour
+
 ## 2.2.24
 
 - Fix : initialisation du test micro et Socket.IO independante de initSettings (evite que le bouton soit inactif)
