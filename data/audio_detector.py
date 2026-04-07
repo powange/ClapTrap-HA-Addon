@@ -164,16 +164,21 @@ class AudioDetector:
 
             # Vérifier si on a détecté un clap
             current_time = time.time()
-            if score_sum > self.score_threshold and (current_time - self.last_detection_time.get(source_id, 0)) > 0.3:
+            # Cooldown de 0.15s pour filtrer les détections multiples d'un même clap
+            # (un clap physique produit un signal de ~100ms qui peut matcher sur 2-3 blocs)
+            last_det = self.last_detection_time.get(source_id, 0)
+            if score_sum > self.score_threshold and (current_time - last_det) > 0.15:
                 self.last_detection_time[source_id] = current_time
 
                 window = self._clap_windows.get(source_id)
                 if window and (current_time - window['first_clap_time']) < self._clap_window_duration:
                     window['count'] += 1
+                    logging.info(f"[{source_id}] Clap #{window['count']} dans la fenêtre (score={score_sum:.2f})")
                 else:
-                    # Start new window - emit previous if exists
+                    # Émettre la fenêtre précédente si elle existe
                     if window and detection_callback:
                         try:
+                            logging.info(f"[{source_id}] Émission fenêtre précédente: {window['count']} clap(s)")
                             detection_callback({
                                 'timestamp': window['first_clap_time'],
                                 'score': float(score_sum),
@@ -181,11 +186,13 @@ class AudioDetector:
                                 'clap_count': window['count']
                             })
                         except Exception as e:
-                            logging.error(f"Erreur dans le callback de détection pour source {source_id}: {str(e)}")
+                            logging.error(f"Erreur callback détection {source_id}: {e}")
+                    # Nouvelle fenêtre
                     self._clap_windows[source_id] = {
                         'first_clap_time': current_time,
                         'count': 1
                     }
+                    logging.info(f"[{source_id}] Nouvelle fenêtre clap ouverte (score={score_sum:.2f})")
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
@@ -196,9 +203,10 @@ class AudioDetector:
         """Émet les événements pour les fenêtres de claps expirées."""
         current_time = time.time()
         expired = []
-        for source_id, window in self._clap_windows.items():
+        for source_id, window in list(self._clap_windows.items()):
             if (current_time - window['first_clap_time']) >= self._clap_window_duration:
                 expired.append(source_id)
+                logging.info(f"[{source_id}] Fenêtre expirée: {window['count']} clap(s)")
                 if source_id in self.sources:
                     cb = self.sources[source_id]['detection_callback']
                     if cb:

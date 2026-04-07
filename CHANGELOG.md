@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.1
+
+- Fix multi-clap : cooldown reduit de 0.3s a 0.15s (deux claps rapides etaient filtres car trop proches)
+- Ajout de logging detaille pour le comptage multi-clap (ouverture/fermeture de fenetre, compteur)
+
 ## 3.3.0
 
 ### Gain audio par source RTSP
