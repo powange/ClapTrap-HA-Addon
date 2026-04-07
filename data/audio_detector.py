@@ -40,11 +40,13 @@ class AudioDetector:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             
             # Créer un seul classificateur en mode stream
+            # score_threshold bas pour MediaPipe (laisser passer tous les labels)
+            # Le seuil utilisateur est appliqué dans _handle_result sur notre scoring custom
             options = audio.AudioClassifierOptions(
                 base_options=base_options,
                 running_mode=audio.RunningMode.AUDIO_STREAM,
                 max_results=max_results,
-                score_threshold=score_threshold,
+                score_threshold=0.05,
                 result_callback=self._handle_result
             )
             self.classifier = audio.AudioClassifier.create_from_options(options)
@@ -112,10 +114,12 @@ class AudioDetector:
 
             classification = result.classifications[0]
 
-            # Log top results periodiquement
-            if self._result_count <= 10 or self._result_count % 100 == 0:
-                top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
-                logging.info(f"Classifier top labels: {top}")
+            # Log top results + labels clap
+            top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
+            clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
+                           if c.category_name in ("Hands", "Clapping")]
+            if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
+                logging.info(f"[{source_id}] top={top} clap={clap_labels}")
 
             # Scoring pondéré pour la détection de clap
             CLAP_WEIGHTS = {"Hands": 0.8, "Clapping": 1.0}

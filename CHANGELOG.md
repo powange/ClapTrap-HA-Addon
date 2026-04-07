@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.6
+
+- Fix detection : le seuil MediaPipe est maintenant fixe a 0.05 (tres bas) pour laisser passer tous les labels. Le seuil utilisateur (slider Precision) est applique uniquement sur le scoring custom de clap. Avant, MediaPipe filtrait les labels "Hands" et "Clapping" en amont si leur score etait sous le seuil, rendant la detection impossible.
+- Logging ameliore : les labels clap sont logges a chaque fois qu'ils apparaissent (pas seulement tous les 100 blocs)
+
 ## 3.2.5
 
 - Fix : le volume du micro sauvegarde est maintenant applique via pactl au demarrage de l'addon (avant, PulseAudio remettait le volume par defaut a chaque redemarrage)
