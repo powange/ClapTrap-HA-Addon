@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.29
+
+- Ajout gain 10x sur le VU-metre pour compenser le niveau faible PulseAudio
+- Ajout de logging du pulse_name lors du test micro
+
 ## 2.2.28
 
 - Fix : affichage de la barre VU-metre (largeur 100% + min-width sur le track)

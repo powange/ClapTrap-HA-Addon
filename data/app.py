@@ -881,14 +881,20 @@ def start_mic_test():
         try:
             if pulse_name:
                 os.environ['PULSE_SOURCE'] = pulse_name
+                logging.info(f"Test micro: PULSE_SOURCE={pulse_name}")
+            else:
+                logging.warning("Test micro: pas de pulse_name, utilisation du device par défaut")
 
             def callback(indata, frames, time_info, status):
                 if not _mic_test_running:
                     return
                 peak = float(np.max(np.abs(indata)))
-                db = max(-60, 20 * np.log10(peak + 1e-10))
-                socketio.emit('mic_level', {'peak': peak, 'db': round(db, 1)})
+                # Appliquer un gain de 10x pour compenser le niveau faible de PulseAudio
+                peak_amplified = min(1.0, peak * 10)
+                db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
+                socketio.emit('mic_level', {'peak': peak_amplified, 'db': round(db, 1)})
 
+            logging.info(f"Test micro: ouverture du stream audio...")
             with sd.InputStream(device=None, channels=1, samplerate=16000,
                                 blocksize=1600, callback=callback):
                 while _mic_test_running:
