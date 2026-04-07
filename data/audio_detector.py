@@ -30,6 +30,9 @@ class AudioDetector:
         self._result_count = 0
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
         self._clap_window_duration = 1.5  # durée de la fenêtre multi-clap (configurable)
+        self._energy_state = {}  # source_id -> {'above': bool, 'last_peak_time': float, 'peaks': int}
+        self._peak_threshold = 0.03  # seuil d'amplitude pour détecter un pic (un clap)
+        self._peak_cooldown = 0.1  # minimum entre deux pics (secondes)
 
     def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5):
         """Initialise le classificateur audio"""
@@ -163,65 +166,40 @@ class AudioDetector:
 
             # Vérifier si on a détecté un clap
             current_time = time.time()
-            # Cooldown de 0.15s pour filtrer les détections multiples d'un même clap
-            # (un clap physique produit un signal de ~100ms qui peut matcher sur 2-3 blocs)
             last_det = self.last_detection_time.get(source_id, 0)
-            if score_sum > self.score_threshold and (current_time - last_det) > 0.15:
+            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
                 self.last_detection_time[source_id] = current_time
 
-                window = self._clap_windows.get(source_id)
-                if window and (current_time - window['first_clap_time']) < self._clap_window_duration:
-                    window['count'] += 1
-                    logging.info(f"[{source_id}] Clap #{window['count']} dans la fenêtre (score={score_sum:.2f})")
-                else:
-                    # Émettre la fenêtre précédente si elle existe
-                    if window and detection_callback:
-                        try:
-                            logging.info(f"[{source_id}] Émission fenêtre précédente: {window['count']} clap(s)")
-                            detection_callback({
-                                'timestamp': window['first_clap_time'],
-                                'score': float(score_sum),
-                                'source_id': source_id,
-                                'clap_count': window['count']
-                            })
-                        except Exception as e:
-                            logging.error(f"Erreur callback détection {source_id}: {e}")
-                    # Nouvelle fenêtre
-                    self._clap_windows[source_id] = {
-                        'first_clap_time': current_time,
-                        'count': 1
-                    }
-                    logging.info(f"[{source_id}] Nouvelle fenêtre clap ouverte (score={score_sum:.2f})")
+                # Compter les claps via les pics d'énergie détectés dans process_audio
+                es = self._energy_state.get(source_id, {})
+                clap_count = max(1, es.get('peaks', 1))
+
+                logging.info(f"[{source_id}] CLAP détecté: {clap_count} pic(s) d'énergie, score={score_sum:.2f}")
+
+                # Émettre immédiatement
+                if detection_callback:
+                    try:
+                        detection_callback({
+                            'timestamp': current_time,
+                            'score': float(score_sum),
+                            'source_id': source_id,
+                            'clap_count': clap_count
+                        })
+                    except Exception as e:
+                        logging.error(f"Erreur callback détection {source_id}: {e}")
+
+                # Reset le compteur de pics
+                if source_id in self._energy_state:
+                    self._energy_state[source_id]['peaks'] = 0
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
             import traceback
             logging.error(traceback.format_exc())
 
-    def _check_clap_windows(self):
-        """Émet les événements pour les fenêtres de claps expirées."""
-        current_time = time.time()
-        expired = []
-        for source_id, window in list(self._clap_windows.items()):
-            if (current_time - window['first_clap_time']) >= self._clap_window_duration:
-                expired.append(source_id)
-                logging.info(f"[{source_id}] Fenêtre expirée: {window['count']} clap(s)")
-                if source_id in self.sources:
-                    cb = self.sources[source_id]['detection_callback']
-                    if cb:
-                        cb({
-                            'timestamp': window['first_clap_time'],
-                            'score': 1.0,
-                            'source_id': source_id,
-                            'clap_count': window['count']
-                        })
-        for sid in expired:
-            del self._clap_windows[sid]
-
     def process_audio(self, audio_data, source_id):
         """Traite les données audio pour une source spécifique"""
         try:
-            self._check_clap_windows()
 
             if source_id not in self.sources:
                 logging.warning(f"Source inconnue: {source_id}")
@@ -248,6 +226,23 @@ class AudioDetector:
             # Log des statistiques audio (guard pour éviter le calcul inutile)
             if logging.getLogger().isEnabledFor(logging.DEBUG) and len(audio_data) > 0:
                 logging.debug(f"Audio stats (source {source_id}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
+
+            # Compter les pics d'énergie (pour le multi-clap)
+            peak = float(np.max(np.abs(audio_data)))
+            if source_id not in self._energy_state:
+                self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peaks': 0, 'window_start': 0}
+            es = self._energy_state[source_id]
+            current_time = time.time()
+            if peak > self._peak_threshold and not es['above']:
+                # Front montant : nouveau pic détecté
+                if (current_time - es['last_peak_time']) > self._peak_cooldown:
+                    es['last_peak_time'] = current_time
+                    if es['peaks'] == 0:
+                        es['window_start'] = current_time
+                    es['peaks'] += 1
+                es['above'] = True
+            elif peak < self._peak_threshold * 0.5:
+                es['above'] = False
 
             # Écrire dans le ring buffer pré-alloué (zéro allocation)
             src = self.sources[source_id]

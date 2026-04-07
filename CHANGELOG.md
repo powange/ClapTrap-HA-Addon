@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.2.1
+
+### Fix multi-clap : comptage par pics d'energie
+
+- Le multi-clap comptait les resultats du classifier YAMNet, mais celui-ci analyse des fenetres de 975ms. Deux claps rapides tombaient dans la meme fenetre = 1 seul resultat "Clapping".
+- Maintenant le comptage se fait sur les **pics d'amplitude** dans les samples audio bruts (independant du classifier). Un clap = un front montant au-dessus du seuil 0.03 suivi d'un retour au silence.
+- Emission immediate quand le classifier confirme un "Clapping" (plus de fenetre d'attente).
+- Le parametre "Fenetre multi-clap" n'est plus utilise (les pics sont comptes entre deux resultats du classifier).
+
 ## 5.2.0
 
 ### Entites HA via MQTT Discovery avec appareil ClapTrap
