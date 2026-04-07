@@ -81,9 +81,16 @@ class AudioDetector:
                 del self.last_timestamp_ms[source_id]
                 logging.info(f"Source audio supprimée: {source_id} (ID interne: {numeric_id})")
 
+    _result_count = 0
+
     def _handle_result(self, result, timestamp):
         """Gère les résultats de classification"""
         try:
+            AudioDetector._result_count += 1
+            if AudioDetector._result_count <= 5 or AudioDetector._result_count % 100 == 0:
+                has_results = bool(result and result.classifications)
+                logging.info(f"Classifier result #{AudioDetector._result_count}: has_results={has_results}, timestamp={timestamp}")
+
             if not result or not result.classifications:
                 return
 
@@ -91,17 +98,18 @@ class AudioDetector:
             with self.lock:
                 source_id = self._timestamp_to_source.pop(timestamp, None)
                 if not source_id or source_id not in self.sources:
+                    if AudioDetector._result_count <= 10:
+                        logging.warning(f"Result #{AudioDetector._result_count}: source_id introuvable pour timestamp {timestamp}")
                     return
                 labels_callback = self.sources[source_id]['labels_callback']
                 detection_callback = self.sources[source_id]['detection_callback']
 
             classification = result.classifications[0]
 
-            # Log pour déboguer les résultats bruts
-            logging.debug(f"Résultats bruts pour source {source_id}:")
-            for category in classification.categories:
-                if category.score > 0.1:
-                    logging.debug(f"  - {category.category_name}: {category.score}")
+            # Log top results periodiquement
+            if AudioDetector._result_count <= 10 or AudioDetector._result_count % 100 == 0:
+                top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
+                logging.info(f"Classifier top labels: {top}")
 
             # Calculer le score pour la détection de clap
             score_sum = sum(

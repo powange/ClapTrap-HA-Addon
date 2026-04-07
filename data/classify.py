@@ -350,6 +350,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             block_size = 1600  # 100ms à 16kHz
             bytes_per_block = block_size * 4  # float32 = 4 bytes
+            read_count = 0
 
             try:
                 while detection_running:
@@ -359,6 +360,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         logging.error(f"parecord a cessé de produire des données: {stderr}")
                         break
                     samples = np.frombuffer(data, dtype=np.float32)
+                    read_count += 1
+                    if read_count <= 5 or read_count % 100 == 0:
+                        peak = float(np.max(np.abs(samples)))
+                        logging.info(f"Détection micro #{read_count}: {len(samples)} samples, peak={peak:.6f}, running={detector.running}, start_time_ms={detector.start_time_ms}")
                     detector.process_audio(samples, source_id)
             finally:
                 proc.terminate()

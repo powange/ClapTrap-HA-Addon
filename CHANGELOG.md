@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.7
+
+- Ajout de logging INFO dans le flux de detection micro : nombre de blocs lus, peak, etat du detector
+- Ajout de logging INFO dans le classifier : resultats recus, top labels, mapping source
+- Permet de diagnostiquer si parecord envoie des donnees et si le classifier les traite
+
 ## 2.3.6
 
 - Fix "Connection refused" : ne plus surcharger PULSE_SERVER si deja defini par le systeme HA (s6/contenv)
