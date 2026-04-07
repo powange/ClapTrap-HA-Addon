@@ -1126,7 +1126,7 @@ footer a:hover {
 .tabs-header {
     display: flex;
     border-bottom: 1px solid var(--color-border);
-    overflow-x: auto;
+    overflow: visible;
     gap: 0;
 }
 
@@ -1174,8 +1174,9 @@ footer a:hover {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md);
-    z-index: 50;
+    z-index: 200;
     padding: 0.25rem;
+    min-width: 160px;
 }
 
 .add-source-menu button {

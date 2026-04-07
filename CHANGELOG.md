@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.0.4
+
+- Fix dropdown Ajouter : overflow-x:auto sur .tabs-header cachait le menu. Change en overflow:visible. Z-index du menu monte a 200 pour passer au-dessus du header.
+
 ## 5.0.3
 
 - Fix bouton Ajouter : le dropdown est maintenant positionne juste sous le bouton (CSS relatif au parent, plus de getBoundingClientRect). Les clics sur les options fonctionnent (event listeners individuels au lieu de delegation).
