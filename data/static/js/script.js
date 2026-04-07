@@ -117,20 +117,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialiser les paramètres
     if (window.settings) {
         console.log('📝 Paramètres chargés depuis le serveur:', window.settings);
-        if (initSettings(window.settings)) {
-            // Initialiser les modules seulement si les paramètres sont valides
-            initAudioSources();
-            initVbanSources();
-            initRtspSources();
-            initWebhooks();
-            setupEventListeners();
-        } else {
-            console.error('❌ Échec de l\'initialisation des paramètres');
-            showError('Erreur lors de l\'initialisation des paramètres');
-        }
+        initSettings(window.settings);
+        // Les sources sont gérées par buildTabs() dans le script inline
     } else {
         console.error('⚠️ Aucun paramètre trouvé');
-        showError('Erreur: Paramètres non disponibles');
     }
 
     // Socket.IO et test micro sont toujours initialisés

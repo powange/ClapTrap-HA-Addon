@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.2.9
+
+- Fix sources qui ne s'affichent pas : les anciens modules JS (rtspSources, vbanSources, audioSources) ecrasaient les onglets dynamiques. Ils ne sont plus appeles dans script.js.
+- Fix erreur JS "source_id is not defined" dans buildMicTab.
+- Fix erreurs "Container detectedVBANSources/savedVBANSources non trouve".
+
 ## 5.2.8
 
 - Fix erreur "initialisation des parametres" au chargement : le validateur DOM cherchait des elements (threshold, webhook-mic-enabled, micro_source) qui sont maintenant generes dynamiquement par les onglets. La validation DOM est desactivee car inutile avec l'interface dynamique.
