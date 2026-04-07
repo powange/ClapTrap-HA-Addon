@@ -64,6 +64,15 @@ def toggle_debug():
         return jsonify({'error': str(e)}), 500
 
 
+@settings_bp.route('/api/ha/entities', methods=['GET'])
+def get_ha_entities():
+    try:
+        from ha_entities import get_entities_info
+        return jsonify(get_entities_info())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @settings_bp.route('/api/settings/export', methods=['GET'])
 def export_settings():
     from flask import send_file

@@ -170,6 +170,26 @@ def init_entities():
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")
 
 
+def get_entities_info():
+    """Retourne les entites HA enregistrees par source."""
+    result = {}
+    for source_id, info in _source_info.items():
+        slug = info['slug']
+        result[source_id] = {
+            'label': info['label'],
+            'entities': [
+                f'binary_sensor.claptrap_{slug}',
+                f'sensor.claptrap_{slug}_clap_count'
+            ]
+        }
+    # Ajouter l'entite globale
+    result['_global'] = {
+        'label': 'Detection',
+        'entities': ['binary_sensor.claptrap_detection']
+    }
+    return result
+
+
 def register_source(source_id, label=None):
     """Enregistre les entites pour une source."""
     display_name = label or source_id

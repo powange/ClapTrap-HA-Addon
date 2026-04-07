@@ -232,6 +232,7 @@
                         '<span id="mic-test-db" class="vu-meter-label">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
+                '<div class="ha-entities-info" data-source="' + source_id + '"></div>' +
             '</div>';
         }
 
@@ -280,6 +281,7 @@
                         '<span class="vu-meter-label rtsp-test-db">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
+                '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
             '</div>';
         }
 
@@ -324,6 +326,7 @@
                         '<button type="button" class="test-webhook" data-source="vban_' + src.id.replace('vban_', '') + '">&#x1F514; Tester</button>' +
                     '</div>' +
                 '</div>' +
+                '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
             '</div>';
         }
 
@@ -888,11 +891,40 @@
                 .catch(function() {});
         })();
 
+        // Afficher les entites HA dans chaque onglet
+        function refreshHaEntities() {
+            var basePath = window.basePath || '';
+            fetch(basePath + '/api/ha/entities')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    document.querySelectorAll('.ha-entities-info').forEach(function(el) {
+                        var sourceId = el.getAttribute('data-source');
+                        // Chercher par source_id exact ou partiel
+                        var info = null;
+                        Object.keys(data).forEach(function(key) {
+                            if (key === sourceId || key.indexOf(sourceId) !== -1 || sourceId.indexOf(key) !== -1) {
+                                info = data[key];
+                            }
+                        });
+                        if (info && info.entities) {
+                            el.innerHTML = '<div class="ha-entities-list">' +
+                                '<label class="form-label" style="font-size:0.75rem;color:var(--color-text-secondary);">Entites HA</label>' +
+                                info.entities.map(function(e) {
+                                    return '<code class="ha-entity-id">' + e + '</code>';
+                                }).join('') +
+                            '</div>';
+                        }
+                    });
+                })
+                .catch(function() {});
+        }
+
         // Build tabs on load
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', buildTabs);
+            document.addEventListener('DOMContentLoaded', function() { buildTabs(); refreshHaEntities(); });
         } else {
             buildTabs();
+            refreshHaEntities();
         }
     })();
     </script>

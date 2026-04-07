@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.2.6
+
+- Affichage des entites HA liees dans chaque onglet source (binary_sensor et sensor). Les noms sont cliquables pour les copier. Endpoint GET /api/ha/entities.
+
 ## 5.2.5
 
 - Toggle debug dans la barre de controle : active/desactive les logs DEBUG en temps reel
