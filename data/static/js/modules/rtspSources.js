@@ -39,11 +39,10 @@ function createStreamElement(stream) {
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <input type="text" class="webhook-input rtsp-name"
+                <input type="text" class="rtsp-name-input"
                        value="${stream.name || 'Flux RTSP'}"
                        data-id="${stream.id}"
-                       placeholder="Nom du flux"
-                       style="font-weight:600; max-width:200px;">
+                       placeholder="Nom du flux">
             </div>
             <div class="source-controls">
                 <label class="switch" title="Activer/Désactiver le flux">
@@ -96,7 +95,7 @@ function createStreamElement(stream) {
 
 function setupStreamEventListeners(element, stream) {
     // Nom du flux
-    const nameInput = element.querySelector('.rtsp-name');
+    const nameInput = element.querySelector('.rtsp-name-input');
     let nameTimeout;
     nameInput.addEventListener('input', (e) => {
         clearTimeout(nameTimeout);
@@ -183,9 +182,8 @@ function showAddStreamForm() {
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <input type="text" class="webhook-input" id="new-stream-name"
-                       placeholder="Nom du flux"
-                       style="font-weight:600; max-width:200px;">
+                <input type="text" class="rtsp-name-input" id="new-stream-name"
+                       placeholder="Nom du flux">
             </div>
             <div class="source-controls">
                 <label class="switch" title="Activer/Desactiver le flux">

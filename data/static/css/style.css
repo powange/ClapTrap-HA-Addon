@@ -535,6 +535,32 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
 
+/* ===== RTSP / Source Name Input ===== */
+.rtsp-name-input {
+    font-weight: 600;
+    font-size: 0.9rem;
+    max-width: 200px;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 0.25rem 0.4rem;
+    border-radius: var(--radius-xs);
+    color: var(--color-text);
+    transition: all var(--transition);
+    font-family: inherit;
+}
+
+.rtsp-name-input:hover {
+    border-color: var(--color-border);
+    background: var(--color-input-bg);
+}
+
+.rtsp-name-input:focus {
+    border-color: var(--color-primary);
+    background: var(--color-surface);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.12);
+}
+
 /* ===== Mic Test ===== */
 .mic-test-section {
     margin-top: 0.75rem;

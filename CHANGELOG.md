@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.3
+
+- Le nom des flux RTSP a maintenant un style "editable" : bordure transparente au repos, bordure visible au hover, focus avec highlight bleu. Plus intuitif qu'un champ standard.
+
 ## 3.1.2
 
 - Le formulaire d'ajout d'un flux RTSP a maintenant la meme apparence qu'un flux existant (switch au lieu de checkbox, nom editable inline)
