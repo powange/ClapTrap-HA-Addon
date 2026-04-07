@@ -1,9 +1,9 @@
-"""Gestion des entités Home Assistant pour ClapTrap.
+"""Gestion des entites Home Assistant pour ClapTrap.
 
-Crée et met à jour des entités HA via l'API REST du Supervisor :
-- binary_sensor.claptrap_<source> : ON quand un clap est détecté (auto-OFF après 2s)
-- sensor.claptrap_<source>_clap_count : nombre de claps du dernier événement
-- binary_sensor.claptrap_detection : ON quand la détection tourne
+Cree et met a jour des entites HA via l'API REST du Supervisor :
+- binary_sensor.claptrap_<name> : ON quand un clap est detecte (auto-OFF apres 2s)
+- sensor.claptrap_<name>_clap_count : nombre de claps du dernier evenement
+- binary_sensor.claptrap_detection : ON quand la detection tourne
 """
 
 import os
@@ -14,6 +14,10 @@ import requests
 
 SUPERVISOR_URL = "http://supervisor/core/api"
 
+# Mapping source_id -> {label, slug} pour les noms d'entites
+_source_labels = {}
+_source_counter = {'mic': 0, 'rtsp': 0, 'vban': 0}
+
 
 def _get_headers():
     token = os.environ.get('SUPERVISOR_TOKEN', '')
@@ -23,32 +27,20 @@ def _get_headers():
     }
 
 
-def _sanitize_source_id(source_id):
-    """Convertit un source_id en identifiant HA valide (lowercase, underscores)."""
-    s = source_id.lower()
-    # Remove protocol prefixes
-    for prefix in ['rtsp_rtsp://', 'rtsp_', 'vban_']:
-        if s.startswith(prefix):
-            s = s[len(prefix):]
-            break
-    # Keep only alphanumeric and underscores
+def _make_entity_slug(label):
+    """Convertit un label lisible en slug HA valide (lowercase, underscores)."""
+    # "Micro: LifeCam Cinema" -> "micro_lifecam_cinema"
+    # "RTSP: chambre" -> "rtsp_chambre"
+    # "chambre" -> "chambre"
+    s = label.lower()
     s = ''.join(c if c.isalnum() else '_' for c in s)
-    # Remove consecutive underscores and trim
     while '__' in s:
         s = s.replace('__', '_')
-    s = s.strip('_')
-    # Prefix with source type
-    if source_id.startswith('mic_'):
-        return f"mic_{s}" if not s.startswith('mic') else s
-    elif source_id.startswith('rtsp_'):
-        return f"rtsp_{s}"
-    elif source_id.startswith('vban_'):
-        return f"vban_{s}"
-    return s
+    return s.strip('_')
 
 
 def _set_state(entity_id, state, attributes=None):
-    """Met à jour l'état d'une entité HA."""
+    """Met a jour l'etat d'une entite HA."""
     token = os.environ.get('SUPERVISOR_TOKEN', '')
     if not token:
         return
@@ -64,11 +56,11 @@ def _set_state(entity_id, state, attributes=None):
             timeout=5
         )
     except Exception as e:
-        logging.debug(f"Erreur mise à jour entité {entity_id}: {e}")
+        logging.debug(f"Erreur mise a jour entite {entity_id}: {e}")
 
 
 def update_detection_state(running, sources=None):
-    """Met à jour l'entité binary_sensor.claptrap_detection."""
+    """Met a jour l'entite binary_sensor.claptrap_detection."""
     attrs = {
         'friendly_name': 'ClapTrap Detection',
         'icon': 'mdi:ear-hearing',
@@ -77,13 +69,45 @@ def update_detection_state(running, sources=None):
     _set_state('binary_sensor.claptrap_detection', 'on' if running else 'off', attrs)
 
 
+def register_source(source_id, label=None):
+    """Initialise les entites pour une source (etat OFF).
+
+    Args:
+        source_id: ID technique (ex: "mic_7", "rtsp_rtsp://...")
+        label: Nom lisible (ex: "chambre", "LifeCam Cinema"). Utilise pour le friendly_name.
+    """
+    # Determiner le type et generer un slug court (mic_1, rtsp_1, rtsp_2...)
+    source_type = 'mic' if source_id.startswith('mic') else 'rtsp' if source_id.startswith('rtsp') else 'vban'
+    _source_counter[source_type] = _source_counter.get(source_type, 0) + 1
+    slug = f"{source_type}_{_source_counter[source_type]}"
+
+    display_name = label or source_id
+    _source_labels[source_id] = {'label': display_name, 'slug': slug}
+
+    _set_state(f'binary_sensor.claptrap_{slug}', 'off', {
+        'friendly_name': f'ClapTrap {display_name}',
+        'icon': 'mdi:hand-clap',
+        'source_id': source_id,
+        'device_class': 'sound'
+    })
+    _set_state(f'sensor.claptrap_{slug}_clap_count', '0', {
+        'friendly_name': f'ClapTrap {display_name} Clap Count',
+        'icon': 'mdi:counter',
+        'source_id': source_id,
+        'unit_of_measurement': 'claps'
+    })
+    logging.info(f"Entites HA enregistrees: claptrap_{slug} ({display_name})")
+
+
 def on_clap_detected(source_id, score, clap_count):
-    """Appelé quand un clap est détecté. Met à jour les entités de la source."""
-    safe_id = _sanitize_source_id(source_id)
+    """Appele quand un clap est detecte. Met a jour les entites de la source."""
+    info = _source_labels.get(source_id, {})
+    display_name = info.get('label', source_id)
+    slug = info.get('slug', _make_entity_slug(display_name))
 
     # binary_sensor ON
-    _set_state(f'binary_sensor.claptrap_{safe_id}', 'on', {
-        'friendly_name': f'ClapTrap {safe_id}',
+    _set_state(f'binary_sensor.claptrap_{slug}', 'on', {
+        'friendly_name': f'ClapTrap {display_name}',
         'icon': 'mdi:hand-clap',
         'source_id': source_id,
         'score': round(score, 3),
@@ -93,8 +117,8 @@ def on_clap_detected(source_id, score, clap_count):
     })
 
     # sensor clap_count
-    _set_state(f'sensor.claptrap_{safe_id}_clap_count', str(clap_count), {
-        'friendly_name': f'ClapTrap {safe_id} Clap Count',
+    _set_state(f'sensor.claptrap_{slug}_clap_count', str(clap_count), {
+        'friendly_name': f'ClapTrap {display_name} Clap Count',
         'icon': 'mdi:counter',
         'source_id': source_id,
         'score': round(score, 3),
@@ -104,28 +128,10 @@ def on_clap_detected(source_id, score, clap_count):
     # Auto-OFF after 2 seconds
     def _auto_off():
         time.sleep(2)
-        _set_state(f'binary_sensor.claptrap_{safe_id}', 'off', {
-            'friendly_name': f'ClapTrap {safe_id}',
+        _set_state(f'binary_sensor.claptrap_{slug}', 'off', {
+            'friendly_name': f'ClapTrap {display_name}',
             'icon': 'mdi:hand-clap',
             'source_id': source_id,
             'device_class': 'sound'
         })
     threading.Thread(target=_auto_off, daemon=True).start()
-
-
-def register_source(source_id):
-    """Initialise les entités pour une source (état OFF)."""
-    safe_id = _sanitize_source_id(source_id)
-    _set_state(f'binary_sensor.claptrap_{safe_id}', 'off', {
-        'friendly_name': f'ClapTrap {safe_id}',
-        'icon': 'mdi:hand-clap',
-        'source_id': source_id,
-        'device_class': 'sound'
-    })
-    _set_state(f'sensor.claptrap_{safe_id}_clap_count', '0', {
-        'friendly_name': f'ClapTrap {safe_id} Clap Count',
-        'icon': 'mdi:counter',
-        'source_id': source_id,
-        'unit_of_measurement': 'claps'
-    })
-    logging.info(f"Entités HA enregistrées pour {source_id} -> claptrap_{safe_id}")

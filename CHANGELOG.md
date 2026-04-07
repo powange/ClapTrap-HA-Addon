@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.2
+
+- Fix noms d'entites HA : les entites utilisent maintenant des slugs courts (claptrap_mic_1, claptrap_rtsp_1, claptrap_rtsp_2) au lieu de l'URL complete dans le nom. Le friendly_name affiche le label lisible (ex: "ClapTrap chambre").
+
 ## 5.1.1
 
 - Fix entites HA : ajout de `homeassistant_api: true` dans config.yaml. Sans ca, le Supervisor ne donne pas acces a l'API HA Core (POST /core/api/states/ echoue silencieusement).
