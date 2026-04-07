@@ -95,10 +95,17 @@ def save_settings(new_settings):
                 with open(SETTINGS_FILE, 'r') as f:
                     current = _deep_merge(current, json.load(f))
 
-            if 'rtsp_sources' not in new_settings:
-                new_settings['rtsp_sources'] = current.get('rtsp_sources', [])
+            # Préserver les sources RTSP et VBAN sauf si explicitement fournies avec du contenu
+            for key in ['rtsp_sources', 'saved_vban_sources']:
+                if key not in new_settings or new_settings[key] == []:
+                    new_settings[key] = current.get(key, [])
 
-            current.update(new_settings)
+            # Deep merge pour préserver les sous-clés (ex: microphone.pulse_name)
+            for key, value in new_settings.items():
+                if isinstance(value, dict) and isinstance(current.get(key), dict):
+                    current[key] = {**current[key], **value}
+                else:
+                    current[key] = value
 
             with open(SETTINGS_TEMP, 'w') as f:
                 json.dump(current, f, indent=4)

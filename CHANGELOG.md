@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.1
+
+- Fix : les flux RTSP et sources VBAN ne sont plus ecrases lors d'une sauvegarde globale des settings. Le save_settings fait maintenant un deep merge et preserve les listes de sources si le frontend envoie un tableau vide.
+- Fix : le merge des settings preserves les sous-cles (ex: microphone.pulse_name n'est plus ecrase par un save partiel)
+
 ## 3.2.0
 
 ### Detection multi-source simultanee
