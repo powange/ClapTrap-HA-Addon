@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.28
+
+- Fix : affichage de la barre VU-metre (largeur 100% + min-width sur le track)
+
 ## 2.2.27
 
 - Fix : ajout d'un script inline fallback pour le bouton test micro (independant des modules ES)

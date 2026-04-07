@@ -661,10 +661,12 @@ footer a {
     align-items: center;
     gap: 10px;
     margin-top: 8px;
+    width: 100%;
 }
 
 .vu-meter-track {
     flex: 1;
+    min-width: 0;
     height: 12px;
     background: #e9ecef;
     border-radius: 6px;
