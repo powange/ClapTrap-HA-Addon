@@ -135,6 +135,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             )
                         except Exception:
                             pass
+                    # Mettre à jour les entités HA
+                    try:
+                        from ha_entities import on_clap_detected
+                        on_clap_detected(source_name, detection_data['score'], clap_count)
+                    except Exception:
+                        pass
                     with _history_lock:
                         _detection_history.appendleft({
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
@@ -168,6 +174,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             det.start()
             detectors.append(det)
             logging.info(f"Classifier dédié créé pour {source_id}")
+            try:
+                from ha_entities import register_source
+                register_source(source_id)
+            except Exception:
+                pass
             return det
 
         # --- Runners par type de source (chacun avec son propre detector) ---
@@ -285,6 +296,13 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         # --- Lancer un thread par source ---
         logging.info(f"Détection démarrée avec {len(sources)} source(s) (1 classifier par source)")
 
+        try:
+            from ha_entities import update_detection_state
+            source_labels = [s['label'] for s in sources]
+            update_detection_state(True, source_labels)
+        except Exception:
+            pass
+
         runners = {'mic': run_mic_source, 'rtsp': run_rtsp_source, 'vban': run_vban_source}
         for src in sources:
             runner = runners.get(src['type'])
@@ -315,6 +333,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 det.stop()
             except Exception:
                 pass
+        try:
+            from ha_entities import update_detection_state
+            update_detection_state(False)
+        except Exception:
+            pass
         with _detection_lock:
             detection_running = False
         logging.info("run_detection terminé")
@@ -333,6 +356,12 @@ def stop_detection():
 
         with _detection_lock:
             detection_running = False
+
+        try:
+            from ha_entities import update_detection_state
+            update_detection_state(False)
+        except Exception:
+            pass
 
         if _socketio:
             _socketio.emit("detection_status", {"status": "stopped"})

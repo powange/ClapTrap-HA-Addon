@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.1.0
+
+### Entites Home Assistant par source
+
+- Chaque source audio cree automatiquement des entites HA via l'API REST Supervisor :
+  - `binary_sensor.claptrap_<source>` : ON pendant 2s quand un clap est detecte, OFF sinon
+  - `sensor.claptrap_<source>_clap_count` : nombre de claps du dernier evenement (1, 2, 3...)
+  - `binary_sensor.claptrap_detection` : ON quand la detection tourne, OFF sinon
+- Les entites sont visibles dans les dashboards Lovelace et utilisables dans les automations HA visuelles
+- Pas de dependance MQTT : utilise l'API REST du Supervisor
+- Les entites sont enregistrees au demarrage de la detection et mises a jour en temps reel
+
 ## 5.0.8
 
 - Fix volume RTSP non persiste : le template lisait `d.volume` mais le backend stocke `d.gain`. Le slider revenait toujours a 10x au rechargement.
