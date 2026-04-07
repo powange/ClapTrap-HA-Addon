@@ -39,7 +39,11 @@ function createStreamElement(stream) {
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <strong>${stream.name || 'Flux RTSP'}</strong>
+                <input type="text" class="webhook-input rtsp-name"
+                       value="${stream.name || 'Flux RTSP'}"
+                       data-id="${stream.id}"
+                       placeholder="Nom du flux"
+                       style="font-weight:600; max-width:200px;">
             </div>
             <div class="source-controls">
                 <label class="switch" title="Activer/Désactiver le flux">
@@ -91,6 +95,16 @@ function createStreamElement(stream) {
 }
 
 function setupStreamEventListeners(element, stream) {
+    // Nom du flux
+    const nameInput = element.querySelector('.rtsp-name');
+    let nameTimeout;
+    nameInput.addEventListener('input', (e) => {
+        clearTimeout(nameTimeout);
+        nameTimeout = setTimeout(() => {
+            updateStream(stream.id, { ...stream, name: e.target.value.trim() });
+        }, 500);
+    });
+
     // URL RTSP
     const urlInput = element.querySelector('.rtsp-url');
     let urlTimeout;

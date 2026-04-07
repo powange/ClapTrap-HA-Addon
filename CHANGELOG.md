@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.1
+
+- Le nom des flux RTSP est maintenant editable directement dans l'interface (sauvegarde automatique)
+
 ## 3.1.0
 
 - Ajout d'un bouton "Tester le flux" sur chaque source RTSP avec VU-metre en temps reel
