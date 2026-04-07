@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.24
+
+- Fix : initialisation du test micro et Socket.IO independante de initSettings (evite que le bouton soit inactif)
+- Ajout de logging console pour diagnostiquer le test micro
+
 ## 2.2.23
 
 - Fix : bouton "Tester le micro" deplace hors de la zone conditionnelle (visible meme si le micro est desactive)

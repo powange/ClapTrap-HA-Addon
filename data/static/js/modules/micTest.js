@@ -5,9 +5,14 @@ let testing = false;
 
 export function initMicTest(socket) {
     const btn = document.getElementById('mic-test-btn');
-    if (!btn) return;
+    if (!btn) {
+        console.error('🎤 mic-test-btn non trouvé dans le DOM');
+        return;
+    }
+    console.log('🎤 initMicTest: bouton trouvé, ajout du listener');
 
     btn.addEventListener('click', () => {
+        console.log('🎤 Bouton cliqué, testing =', testing);
         if (testing) {
             stopTest();
         } else {
@@ -28,7 +33,9 @@ export function initMicTest(socket) {
 
 async function startTest() {
     try {
+        console.log('🎤 Appel /api/mic/test/start...');
         const response = await callApi('/api/mic/test/start', 'POST');
+        console.log('🎤 Réponse:', response);
         if (response.success) {
             testing = true;
             const btn = document.getElementById('mic-test-btn');
@@ -37,6 +44,7 @@ async function startTest() {
             document.getElementById('mic-test-vu').style.display = 'flex';
         }
     } catch (error) {
+        console.error('🎤 Erreur startTest:', error);
         showError('Impossible de démarrer le test micro');
     }
 }

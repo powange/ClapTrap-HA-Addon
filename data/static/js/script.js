@@ -124,10 +124,6 @@ document.addEventListener('DOMContentLoaded', () => {
             initRtspSources();
             initWebhooks();
             setupEventListeners();
-            
-            const socket = initializeSocketIO();
-            initMicTest(socket);
-            console.log('✅ Socket.IO initialized');
         } else {
             console.error('❌ Échec de l\'initialisation des paramètres');
             showError('Erreur lors de l\'initialisation des paramètres');
@@ -136,6 +132,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('⚠️ Aucun paramètre trouvé');
         showError('Erreur: Paramètres non disponibles');
     }
+
+    // Socket.IO et test micro sont toujours initialisés
+    const socket = initializeSocketIO();
+    initMicTest(socket);
+    console.log('✅ Socket.IO initialized');
     
     // Ajouter le gestionnaire d'événements pour le bouton de sauvegarde
     const saveButton = document.getElementById('saveConfigButton');
