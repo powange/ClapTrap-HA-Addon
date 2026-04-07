@@ -6,7 +6,6 @@
 bashio::log.info "Demarrage de ClapTrap..."
 
 # Configurer PulseAudio pour utiliser le daemon HA
-# HA expose le socket PulseAudio via /run/pulse/native
 if [ -e /run/pulse/native ]; then
     export PULSE_SERVER=unix:/run/pulse/native
     bashio::log.info "PulseAudio: utilisation du socket HA (/run/pulse/native)"
@@ -17,16 +16,11 @@ else
     bashio::log.warning "PulseAudio: socket /run/pulse/native absent, tentative quand meme"
 fi
 
-# Diagnostic audio au demarrage
 bashio::log.info "PULSE_SERVER=${PULSE_SERVER}"
-if command -v pactl &> /dev/null; then
-    pactl info 2>&1 | head -5 | while read -r line; do
-        bashio::log.info "PulseAudio info: ${line}"
-    done
-    bashio::log.info "Sources PulseAudio disponibles:"
-    pactl list sources short 2>&1 | while read -r line; do
-        bashio::log.info "  ${line}"
-    done
+
+# Diagnostic audio (non bloquant)
+if command -v pactl > /dev/null 2>&1; then
+    pactl list sources short 2>/dev/null && bashio::log.info "Sources PulseAudio listees ci-dessus" || bashio::log.warning "pactl: impossible de lister les sources (PulseAudio pas encore pret ?)"
 fi
 
 cd /usr/src/app || exit 1
