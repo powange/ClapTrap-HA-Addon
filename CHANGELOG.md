@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.19
+
+- Fix : race condition sur detection_running avec threading.Lock (evite double demarrage)
+- Fix : validation des parametres avant de modifier l'etat global
+- Fix : webhook avec timeout=5s (evite blocage indefini du ThreadPoolExecutor)
+- Fix : source_callback VBAN unifie sur une seule signature
+- Fix : escaping JSON dans le template via tojson (securite XSS)
+- Fix : load_settings retourne un deepcopy du cache (evite mutations silencieuses)
+- Fix : double prefixe rtsp:// sur les URLs RTSP
+- Fix : acces thread-safe a self.sources dans audio_detector._handle_result
+- Fix : clean_vban_name sentinel ambigu (None au lieu de 0)
+- Fix : shallow merge dans audioSources.js preservait les champs microphone existants
+- Fix : fallback sur device par defaut PulseAudio si le device n'est pas visible par sounddevice
+
 ## 2.2.18
 
 - Fix : ouverture du micro par nom au lieu de l'index numerique (PortAudio ne peut pas ouvrir les devices par index Supervisor)

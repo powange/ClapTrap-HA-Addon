@@ -173,7 +173,7 @@
     
     <!-- Initialiser les settings et le chemin ingress avant le script principal -->
     <script type="text/javascript">
-        window.settings = JSON.parse('{{ settings_json|safe }}');
+        window.settings = {{ settings|tojson }};
         window.settings.debug = {{ 'true' if debug else 'false' }};
         window.basePath = '{{ ingress_path }}';
     </script>

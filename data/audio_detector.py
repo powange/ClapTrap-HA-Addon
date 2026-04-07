@@ -87,20 +87,22 @@ class AudioDetector:
             if not result or not result.classifications:
                 return
 
-            # Retrouver la source à partir du timestamp
+            # Retrouver la source et ses callbacks de manière thread-safe
             with self.lock:
                 source_id = self._timestamp_to_source.pop(timestamp, None)
-            if not source_id or source_id not in self.sources:
-                return
+                if not source_id or source_id not in self.sources:
+                    return
+                labels_callback = self.sources[source_id]['labels_callback']
+                detection_callback = self.sources[source_id]['detection_callback']
 
             classification = result.classifications[0]
-            
+
             # Log pour déboguer les résultats bruts
             logging.debug(f"Résultats bruts pour source {source_id}:")
             for category in classification.categories:
-                if category.score > 0.1:  # Abaisser le seuil pour voir plus de résultats
+                if category.score > 0.1:
                     logging.debug(f"  - {category.category_name}: {category.score}")
-            
+
             # Calculer le score pour la détection de clap
             score_sum = sum(
                 category.score
@@ -112,11 +114,11 @@ class AudioDetector:
                 for category in classification.categories
                 if category.category_name == "Finger snapping"
             )
-            
+
             # Log du score calculé
-            if score_sum > 0.1:  # Abaisser le seuil pour le debug
+            if score_sum > 0.1:
                 logging.debug(f"Score de clap calculé pour source {source_id}: {score_sum}")
-            
+
             # Préparer les labels pour le callback
             top3_labels = sorted(
                 classification.categories,
@@ -128,23 +130,23 @@ class AudioDetector:
                 for label in top3_labels
                 if label.score > 0.5
             ]
-            
+
             # Log pour déboguer les labels
             logging.debug(f"Labels détectés pour source {source_id}: {labels_data}")
-            
+
             # Envoyer les labels si un callback est défini
-            if self.sources[source_id]['labels_callback'] and labels_data:
+            if labels_callback and labels_data:
                 try:
-                    self.sources[source_id]['labels_callback'](labels_data)
+                    labels_callback(labels_data)
                 except Exception as e:
                     logging.error(f"Erreur dans le callback des labels pour source {source_id}: {str(e)}")
-            
+
             # Vérifier si on a détecté un clap
             current_time = time.time()
             if score_sum > 0.3 and (current_time - self.last_detection_time.get(source_id, 0)) > 1.0:
-                if self.sources[source_id]['detection_callback']:
+                if detection_callback:
                     try:
-                        self.sources[source_id]['detection_callback']({
+                        detection_callback({
                             'timestamp': current_time,
                             'score': float(score_sum),
                             'source_id': source_id

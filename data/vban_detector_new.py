@@ -207,7 +207,7 @@ class VBANDetector:
                 # Notifier le callback des sources si défini
                 if self.source_callback:
                     try:
-                        self.source_callback(ip, name)
+                        self.source_callback(self.get_active_sources())
                     except Exception as e:
                         logging.error(f"Erreur dans le callback des sources: {e}")
                 
@@ -239,12 +239,12 @@ class VBANDetector:
         """Nettoie le nom VBAN en retirant les caractères non désirés"""
         if isinstance(raw_name, bytes):
             try:
-                end_idx = 0
+                end_idx = None
                 for i, byte in enumerate(raw_name):
                     if byte == 0 or not (32 <= byte <= 126):
                         end_idx = i
                         break
-                if end_idx > 0:
+                if end_idx is not None:
                     raw_name = raw_name[:end_idx]
                 name = raw_name.decode('ascii', errors='ignore')
             except:

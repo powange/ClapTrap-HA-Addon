@@ -36,6 +36,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.
 
 # Variables globales
 detection_running = False
+_detection_lock = threading.Lock()
 classifier = None
 record = None
 model = "yamnet.tflite"
@@ -109,10 +110,20 @@ def start_detection(
     rtsp_url: str = None,
 ):
     global detection_running, classifier, record, current_audio_source, _socketio
-    
+
     try:
-        if detection_running:
-            return False
+        # Validation des paramètres AVANT de toucher à l'état global
+        if (overlapping_factor <= 0) or (overlapping_factor >= 1.0):
+            raise ValueError("Overlapping factor must be between 0 and 1.")
+
+        if (score_threshold < 0) or (score_threshold > 1.0):
+            raise ValueError("Score threshold must be between (inclusive) 0 et 1.")
+
+        # Check-and-set atomique avec lock
+        with _detection_lock:
+            if detection_running:
+                return False
+            detection_running = True
 
         # Recharger les paramètres pour avoir les dernières modifications
         settings = reload_settings()
@@ -123,15 +134,8 @@ def start_detection(
                 audio_source = microphone_settings.get('audio_source')
                 logging.info(f"Utilisation du microphone: {audio_source}")
 
-        detection_running = True
         current_audio_source = audio_source
         _socketio = socketio  # Store the socketio instance globally
-
-        if (overlapping_factor <= 0) or (overlapping_factor >= 1.0):
-            raise ValueError("Overlapping factor must be between 0 and 1.")
-
-        if (score_threshold < 0) or (score_threshold > 1.0):
-            raise ValueError("Score threshold must be between (inclusive) 0 et 1.")
 
         # Démarrer la détection dans un thread séparé
         detection_thread = threading.Thread(target=run_detection, args=(
@@ -152,7 +156,8 @@ def start_detection(
         
     except Exception as e:
         logging.error(f"Erreur pendant le démarrage de la détection: {e}")
-        detection_running = False
+        with _detection_lock:
+            detection_running = False
         return False
 
 def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, webhook_url, delay, audio_source, rtsp_url):
@@ -176,7 +181,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     # Webhook non-bloquant via thread pool
                     if webhook_url:
                         logging.info(f"Envoi webhook pour {source_name} vers {webhook_url}")
-                        _webhook_executor.submit(requests.post, webhook_url)
+                        _webhook_executor.submit(requests.post, webhook_url, timeout=5)
                 except Exception as e:
                     logging.error(f"Erreur lors de l'envoi de l'événement clap pour {source_name}: {str(e)}")
             return handle_detection
@@ -299,15 +304,21 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             saved_index = int(settings.get('microphone', {}).get('device_index', 0))
 
             # Lister les devices visibles par sounddevice pour le diagnostic
+            sd_device = None
             try:
                 all_devices = sd.query_devices()
                 input_devices = [(idx, dev['name']) for idx, dev in enumerate(all_devices) if dev['max_input_channels'] > 0]
                 logging.info(f"Devices audio d'entrée visibles par sounddevice: {input_devices}")
+                # Chercher le device par nom dans la liste sounddevice
+                for idx, dev in enumerate(all_devices):
+                    if dev['max_input_channels'] > 0 and device_name in dev['name']:
+                        sd_device = idx
+                        break
             except Exception as e:
                 logging.warning(f"Impossible de lister les devices sounddevice: {e}")
-
-            # Utiliser le nom du device pour l'ouverture (plus fiable que l'index dans un container)
-            sd_device = device_name if device_name != 'default' else None
+            # Dans un container HA, sounddevice voit souvent seulement 'pulse' et 'default'
+            # Si le device n'est pas trouvé par nom, utiliser None (device par défaut PulseAudio)
+            logging.info(f"Device demandé: '{device_name}', device sounddevice résolu: {sd_device}")
             source_id = f"mic_{saved_index}"
 
             # Récupérer le webhook_url depuis les paramètres du microphone
@@ -346,9 +357,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 def stop_detection():
     """Arrête la détection"""
     global detection_running, classifier, record, current_audio_source, _socketio
-    
+
     try:
-        detection_running = False
+        with _detection_lock:
+            detection_running = False
         
         # Notify clients that detection has stopped
         if _socketio:
@@ -372,7 +384,8 @@ def stop_detection():
         return False  # Retourner False en cas d'erreur
 
 def is_running():
-    return detection_running
+    with _detection_lock:
+        return detection_running
 
 # Ajout d'une commande simple pour démarrer et arrêter la détection pour les tests
 if __name__ == "__main__":

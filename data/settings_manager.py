@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import time
@@ -72,7 +73,7 @@ def load_settings():
                 _cache = DEFAULT_SETTINGS.copy()
 
         _cache_time = now
-        return _cache
+        return copy.deepcopy(_cache)
 
 
 def save_settings(new_settings):

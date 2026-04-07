@@ -1,6 +1,6 @@
 import { callApi } from './api.js';
 import { showError, showSuccess } from './utils.js';
-import { saveSettings, updateSettings } from './settings.js';
+import { saveSettings, updateSettings, getCurrentSettings } from './settings.js';
 
 let audioSources = [];
 
@@ -17,7 +17,7 @@ export async function initAudioSources() {
 function setupMicrophoneWebhook() {
     const webhookInput = document.getElementById('webhook-mic-url');
     const enabledSwitch = document.getElementById('webhook-mic-enabled');
-    
+
     if (webhookInput) {
         // Stocker les changements en mémoire sans sauvegarder
         let timeout;
@@ -27,6 +27,7 @@ function setupMicrophoneWebhook() {
                 const newWebhookUrl = e.target.value.trim();
                 updateSettings({
                     microphone: {
+                        ...getCurrentSettings().microphone,
                         webhook_url: newWebhookUrl
                     }
                 });
@@ -39,6 +40,7 @@ function setupMicrophoneWebhook() {
             const enabled = e.target.checked;
             updateSettings({
                 microphone: {
+                    ...getCurrentSettings().microphone,
                     enabled: enabled
                 }
             });

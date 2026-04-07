@@ -179,15 +179,11 @@ def index():
     input_devices = get_audio_input_devices()  # Obtient la liste des périphériques audio d'entrée
     flux = load_flux()
     
-    # Échapper correctement le JSON pour JavaScript
-    settings_json = json.dumps(settings).replace("'", "\\'").replace('"', '\\"')
-    
     return render_template('index.html',
                          settings=settings,
                          devices=input_devices,
                          flux=flux['audio_streams'],
                          debug=app.debug,
-                         settings_json=settings_json,
                          ingress_path=request.script_root)
 
 def verify_settings_saved(new_settings, saved_settings):
@@ -287,7 +283,7 @@ def start_detection_route():
             rtsp_sources = detection_settings.get('rtsp_sources', [])
             for source in rtsp_sources:
                 if source.get('enabled', False):
-                    detection_params['audio_source'] = f"rtsp://{source['url']}"
+                    detection_params['audio_source'] = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
                     detection_params['rtsp_url'] = source['url']
                     logging.info(f"Utilisation de la source RTSP: {source.get('name', 'Unknown')} ({source['url']})")
                     break
