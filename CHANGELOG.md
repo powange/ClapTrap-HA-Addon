@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.2
+
+- Le formulaire d'ajout d'un flux RTSP a maintenant la meme apparence qu'un flux existant (switch au lieu de checkbox, nom editable inline)
+
 ## 3.1.1
 
 - Le nom des flux RTSP est maintenant editable directement dans l'interface (sauvegarde automatique)

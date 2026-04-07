@@ -183,28 +183,27 @@ function showAddStreamForm() {
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <strong>Nouveau flux RTSP</strong>
+                <input type="text" class="webhook-input" id="new-stream-name"
+                       placeholder="Nom du flux"
+                       style="font-weight:600; max-width:200px;">
+            </div>
+            <div class="source-controls">
+                <label class="switch" title="Activer/Desactiver le flux">
+                    <input type="checkbox" id="new-stream-enabled" checked>
+                    <span class="slider round"></span>
+                </label>
             </div>
         </div>
         <div class="webhook-input-group mt-2">
-            <label class="form-label">Nom</label>
-            <input type="text" class="webhook-input" id="new-stream-name" 
-                   placeholder="Nom du flux">
-        </div>
-        <div class="webhook-input-group mt-2">
             <label class="form-label">URL RTSP</label>
-            <input type="url" class="webhook-input" id="new-stream-url" 
+            <input type="url" class="webhook-input" id="new-stream-url"
                    placeholder="rtsp://votre-camera:port/flux">
         </div>
         <div class="webhook-input-group mt-2">
             <label class="form-label">URL Webhook</label>
-            <input type="url" class="webhook-input" id="new-stream-webhook" 
-                   placeholder="https://votre-serveur.com/webhook">
-        </div>
-        <div class="webhook-input-group mt-2">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="new-stream-enabled" checked>
-                <label class="form-check-label">Activer</label>
+            <div class="webhook-input-with-test">
+                <input type="url" class="webhook-input" id="new-stream-webhook"
+                       placeholder="https://votre-serveur.com/webhook">
             </div>
         </div>
         <div class="webhook-actions">
