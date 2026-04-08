@@ -567,9 +567,23 @@
             var micEnabled = document.getElementById('webhook-mic-enabled');
             if (micEnabled) {
                 micEnabled.addEventListener('change', function() {
+                    if (window.settings && window.settings.microphone) {
+                        window.settings.microphone.enabled = micEnabled.checked;
+                    }
                     fetch(basePath + '/api/microphone/enabled', {
                         method: 'PUT', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({enabled: micEnabled.checked})
+                    }).then(function(r) { return r.json(); }).then(function() {
+                        updateStartButton();
+                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.running) {
+                                updateSourceDisplay(data.source);
+                            } else {
+                                document.getElementById('startButton').style.display = 'block';
+                                document.getElementById('stopButton').style.display = 'none';
+                                updateSourceDisplay(null);
+                            }
+                        });
                     });
                 });
             }
@@ -667,9 +681,26 @@
             document.querySelectorAll('.rtsp-enabled-toggle').forEach(function(toggle) {
                 var sid = toggle.getAttribute('data-id');
                 toggle.addEventListener('change', function() {
+                    if (window.settings && window.settings.rtsp_sources) {
+                        window.settings.rtsp_sources.forEach(function(s) {
+                            if (s.id === sid) s.enabled = toggle.checked;
+                        });
+                    }
                     fetch(basePath + '/api/rtsp/stream/' + sid, {
                         method: 'PUT', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({enabled: toggle.checked})
+                    }).then(function(r) { return r.json(); }).then(function() {
+                        updateStartButton();
+                        // Mettre à jour les badges sources si la détection tourne
+                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.running) {
+                                updateSourceDisplay(data.source);
+                            } else {
+                                document.getElementById('startButton').style.display = 'block';
+                                document.getElementById('stopButton').style.display = 'none';
+                                updateSourceDisplay(null);
+                            }
+                        });
                     });
                 });
             });
@@ -967,10 +998,43 @@
             });
         }
 
+        // Vérifier si au moins une source est activée
+        function hasActiveSources() {
+            var settings = window.settings || {};
+            if (settings.microphone && settings.microphone.enabled) return true;
+            if (settings.rtsp_sources) {
+                for (var i = 0; i < settings.rtsp_sources.length; i++) {
+                    if (settings.rtsp_sources[i].enabled) return true;
+                }
+            }
+            if (settings.saved_vban_sources) {
+                for (var i = 0; i < settings.saved_vban_sources.length; i++) {
+                    if (settings.saved_vban_sources[i].enabled) return true;
+                }
+            }
+            return false;
+        }
+
+        function updateStartButton() {
+            var btn = document.getElementById('startButton');
+            if (!btn) return;
+            if (hasActiveSources()) {
+                btn.disabled = false;
+                btn.title = '';
+            } else {
+                btn.disabled = true;
+                btn.title = 'Activez au moins une source audio';
+            }
+        }
+
+        // Mettre à jour au chargement et après chaque changement de toggle
+        updateStartButton();
+
         // Start/Stop detection
         document.addEventListener('click', function(e) {
             var basePath = window.basePath || '';
             if (e.target.id === 'startButton' || e.target.closest('#startButton')) {
+                if (!hasActiveSources()) return;
                 fetch(basePath + '/api/detection/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},

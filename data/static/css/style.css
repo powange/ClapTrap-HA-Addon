@@ -366,6 +366,12 @@ button, .btn {
     box-shadow: 0 2px 8px rgba(79, 110, 247, 0.3);
 }
 
+.btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
 .btn-danger {
     background: var(--color-danger);
     color: white;
