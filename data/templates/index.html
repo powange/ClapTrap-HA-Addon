@@ -22,6 +22,7 @@
 
     <main class="dashboard">
         <!-- Control Bar -->
+        <!-- Detection bar -->
         <section class="control-bar">
             <div id="detection_display" class="detection-circle">
                 <span id="waiting-emoji">&#x1F442;</span>
@@ -38,21 +39,6 @@
                         <input type="checkbox" id="auto-start"
                                {% if settings.microphone.auto_start %}checked{% endif %}>
                         <span class="slider round"></span>
-                    </label>
-                </div>
-                <div class="control-setting">
-                    <label>Debug :</label>
-                    <label class="switch">
-                        <input type="checkbox" id="debug-toggle"
-                               {% if settings['global'].get('debug', false) %}checked{% endif %}>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                <div class="control-setting">
-                    <button id="exportConfigBtn" class="btn btn-secondary" title="Exporter la config">&#x1F4E5;</button>
-                    <label class="btn btn-secondary" title="Importer une config" style="cursor:pointer;margin:0;">
-                        &#x1F4E4;
-                        <input type="file" id="importConfigInput" accept=".json" style="display:none;">
                     </label>
                 </div>
             </div>
@@ -169,6 +155,33 @@
                 <button type="button" id="clearHistoryBtn" class="btn btn-secondary btn-sm">Effacer</button>
             </div>
             <div id="detected_labels" class="labels-container"></div>
+        </section>
+
+        <!-- Options -->
+        <section class="config-card">
+            <h3>Options</h3>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <div class="control-setting">
+                        <label>Debug :</label>
+                        <label class="switch">
+                            <input type="checkbox" id="debug-toggle"
+                                   {% if settings['global'].get('debug', false) %}checked{% endif %}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label>Configuration</label>
+                    <div style="display:flex;gap:0.4rem;">
+                        <button id="exportConfigBtn" class="btn btn-secondary btn-sm" title="Exporter">&#x1F4E5; Exporter</button>
+                        <label class="btn btn-secondary btn-sm" title="Importer" style="cursor:pointer;margin:0;">
+                            &#x1F4E4; Importer
+                            <input type="file" id="importConfigInput" accept=".json" style="display:none;">
+                        </label>
+                    </div>
+                </div>
+            </div>
         </section>
     </main>
 
