@@ -6,10 +6,37 @@ Extracted from app.py to break the circular import between app.py and classify.p
 import json
 import logging
 import os
+import subprocess
+import threading
 import time
 
 import requests
 import sounddevice as sd
+
+
+def set_pulse_volume(pulse_name, volume_percent):
+    """Règle le volume d'une source PulseAudio via pactl."""
+    try:
+        subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume_percent}%'],
+                       capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        logging.warning(f"pactl set-source-volume: {e}")
+
+
+def start_process_with_stderr_drain(cmd):
+    """Lance un subprocess avec drain de stderr en background."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    threading.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+    return proc
+
+
+def terminate_process(proc, timeout=2):
+    """Termine un subprocess proprement."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except Exception:
+        proc.kill()
 
 _audio_devices_cache = None
 _audio_devices_cache_time = 0

@@ -99,18 +99,14 @@ init_vban()
 # Appliquer le volume micro sauvegardé au démarrage
 def _apply_saved_mic_volume():
     try:
-        import subprocess
+        from audio_utils import set_pulse_volume
         settings = load_settings()
         mic = settings.get('microphone', {})
         pulse_name = mic.get('pulse_name', '')
         volume = mic.get('volume', 100)
         if pulse_name and volume != 100:
-            result = subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume}%'],
-                                    capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                logging.info(f"Volume micro restauré à {volume}% pour {pulse_name}")
-            else:
-                logging.debug(f"pactl set-source-volume: {result.stderr.strip()}")
+            set_pulse_volume(pulse_name, volume)
+            logging.info(f"Volume micro restauré à {volume}% pour {pulse_name}")
     except Exception as e:
         logging.debug(f"Impossible de restaurer le volume micro au démarrage: {e}")
 
@@ -126,10 +122,10 @@ try:
         register_source('mic_' + str(_ha_mic.get('device_index', 0)),
                         label=_ha_mic.get('audio_source', 'Microphone'),
                         clap_counts=_ha_mic.get('ha_entities', [1, 2]))
+    from ha_entities import rtsp_entity_id
     for _ha_src in _ha_settings.get('rtsp_sources', []):
         if _ha_src.get('enabled', False):
-            _ha_stream_id = _ha_src.get('id', '')
-            _ha_entity_id = f"rtsp_{_ha_stream_id[:8]}" if _ha_stream_id else f"rtsp_{_ha_src.get('name', 'unknown')}"
+            _ha_entity_id = rtsp_entity_id(_ha_src)
             register_source(_ha_entity_id,
                            label=f"RTSP: {_ha_src.get('name', 'RTSP')}",
                            clap_counts=_ha_src.get('ha_entities', [1, 2]))
@@ -379,37 +375,10 @@ if __name__ == '__main__':
             _time.sleep(3)
             try:
                 logging.info("Auto-start: démarrage automatique de la détection...")
-                from classify import start_detection
+                from classify import start_detection, build_sources_from_settings
                 s = load_settings()
                 global_s = s.get('global', {})
-                sources = []
-                mic = s.get('microphone', {})
-                if mic.get('enabled', False):
-                    mic_name = mic.get('audio_source', 'default')
-                    sources.append({
-                        'type': 'mic', 'audio_source': mic_name,
-                        'webhook_url': mic.get('webhook_url', ''),
-                        'ha_entities': mic.get('ha_entities', [1, 2]),
-                        'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
-                    })
-                for src in s.get('rtsp_sources', []):
-                    if src.get('enabled', False) and src.get('url'):
-                        url = src['url'] if src['url'].startswith('rtsp') else f"rtsp://{src['url']}"
-                        sources.append({
-                            'type': 'rtsp', 'audio_source': url, 'rtsp_url': src['url'],
-                            'webhook_url': src.get('webhook_url', ''),
-                            'gain': src.get('gain', 10),
-                            'ha_entities': src.get('ha_entities', [1, 2]),
-                            'label': f'RTSP: {src.get("name", src["url"][:30])}'
-                        })
-                for src in s.get('saved_vban_sources', []):
-                    if src.get('enabled', True):
-                        sources.append({
-                            'type': 'vban', 'audio_source': f"vban://{src['ip']}",
-                            'webhook_url': src.get('webhook_url', ''),
-                            'ha_entities': src.get('ha_entities', [1, 2]),
-                            'label': f'VBAN: {src.get("name", src["ip"])}'
-                        })
+                sources = build_sources_from_settings(s)
                 if sources:
                     start_detection(
                         model="yamnet.tflite", max_results=10,

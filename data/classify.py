@@ -22,21 +22,45 @@ from settings_manager import load_settings
 
 _webhook_executor = ThreadPoolExecutor(max_workers=2)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-
-# Appliquer le niveau de log depuis les settings
-try:
-    _cls_settings = load_settings()
-    if _cls_settings.get('global', {}).get('debug', False):
-        logging.getLogger().setLevel(logging.DEBUG)
-except Exception:
-    pass
-
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
+
+
+def build_sources_from_settings(settings):
+    """Construit la liste des sources depuis les settings."""
+    sources = []
+    global_threshold = float(settings.get('global', {}).get('threshold', 0.5))
+    mic = settings.get('microphone', {})
+    if mic.get('enabled', False):
+        mic_name = mic.get('audio_source', 'default')
+        sources.append({
+            'type': 'mic', 'audio_source': mic_name,
+            'webhook_url': mic.get('webhook_url', ''),
+            'threshold': float(mic.get('threshold', global_threshold)),
+            'ha_entities': mic.get('ha_entities', [1, 2]),
+            'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
+        })
+    for src in settings.get('rtsp_sources', []):
+        if src.get('enabled', False) and src.get('url'):
+            url = src['url'] if src['url'].startswith('rtsp') else f"rtsp://{src['url']}"
+            sources.append({
+                'type': 'rtsp', 'stream_id': src.get('id', ''),
+                'audio_source': url, 'rtsp_url': src['url'],
+                'webhook_url': src.get('webhook_url', ''),
+                'gain': src.get('gain', 10),
+                'threshold': float(src.get('threshold', global_threshold)),
+                'ha_entities': src.get('ha_entities', [1, 2]),
+                'label': f'RTSP: {src.get("name", src["url"][:30])}'
+            })
+    for src in settings.get('saved_vban_sources', []):
+        if src.get('enabled', True):
+            sources.append({
+                'type': 'vban', 'audio_source': f"vban://{src['ip']}",
+                'webhook_url': src.get('webhook_url', ''),
+                'threshold': float(src.get('threshold', global_threshold)),
+                'ha_entities': src.get('ha_entities', [1, 2]),
+                'label': f'VBAN: {src.get("name", src["ip"])}'
+            })
+    return sources
 
 # Variables globales
 detection_running = False
@@ -217,9 +241,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             if pulse_name:
                 try:
+                    from audio_utils import set_pulse_volume
                     mic_volume = settings.get('microphone', {}).get('volume', 100)
-                    subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{mic_volume}%'],
-                                   capture_output=True, text=True, timeout=5)
+                    set_pulse_volume(pulse_name, mic_volume)
                 except Exception:
                     pass
 
@@ -230,8 +254,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             if pulse_name:
                 cmd.append(f'--device={pulse_name}')
             logging.info(f"Micro: lancement {' '.join(cmd)}")
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            threading.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+            from audio_utils import start_process_with_stderr_drain
+            proc = start_process_with_stderr_drain(cmd)
 
             if settings.get('microphone', {}).get('auto_volume', False) and pulse_name:
                 auto_volume_mgr.start(pulse_name, socketio)
@@ -246,11 +270,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     auto_volume_mgr.feed_peak(float(np.max(np.abs(samples))))
                     detector.process_audio(samples, source_id)
             finally:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=2)
-                except Exception:
-                    proc.kill()
+                from audio_utils import terminate_process
+                terminate_process(proc)
                 detector.stop()
 
         def run_rtsp_source(src):
@@ -258,7 +279,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
             stream_id = src.get('stream_id', '')
-            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else source_id
+            from ha_entities import rtsp_entity_id
+            entity_id = rtsp_entity_id(src) if stream_id else source_id
             detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 

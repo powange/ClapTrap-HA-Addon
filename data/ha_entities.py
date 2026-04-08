@@ -171,6 +171,17 @@ def _set_rest_state(entity_id, state, attributes=None):
         logging.debug(f"Erreur REST entite {entity_id}: {e}")
 
 
+def rtsp_entity_id(stream_or_id):
+    """Génère l'entity_id pour un flux RTSP depuis son ID ou dict."""
+    if isinstance(stream_or_id, dict):
+        stream_id = stream_or_id.get('id', '')
+        name = stream_or_id.get('name', 'unknown')
+    else:
+        stream_id = str(stream_or_id)
+        name = 'unknown'
+    return f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{name}"
+
+
 # ===== Public API =====
 
 def _cleanup_old_rest_entities():
@@ -239,8 +250,7 @@ def _cleanup_old_mqtt_entities(settings=None):
             slugs_to_clean.append(_make_slug('mic_' + str(mic.get('device_index', 0))))
         # RTSP
         for src in settings.get('rtsp_sources', []):
-            stream_id = src.get('id', '')
-            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{src.get('name', 'unknown')}"
+            entity_id = rtsp_entity_id(src)
             slugs_to_clean.append(_make_slug(entity_id))
     # Supprimer les anciens formats pour chaque slug
     for slug in slugs_to_clean:

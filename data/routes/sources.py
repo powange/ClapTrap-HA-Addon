@@ -137,8 +137,8 @@ def update_rtsp_stream(stream_id):
                     stream['ha_entities'] = data['ha_entities']
                     # Recréer les entités MQTT immédiatement
                     try:
-                        from ha_entities import register_source
-                        entity_id = f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{stream.get('name', 'unknown')}"
+                        from ha_entities import register_source, rtsp_entity_id
+                        entity_id = rtsp_entity_id({'id': stream_id, 'name': stream.get('name', 'unknown')})
                         register_source(entity_id,
                                        label=f"RTSP: {stream.get('name', 'RTSP')}",
                                        clap_counts=data['ha_entities'])
@@ -161,8 +161,8 @@ def delete_rtsp_stream(stream_id):
 
         # Supprimer les entites HA liees
         try:
-            from ha_entities import unregister_source
-            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else None
+            from ha_entities import unregister_source, rtsp_entity_id
+            entity_id = rtsp_entity_id(stream_id) if stream_id else None
             if entity_id:
                 unregister_source(entity_id)
         except Exception:
@@ -532,9 +532,8 @@ def update_microphone_volume():
         pulse_name = data.get('pulse_name') or settings.get('microphone', {}).get('pulse_name', '')
         if pulse_name:
             try:
-                import subprocess
-                subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume}%'],
-                               capture_output=True, text=True, timeout=5)
+                from audio_utils import set_pulse_volume
+                set_pulse_volume(pulse_name, volume)
                 logging.info(f"Volume PulseAudio mis à {volume}% pour {pulse_name}")
             except Exception as e:
                 logging.warning(f"Impossible de régler le volume PulseAudio: {e}")

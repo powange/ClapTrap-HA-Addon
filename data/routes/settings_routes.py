@@ -14,23 +14,6 @@ settings_bp = Blueprint('settings', __name__)
 _webhook_manager = WebhookManager()
 
 
-@settings_bp.route('/save_settings', methods=['POST'])
-def save_settings_route():
-    try:
-        settings = request.json
-        if not settings:
-            return jsonify({'error': 'Aucun paramètre fourni'}), 400
-
-        success, message = save_settings(settings)
-        if success:
-            return jsonify({'message': message})
-        else:
-            return jsonify({'error': message}), 400
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-
 @settings_bp.route('/api/settings/save', methods=['POST'])
 def save_settings_api():
     try:

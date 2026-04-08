@@ -58,55 +58,10 @@ def start_detection_route():
             if not isinstance(microphone_settings, dict):
                 microphone_settings = {}
 
-            global_threshold = float(global_settings.get('threshold', 0.5))
-
-            # Collecter TOUTES les sources activées
-            sources = []
-
-            # Microphone
-            if microphone_enabled:
-                mic_source = microphone_settings.get('audio_source', 'default')
-                sources.append({
-                    'type': 'mic',
-                    'audio_source': mic_source,
-                    'webhook_url': microphone_settings.get('webhook_url', ''),
-                    'threshold': float(microphone_settings.get('threshold', global_threshold)),
-                    'ha_entities': microphone_settings.get('ha_entities', [1, 2]),
-                    'label': f'Micro: {mic_source}' if mic_source != 'default' else 'Microphone'
-                })
-                logging.info(f"Source micro activée: {mic_source}")
-
-            # RTSP
-            rtsp_sources = detection_settings.get('rtsp_sources', [])
-            for source in rtsp_sources:
-                if source.get('enabled', False) and source.get('url'):
-                    url = source['url'] if source['url'].startswith('rtsp') else f"rtsp://{source['url']}"
-                    sources.append({
-                        'type': 'rtsp',
-                        'stream_id': source.get('id', ''),
-                        'audio_source': url,
-                        'rtsp_url': source['url'],
-                        'webhook_url': source.get('webhook_url', ''),
-                        'gain': source.get('gain', 10),
-                        'threshold': float(source.get('threshold', global_threshold)),
-                        'ha_entities': source.get('ha_entities', [1, 2]),
-                        'label': f'RTSP: {source.get("name", source["url"][:30])}'
-                    })
-                    logging.info(f"Source RTSP activée: {source.get('name', '')} ({source['url']})")
-
-            # VBAN
-            saved_vban_sources = detection_settings.get('saved_vban_sources', [])
-            for source in saved_vban_sources:
-                if source.get('enabled', True):
-                    sources.append({
-                        'type': 'vban',
-                        'audio_source': f"vban://{source['ip']}",
-                        'webhook_url': source.get('webhook_url', ''),
-                        'threshold': float(source.get('threshold', global_threshold)),
-                        'ha_entities': source.get('ha_entities', [1, 2]),
-                        'label': f'VBAN: {source.get("name", source["ip"])}'
-                    })
-                    logging.info(f"Source VBAN activée: {source.get('name', '')} ({source['ip']})")
+            from classify import build_sources_from_settings
+            sources = build_sources_from_settings(detection_settings)
+            for s in sources:
+                logging.info(f"Source activée: {s['label']}")
 
             if not sources:
                 return jsonify({'error': 'Aucune source audio activée'}), 400

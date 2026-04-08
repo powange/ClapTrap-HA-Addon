@@ -114,10 +114,8 @@ class AutoVolume:
 
     def _apply_volume(self, volume):
         try:
-            subprocess.run(
-                ['pactl', 'set-source-volume', self._pulse_name, f'{volume}%'],
-                capture_output=True, text=True, timeout=5
-            )
+            from audio_utils import set_pulse_volume
+            set_pulse_volume(self._pulse_name, volume)
             logging.info(f"Auto-volume: ajuste a {volume}%")
 
             # Notifier le frontend
