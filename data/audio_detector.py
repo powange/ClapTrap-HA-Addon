@@ -195,7 +195,7 @@ class AudioDetector:
             clap_detected = False
             if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
                 clap_detected = True
-            elif has_recent_peak and not is_silence and score_sum > 0.01 and (current_time - last_det) > 0.3:
+            elif has_recent_peak and not is_silence and (current_time - last_det) > 0.3:
                 # Un pic d'énergie a été détecté ET le classifier voit autre chose que du silence
                 clap_detected = True
                 logging.info(f"[{self._source_label}] Detection par pic d'énergie (top: {top_label}={top_score:.2f}, score_clap={score_sum:.3f})")
