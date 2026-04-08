@@ -185,22 +185,10 @@ class AudioDetector:
             recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
             has_recent_peak = len(recent_peaks) > 0
 
-            # Detection hybride :
-            # 1. Score classifier au-dessus du seuil (detection classique)
-            # 2. Pic d'énergie récent + classifier ne voit pas "Silence" pur (detection par pic)
-            top_label = classification.categories[0].category_name if classification.categories else "Silence"
-            top_score = classification.categories[0].score if classification.categories else 1.0
-            is_silence = (top_label == "Silence")
+            # Detection : score classifier au-dessus du seuil (adaptatif si pic d'énergie récent)
+            effective_threshold = self.score_threshold * 0.15 if has_recent_peak else self.score_threshold
 
-            clap_detected = False
-            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
-                clap_detected = True
-            elif has_recent_peak and not is_silence and (current_time - last_det) > 0.3:
-                # Un pic d'énergie a été détecté ET le classifier voit autre chose que du silence
-                clap_detected = True
-                logging.info(f"[{self._source_label}] Detection par pic d'énergie (top: {top_label}={top_score:.2f}, score_clap={score_sum:.3f})")
-
-            if clap_detected:
+            if score_sum > effective_threshold and (current_time - last_det) > 0.3:
                 self.last_detection_time[source_id] = current_time
 
                 clap_count = max(1, len(recent_peaks))

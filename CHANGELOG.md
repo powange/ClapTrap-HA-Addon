@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.5.0
+
+### Suppression detection par pic seul (trop de faux positifs)
+
+- Les bruits d'animaux/environnement (oiseaux, etc.) declenchaient des faux claps car la detection par pic seul acceptait tout son non-silence.
+- Maintenant seul le classifier YAMNet confirme les claps, avec un seuil adaptatif : si un pic d'energie est detecte, le seuil est abaisse a 15% pour accepter des scores faibles de clap.
+- Plus fiable : pas de clap sans que YAMNet voie au moins un label de type "Hands/Clapping/Slap".
+
 ## 5.4.9
 
 - Fix faux positifs : seuil minimum de pic monte de 0.008 a 0.05 (les bruits a 0.03 ne declenchent plus). Detection par pic exige que Silence ne soit PAS le top label du classifier.
