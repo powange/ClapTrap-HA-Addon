@@ -115,22 +115,7 @@ def status():
     try:
         running = is_running()
         source = get_current_source() if running else None
-        # Résoudre un nom lisible pour la source
-        source_label = None
-        if source:
-            if source.startswith('rtsp'):
-                source_label = f'RTSP ({source[:50]}...)'
-            elif source.startswith('vban://'):
-                source_label = f'VBAN ({source.replace("vban://", "")})'
-            else:
-                # Microphone : utiliser le nom depuis les settings
-                settings = load_settings()
-                source_label = settings.get('microphone', {}).get('audio_source', source)
-                if source_label == 'default':
-                    source_label = 'Microphone'
-                else:
-                    source_label = f'Micro: {source_label}'
-        return jsonify({'running': running, 'source': source_label})
+        return jsonify({'running': running, 'source': source})
     except Exception as e:
         return jsonify({'running': False, 'error': str(e)})
 
