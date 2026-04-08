@@ -239,46 +239,60 @@ def _cleanup_old_rest_entities():
 
 
 def _cleanup_all_claptrap_entities():
-    """Supprime TOUTES les entites ClapTrap (MQTT Discovery + entity registry + states)."""
+    """Supprime TOUTES les entites ClapTrap via entity registry + MQTT Discovery + states."""
     token = os.environ.get('SUPERVISOR_TOKEN', '')
     if not token:
         return
     try:
+        # 1. Supprimer via l'entity registry API (suppression definitive)
         resp = requests.get(
+            f"{SUPERVISOR_URL}/config/entity_registry",
+            headers=_get_headers(),
+            timeout=10
+        )
+        if resp.ok:
+            entities = resp.json()
+            removed = 0
+            for entity in entities:
+                entity_id = entity.get('entity_id', '')
+                if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                    # Vérifier que c'est une entité MQTT (pas Home Assistant Supervisor)
+                    platform = entity.get('platform', '')
+                    if platform == 'mqtt' or 'claptrap' in entity_id:
+                        try:
+                            requests.delete(
+                                f"{SUPERVISOR_URL}/config/entity_registry/{entity_id}",
+                                headers=_get_headers(),
+                                timeout=5
+                            )
+                            removed += 1
+                        except Exception:
+                            pass
+            if removed > 0:
+                logging.info(f"Nettoyage entity registry: {removed} entite(s) supprimee(s)")
+
+        # 2. Supprimer les states restants
+        resp2 = requests.get(
             f"{SUPERVISOR_URL}/states",
             headers=_get_headers(),
             timeout=10
         )
-        if not resp.ok:
-            return
-        states = resp.json()
-        removed = 0
-        for state in states:
-            entity_id = state.get('entity_id', '')
-            if not entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
-                continue
-
-            slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
-            component = entity_id.split('.')[0]
-
-            # 1. Supprimer via MQTT Discovery (payload vide)
-            if _mqtt_client and slug:
-                _unregister_mqtt_entity(component, slug)
-
-            # 2. Supprimer du state registry (DELETE /api/states/)
-            try:
-                requests.delete(
-                    f"{SUPERVISOR_URL}/states/{entity_id}",
-                    headers=_get_headers(),
-                    timeout=5
-                )
-            except Exception:
-                pass
-
-            removed += 1
-
-        if removed > 0:
-            logging.info(f"Nettoyage: {removed} entite(s) ClapTrap supprimee(s)")
+        if resp2.ok:
+            for state in resp2.json():
+                entity_id = state.get('entity_id', '')
+                if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                    slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
+                    component = entity_id.split('.')[0]
+                    if _mqtt_client and slug:
+                        _unregister_mqtt_entity(component, slug)
+                    try:
+                        requests.delete(
+                            f"{SUPERVISOR_URL}/states/{entity_id}",
+                            headers=_get_headers(),
+                            timeout=5
+                        )
+                    except Exception:
+                        pass
     except Exception as e:
         logging.debug(f"Erreur nettoyage entites: {e}")
 
