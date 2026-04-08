@@ -307,13 +307,6 @@
                     '</div>' +
                     '<input type="range" id="mic-volume" min="0" max="150" step="5" value="' + volume + '" class="mic-volume-slider"' + volDisabled + '>' +
                 '</div>' +
-                '<div class="webhook-input-group">' +
-                    '<label class="form-label">Webhook</label>' +
-                    '<div class="webhook-input-with-test">' +
-                        '<input type="url" id="webhook-mic-url" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook" aria-label="URL du webhook">' +
-                        '<button type="button" class="test-webhook" data-source="mic">&#x1F514; Tester</button>' +
-                    '</div>' +
-                '</div>' +
                 '<div class="mic-test-section">' +
                     '<button type="button" id="mic-test-btn" class="btn-mic-test">&#x1F3A4; Tester le micro</button>' +
                     '<div id="mic-test-vu" class="vu-meter" style="display: none;">' +
@@ -332,6 +325,13 @@
                     return haHtml;
                 })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
+                '<div class="webhook-input-group">' +
+                    '<label class="form-label">Webhook</label>' +
+                    '<div class="webhook-input-with-test">' +
+                        '<input type="url" id="webhook-mic-url" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook" aria-label="URL du webhook">' +
+                        '<button type="button" class="test-webhook" data-source="mic">&#x1F514; Tester</button>' +
+                    '</div>' +
+                '</div>' +
             '</div>';
         }
 
@@ -366,13 +366,6 @@
                     '<label>Volume : <span class="rtsp-volume-value">' + volume + 'x</span></label>' +
                     '<input type="range" class="rtsp-volume" data-id="' + escAttr(streamId) + '" min="1" max="50" step="1" value="' + volume + '">' +
                 '</div>' +
-                '<div class="webhook-input-group">' +
-                    '<label class="form-label">Webhook</label>' +
-                    '<div class="webhook-input-with-test">' +
-                        '<input type="url" class="rtsp-webhook-url" data-id="' + escAttr(streamId) + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
-                        '<button type="button" class="test-webhook" data-source="rtsp_' + escAttr(streamId) + '">&#x1F514; Tester</button>' +
-                    '</div>' +
-                '</div>' +
                 '<div class="mic-test-section">' +
                     '<button type="button" class="btn-mic-test rtsp-test-btn" data-id="' + escAttr(streamId) + '">&#x1F4F9; Tester le flux</button>' +
                     '<div class="vu-meter rtsp-test-vu" style="display: none;">' +
@@ -391,6 +384,13 @@
                     return haHtml;
                 })() +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
+                '<div class="webhook-input-group">' +
+                    '<label class="form-label">Webhook</label>' +
+                    '<div class="webhook-input-with-test">' +
+                        '<input type="url" class="rtsp-webhook-url" data-id="' + escAttr(streamId) + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
+                        '<button type="button" class="test-webhook" data-source="rtsp_' + escAttr(streamId) + '">&#x1F514; Tester</button>' +
+                    '</div>' +
+                '</div>' +
             '</div>';
         }
 
@@ -713,10 +713,7 @@
                     checkboxes.forEach(function(c) {
                         if (c.checked) selected.push(parseInt(c.getAttribute('data-clap')));
                     });
-                    if (selected.length === 0) {
-                        cb.checked = true;
-                        selected.push(parseInt(cb.getAttribute('data-clap')));
-                    }
+                    // Liste vide autorisée (pas d'entités pour cette source)
 
                     if (sourceType === 'mic') {
                         fetch(basePath + '/api/microphone/ha-entities', {

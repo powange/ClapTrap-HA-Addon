@@ -135,6 +135,15 @@ def update_rtsp_stream(stream_id):
                         pass
                 if 'ha_entities' in data:
                     stream['ha_entities'] = data['ha_entities']
+                    # Recréer les entités MQTT immédiatement
+                    try:
+                        from ha_entities import register_source
+                        entity_id = f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{stream.get('name', 'unknown')}"
+                        register_source(entity_id,
+                                       label=f"RTSP: {stream.get('name', 'RTSP')}",
+                                       clap_counts=data['ha_entities'])
+                    except Exception:
+                        pass
 
                 save_settings(settings)
                 return jsonify({'success': True, 'stream': stream})
@@ -394,6 +403,13 @@ def update_vban_source():
                 # Mettre à jour ha_entities s'il est fourni
                 if 'ha_entities' in source:
                     s['ha_entities'] = source['ha_entities']
+                    try:
+                        from ha_entities import register_source
+                        register_source(f"vban_{s['ip']}",
+                                       label=f"VBAN: {s.get('name', 'VBAN')}",
+                                       clap_counts=source['ha_entities'])
+                    except Exception:
+                        pass
                 source_found = True
                 logging.debug(f"Source mise à jour: {s}")  # Debug log
                 break
@@ -535,12 +551,20 @@ def update_microphone_ha_entities():
         ha_entities = data.get('ha_entities', [1, 2])
         # Validate: keep only 1-4
         ha_entities = [n for n in ha_entities if isinstance(n, int) and 1 <= n <= 4]
-        if not ha_entities:
-            ha_entities = [1, 2]
 
         settings = load_settings()
         settings['microphone']['ha_entities'] = ha_entities
         save_settings(settings)
+
+        # Recréer les entités MQTT immédiatement
+        try:
+            from ha_entities import register_source
+            mic = settings.get('microphone', {})
+            register_source('mic_' + str(mic.get('device_index', 0)),
+                           label=mic.get('audio_source', 'Microphone'),
+                           clap_counts=ha_entities)
+        except Exception:
+            pass
 
         return jsonify({'success': True, 'ha_entities': ha_entities})
     except Exception as e:

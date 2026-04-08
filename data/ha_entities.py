@@ -292,10 +292,8 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None):
     """
     if clap_counts is None:
         clap_counts = [1, 2]
-    # Filtrer pour garder uniquement 1-4
+    # Filtrer pour garder uniquement 1-4 (liste vide = pas d'entités)
     clap_counts = [n for n in clap_counts if 1 <= n <= 4]
-    if not clap_counts:
-        clap_counts = [1, 2]
 
     display_name = label or source_id
     slug = _make_slug(source_id)
