@@ -185,10 +185,8 @@ class AudioDetector:
             recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
             has_recent_peak = len(recent_peaks) > 0
 
-            # Detection : score classifier au-dessus du seuil (adaptatif si pic d'énergie récent)
-            effective_threshold = self.score_threshold * 0.15 if has_recent_peak else self.score_threshold
-
-            if score_sum > effective_threshold and (current_time - last_det) > 0.3:
+            # Detection : score classifier au-dessus du seuil configuré
+            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
                 self.last_detection_time[source_id] = current_time
 
                 clap_count = max(1, len(recent_peaks))

@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.5.1
+
+- Suppression du seuil adaptatif. Le seuil de precision configure par l'utilisateur est applique directement. Le volume de la source permet d'amplifier le signal, la precision permet d'ajuster la sensibilite. Plus simple, plus previsible.
+
 ## 5.5.0
 
 ### Suppression detection par pic seul (trop de faux positifs)
