@@ -54,9 +54,6 @@
                         &#x1F4E4;
                         <input type="file" id="importConfigInput" accept=".json" style="display:none;">
                     </label>
-                    <button id="saveConfigButton" class="btn btn-primary">
-                        <span>&#x1F4BE;</span> Sauvegarder
-                    </button>
                 </div>
             </div>
             <div id="active-sources" class="active-sources"></div>
@@ -577,6 +574,39 @@
                 });
             }
 
+            // Mic source selector auto-save
+            var micSource = document.getElementById('micro_source');
+            if (micSource) {
+                micSource.addEventListener('change', function() {
+                    var parts = micSource.value.split('|');
+                    var settings = window.settings || {};
+                    if (settings.microphone) {
+                        settings.microphone.device_index = parts[0] || '0';
+                        settings.microphone.audio_source = parts[1] || 'default';
+                        settings.microphone.pulse_name = parts[2] || '';
+                    }
+                    fetch(basePath + '/api/settings/save', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(settings)
+                    });
+                });
+            }
+
+            // Mic webhook auto-save
+            var micWebhook = document.getElementById('webhook-mic-url');
+            if (micWebhook) {
+                var webhookTimeout;
+                micWebhook.addEventListener('input', function() {
+                    clearTimeout(webhookTimeout);
+                    webhookTimeout = setTimeout(function() {
+                        fetch(basePath + '/api/microphone/webhook', {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({webhook_url: micWebhook.value.trim()})
+                        });
+                    }, 500);
+                });
+            }
+
             // RTSP sliders + inputs
             document.querySelectorAll('.rtsp-threshold').forEach(function(slider) {
                 var sid = slider.getAttribute('data-id');
@@ -923,17 +953,10 @@
         document.addEventListener('click', function(e) {
             var basePath = window.basePath || '';
             if (e.target.id === 'startButton' || e.target.closest('#startButton')) {
-                // Sauvegarder d'abord
-                fetch(basePath + '/api/settings/save', {
+                fetch(basePath + '/api/detection/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(window.settings || {})
-                }).then(function() {
-                    return fetch(basePath + '/api/detection/start', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(window.settings || {})
-                    });
                 }).then(function(r) { return r.json(); })
                   .then(function(data) {
                       if (data.success) {
