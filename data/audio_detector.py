@@ -125,6 +125,9 @@ class AudioDetector:
                 "Slap, smack": 0.6,
                 "Whack, thwack": 0.5,
                 "Knock": 0.3,
+                "Cap gun": 0.3,
+                "Snap": 0.3,
+                "Crack": 0.2,
             }
             NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3, "Typing": 0.2}
 
@@ -173,14 +176,19 @@ class AudioDetector:
                     logging.error(f"Erreur dans le callback des labels pour source {source_id}: {str(e)}")
 
             # Vérifier si on a détecté un clap
+            # Deux modes : score au-dessus du seuil, OU pic d'énergie récent + score minimal
             current_time = time.time()
             last_det = self.last_detection_time.get(source_id, 0)
-            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
+            es = self._energy_state.get(source_id, {})
+            recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
+            has_recent_peak = len(recent_peaks) > 0
+
+            # Seuil adaptatif : si un pic d'énergie a été détecté, baisser le seuil classifier
+            effective_threshold = self.score_threshold * 0.3 if has_recent_peak else self.score_threshold
+
+            if score_sum > effective_threshold and (current_time - last_det) > 0.3:
                 self.last_detection_time[source_id] = current_time
 
-                # Compter les claps via les pics d'énergie récents (dernières 2s)
-                es = self._energy_state.get(source_id, {})
-                recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
                 clap_count = max(1, len(recent_peaks))
 
                 avg = es.get('avg_level', 0)

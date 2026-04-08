@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.4.4
+
+### Detection hybride pic + classifier
+
+- Un seul clap etait souvent manque car YAMNet le classait comme "Sound effect" ou "Cap gun" au lieu de "Hands/Clapping" (score trop bas pour le seuil).
+- Maintenant quand un pic d'energie a ete detecte dans les 2 dernieres secondes, le seuil du classifier est abaisse a 30% de la valeur configuree. Si un pic existe ET que le classifier voit un son impulsif (meme faible), le clap est confirme.
+- Ajout de labels "Cap gun", "Snap", "Crack" dans le scoring (sons impulsifs similaires a un clap).
+
 ## 5.4.3
 
 - max_results passe de 5 a 10 dans la route de detection et l'auto-start (le classifier retourne plus de labels, meilleure detection avec les labels elargis)
