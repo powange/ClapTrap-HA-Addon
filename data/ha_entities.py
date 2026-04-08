@@ -287,24 +287,39 @@ def _cleanup_all_claptrap_entities():
             slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
             component = entity_id.split('.')[0]
 
-            # 1. MQTT Discovery : payload vide pour supprimer la config
+            # 1. MQTT Discovery via notre client
             if _mqtt_client and slug:
                 _unregister_mqtt_entity(component, slug)
 
-            # 2. Service HA : supprimer de l'entity registry
-            try:
-                requests.post(
-                    f"{SUPERVISOR_URL}/services/mqtt/publish",
-                    headers=_get_headers(),
-                    json={
-                        'topic': f'{MQTT_TOPIC_PREFIX}/{component}/claptrap/{slug}/config',
-                        'payload': '',
-                        'retain': True
-                    },
-                    timeout=5
-                )
-            except Exception:
-                pass
+            # 2. MQTT Discovery via le service HA
+            # Essayer le slug tel quel + variantes (HA ajoute des _ entre les mots)
+            slugs_to_try = [slug]
+            # Variante sans le suffixe _N (doublons HA)
+            import re
+            base = re.sub(r'_(\d+)$', '', slug)
+            if base != slug:
+                slugs_to_try.append(base)
+            # Variante sans underscore entre le nombre et "claps" (1_clap -> 1clap)
+            for s in list(slugs_to_try):
+                fixed = re.sub(r'_(\d)_claps?$', lambda m: f'_{m.group(1)}clap{"s" if int(m.group(1)) > 1 else ""}', s)
+                if fixed != s:
+                    slugs_to_try.append(fixed)
+
+            for try_slug in set(slugs_to_try):
+                try:
+                    requests.post(
+                        f"{SUPERVISOR_URL}/services/mqtt/publish",
+                        headers=_get_headers(),
+                        json={
+                            'topic': f'{MQTT_TOPIC_PREFIX}/{component}/claptrap/{try_slug}/config',
+                            'payload': '',
+                            'retain': True
+                        },
+                        timeout=5
+                    )
+                except Exception:
+                    pass
+            logging.info(f"MQTT cleanup: {slug} ({len(slugs_to_try)} variantes)")
 
             # 3. Supprimer le state
             try:
