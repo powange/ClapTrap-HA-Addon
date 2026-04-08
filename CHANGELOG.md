@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.4.9
+
+- Fix faux positifs : seuil minimum de pic monte de 0.008 a 0.05 (les bruits a 0.03 ne declenchent plus). Detection par pic exige que Silence ne soit PAS le top label du classifier.
+
 ## 5.4.7
 
 ### Detection par pic d'energie

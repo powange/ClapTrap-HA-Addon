@@ -190,7 +190,7 @@ class AudioDetector:
             # 2. Pic d'énergie récent + classifier ne voit pas "Silence" pur (detection par pic)
             top_label = classification.categories[0].category_name if classification.categories else "Silence"
             top_score = classification.categories[0].score if classification.categories else 1.0
-            is_silence = (top_label == "Silence" and top_score > 0.5)
+            is_silence = (top_label == "Silence")
 
             clap_detected = False
             if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
@@ -284,8 +284,8 @@ class AudioDetector:
             if not es.get('above', False):
                 es['avg_level'] = es['avg_level'] * 0.995 + peak * 0.005
 
-            # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.008)
-            dynamic_threshold = max(0.008, es['avg_level'] * self._peak_ratio)
+            # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.05)
+            dynamic_threshold = max(0.05, es['avg_level'] * self._peak_ratio)
 
             # Nettoyer les pics de plus de 2 secondes
             es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
