@@ -305,6 +305,12 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None):
         _source_id_map[technical_id] = source_id
 
     if _mqtt_available:
+        # D'abord supprimer TOUTES les entites clap (1-4) pour cette source
+        for n in range(1, 5):
+            old_slug = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
+            _unregister_mqtt_entity('binary_sensor', old_slug)
+
+        # Puis creer seulement celles configurees
         for n in clap_counts:
             slug_n = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
             _register_mqtt_entity('binary_sensor', slug_n, {
