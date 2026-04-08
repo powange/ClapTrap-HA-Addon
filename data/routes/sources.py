@@ -150,6 +150,15 @@ def delete_rtsp_stream(stream_id):
         settings = load_settings()
         rtsp_sources = settings.get('rtsp_sources', [])
 
+        # Supprimer les entites HA liees
+        try:
+            from ha_entities import unregister_source
+            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else None
+            if entity_id:
+                unregister_source(entity_id)
+        except Exception:
+            pass
+
         # Filtrer pour retirer le stream spécifié
         settings['rtsp_sources'] = [s for s in rtsp_sources if s.get('id') != stream_id]
         save_settings(settings)
