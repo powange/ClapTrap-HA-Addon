@@ -34,7 +34,7 @@ class AudioDetector:
         self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
 
-    def initialize(self, max_results=5, score_threshold=0.3, clap_window=1.5,
+    def initialize(self, max_results=10, score_threshold=0.3, clap_window=1.5,
                    peak_cooldown=0.08, peak_ratio=3.0):
         """Initialise le classificateur audio"""
         self.score_threshold = score_threshold
@@ -121,13 +121,19 @@ class AudioDetector:
             # Log top results + labels clap
             top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
             clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
-                           if c.category_name in ("Hands", "Clapping")]
+                           if c.category_name in CLAP_WEIGHTS]
             if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
                 logging.info(f"[{source_id}] top={top} clap={clap_labels}")
 
             # Scoring pondéré pour la détection de clap
-            CLAP_WEIGHTS = {"Hands": 0.8, "Clapping": 1.0}
-            NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3}
+            CLAP_WEIGHTS = {
+                "Hands": 0.8,
+                "Clapping": 1.0,
+                "Slap, smack": 0.6,
+                "Whack, thwack": 0.5,
+                "Knock": 0.3,
+            }
+            NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3, "Typing": 0.2}
             score_sum = sum(
                 category.score * CLAP_WEIGHTS[category.category_name]
                 for category in classification.categories
@@ -153,7 +159,7 @@ class AudioDetector:
             labels_data = [
                 {"label": label.category_name, "score": float(label.score)}
                 for label in top3_labels
-                if label.score > 0.5
+                if label.score > 0.1
             ]
 
             # Log pour déboguer les labels
@@ -225,6 +231,14 @@ class AudioDetector:
                 audio_data = audio_data.flatten()
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
+
+            # Normalisation automatique : amplifier les signaux faibles
+            # YAMNet fonctionne mieux avec des signaux dans la plage -0.5 à 0.5
+            peak = float(np.max(np.abs(audio_data)))
+            if peak > 0.0001 and peak < 0.1:
+                # Signal faible : normaliser pour que le peak atteigne ~0.3
+                auto_gain = min(0.3 / peak, 30.0)  # max 30x
+                audio_data = (audio_data * auto_gain).astype(np.float32)
 
             # Log des statistiques audio (guard pour éviter le calcul inutile)
             if logging.getLogger().isEnabledFor(logging.DEBUG) and len(audio_data) > 0:

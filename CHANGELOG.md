@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.4.0
+
+### Amelioration majeure de la detection de claps
+
+- **Normalisation automatique du signal** : les signaux faibles (peak < 0.1) sont amplifies automatiquement jusqu'a 30x pour atteindre un niveau optimal pour YAMNet (~0.3). Les cameras RTSP a volume 1x fonctionnent maintenant sans reglage.
+- **Labels de clap elargis** : ajout de "Slap, smack" (0.6), "Whack, thwack" (0.5), "Knock" (0.3) en plus de "Hands" et "Clapping". Et penalites pour "Typing" (0.2).
+- **max_results augmente** de 5 a 10 pour capturer plus de labels du classifier.
+- **Seuil d'affichage labels** baisse de 0.5 a 0.1 : on voit maintenant les labels faibles dans l'interface (utile pour le debug).
+
 ## 5.3.7
 
 - Bouton "Nettoyer les anciennes entites HA" dans les parametres avances. Marque toutes les entites ClapTrap comme unavailable. Apres un redemarrage de HA, elles disparaissent.
