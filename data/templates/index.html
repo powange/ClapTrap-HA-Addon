@@ -1172,9 +1172,16 @@
                 var checkboxes = panel.querySelectorAll('.ha-clap-toggle');
                 if (checkboxes.length === 0) return;
 
-                // Trouver le slug de la source
+                // Construire le slug court (meme logique que ha_entities.py)
                 var sourceId = el.getAttribute('data-source') || '';
-                var slug = sourceId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                // Pour RTSP: utiliser rtsp_ + 8 premiers chars de l'UUID
+                var slug;
+                if (sourceId.startsWith('rtsp_')) {
+                    var uuid = sourceId.replace('rtsp_', '');
+                    slug = 'rtsp_' + uuid.substring(0, 8).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                } else {
+                    slug = sourceId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                }
                 while (slug.indexOf('__') !== -1) slug = slug.replace('__', '_');
                 slug = slug.replace(/^_|_$/g, '');
 
