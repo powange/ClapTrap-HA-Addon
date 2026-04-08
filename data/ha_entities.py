@@ -238,6 +238,28 @@ def _cleanup_old_rest_entities():
         logging.debug(f"Erreur nettoyage entites: {e}")
 
 
+def _cleanup_duplicate_mqtt_entities(settings=None):
+    """Supprime les entites MQTT dupliquees (avec suffixes _2, _3 ajoutes par HA)."""
+    if not _mqtt_client:
+        return
+    slugs_to_clean = []
+    if settings:
+        mic = settings.get('microphone', {})
+        if mic.get('enabled', False):
+            slugs_to_clean.append(_make_slug('mic_' + str(mic.get('device_index', 0))))
+        for src in settings.get('rtsp_sources', []):
+            entity_id = rtsp_entity_id(src)
+            slugs_to_clean.append(_make_slug(entity_id))
+    # Pour chaque slug, supprimer les variantes dupliquees (_2, _3, _4)
+    for slug in slugs_to_clean:
+        for n in range(1, 5):
+            suffix = f"_{n}clap" if n == 1 else f"_{n}claps"
+            for dup in range(2, 6):  # _2, _3, _4, _5
+                _unregister_mqtt_entity('binary_sensor', f"{slug}{suffix}_{dup}")
+    if slugs_to_clean:
+        logging.info(f"Nettoyage entites MQTT dupliquees pour {len(slugs_to_clean)} source(s)")
+
+
 def _cleanup_old_mqtt_entities(settings=None):
     """Supprime les anciennes entites MQTT (format pre-v6 : sans suffixe clap)."""
     if not _mqtt_client:
@@ -266,6 +288,7 @@ def init_entities(settings=None):
     if _mqtt_available:
         _cleanup_old_rest_entities()
         _cleanup_old_mqtt_entities(settings)
+        _cleanup_duplicate_mqtt_entities(settings)
         logging.info("Entites HA via MQTT Discovery (appareil ClapTrap)")
     else:
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")
