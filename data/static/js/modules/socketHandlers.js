@@ -69,34 +69,12 @@ export function initializeSocketIO() {
         }
     });
 
-    // Gestionnaire pour les labels
+    // Gestionnaire pour les labels (detection en cours → barre de controle)
     socket.on('labels', (data) => {
-        console.log('🏷️ Labels received:', data);
-        const container = document.getElementById('detected_labels');
-        const waitingEmoji = document.getElementById('waiting-emoji');
-        
-        if (!container) {
-            console.error('❌ Labels container not found');
-            return;
-        }
+        const container = document.getElementById('current_detection');
+        if (!container) return;
 
-        // Vérifier si on a détecté une éructation
-        if (data.detected && Array.isArray(data.detected)) {
-            const burpingDetected = data.detected.some(label => label.label === 'Burping, eructation');
-            if (burpingDetected && waitingEmoji) {
-                console.log('🤢 Burping detected, changing emoji...');
-                waitingEmoji.textContent = '😱';
-                setTimeout(() => {
-                    waitingEmoji.textContent = '👂';
-                }, 2000);
-            }
-        }
-
-        // Ne pas vider les events clap, juste mettre a jour les labels en bas
-        // Supprimer les anciens labels (pas les clap-event-label)
-        container.querySelectorAll('.label').forEach(el => el.remove());
-
-        // Ajouter les nouveaux labels
+        container.innerHTML = '';
         if (data.detected && Array.isArray(data.detected)) {
             const sourceTag = data.source ? formatSourceId(data.source) : '';
             data.detected.forEach(label => {

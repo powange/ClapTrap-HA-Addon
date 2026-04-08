@@ -75,6 +75,7 @@ _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
 _rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
 _active_detectors = []  # Liste des AudioDetector actifs (pour mise à jour en temps réel)
+_active_detectors_lock = threading.Lock()
 
 
 def reload_settings():
@@ -210,7 +211,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 label=label)
             det.start()
             detectors.append(det)
-            _active_detectors.append(det)
+            with _active_detectors_lock:
+                _active_detectors.append(det)
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
@@ -384,7 +386,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 def stop_detection():
     """Arrête la détection."""
     global detection_running, classifier, record, current_audio_source, _socketio
-    _active_detectors.clear()
+    with _active_detectors_lock:
+        _active_detectors.clear()
 
     try:
         try:
@@ -443,11 +446,12 @@ def update_rtsp_gain(rtsp_url, gain):
 
 def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
     """Met à jour les paramètres avancés sur tous les detectors actifs."""
-    for det in _active_detectors:
-        if peak_cooldown is not None:
-            det._peak_cooldown = float(peak_cooldown)
-        if peak_ratio is not None:
-            det._peak_ratio = float(peak_ratio)
-        if delay is not None:
-            det._clap_window_duration = float(delay)
-    logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s)")
+    with _active_detectors_lock:
+        for det in _active_detectors:
+            if peak_cooldown is not None:
+                det._peak_cooldown = float(peak_cooldown)
+            if peak_ratio is not None:
+                det._peak_ratio = float(peak_ratio)
+            if delay is not None:
+                det._clap_window_duration = float(delay)
+        logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s)")

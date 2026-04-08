@@ -176,6 +176,14 @@ h1 {
     gap: 0.3rem;
 }
 
+.current-detection {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    justify-content: center;
+}
+
 .source-badge {
     display: block;
     font-size: 0.75rem;

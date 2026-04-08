@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 import logging
+import threading
 import uuid
 
 from settings_manager import load_settings, save_settings
@@ -8,6 +9,7 @@ from vban_manager import get_vban_detector
 
 sources_bp = Blueprint('sources', __name__)
 _socketio = None
+_restart_lock = threading.Lock()
 
 def init_sources(socketio):
     global _socketio
@@ -16,33 +18,34 @@ def init_sources(socketio):
 
 def _restart_detection_if_running():
     """Redémarre la détection avec les sources mises à jour si elle tourne."""
-    try:
-        from classify import is_running, stop_detection, start_detection, build_sources_from_settings
-        if not is_running():
-            return
-        stop_detection()
-        import time
-        time.sleep(0.5)  # Laisser les threads se terminer
-        settings = load_settings()
-        sources = build_sources_from_settings(settings)
-        if sources and _socketio:
-            global_s = settings.get('global', {})
-            start_detection(
-                model="yamnet.tflite", max_results=10,
-                score_threshold=float(global_s.get('threshold', 0.5)),
-                overlapping_factor=0.8, socketio=_socketio,
-                delay=float(global_s.get('delay', 1.5)), sources=sources,
-                peak_cooldown=float(global_s.get('peak_cooldown', 0.08)),
-                peak_ratio=float(global_s.get('peak_ratio', 3.0))
-            )
-            source_display = ' + '.join(s['label'] for s in sources)
-            _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
-            logging.info(f"Détection redémarrée avec: {source_display}")
-        else:
-            _socketio.emit('detection_status', {'status': 'stopped'})
-            logging.info("Détection arrêtée: aucune source active")
-    except Exception as e:
-        logging.error(f"Erreur redémarrage détection: {e}")
+    with _restart_lock:
+        try:
+            from classify import is_running, stop_detection, start_detection, build_sources_from_settings
+            if not is_running():
+                return
+            stop_detection()
+            import time
+            time.sleep(0.5)  # Laisser les threads se terminer
+            settings = load_settings()
+            sources = build_sources_from_settings(settings)
+            if sources and _socketio:
+                global_s = settings.get('global', {})
+                start_detection(
+                    model="yamnet.tflite", max_results=10,
+                    score_threshold=float(global_s.get('threshold', 0.5)),
+                    overlapping_factor=0.8, socketio=_socketio,
+                    delay=float(global_s.get('delay', 1.5)), sources=sources,
+                    peak_cooldown=float(global_s.get('peak_cooldown', 0.08)),
+                    peak_ratio=float(global_s.get('peak_ratio', 3.0))
+                )
+                source_display = ' + '.join(s['label'] for s in sources)
+                _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
+                logging.info(f"Détection redémarrée avec: {source_display}")
+            else:
+                _socketio.emit('detection_status', {'status': 'stopped'})
+                logging.info("Détection arrêtée: aucune source active")
+        except Exception as e:
+            logging.error(f"Erreur redémarrage détection: {e}")
 
 
 def _resolve_pulse_name(settings):

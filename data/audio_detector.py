@@ -188,42 +188,44 @@ class AudioDetector:
 
             # Vérifier si on a détecté un clap
             current_time = time.time()
-            last_det = self.last_detection_time.get(source_id, 0)
-            es = self._energy_state.get(source_id, {})
-            recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
+            with self.lock:
+                last_det = self.last_detection_time.get(source_id, 0)
+                es = self._energy_state.get(source_id, {})
+                window_start = es.get('clap_detected_at', 0)
+                recent_peaks = [t for t in es.get('peak_times', []) if t >= window_start]
 
-            # Le classifier a détecté un clap
-            if score_sum > self.score_threshold:
-                # Marquer qu'on a vu un clap (pour déclencher l'émission après la fenêtre)
-                if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
-                    es['clap_detected_at'] = current_time
-                    es['clap_score'] = score_sum
+                # Le classifier a détecté un clap
+                if score_sum > self.score_threshold:
+                    # Marquer qu'on a vu un clap (pour déclencher l'émission après la fenêtre)
+                    if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
+                        es['clap_detected_at'] = current_time
+                        es['clap_score'] = score_sum
 
-            # Émettre le résultat si la fenêtre multi-clap est expirée
-            clap_detected_at = es.get('clap_detected_at', 0)
-            if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
-                clap_count = max(1, len(recent_peaks))
-                clap_score = es.get('clap_score', score_sum)
+                # Émettre le résultat si la fenêtre multi-clap est expirée
+                clap_detected_at = es.get('clap_detected_at', 0)
+                if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
+                    clap_count = max(1, len(recent_peaks))
+                    clap_score = es.get('clap_score', score_sum)
 
-                self.last_detection_time[source_id] = current_time
-                avg = es.get('avg_level', 0)
-                logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s")
+                    self.last_detection_time[source_id] = current_time
+                    avg = es.get('avg_level', 0)
+                    logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s")
 
-                if detection_callback:
-                    try:
-                        detection_callback({
-                            'timestamp': current_time,
-                            'score': float(clap_score),
-                            'source_id': source_id,
-                            'clap_count': clap_count
-                        })
-                    except Exception as e:
-                        logging.error(f"Erreur callback détection {self._source_label}: {e}")
+                    if detection_callback:
+                        try:
+                            detection_callback({
+                                'timestamp': current_time,
+                                'score': float(clap_score),
+                                'source_id': source_id,
+                                'clap_count': clap_count
+                            })
+                        except Exception as e:
+                            logging.error(f"Erreur callback détection {self._source_label}: {e}")
 
-                # Reset après émission
-                es['clap_detected_at'] = 0
-                es['clap_score'] = 0
-                es['peak_times'] = []
+                    # Reset après émission
+                    es['clap_detected_at'] = 0
+                    es['clap_score'] = 0
+                    es['peak_times'] = []
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
@@ -258,14 +260,14 @@ class AudioDetector:
 
             # Normalisation adaptative : n'amplifie que les blocs avec un vrai signal
             # (peak significativement au-dessus du bruit de fond moyen)
-            peak = float(np.max(np.abs(audio_data)))
+            raw_peak = float(np.max(np.abs(audio_data)))
             if source_id not in self._energy_state:
                 self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peak_times': [], 'avg_level': 0.001}
             es = self._energy_state[source_id]
             noise_floor = es.get('avg_level', 0.001)
             # Amplifier doucement les signaux faibles (eviter le clipping)
-            if peak > noise_floor * 2 and peak < 0.05 and peak > 0.003:
-                auto_gain = min(0.15 / peak, 5.0)  # max 5x, cible 0.15
+            if raw_peak > noise_floor * 2 and raw_peak < 0.05 and raw_peak > 0.003:
+                auto_gain = min(0.15 / raw_peak, 5.0)  # max 5x, cible 0.15
                 audio_data = (audio_data * auto_gain).astype(np.float32)
 
             # Log des statistiques audio (guard pour éviter le calcul inutile)
@@ -274,34 +276,36 @@ class AudioDetector:
 
             # Compter les pics d'énergie (pour le multi-clap)
             peak = float(np.max(np.abs(audio_data)))
-            if source_id not in self._energy_state:
-                self._energy_state[source_id] = {
-                    'above': False, 'last_peak_time': 0, 'peak_times': [],
-                    'avg_level': 0.001  # niveau moyen du bruit de fond
-                }
-            es = self._energy_state[source_id]
-            current_time = time.time()
+            with self.lock:
+                if source_id not in self._energy_state:
+                    self._energy_state[source_id] = {
+                        'above': False, 'last_peak_time': 0, 'peak_times': [],
+                        'avg_level': 0.001  # niveau moyen du bruit de fond
+                    }
+                es = self._energy_state[source_id]
+                current_time = time.time()
 
-            # Mettre à jour le niveau moyen (moyenne glissante lente, exclure les pics)
-            if not es.get('above', False):
-                es['avg_level'] = es['avg_level'] * 0.995 + peak * 0.005
+                # Mettre à jour le niveau moyen (moyenne glissante lente, exclure les pics)
+                # Utiliser raw_peak (pré-amplification) pour ne pas biaiser avec auto_gain
+                if not es.get('above', False):
+                    es['avg_level'] = es['avg_level'] * 0.995 + raw_peak * 0.005
 
-            # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.05)
-            dynamic_threshold = max(0.05, es['avg_level'] * self._peak_ratio)
+                # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.05)
+                dynamic_threshold = max(0.05, es['avg_level'] * self._peak_ratio)
 
-            # Nettoyer les pics de plus de 2 secondes
-            es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
+                # Nettoyer les pics de plus de 2 secondes
+                es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
 
-            if peak > dynamic_threshold and not es['above']:
-                # Front montant : nouveau pic détecté
-                if (current_time - es['last_peak_time']) > self._peak_cooldown:
-                    es['last_peak_time'] = current_time
-                    es['peak_times'].append(current_time)
-                    logging.debug(f"[{self._source_label}] Pic #{len(es['peak_times'])}: peak={peak:.4f}, seuil={dynamic_threshold:.4f}, avg={es['avg_level']:.4f}")
-                es['above'] = True
-            elif peak < dynamic_threshold * 0.6:
-                # Seuil de retour plus souple (60% du seuil au lieu de 30%)
-                es['above'] = False
+                if peak > dynamic_threshold and not es['above']:
+                    # Front montant : nouveau pic détecté
+                    if (current_time - es['last_peak_time']) > self._peak_cooldown:
+                        es['last_peak_time'] = current_time
+                        es['peak_times'].append(current_time)
+                        logging.debug(f"[{self._source_label}] Pic #{len(es['peak_times'])}: peak={peak:.4f}, seuil={dynamic_threshold:.4f}, avg={es['avg_level']:.4f}")
+                    es['above'] = True
+                elif peak < dynamic_threshold * 0.6:
+                    # Seuil de retour plus souple (60% du seuil au lieu de 30%)
+                    es['above'] = False
 
             # Écrire dans le ring buffer pré-alloué (zéro allocation)
             src = self.sources[source_id]
@@ -310,6 +314,10 @@ class AudioDetector:
             n = len(audio_data)
             if rlen + n > len(ring):
                 # Débordement : ne garder que les dernières données
+                if n >= len(ring):
+                    ring[:] = audio_data[-len(ring):]
+                    src['ring_len'] = len(ring)
+                    return  # Skip classifier for this oversized block
                 keep = len(ring) - n
                 ring[:keep] = ring[rlen - keep:rlen]
                 rlen = keep
