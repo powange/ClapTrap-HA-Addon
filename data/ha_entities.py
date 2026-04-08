@@ -174,7 +174,7 @@ def _set_rest_state(entity_id, state, attributes=None):
 def rtsp_entity_id(stream_or_id):
     """Génère l'entity_id pour un flux RTSP depuis son ID ou dict."""
     if isinstance(stream_or_id, dict):
-        stream_id = stream_or_id.get('id', '')
+        stream_id = stream_or_id.get('id', '') or stream_or_id.get('stream_id', '')
         name = stream_or_id.get('name', 'unknown')
     else:
         stream_id = str(stream_or_id)
@@ -307,8 +307,16 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None):
 
     display_name = label or source_id
     slug = _make_slug(source_id)
+
+    # Si déjà enregistré avec le même slug et les mêmes clap_counts, skip
+    existing = _source_info.get(source_id)
+    if existing and existing['slug'] == slug and existing.get('clap_counts') == clap_counts:
+        # Juste mettre à jour le mapping technique
+        if technical_id:
+            _source_id_map[technical_id] = source_id
+        return
+
     _source_info[source_id] = {'slug': slug, 'label': display_name, 'clap_counts': clap_counts}
-    # Mapper le source_id technique vers l'entity_id
     if technical_id:
         _source_id_map[technical_id] = source_id
 
