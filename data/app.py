@@ -114,19 +114,17 @@ _apply_saved_mic_volume()
 
 # Enregistrer les entites HA au demarrage
 try:
-    from ha_entities import init_entities, register_source
+    from ha_entities import init_entities, register_source, source_entity_key
     _ha_settings = load_settings()
     init_entities(settings=_ha_settings)
     _ha_mic = _ha_settings.get('microphone', {})
     if _ha_mic.get('enabled', False):
-        register_source('mic_' + str(_ha_mic.get('device_index', 0)),
+        register_source(source_entity_key('mic', _ha_mic),
                         label=_ha_mic.get('audio_source', 'Microphone'),
                         clap_counts=_ha_mic.get('ha_entities', [1, 2]))
-    from ha_entities import rtsp_entity_id
     for _ha_src in _ha_settings.get('rtsp_sources', []):
         if _ha_src.get('enabled', False):
-            _ha_entity_id = rtsp_entity_id(_ha_src)
-            register_source(_ha_entity_id,
+            register_source(source_entity_key('rtsp', _ha_src),
                            label=f"RTSP: {_ha_src.get('name', 'RTSP')}",
                            clap_counts=_ha_src.get('ha_entities', [1, 2]))
 except Exception as e:

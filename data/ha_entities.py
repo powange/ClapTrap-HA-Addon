@@ -44,6 +44,29 @@ def _make_slug(entity_id):
     return s.strip('_')
 
 
+def source_entity_key(source_type, source_data):
+    """Génère un identifiant UNIQUE et STABLE pour une source.
+
+    C'est LA seule fonction à utiliser pour dériver l'entity_id.
+    Basé sur des données qui ne changent jamais :
+    - mic: device_index
+    - rtsp: UUID du stream (8 premiers chars)
+    - vban: IP
+    """
+    if source_type == 'mic':
+        idx = source_data.get('device_index', 0)
+        return f"mic_{idx}"
+    elif source_type == 'rtsp':
+        stream_id = source_data.get('id', '') or source_data.get('stream_id', '')
+        if stream_id:
+            return f"rtsp_{stream_id[:8]}"
+        return f"rtsp_{_make_slug(source_data.get('name', 'unknown'))}"
+    elif source_type == 'vban':
+        ip = source_data.get('ip', '0')
+        return f"vban_{_make_slug(ip)}"
+    return f"source_{_make_slug(str(source_data))}"
+
+
 def _device_block():
     """Block MQTT device pour regrouper les entites."""
     return {
@@ -172,14 +195,10 @@ def _set_rest_state(entity_id, state, attributes=None):
 
 
 def rtsp_entity_id(stream_or_id):
-    """Génère l'entity_id pour un flux RTSP depuis son ID ou dict."""
+    """DEPRECATED: utiliser source_entity_key('rtsp', data) à la place."""
     if isinstance(stream_or_id, dict):
-        stream_id = stream_or_id.get('id', '') or stream_or_id.get('stream_id', '')
-        name = stream_or_id.get('name', 'unknown')
-    else:
-        stream_id = str(stream_or_id)
-        name = 'unknown'
-    return f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{name}"
+        return source_entity_key('rtsp', stream_or_id)
+    return source_entity_key('rtsp', {'id': str(stream_or_id)})
 
 
 # ===== Public API =====
@@ -303,14 +322,11 @@ def _cleanup_old_mqtt_entities(settings=None):
         return
     slugs_to_clean = []
     if settings:
-        # Micro
         mic = settings.get('microphone', {})
         if mic.get('enabled', False):
-            slugs_to_clean.append(_make_slug('mic_' + str(mic.get('device_index', 0))))
-        # RTSP
+            slugs_to_clean.append(_make_slug(source_entity_key('mic', mic)))
         for src in settings.get('rtsp_sources', []):
-            entity_id = rtsp_entity_id(src)
-            slugs_to_clean.append(_make_slug(entity_id))
+            slugs_to_clean.append(_make_slug(source_entity_key('rtsp', src)))
     # Supprimer les anciens formats pour chaque slug
     for slug in slugs_to_clean:
         _unregister_mqtt_entity('binary_sensor', slug)

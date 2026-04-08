@@ -137,8 +137,8 @@ def update_rtsp_stream(stream_id):
                     stream['ha_entities'] = data['ha_entities']
                     # Recréer les entités MQTT immédiatement
                     try:
-                        from ha_entities import register_source, rtsp_entity_id
-                        entity_id = rtsp_entity_id({'id': stream_id, 'name': stream.get('name', 'unknown')})
+                        from ha_entities import register_source, source_entity_key
+                        entity_id = source_entity_key('rtsp', {'id': stream_id})
                         register_source(entity_id,
                                        label=f"RTSP: {stream.get('name', 'RTSP')}",
                                        clap_counts=data['ha_entities'])
@@ -161,10 +161,9 @@ def delete_rtsp_stream(stream_id):
 
         # Supprimer les entites HA liees
         try:
-            from ha_entities import unregister_source, rtsp_entity_id
-            entity_id = rtsp_entity_id(stream_id) if stream_id else None
-            if entity_id:
-                unregister_source(entity_id)
+            from ha_entities import unregister_source, source_entity_key
+            entity_id = source_entity_key('rtsp', {'id': stream_id})
+            unregister_source(entity_id)
         except Exception:
             pass
 
@@ -404,8 +403,8 @@ def update_vban_source():
                 if 'ha_entities' in source:
                     s['ha_entities'] = source['ha_entities']
                     try:
-                        from ha_entities import register_source
-                        register_source(f"vban_{s['ip']}",
+                        from ha_entities import register_source, source_entity_key
+                        register_source(source_entity_key('vban', s),
                                        label=f"VBAN: {s.get('name', 'VBAN')}",
                                        clap_counts=source['ha_entities'])
                     except Exception:
@@ -557,9 +556,9 @@ def update_microphone_ha_entities():
 
         # Recréer les entités MQTT immédiatement
         try:
-            from ha_entities import register_source
+            from ha_entities import register_source, source_entity_key
             mic = settings.get('microphone', {})
-            register_source('mic_' + str(mic.get('device_index', 0)),
+            register_source(source_entity_key('mic', mic),
                            label=mic.get('audio_source', 'Microphone'),
                            clap_counts=ha_entities)
         except Exception:

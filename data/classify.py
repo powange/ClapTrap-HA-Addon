@@ -278,9 +278,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             rtsp_url = src.get('rtsp_url', src['audio_source'])
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
             source_id = f"rtsp_{rtsp_url}"
-            stream_id = src.get('stream_id', '')
-            from ha_entities import rtsp_entity_id
-            entity_id = rtsp_entity_id(src) if stream_id else source_id
+            from ha_entities import source_entity_key
+            entity_id = source_entity_key('rtsp', src)
             detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
