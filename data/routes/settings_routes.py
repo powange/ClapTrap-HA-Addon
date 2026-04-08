@@ -63,7 +63,8 @@ def update_advanced_settings():
             from classify import update_advanced_params
             update_advanced_params(
                 peak_cooldown=data.get('peak_cooldown'),
-                peak_ratio=data.get('peak_ratio')
+                peak_ratio=data.get('peak_ratio'),
+                delay=data.get('delay')
             )
         except Exception:
             pass

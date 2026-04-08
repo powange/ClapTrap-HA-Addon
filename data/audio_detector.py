@@ -187,36 +187,43 @@ class AudioDetector:
                     logging.error(f"Erreur dans le callback des labels pour {self._source_label}: {str(e)}")
 
             # Vérifier si on a détecté un clap
-            # Deux modes : score au-dessus du seuil, OU pic d'énergie récent + score minimal
             current_time = time.time()
             last_det = self.last_detection_time.get(source_id, 0)
             es = self._energy_state.get(source_id, {})
             recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
-            has_recent_peak = len(recent_peaks) > 0
 
-            # Detection : score classifier au-dessus du seuil configuré
-            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
-                self.last_detection_time[source_id] = current_time
+            # Le classifier a détecté un clap
+            if score_sum > self.score_threshold:
+                # Marquer qu'on a vu un clap (pour déclencher l'émission après la fenêtre)
+                if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
+                    es['clap_detected_at'] = current_time
+                    es['clap_score'] = score_sum
 
+            # Émettre le résultat si la fenêtre multi-clap est expirée
+            clap_detected_at = es.get('clap_detected_at', 0)
+            if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
                 clap_count = max(1, len(recent_peaks))
+                clap_score = es.get('clap_score', score_sum)
 
+                self.last_detection_time[source_id] = current_time
                 avg = es.get('avg_level', 0)
-                logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={score_sum:.2f}, avg_level={avg:.4f}")
+                logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s")
 
                 if detection_callback:
                     try:
                         detection_callback({
                             'timestamp': current_time,
-                            'score': float(score_sum),
+                            'score': float(clap_score),
                             'source_id': source_id,
                             'clap_count': clap_count
                         })
                     except Exception as e:
                         logging.error(f"Erreur callback détection {self._source_label}: {e}")
 
-                # Reset les pics après émission
-                if source_id in self._energy_state:
-                    self._energy_state[source_id]['peak_times'] = []
+                # Reset après émission
+                es['clap_detected_at'] = 0
+                es['clap_score'] = 0
+                es['peak_times'] = []
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")

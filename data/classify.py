@@ -441,11 +441,13 @@ def update_rtsp_gain(rtsp_url, gain):
     logging.info(f"Volume RTSP mis à jour: {rtsp_url} -> {gain}x")
 
 
-def update_advanced_params(peak_cooldown=None, peak_ratio=None):
+def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
     """Met à jour les paramètres avancés sur tous les detectors actifs."""
     for det in _active_detectors:
         if peak_cooldown is not None:
             det._peak_cooldown = float(peak_cooldown)
         if peak_ratio is not None:
             det._peak_ratio = float(peak_ratio)
-    logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s): cooldown={peak_cooldown}, ratio={peak_ratio}")
+        if delay is not None:
+            det._clap_window_duration = float(delay)
+    logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s)")
