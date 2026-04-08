@@ -602,20 +602,20 @@
                 });
             }
 
-            // Mic source selector auto-save
+            // Mic source selector auto-save (via dedicated fields, not full settings)
             var micSource = document.getElementById('micro_source');
             if (micSource) {
                 micSource.addEventListener('change', function() {
                     var parts = micSource.value.split('|');
-                    var settings = window.settings || {};
-                    if (settings.microphone) {
-                        settings.microphone.device_index = parts[0] || '0';
-                        settings.microphone.audio_source = parts[1] || 'default';
-                        settings.microphone.pulse_name = parts[2] || '';
+                    if (window.settings && window.settings.microphone) {
+                        window.settings.microphone.device_index = parts[0] || '0';
+                        window.settings.microphone.audio_source = parts[1] || 'default';
+                        window.settings.microphone.pulse_name = parts[2] || '';
                     }
+                    // Sauvegarder seulement les champs du device micro
                     fetch(basePath + '/api/settings/save', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(settings)
+                        body: JSON.stringify({microphone: window.settings.microphone})
                     });
                 });
             }
@@ -941,6 +941,9 @@
         document.addEventListener('change', function(e) {
             if (e.target.id === 'mic-volume') {
                 var volume = parseInt(e.target.value);
+                if (window.settings && window.settings.microphone) {
+                    window.settings.microphone.volume = volume;
+                }
                 var basePath = window.basePath || '';
                 fetch(basePath + '/api/microphone/volume', {
                     method: 'PUT',
