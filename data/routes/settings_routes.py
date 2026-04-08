@@ -74,6 +74,17 @@ def update_advanced_settings():
             if key in data:
                 settings['global'][key] = float(data[key])
         save_settings(settings)
+
+        # Appliquer en temps réel sur les detectors actifs
+        try:
+            from classify import update_advanced_params
+            update_advanced_params(
+                peak_cooldown=data.get('peak_cooldown'),
+                peak_ratio=data.get('peak_ratio')
+            )
+        except Exception:
+            pass
+
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

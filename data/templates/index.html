@@ -989,24 +989,21 @@
             }
         });
 
-        // Advanced settings save on change
-        ['adv-delay', 'adv-cooldown', 'adv-ratio'].forEach(function(id) {
-            document.addEventListener('change', function(e) {
-                if (e.target.id === id) {
-                    var basePath = window.basePath || '';
-                    var payload = {};
-                    var delayEl = document.getElementById('adv-delay');
-                    var cooldownEl = document.getElementById('adv-cooldown');
-                    var ratioEl = document.getElementById('adv-ratio');
-                    if (delayEl) payload.delay = parseFloat(delayEl.value);
-                    if (cooldownEl) payload.peak_cooldown = parseFloat(cooldownEl.value);
-                    if (ratioEl) payload.peak_ratio = parseFloat(ratioEl.value);
-                    fetch(basePath + '/api/settings/advanced', {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(payload)
-                    });
-                }
+        // Advanced settings auto-save on change
+        document.addEventListener('change', function(e) {
+            if (['adv-delay', 'adv-cooldown', 'adv-ratio'].indexOf(e.target.id) === -1) return;
+            var basePath = window.basePath || '';
+            var payload = {};
+            var delayEl = document.getElementById('adv-delay');
+            var cooldownEl = document.getElementById('adv-cooldown');
+            var ratioEl = document.getElementById('adv-ratio');
+            if (delayEl) payload.delay = parseFloat(delayEl.value);
+            if (cooldownEl) payload.peak_cooldown = parseFloat(cooldownEl.value);
+            if (ratioEl) payload.peak_ratio = parseFloat(ratioEl.value);
+            fetch(basePath + '/api/settings/advanced', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
             });
         });
 

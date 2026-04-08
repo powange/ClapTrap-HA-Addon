@@ -50,6 +50,7 @@ _socketio = None
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
 _rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
+_active_detectors = []  # Liste des AudioDetector actifs (pour mise à jour en temps réel)
 
 
 def reload_settings():
@@ -185,6 +186,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 label=label)
             det.start()
             detectors.append(det)
+            _active_detectors.append(det)
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
@@ -361,6 +363,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 def stop_detection():
     """Arrête la détection."""
     global detection_running, classifier, record, current_audio_source, _socketio
+    _active_detectors.clear()
 
     try:
         try:
@@ -415,3 +418,13 @@ def update_rtsp_gain(rtsp_url, gain):
     """Met à jour le gain d'une source RTSP en temps réel."""
     _rtsp_gains[rtsp_url] = float(gain)
     logging.info(f"Volume RTSP mis à jour: {rtsp_url} -> {gain}x")
+
+
+def update_advanced_params(peak_cooldown=None, peak_ratio=None):
+    """Met à jour les paramètres avancés sur tous les detectors actifs."""
+    for det in _active_detectors:
+        if peak_cooldown is not None:
+            det._peak_cooldown = float(peak_cooldown)
+        if peak_ratio is not None:
+            det._peak_ratio = float(peak_ratio)
+    logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s): cooldown={peak_cooldown}, ratio={peak_ratio}")
