@@ -45,14 +45,23 @@ class AudioDetector:
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             
-            # Créer un seul classificateur en mode stream
-            # score_threshold bas pour MediaPipe (laisser passer tous les labels)
-            # Le seuil utilisateur est appliqué dans _handle_result sur notre scoring custom
+            # Labels pertinents pour la détection de claps + silence
+            clap_allowlist = [
+                # Sons de clap/mains
+                "Hands", "Clapping", "Applause",
+                # Sons impulsifs similaires
+                "Slap, smack", "Whack, thwack", "Knock", "Tap", "Snap",
+                "Bang", "Cap gun", "Crack",
+                # Bruits de fond (pour les filtrer)
+                "Silence", "Finger snapping", "Writing", "Typing",
+            ]
+
             options = audio.AudioClassifierOptions(
                 base_options=base_options,
                 running_mode=audio.RunningMode.AUDIO_STREAM,
                 max_results=max_results,
-                score_threshold=0.05,
+                score_threshold=0,
+                category_allowlist=clap_allowlist,
                 result_callback=self._handle_result
             )
             self.classifier = audio.AudioClassifier.create_from_options(options)
@@ -133,12 +142,12 @@ class AudioDetector:
             }
             NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3, "Typing": 0.2}
 
-            # Log top results + labels clap
-            top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
+            # Log les labels reçus (filtrés par allowlist, donc tous pertinents)
+            all_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories]
             clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
                            if c.category_name in CLAP_WEIGHTS]
             if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
-                logging.info(f"[{self._source_label}] top={top} clap={clap_labels}")
+                logging.info(f"[{self._source_label}] labels={all_labels}")
             score_sum = sum(
                 category.score * CLAP_WEIGHTS[category.category_name]
                 for category in classification.categories

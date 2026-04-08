@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.5.2
+
+### Filtrage des labels MediaPipe par allowlist
+
+- Le classifier ne retourne plus que les labels pertinents pour les claps (Hands, Clapping, Applause, Slap, Whack, Knock, Tap, Snap, Bang, Cap gun, Crack) + Silence et bruits a filtrer.
+- Plus de "Duck", "Bird", "Fowl", "Animal" dans les resultats — elimines a la source par MediaPipe.
+- score_threshold mis a 0 (aucun filtrage en amont, tout est traite par notre scoring).
+- Les logs sont plus lisibles car seuls les labels pertinents apparaissent.
+
 ## 5.5.1
 
 - Suppression du seuil adaptatif. Le seuil de precision configure par l'utilisateur est applique directement. Le volume de la source permet d'amplifier le signal, la precision permet d'ajuster la sensibilite. Plus simple, plus previsible.
