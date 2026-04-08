@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.4.6
+
+- Seuil adaptatif baisse de 30% a 15% quand un pic d'energie est detecte. Un seul Slap/smack a 0.109 suffit maintenant pour confirmer un clap (score 0.065 > seuil 0.045).
+
 ## 5.4.5
 
 - Les logs affichent maintenant le nom de la source (ex: "RTSP: Bureau 2") au lieu de l'URL technique dans tous les messages (Audio stats, labels, pics, claps).

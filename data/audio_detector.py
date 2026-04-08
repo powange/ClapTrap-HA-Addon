@@ -186,7 +186,7 @@ class AudioDetector:
             has_recent_peak = len(recent_peaks) > 0
 
             # Seuil adaptatif : si un pic d'énergie a été détecté, baisser le seuil classifier
-            effective_threshold = self.score_threshold * 0.3 if has_recent_peak else self.score_threshold
+            effective_threshold = self.score_threshold * 0.15 if has_recent_peak else self.score_threshold
 
             if score_sum > effective_threshold and (current_time - last_det) > 0.3:
                 self.last_detection_time[source_id] = current_time
