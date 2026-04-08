@@ -14,6 +14,37 @@ def init_sources(socketio):
     _socketio = socketio
 
 
+def _restart_detection_if_running():
+    """Redémarre la détection avec les sources mises à jour si elle tourne."""
+    try:
+        from classify import is_running, stop_detection, start_detection, build_sources_from_settings
+        if not is_running():
+            return
+        stop_detection()
+        import time
+        time.sleep(0.5)  # Laisser les threads se terminer
+        settings = load_settings()
+        sources = build_sources_from_settings(settings)
+        if sources and _socketio:
+            global_s = settings.get('global', {})
+            start_detection(
+                model="yamnet.tflite", max_results=10,
+                score_threshold=float(global_s.get('threshold', 0.5)),
+                overlapping_factor=0.8, socketio=_socketio,
+                delay=float(global_s.get('delay', 1.5)), sources=sources,
+                peak_cooldown=float(global_s.get('peak_cooldown', 0.08)),
+                peak_ratio=float(global_s.get('peak_ratio', 3.0))
+            )
+            source_display = ' + '.join(s['label'] for s in sources)
+            _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
+            logging.info(f"Détection redémarrée avec: {source_display}")
+        else:
+            _socketio.emit('detection_status', {'status': 'stopped'})
+            logging.info("Détection arrêtée: aucune source active")
+    except Exception as e:
+        logging.error(f"Erreur redémarrage détection: {e}")
+
+
 def _resolve_pulse_name(settings):
     """Résout le pulse_name depuis les settings ou l'API Supervisor.
     Vérifie toujours que le pulse_name correspond à l'audio_source actuel."""
@@ -121,6 +152,8 @@ def update_rtsp_stream(stream_id):
                     stream['webhook_url'] = data['webhook_url']
                 if 'enabled' in data:
                     stream['enabled'] = data['enabled']
+                    # Redémarrer la détection si elle tourne
+                    _restart_detection_if_running()
                 if 'threshold' in data:
                     stream['threshold'] = float(data['threshold'])
                 if 'gain' in data:
@@ -493,6 +526,9 @@ def update_microphone_enabled():
         settings = load_settings()
         settings['microphone']['enabled'] = enabled
         save_settings(settings)
+
+        # Redémarrer la détection si elle tourne
+        _restart_detection_if_running()
 
         return jsonify({'success': True})
     except Exception as e:
