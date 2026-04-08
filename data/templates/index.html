@@ -146,10 +146,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="setting-item" style="margin-top:0.5rem;">
-                    <button type="button" id="cleanupEntitiesBtn" class="btn btn-secondary btn-sm">Nettoyer les anciennes entites HA</button>
-                    <span class="setting-hint">Supprime les entites ClapTrap orphelines (creees avant MQTT Discovery).</span>
-                </div>
             </div>
         </section>
 
@@ -1005,24 +1001,6 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
             });
-        });
-
-        // Cleanup old HA entities
-        document.addEventListener('click', function(e) {
-            if (e.target.id === 'cleanupEntitiesBtn' || e.target.closest('#cleanupEntitiesBtn')) {
-                if (!confirm('Supprimer toutes les anciennes entites ClapTrap ? Les nouvelles entites MQTT seront recreees au prochain demarrage de la detection.')) return;
-                var basePath = window.basePath || '';
-                fetch(basePath + '/api/ha/cleanup', {method: 'POST'})
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data.success) {
-                            alert(data.message);
-                        } else {
-                            alert('Erreur: ' + (data.error || 'Echec'));
-                        }
-                    })
-                    .catch(function(err) { alert('Erreur: ' + err); });
-            }
         });
 
         // Debug toggle
