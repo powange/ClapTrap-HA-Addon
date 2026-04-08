@@ -269,26 +269,29 @@ def _cleanup_all_claptrap_entities():
             headers=_get_headers(),
             timeout=10
         )
+        logging.info(f"Entity registry API: {resp.status_code}")
         if resp.ok:
             entities = resp.json()
             removed = 0
             for entity in entities:
                 entity_id = entity.get('entity_id', '')
                 if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
-                    # Vérifier que c'est une entité MQTT (pas Home Assistant Supervisor)
                     platform = entity.get('platform', '')
                     if platform == 'mqtt' or 'claptrap' in entity_id:
                         try:
-                            requests.delete(
+                            del_resp = requests.delete(
                                 f"{SUPERVISOR_URL}/config/entity_registry/{entity_id}",
                                 headers=_get_headers(),
                                 timeout=5
                             )
-                            removed += 1
-                        except Exception:
-                            pass
-            if removed > 0:
-                logging.info(f"Nettoyage entity registry: {removed} entite(s) supprimee(s)")
+                            logging.info(f"Delete {entity_id}: {del_resp.status_code}")
+                            if del_resp.ok:
+                                removed += 1
+                        except Exception as e:
+                            logging.warning(f"Erreur delete {entity_id}: {e}")
+            logging.info(f"Nettoyage entity registry: {removed} entite(s) supprimee(s) sur {len(entities)} total")
+        else:
+            logging.warning(f"Entity registry non accessible: {resp.status_code}")
 
         # 2. Supprimer les states restants
         resp2 = requests.get(
