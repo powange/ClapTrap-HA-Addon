@@ -1164,32 +1164,40 @@
                 .catch(function() {});
         })();
 
-        // Afficher les entites HA dans chaque onglet
+        // Afficher les entites HA dans chaque onglet (depuis les checkboxes locales)
         function refreshHaEntities() {
-            var basePath = window.basePath || '';
-            fetch(basePath + '/api/ha/entities')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    document.querySelectorAll('.ha-entities-info').forEach(function(el) {
-                        var sourceId = el.getAttribute('data-source');
-                        // Chercher par source_id exact ou partiel
-                        var info = null;
-                        Object.keys(data).forEach(function(key) {
-                            if (key === sourceId || key.indexOf(sourceId) !== -1 || sourceId.indexOf(key) !== -1) {
-                                info = data[key];
-                            }
-                        });
-                        if (info && info.entities) {
-                            el.innerHTML = '<div class="ha-entities-list">' +
-                                '<label class="form-label" style="font-size:0.75rem;color:var(--color-text-secondary);">Entites HA</label>' +
-                                info.entities.map(function(e) {
-                                    return '<code class="ha-entity-id">' + e + '</code>';
-                                }).join('') +
-                            '</div>';
-                        }
-                    });
-                })
-                .catch(function() {});
+            document.querySelectorAll('.ha-entities-info').forEach(function(el) {
+                var panel = el.closest('.tab-panel');
+                if (!panel) return;
+                var checkboxes = panel.querySelectorAll('.ha-clap-toggle');
+                if (checkboxes.length === 0) return;
+
+                // Trouver le slug de la source
+                var sourceId = el.getAttribute('data-source') || '';
+                var slug = sourceId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                while (slug.indexOf('__') !== -1) slug = slug.replace('__', '_');
+                slug = slug.replace(/^_|_$/g, '');
+
+                var entities = [];
+                checkboxes.forEach(function(cb) {
+                    if (cb.checked) {
+                        var n = parseInt(cb.getAttribute('data-clap'));
+                        var suffix = n === 1 ? '_1clap' : '_' + n + 'claps';
+                        entities.push('binary_sensor.claptrap_' + slug + suffix);
+                    }
+                });
+
+                if (entities.length > 0) {
+                    el.innerHTML = '<div class="ha-entities-list">' +
+                        '<label class="form-label" style="font-size:0.75rem;color:var(--color-text-secondary);">Entites HA</label>' +
+                        entities.map(function(e) {
+                            return '<code class="ha-entity-id">' + e + '</code>';
+                        }).join('') +
+                    '</div>';
+                } else {
+                    el.innerHTML = '';
+                }
+            });
         }
 
         // Build tabs on load
