@@ -227,11 +227,35 @@ def _cleanup_old_rest_entities():
         logging.debug(f"Erreur nettoyage entites: {e}")
 
 
-def init_entities():
+def _cleanup_old_mqtt_entities(settings=None):
+    """Supprime les anciennes entites MQTT (format pre-v6 : sans suffixe clap)."""
+    if not _mqtt_client:
+        return
+    slugs_to_clean = []
+    if settings:
+        # Micro
+        mic = settings.get('microphone', {})
+        if mic.get('enabled', False):
+            slugs_to_clean.append(_make_slug('mic_' + str(mic.get('device_index', 0))))
+        # RTSP
+        for src in settings.get('rtsp_sources', []):
+            stream_id = src.get('id', '')
+            entity_id = f"rtsp_{stream_id[:8]}" if stream_id else f"rtsp_{src.get('name', 'unknown')}"
+            slugs_to_clean.append(_make_slug(entity_id))
+    # Supprimer les anciens formats pour chaque slug
+    for slug in slugs_to_clean:
+        _unregister_mqtt_entity('binary_sensor', slug)
+        _unregister_mqtt_entity('sensor', f'{slug}_clap_count')
+    if slugs_to_clean:
+        logging.info(f"Anciennes entites MQTT (pre-v6) nettoyees: {len(slugs_to_clean)} source(s)")
+
+
+def init_entities(settings=None):
     """Initialise le systeme d'entites (tente MQTT, sinon REST)."""
     _init_mqtt()
     if _mqtt_available:
         _cleanup_old_rest_entities()
+        _cleanup_old_mqtt_entities(settings)
         logging.info("Entites HA via MQTT Discovery (appareil ClapTrap)")
     else:
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")

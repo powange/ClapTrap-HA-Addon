@@ -312,7 +312,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
         try:
             from ha_entities import init_entities, update_detection_state
-            init_entities()
+            init_entities(settings=reload_settings())
             source_labels = [s['label'] for s in sources]
             update_detection_state(True, source_labels)
         except Exception:

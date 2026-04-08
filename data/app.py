@@ -119,8 +119,8 @@ _apply_saved_mic_volume()
 # Enregistrer les entites HA au demarrage
 try:
     from ha_entities import init_entities, register_source
-    init_entities()
     _ha_settings = load_settings()
+    init_entities(settings=_ha_settings)
     _ha_mic = _ha_settings.get('microphone', {})
     if _ha_mic.get('enabled', False):
         register_source('mic_' + str(_ha_mic.get('device_index', 0)),
