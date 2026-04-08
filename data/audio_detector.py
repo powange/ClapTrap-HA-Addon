@@ -191,19 +191,21 @@ class AudioDetector:
             with self.lock:
                 last_det = self.last_detection_time.get(source_id, 0)
                 es = self._energy_state.get(source_id, {})
-                window_start = es.get('clap_detected_at', 0)
-                recent_peaks = [t for t in es.get('peak_times', []) if t >= window_start]
+                peak_times = es.get('peak_times', [])
 
                 # Le classifier a détecté un clap
                 if score_sum > self.score_threshold:
-                    # Marquer qu'on a vu un clap (pour déclencher l'émission après la fenêtre)
                     if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
-                        es['clap_detected_at'] = current_time
+                        # Utiliser le premier pic comme début de fenêtre (pas le moment du classifier)
+                        first_peak = peak_times[0] if peak_times else current_time
+                        es['clap_detected_at'] = first_peak
                         es['clap_score'] = score_sum
 
                 # Émettre le résultat si la fenêtre multi-clap est expirée
                 clap_detected_at = es.get('clap_detected_at', 0)
                 if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
+                    # Compter tous les pics depuis le début de la fenêtre
+                    recent_peaks = [t for t in peak_times if t >= clap_detected_at]
                     clap_count = max(1, len(recent_peaks))
                     clap_score = es.get('clap_score', score_sum)
 
