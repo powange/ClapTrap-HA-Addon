@@ -298,8 +298,9 @@ class AudioDetector:
                 # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.05)
                 dynamic_threshold = max(0.05, es['avg_level'] * self._peak_ratio)
 
-                # Nettoyer les pics de plus de 2 secondes
-                es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < 2.0]
+                # Nettoyer les pics anciens (garder fenêtre + marge)
+                max_age = max(2.0, self._clap_window_duration + 1.0)
+                es['peak_times'] = [t for t in es['peak_times'] if (current_time - t) < max_age]
 
                 if peak > dynamic_threshold and not es['above']:
                     # Front montant : nouveau pic détecté
