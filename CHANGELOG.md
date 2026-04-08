@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.4.5
+
+- Les logs affichent maintenant le nom de la source (ex: "RTSP: Bureau 2") au lieu de l'URL technique dans tous les messages (Audio stats, labels, pics, claps).
+
 ## 5.4.4
 
 ### Detection hybride pic + classifier

@@ -26,6 +26,7 @@ class AudioDetector:
         self._global_timestamp_ms = 0  # Timestamp global monotone pour classify_async
         self.start_time_ms = None
         self._active_source_id = None  # Source unique pour ce detector (1 detector = 1 source)
+        self._source_label = None  # Nom lisible de la source (ex: "RTSP: Bureau 2")
         self.score_threshold = 0.3
         self._result_count = 0
         self._clap_windows = {}  # source_id -> {'first_clap_time': float, 'count': int}
@@ -64,9 +65,10 @@ class AudioDetector:
             logging.error(traceback.format_exc())
             raise
         
-    def add_source(self, source_id, detection_callback=None, labels_callback=None):
+    def add_source(self, source_id, detection_callback=None, labels_callback=None, label=None):
         """Ajoute une nouvelle source audio avec ses callbacks"""
         self._active_source_id = source_id
+        self._source_label = label or source_id
         with self.lock:
             # Attribuer un ID numérique à la source
             numeric_id = self.next_source_id
@@ -136,7 +138,7 @@ class AudioDetector:
             clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
                            if c.category_name in CLAP_WEIGHTS]
             if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
-                logging.info(f"[{source_id}] top={top} clap={clap_labels}")
+                logging.info(f"[{self._source_label}] top={top} clap={clap_labels}")
             score_sum = sum(
                 category.score * CLAP_WEIGHTS[category.category_name]
                 for category in classification.categories
@@ -151,7 +153,7 @@ class AudioDetector:
 
             # Log du score calculé
             if score_sum > 0.1:
-                logging.debug(f"Score de clap calculé pour source {source_id}: {score_sum}")
+                logging.debug(f"Score de clap calculé pour {self._source_label}: {score_sum}")
 
             # Préparer les labels pour le callback
             top3_labels = sorted(
@@ -166,14 +168,14 @@ class AudioDetector:
             ]
 
             # Log pour déboguer les labels
-            logging.debug(f"Labels détectés pour source {source_id}: {labels_data}")
+            logging.debug(f"Labels détectés pour {self._source_label}: {labels_data}")
 
             # Envoyer les labels si un callback est défini
             if labels_callback and labels_data:
                 try:
                     labels_callback(labels_data)
                 except Exception as e:
-                    logging.error(f"Erreur dans le callback des labels pour source {source_id}: {str(e)}")
+                    logging.error(f"Erreur dans le callback des labels pour {self._source_label}: {str(e)}")
 
             # Vérifier si on a détecté un clap
             # Deux modes : score au-dessus du seuil, OU pic d'énergie récent + score minimal
@@ -192,7 +194,7 @@ class AudioDetector:
                 clap_count = max(1, len(recent_peaks))
 
                 avg = es.get('avg_level', 0)
-                logging.info(f"[{source_id}] CLAP: {clap_count} pic(s), score={score_sum:.2f}, avg_level={avg:.4f}")
+                logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={score_sum:.2f}, avg_level={avg:.4f}")
 
                 if detection_callback:
                     try:
@@ -203,7 +205,7 @@ class AudioDetector:
                             'clap_count': clap_count
                         })
                     except Exception as e:
-                        logging.error(f"Erreur callback détection {source_id}: {e}")
+                        logging.error(f"Erreur callback détection {self._source_label}: {e}")
 
                 # Reset les pics après émission
                 if source_id in self._energy_state:
@@ -254,7 +256,7 @@ class AudioDetector:
 
             # Log des statistiques audio (guard pour éviter le calcul inutile)
             if logging.getLogger().isEnabledFor(logging.DEBUG) and len(audio_data) > 0:
-                logging.debug(f"Audio stats (source {source_id}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
+                logging.debug(f"Audio stats ({self._source_label}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
 
             # Compter les pics d'énergie (pour le multi-clap)
             peak = float(np.max(np.abs(audio_data)))
@@ -281,7 +283,7 @@ class AudioDetector:
                 if (current_time - es['last_peak_time']) > self._peak_cooldown:
                     es['last_peak_time'] = current_time
                     es['peak_times'].append(current_time)
-                    logging.debug(f"[{source_id}] Pic #{len(es['peak_times'])}: peak={peak:.4f}, seuil={dynamic_threshold:.4f}, avg={es['avg_level']:.4f}")
+                    logging.debug(f"[{self._source_label}] Pic #{len(es['peak_times'])}: peak={peak:.4f}, seuil={dynamic_threshold:.4f}, avg={es['avg_level']:.4f}")
                 es['above'] = True
             elif peak < dynamic_threshold * 0.6:
                 # Seuil de retour plus souple (60% du seuil au lieu de 30%)

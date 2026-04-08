@@ -181,7 +181,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                           clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
-                labels_callback=create_labels_callback(source_id))
+                labels_callback=create_labels_callback(source_id),
+                label=label)
             det.start()
             detectors.append(det)
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
