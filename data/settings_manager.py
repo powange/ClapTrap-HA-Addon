@@ -31,7 +31,8 @@ DEFAULT_SETTINGS = {
         "volume": 100,
         "auto_volume": False,
         "auto_start": False,
-        "threshold": 0.5
+        "threshold": 0.5,
+        "ha_entities": [1, 2]
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],

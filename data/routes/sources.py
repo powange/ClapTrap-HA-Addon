@@ -133,6 +133,8 @@ def update_rtsp_stream(stream_id):
                         update_rtsp_gain(rtsp_url, stream['gain'])
                     except Exception:
                         pass
+                if 'ha_entities' in data:
+                    stream['ha_entities'] = data['ha_entities']
 
                 save_settings(settings)
                 return jsonify({'success': True, 'stream': stream})
@@ -380,6 +382,9 @@ def update_vban_source():
                 # Mettre à jour threshold s'il est fourni
                 if 'threshold' in source:
                     s['threshold'] = float(source['threshold'])
+                # Mettre à jour ha_entities s'il est fourni
+                if 'ha_entities' in source:
+                    s['ha_entities'] = source['ha_entities']
                 source_found = True
                 logging.debug(f"Source mise à jour: {s}")  # Debug log
                 break
@@ -510,6 +515,25 @@ def update_microphone_volume():
                 logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
 
         return jsonify({'success': True, 'volume': volume})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@sources_bp.route('/api/microphone/ha-entities', methods=['PUT'])
+def update_microphone_ha_entities():
+    try:
+        data = request.get_json()
+        ha_entities = data.get('ha_entities', [1, 2])
+        # Validate: keep only 1-4
+        ha_entities = [n for n in ha_entities if isinstance(n, int) and 1 <= n <= 4]
+        if not ha_entities:
+            ha_entities = [1, 2]
+
+        settings = load_settings()
+        settings['microphone']['ha_entities'] = ha_entities
+        save_settings(settings)
+
+        return jsonify({'success': True, 'ha_entities': ha_entities})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

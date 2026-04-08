@@ -174,7 +174,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None):
+        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None, clap_counts=None):
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
             det.initialize(max_results=max_results, score_threshold=threshold or score_threshold,
@@ -188,7 +188,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
-                register_source(entity_id or source_id, label=label, technical_id=source_id)
+                register_source(entity_id or source_id, label=label, technical_id=source_id, clap_counts=clap_counts)
             except Exception:
                 pass
             return det
@@ -222,7 +222,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     pass
 
             source_id = f"mic_{saved_index}"
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'))
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
             if pulse_name:
@@ -257,7 +257,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             source_id = f"rtsp_{rtsp_url}"
             stream_id = src.get('stream_id', '')
             entity_id = f"rtsp_{stream_id[:8]}" if stream_id else source_id
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id)
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
@@ -294,7 +294,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         def run_vban_source(src):
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'))
+            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
             logging.info(f"VBAN: démarrage capture {vban_ip}")
 
             vban_det = get_vban_detector()

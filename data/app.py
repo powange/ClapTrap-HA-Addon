@@ -116,6 +116,26 @@ def _apply_saved_mic_volume():
 
 _apply_saved_mic_volume()
 
+# Enregistrer les entites HA au demarrage
+try:
+    from ha_entities import init_entities, register_source
+    init_entities()
+    _ha_settings = load_settings()
+    _ha_mic = _ha_settings.get('microphone', {})
+    if _ha_mic.get('enabled', False):
+        register_source('mic_' + str(_ha_mic.get('device_index', 0)),
+                        label=_ha_mic.get('audio_source', 'Microphone'),
+                        clap_counts=_ha_mic.get('ha_entities', [1, 2]))
+    for _ha_src in _ha_settings.get('rtsp_sources', []):
+        if _ha_src.get('enabled', False):
+            _ha_stream_id = _ha_src.get('id', '')
+            _ha_entity_id = f"rtsp_{_ha_stream_id[:8]}" if _ha_stream_id else f"rtsp_{_ha_src.get('name', 'unknown')}"
+            register_source(_ha_entity_id,
+                           label=f"RTSP: {_ha_src.get('name', 'RTSP')}",
+                           clap_counts=_ha_src.get('ha_entities', [1, 2]))
+except Exception as e:
+    logging.warning(f"Init entites HA: {e}")
+
 # Nettoyer lors de l'arrêt
 import atexit
 
@@ -369,6 +389,7 @@ if __name__ == '__main__':
                     sources.append({
                         'type': 'mic', 'audio_source': mic_name,
                         'webhook_url': mic.get('webhook_url', ''),
+                        'ha_entities': mic.get('ha_entities', [1, 2]),
                         'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
                     })
                 for src in s.get('rtsp_sources', []):
@@ -378,6 +399,7 @@ if __name__ == '__main__':
                             'type': 'rtsp', 'audio_source': url, 'rtsp_url': src['url'],
                             'webhook_url': src.get('webhook_url', ''),
                             'gain': src.get('gain', 10),
+                            'ha_entities': src.get('ha_entities', [1, 2]),
                             'label': f'RTSP: {src.get("name", src["url"][:30])}'
                         })
                 for src in s.get('saved_vban_sources', []):
@@ -385,6 +407,7 @@ if __name__ == '__main__':
                         sources.append({
                             'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                             'webhook_url': src.get('webhook_url', ''),
+                            'ha_entities': src.get('ha_entities', [1, 2]),
                             'label': f'VBAN: {src.get("name", src["ip"])}'
                         })
                 if sources:

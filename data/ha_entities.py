@@ -4,8 +4,7 @@ Utilise MQTT Discovery si un broker MQTT est disponible (regroupe les entites
 dans un appareil "ClapTrap"). Sinon fallback sur l'API REST du Supervisor.
 
 Entites par source :
-- binary_sensor.claptrap_<id> : ON quand un clap est detecte (auto-OFF apres 2s)
-- sensor.claptrap_<id>_clap_count : nombre de claps du dernier evenement
+- binary_sensor.claptrap_<id>_Nclap(s) : un par nombre de claps configure (1-4)
 
 Entite globale :
 - binary_sensor.claptrap_detection : ON quand la detection tourne
@@ -22,7 +21,7 @@ SUPERVISOR_URL = "http://supervisor/core/api"
 MQTT_TOPIC_PREFIX = "homeassistant"
 
 # State
-_source_info = {}  # entity_id -> {slug, label}
+_source_info = {}  # source_id -> {slug, label, clap_counts}
 _source_id_map = {}  # source_id technique -> entity_id
 _mqtt_client = None
 _mqtt_available = False
@@ -102,7 +101,7 @@ def _init_mqtt():
         username = mqtt_info.get('username', '')
         password = mqtt_info.get('password', '')
 
-        # Compatibilité paho-mqtt v1 et v2
+        # Compatibilite paho-mqtt v1 et v2
         try:
             # paho-mqtt v2.x
             from paho.mqtt.enums import CallbackAPIVersion
@@ -196,7 +195,6 @@ def _cleanup_old_rest_entities():
                 continue
             # Tenter la suppression via l'entity registry API
             try:
-                # D'abord essayer entity registry (fonctionne pour les entites manuelles)
                 resp2 = requests.post(
                     f"{SUPERVISOR_URL}/services/homeassistant/remove_entity",
                     headers=_get_headers(),
@@ -221,7 +219,6 @@ def _cleanup_old_rest_entities():
         if removed > 0:
             logging.info(f"Nettoyage: {removed} ancienne(s) entite(s) supprimee(s)")
         else:
-            # Compter les entites claptrap non-MQTT restantes
             old_count = sum(1 for s in states if s.get('entity_id', '').startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')))
             if old_count > 0:
                 logging.warning(f"{old_count} ancienne(s) entite(s) ClapTrap ne peuvent pas etre supprimees automatiquement. "
@@ -245,11 +242,11 @@ def get_entities_info():
     result = {}
     for source_id, info in _source_info.items():
         slug = info['slug']
+        clap_counts = info.get('clap_counts', [1, 2])
         result[source_id] = {
             'label': info['label'],
             'entities': [
-                f'binary_sensor.claptrap_{slug}',
-                f'sensor.claptrap_{slug}_clap_count'
+                f'binary_sensor.claptrap_{slug}_{n}clap{"s" if n > 1 else ""}' for n in clap_counts
             ]
         }
     # Ajouter l'entite globale
@@ -260,51 +257,47 @@ def get_entities_info():
     return result
 
 
-def register_source(source_id, label=None, technical_id=None):
+def register_source(source_id, label=None, technical_id=None, clap_counts=None):
     """Enregistre les entites pour une source.
 
     Args:
         source_id: ID pour l'entite (ex: 'rtsp_5cabeef8', 'mic_7')
         label: Nom lisible (ex: 'RTSP: Bureau 2')
         technical_id: ID technique utilise dans les callbacks (ex: 'rtsp_rtsp://admin:...')
+        clap_counts: Liste des nombres de claps pour lesquels creer des entites (1-4)
     """
+    if clap_counts is None:
+        clap_counts = [1, 2]
+    # Filtrer pour garder uniquement 1-4
+    clap_counts = [n for n in clap_counts if 1 <= n <= 4]
+    if not clap_counts:
+        clap_counts = [1, 2]
+
     display_name = label or source_id
     slug = _make_slug(source_id)
-    _source_info[source_id] = {'slug': slug, 'label': display_name}
+    _source_info[source_id] = {'slug': slug, 'label': display_name, 'clap_counts': clap_counts}
     # Mapper le source_id technique vers l'entity_id
     if technical_id:
         _source_id_map[technical_id] = source_id
 
     if _mqtt_available:
-        # Binary sensor (clap detected)
-        _register_mqtt_entity('binary_sensor', slug, {
-            'name': display_name,
-            'unique_id': f'claptrap_{slug}',
-            'object_id': f'claptrap_{slug}',
-            'state_topic': f'claptrap/{slug}/state',
-            'device_class': 'sound',
-            'icon': 'mdi:hand-clap',
-            'payload_on': 'ON',
-            'payload_off': 'OFF',
-            'json_attributes_topic': f'claptrap/{slug}/attributes',
-            'device': _device_block()
-        })
-        # Sensor (clap count)
-        _register_mqtt_entity('sensor', f'{slug}_clap_count', {
-            'name': f'{display_name} Clap Count',
-            'unique_id': f'claptrap_{slug}_clap_count',
-            'object_id': f'claptrap_{slug}_clap_count',
-            'state_topic': f'claptrap/{slug}/clap_count',
-            'icon': 'mdi:counter',
-            'unit_of_measurement': 'claps',
-            'device': _device_block()
-        })
-        # Init states
-        _mqtt_publish(f'claptrap/{slug}/state', 'OFF')
-        _mqtt_publish(f'claptrap/{slug}/clap_count', '0')
-    # Pas de fallback REST (crée des entités orphelines)
+        for n in clap_counts:
+            slug_n = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
+            _register_mqtt_entity('binary_sensor', slug_n, {
+                'name': f'{display_name} {n} clap{"s" if n > 1 else ""}',
+                'unique_id': f'claptrap_{slug_n}',
+                'object_id': f'claptrap_{slug_n}',
+                'state_topic': f'claptrap/{slug_n}/state',
+                'device_class': 'sound',
+                'icon': 'mdi:hand-clap',
+                'payload_on': 'ON',
+                'payload_off': 'OFF',
+                'device': _device_block()
+            })
+            _mqtt_publish(f'claptrap/{slug_n}/state', 'OFF')
+    # Pas de fallback REST (cree des entites orphelines)
 
-    logging.info(f"Entite HA: claptrap_{slug} ({display_name})")
+    logging.info(f"Entites HA: claptrap_{slug} clap_counts={clap_counts} ({display_name})")
 
 
 def unregister_source(source_id):
@@ -313,9 +306,11 @@ def unregister_source(source_id):
     if not info:
         return
     slug = info['slug']
+    clap_counts = info.get('clap_counts', [1, 2])
     if _mqtt_available:
-        _unregister_mqtt_entity('binary_sensor', slug)
-        _unregister_mqtt_entity('sensor', f'{slug}_clap_count')
+        for n in clap_counts:
+            slug_n = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
+            _unregister_mqtt_entity('binary_sensor', slug_n)
         logging.info(f"Entites MQTT supprimees pour {slug}")
 
 
@@ -339,27 +334,31 @@ def update_detection_state(running, sources=None):
         _mqtt_publish('claptrap/detection/attributes', {
             'sources': sources or []
         })
-    # Pas de fallback REST (crée des entités orphelines sans unique_id)
+    # Pas de fallback REST (cree des entites orphelines sans unique_id)
 
 
 def on_clap_detected(source_id, score, clap_count):
     """Appele quand un clap est detecte."""
-    # Résoudre le source_id technique vers l'entity_id
+    # Resoudre le source_id technique vers l'entity_id
     entity_key = _source_id_map.get(source_id, source_id)
     info = _source_info.get(entity_key, {})
     slug = info.get('slug', source_id)
-    display_name = info.get('label', source_id)
+    clap_counts = info.get('clap_counts', [1, 2])
+
+    # Cap a 4
+    if clap_count > 4:
+        clap_count = 4
+
+    # Ignorer si ce clap_count n'est pas configure
+    if clap_count not in clap_counts:
+        return
+
+    slug_n = f"{slug}_{clap_count}clap" if clap_count == 1 else f"{slug}_{clap_count}claps"
 
     if _mqtt_available:
-        _mqtt_publish(f'claptrap/{slug}/state', 'ON')
-        _mqtt_publish(f'claptrap/{slug}/clap_count', str(clap_count))
-        _mqtt_publish(f'claptrap/{slug}/attributes', {
-            'score': round(score, 3),
-            'clap_count': clap_count,
-            'last_detection': time.strftime('%Y-%m-%dT%H:%M:%S')
-        })
-        # Auto-OFF
+        _mqtt_publish(f'claptrap/{slug_n}/state', 'ON')
+        # Auto-OFF apres 2s
         def _off():
             time.sleep(2)
-            _mqtt_publish(f'claptrap/{slug}/state', 'OFF')
+            _mqtt_publish(f'claptrap/{slug_n}/state', 'OFF')
         threading.Thread(target=_off, daemon=True).start()

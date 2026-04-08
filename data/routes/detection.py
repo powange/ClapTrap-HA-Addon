@@ -71,6 +71,7 @@ def start_detection_route():
                     'audio_source': mic_source,
                     'webhook_url': microphone_settings.get('webhook_url', ''),
                     'threshold': float(microphone_settings.get('threshold', global_threshold)),
+                    'ha_entities': microphone_settings.get('ha_entities', [1, 2]),
                     'label': f'Micro: {mic_source}' if mic_source != 'default' else 'Microphone'
                 })
                 logging.info(f"Source micro activée: {mic_source}")
@@ -88,6 +89,7 @@ def start_detection_route():
                         'webhook_url': source.get('webhook_url', ''),
                         'gain': source.get('gain', 10),
                         'threshold': float(source.get('threshold', global_threshold)),
+                        'ha_entities': source.get('ha_entities', [1, 2]),
                         'label': f'RTSP: {source.get("name", source["url"][:30])}'
                     })
                     logging.info(f"Source RTSP activée: {source.get('name', '')} ({source['url']})")
@@ -101,6 +103,7 @@ def start_detection_route():
                         'audio_source': f"vban://{source['ip']}",
                         'webhook_url': source.get('webhook_url', ''),
                         'threshold': float(source.get('threshold', global_threshold)),
+                        'ha_entities': source.get('ha_entities', [1, 2]),
                         'label': f'VBAN: {source.get("name", source["ip"])}'
                     })
                     logging.info(f"Source VBAN activée: {source.get('name', '')} ({source['ip']})")

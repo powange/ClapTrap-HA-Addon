@@ -321,6 +321,16 @@
                         '<span id="mic-test-db" class="vu-meter-label">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
+                (function() {
+                    var haEntities = d.ha_entities || [1, 2];
+                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
+                    for (var n = 1; n <= 4; n++) {
+                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
+                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="mic"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
+                    }
+                    haHtml += '</div></div>';
+                    return haHtml;
+                })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
             '</div>';
         }
@@ -370,6 +380,16 @@
                         '<span class="vu-meter-label rtsp-test-db">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
+                (function() {
+                    var haEntities = d.ha_entities || [1, 2];
+                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
+                    for (var n = 1; n <= 4; n++) {
+                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
+                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="rtsp" data-source-id="' + escAttr(streamId) + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
+                    }
+                    haHtml += '</div></div>';
+                    return haHtml;
+                })() +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
             '</div>';
         }
@@ -415,6 +435,16 @@
                         '<button type="button" class="test-webhook" data-source="vban_' + src.id.replace('vban_', '') + '">&#x1F514; Tester</button>' +
                     '</div>' +
                 '</div>' +
+                (function() {
+                    var haEntities = d.ha_entities || [1, 2];
+                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
+                    for (var n = 1; n <= 4; n++) {
+                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
+                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="vban" data-source-index="' + src.id.replace('vban_', '') + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
+                    }
+                    haHtml += '</div></div>';
+                    return haHtml;
+                })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
             '</div>';
         }
@@ -670,6 +700,55 @@
                 slider.addEventListener('input', function() {
                     var label = slider.parentElement.querySelector('.vban-threshold-value');
                     if (label) label.textContent = slider.value;
+                });
+            });
+
+            // HA entities clap checkboxes
+            document.querySelectorAll('.ha-clap-toggle').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    var sourceType = cb.getAttribute('data-source-type');
+                    var panel = cb.closest('.tab-panel');
+                    var checkboxes = panel.querySelectorAll('.ha-clap-toggle');
+                    var selected = [];
+                    checkboxes.forEach(function(c) {
+                        if (c.checked) selected.push(parseInt(c.getAttribute('data-clap')));
+                    });
+                    if (selected.length === 0) {
+                        cb.checked = true;
+                        selected.push(parseInt(cb.getAttribute('data-clap')));
+                    }
+
+                    if (sourceType === 'mic') {
+                        fetch(basePath + '/api/microphone/ha-entities', {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ha_entities: selected})
+                        });
+                        if (window.settings && window.settings.microphone) {
+                            window.settings.microphone.ha_entities = selected;
+                        }
+                    } else if (sourceType === 'rtsp') {
+                        var sid = cb.getAttribute('data-source-id');
+                        fetch(basePath + '/api/rtsp/stream/' + sid, {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ha_entities: selected})
+                        });
+                        if (window.settings && window.settings.rtsp_sources) {
+                            window.settings.rtsp_sources.forEach(function(s) {
+                                if (s.id === sid) s.ha_entities = selected;
+                            });
+                        }
+                    } else if (sourceType === 'vban') {
+                        var idx = parseInt(cb.getAttribute('data-source-index'));
+                        var vbanSrc = window.settings && window.settings.saved_vban_sources && window.settings.saved_vban_sources[idx];
+                        if (vbanSrc) {
+                            vbanSrc.ha_entities = selected;
+                            fetch(basePath + '/api/vban/update', {
+                                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, ha_entities: selected})
+                            });
+                        }
+                    }
+                    refreshHaEntities();
                 });
             });
 

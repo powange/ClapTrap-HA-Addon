@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.0.0
+
+### Entites HA par nombre de claps
+
+- Chaque source cree jusqu'a 4 binary_sensors : `_1clap`, `_2claps`, `_3claps`, `_4claps`
+- Chaque entite ne s'active que pour le nombre de claps correspondant
+- Checkboxes dans l'interface pour activer/desactiver chaque entite par source (defaut: 1 et 2 claps)
+- Les entites sont creees au demarrage de l'addon (pas seulement a la detection)
+- Plus simple pour les automations HA : un trigger par entite
+- Endpoint PUT /api/microphone/ha-entities
+
+## 5.5.3
+
+- Fix 'os' not defined in cleanup endpoint
+
 ## 5.5.2
 
 ### Filtrage des labels MediaPipe par allowlist
