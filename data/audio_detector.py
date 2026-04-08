@@ -260,6 +260,9 @@ class AudioDetector:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
 
+            # Supprimer le DC offset (certains micros ont un signal non centré sur zéro)
+            audio_data = (audio_data - np.mean(audio_data)).astype(np.float32)
+
             # Normalisation adaptative : n'amplifie que les blocs avec un vrai signal
             # (peak significativement au-dessus du bruit de fond moyen)
             raw_peak = float(np.max(np.abs(audio_data)))
