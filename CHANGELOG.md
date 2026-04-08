@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.4.1
+
+- Fix crash "cannot access local variable CLAP_WEIGHTS" : la variable etait utilisee dans le log avant sa definition. Deplacee avant le log.
+
 ## 5.4.0
 
 ### Amelioration majeure de la detection de claps

@@ -118,13 +118,6 @@ class AudioDetector:
 
             classification = result.classifications[0]
 
-            # Log top results + labels clap
-            top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
-            clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
-                           if c.category_name in CLAP_WEIGHTS]
-            if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
-                logging.info(f"[{source_id}] top={top} clap={clap_labels}")
-
             # Scoring pondéré pour la détection de clap
             CLAP_WEIGHTS = {
                 "Hands": 0.8,
@@ -134,6 +127,13 @@ class AudioDetector:
                 "Knock": 0.3,
             }
             NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3, "Typing": 0.2}
+
+            # Log top results + labels clap
+            top = [(c.category_name, round(c.score, 3)) for c in classification.categories[:5]]
+            clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
+                           if c.category_name in CLAP_WEIGHTS]
+            if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
+                logging.info(f"[{source_id}] top={top} clap={clap_labels}")
             score_sum = sum(
                 category.score * CLAP_WEIGHTS[category.category_name]
                 for category in classification.categories
