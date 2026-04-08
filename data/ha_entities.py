@@ -238,26 +238,40 @@ def _cleanup_old_rest_entities():
         logging.debug(f"Erreur nettoyage entites: {e}")
 
 
-def _cleanup_duplicate_mqtt_entities(settings=None):
-    """Supprime les entites MQTT dupliquees (avec suffixes _2, _3 ajoutes par HA)."""
+def _cleanup_all_claptrap_entities():
+    """Supprime TOUTES les entites MQTT de l'appareil ClapTrap (clean slate)."""
     if not _mqtt_client:
         return
-    slugs_to_clean = []
-    if settings:
-        mic = settings.get('microphone', {})
-        if mic.get('enabled', False):
-            slugs_to_clean.append(_make_slug('mic_' + str(mic.get('device_index', 0))))
-        for src in settings.get('rtsp_sources', []):
-            entity_id = rtsp_entity_id(src)
-            slugs_to_clean.append(_make_slug(entity_id))
-    # Pour chaque slug, supprimer les variantes dupliquees (_2, _3, _4)
-    for slug in slugs_to_clean:
-        for n in range(1, 5):
-            suffix = f"_{n}clap" if n == 1 else f"_{n}claps"
-            for dup in range(2, 6):  # _2, _3, _4, _5
-                _unregister_mqtt_entity('binary_sensor', f"{slug}{suffix}_{dup}")
-    if slugs_to_clean:
-        logging.info(f"Nettoyage entites MQTT dupliquees pour {len(slugs_to_clean)} source(s)")
+    # Lister toutes les entites claptrap via l'API HA
+    token = os.environ.get('SUPERVISOR_TOKEN', '')
+    if not token:
+        return
+    try:
+        resp = requests.get(
+            f"{SUPERVISOR_URL}/states",
+            headers=_get_headers(),
+            timeout=10
+        )
+        if not resp.ok:
+            return
+        states = resp.json()
+        removed = 0
+        for state in states:
+            entity_id = state.get('entity_id', '')
+            if not entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                continue
+            # Extraire le slug depuis l'entity_id (ex: binary_sensor.claptrap_xxx -> xxx)
+            slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
+            if not slug:
+                continue
+            component = entity_id.split('.')[0]
+            # Supprimer via MQTT Discovery
+            _unregister_mqtt_entity(component, slug)
+            removed += 1
+        if removed > 0:
+            logging.info(f"Nettoyage: {removed} entite(s) MQTT ClapTrap supprimee(s) (clean slate)")
+    except Exception as e:
+        logging.debug(f"Erreur nettoyage entites: {e}")
 
 
 def _cleanup_old_mqtt_entities(settings=None):
@@ -287,8 +301,7 @@ def init_entities(settings=None):
     _init_mqtt()
     if _mqtt_available:
         _cleanup_old_rest_entities()
-        _cleanup_old_mqtt_entities(settings)
-        _cleanup_duplicate_mqtt_entities(settings)
+        _cleanup_all_claptrap_entities()
         logging.info("Entites HA via MQTT Discovery (appareil ClapTrap)")
     else:
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")
