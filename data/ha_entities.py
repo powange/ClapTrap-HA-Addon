@@ -239,10 +239,7 @@ def _cleanup_old_rest_entities():
 
 
 def _cleanup_all_claptrap_entities():
-    """Supprime TOUTES les entites MQTT de l'appareil ClapTrap (clean slate)."""
-    if not _mqtt_client:
-        return
-    # Lister toutes les entites claptrap via l'API HA
+    """Supprime TOUTES les entites ClapTrap (MQTT Discovery + entity registry + states)."""
     token = os.environ.get('SUPERVISOR_TOKEN', '')
     if not token:
         return
@@ -260,16 +257,28 @@ def _cleanup_all_claptrap_entities():
             entity_id = state.get('entity_id', '')
             if not entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
                 continue
-            # Extraire le slug depuis l'entity_id (ex: binary_sensor.claptrap_xxx -> xxx)
+
             slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
-            if not slug:
-                continue
             component = entity_id.split('.')[0]
-            # Supprimer via MQTT Discovery
-            _unregister_mqtt_entity(component, slug)
+
+            # 1. Supprimer via MQTT Discovery (payload vide)
+            if _mqtt_client and slug:
+                _unregister_mqtt_entity(component, slug)
+
+            # 2. Supprimer du state registry (DELETE /api/states/)
+            try:
+                requests.delete(
+                    f"{SUPERVISOR_URL}/states/{entity_id}",
+                    headers=_get_headers(),
+                    timeout=5
+                )
+            except Exception:
+                pass
+
             removed += 1
+
         if removed > 0:
-            logging.info(f"Nettoyage: {removed} entite(s) MQTT ClapTrap supprimee(s) (clean slate)")
+            logging.info(f"Nettoyage: {removed} entite(s) ClapTrap supprimee(s)")
     except Exception as e:
         logging.debug(f"Erreur nettoyage entites: {e}")
 
