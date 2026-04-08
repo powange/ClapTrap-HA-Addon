@@ -252,7 +252,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             source_id = f"mic_{saved_index}"
             detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
 
-            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
+            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1',
+                   '--raw', '--latency-msec=50']
             if pulse_name:
                 cmd.append(f'--device={pulse_name}')
             logging.info(f"Micro: lancement {' '.join(cmd)}")

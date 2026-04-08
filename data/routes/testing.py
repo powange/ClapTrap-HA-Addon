@@ -52,18 +52,18 @@ def start_mic_test():
                     logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
 
             # Utiliser parecord pour capturer l'audio (bypass sounddevice/PortAudio)
-            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1', '--raw']
+            cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1',
+                   '--raw', '--latency-msec=50']
             if pulse_name:
                 cmd.append(f'--device={pulse_name}')
             logging.info(f"Test micro: lancement de {' '.join(cmd)}")
-            proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+            proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE, bufsize=0)
 
-            # Drainer stderr en background pour eviter que le pipe se remplisse et bloque parecord
             import threading as _thr
             _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
 
-            block_size = 1600  # 100ms à 16kHz
-            bytes_per_block = block_size * 4  # float32 = 4 bytes
+            block_size = 800  # 50ms à 16kHz (plus réactif)
+            bytes_per_block = block_size * 4
             cb_count = 0
 
             while _mic_test_running:
