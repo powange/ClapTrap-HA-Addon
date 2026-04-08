@@ -185,10 +185,22 @@ class AudioDetector:
             recent_peaks = [t for t in es.get('peak_times', []) if (current_time - t) < 2.0]
             has_recent_peak = len(recent_peaks) > 0
 
-            # Seuil adaptatif : si un pic d'énergie a été détecté, baisser le seuil classifier
-            effective_threshold = self.score_threshold * 0.15 if has_recent_peak else self.score_threshold
+            # Detection hybride :
+            # 1. Score classifier au-dessus du seuil (detection classique)
+            # 2. Pic d'énergie récent + classifier ne voit pas "Silence" pur (detection par pic)
+            top_label = classification.categories[0].category_name if classification.categories else "Silence"
+            top_score = classification.categories[0].score if classification.categories else 1.0
+            is_silence = (top_label == "Silence" and top_score > 0.5)
 
-            if score_sum > effective_threshold and (current_time - last_det) > 0.3:
+            clap_detected = False
+            if score_sum > self.score_threshold and (current_time - last_det) > 0.3:
+                clap_detected = True
+            elif has_recent_peak and not is_silence and score_sum > 0.01 and (current_time - last_det) > 0.3:
+                # Un pic d'énergie a été détecté ET le classifier voit autre chose que du silence
+                clap_detected = True
+                logging.info(f"[{self._source_label}] Detection par pic d'énergie (top: {top_label}={top_score:.2f}, score_clap={score_sum:.3f})")
+
+            if clap_detected:
                 self.last_detection_time[source_id] = current_time
 
                 clap_count = max(1, len(recent_peaks))
@@ -249,9 +261,9 @@ class AudioDetector:
                 self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peak_times': [], 'avg_level': 0.001}
             es = self._energy_state[source_id]
             noise_floor = es.get('avg_level', 0.001)
-            # Amplifier seulement si le pic est au moins 2x au-dessus du bruit ET le signal est faible
-            if peak > noise_floor * 2 and peak < 0.1 and peak > 0.003:
-                auto_gain = min(0.3 / peak, 15.0)  # max 15x, cible 0.3
+            # Amplifier doucement les signaux faibles (eviter le clipping)
+            if peak > noise_floor * 2 and peak < 0.05 and peak > 0.003:
+                auto_gain = min(0.15 / peak, 5.0)  # max 5x, cible 0.15
                 audio_data = (audio_data * auto_gain).astype(np.float32)
 
             # Log des statistiques audio (guard pour éviter le calcul inutile)

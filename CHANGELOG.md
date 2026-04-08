@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.4.7
+
+### Detection par pic d'energie
+
+- La normalisation clippait le signal a 1.0, faisant que YAMNet classait les claps comme "Duck/Fowl". Normalisation reduite (cible 0.15, max 5x, seulement pour les signaux < 0.05).
+- Nouveau mode de detection : si un pic d'energie est detecte ET que le classifier ne voit pas du "Silence" pur, le clap est confirme meme sans labels "Hands/Clapping". Couvre les cas ou YAMNet classe le clap comme "Sound effect", "Cap gun", "Fowl", etc.
+
 ## 5.4.6
 
 - Seuil adaptatif baisse de 30% a 15% quand un pic d'energie est detecte. Un seul Slap/smack a 0.109 suffit maintenant pour confirmer un clap (score 0.065 > seuil 0.045).
