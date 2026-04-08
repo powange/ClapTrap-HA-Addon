@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.4.2
+
+- Fix normalisation trop aggressive : n'amplifie plus le bruit de fond. La normalisation ne s'active que si le peak est au moins 2x au-dessus du bruit moyen ET le signal est entre 0.003 et 0.1. Gain max reduit de 30x a 15x. Le silence reste du silence.
+
 ## 5.4.1
 
 - Fix crash "cannot access local variable CLAP_WEIGHTS" : la variable etait utilisee dans le log avant sa definition. Deplacee avant le log.

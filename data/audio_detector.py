@@ -232,12 +232,16 @@ class AudioDetector:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
 
-            # Normalisation automatique : amplifier les signaux faibles
-            # YAMNet fonctionne mieux avec des signaux dans la plage -0.5 à 0.5
+            # Normalisation adaptative : n'amplifie que les blocs avec un vrai signal
+            # (peak significativement au-dessus du bruit de fond moyen)
             peak = float(np.max(np.abs(audio_data)))
-            if peak > 0.0001 and peak < 0.1:
-                # Signal faible : normaliser pour que le peak atteigne ~0.3
-                auto_gain = min(0.3 / peak, 30.0)  # max 30x
+            if source_id not in self._energy_state:
+                self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peak_times': [], 'avg_level': 0.001}
+            es = self._energy_state[source_id]
+            noise_floor = es.get('avg_level', 0.001)
+            # Amplifier seulement si le pic est au moins 2x au-dessus du bruit ET le signal est faible
+            if peak > noise_floor * 2 and peak < 0.1 and peak > 0.003:
+                auto_gain = min(0.3 / peak, 15.0)  # max 15x, cible 0.3
                 audio_data = (audio_data * auto_gain).astype(np.float32)
 
             # Log des statistiques audio (guard pour éviter le calcul inutile)
