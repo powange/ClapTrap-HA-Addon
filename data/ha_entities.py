@@ -269,52 +269,59 @@ def _cleanup_all_claptrap_entities():
             headers=_get_headers(),
             timeout=10
         )
-        logging.info(f"Entity registry API: {resp.status_code}")
-        if resp.ok:
-            entities = resp.json()
-            removed = 0
-            for entity in entities:
-                entity_id = entity.get('entity_id', '')
-                if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
-                    platform = entity.get('platform', '')
-                    if platform == 'mqtt' or 'claptrap' in entity_id:
-                        try:
-                            del_resp = requests.delete(
-                                f"{SUPERVISOR_URL}/config/entity_registry/{entity_id}",
-                                headers=_get_headers(),
-                                timeout=5
-                            )
-                            logging.info(f"Delete {entity_id}: {del_resp.status_code}")
-                            if del_resp.ok:
-                                removed += 1
-                        except Exception as e:
-                            logging.warning(f"Erreur delete {entity_id}: {e}")
-            logging.info(f"Nettoyage entity registry: {removed} entite(s) supprimee(s) sur {len(entities)} total")
-        else:
-            logging.warning(f"Entity registry non accessible: {resp.status_code}")
-
-        # 2. Supprimer les states restants
-        resp2 = requests.get(
+        # Lister toutes les entites claptrap via les states
+        resp = requests.get(
             f"{SUPERVISOR_URL}/states",
             headers=_get_headers(),
             timeout=10
         )
-        if resp2.ok:
-            for state in resp2.json():
-                entity_id = state.get('entity_id', '')
-                if entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
-                    slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
-                    component = entity_id.split('.')[0]
-                    if _mqtt_client and slug:
-                        _unregister_mqtt_entity(component, slug)
-                    try:
-                        requests.delete(
-                            f"{SUPERVISOR_URL}/states/{entity_id}",
-                            headers=_get_headers(),
-                            timeout=5
-                        )
-                    except Exception:
-                        pass
+        if not resp.ok:
+            return
+
+        removed = 0
+        for state in resp.json():
+            entity_id = state.get('entity_id', '')
+            if not entity_id.startswith(('binary_sensor.claptrap_', 'sensor.claptrap_')):
+                continue
+
+            slug = entity_id.split('.claptrap_', 1)[1] if '.claptrap_' in entity_id else ''
+            component = entity_id.split('.')[0]
+
+            # 1. MQTT Discovery : payload vide pour supprimer la config
+            if _mqtt_client and slug:
+                _unregister_mqtt_entity(component, slug)
+
+            # 2. Service HA : supprimer de l'entity registry
+            try:
+                requests.post(
+                    f"{SUPERVISOR_URL}/services/mqtt/publish",
+                    headers=_get_headers(),
+                    json={
+                        'topic': f'{MQTT_TOPIC_PREFIX}/{component}/claptrap/{slug}/config',
+                        'payload': '',
+                        'retain': True
+                    },
+                    timeout=5
+                )
+            except Exception:
+                pass
+
+            # 3. Supprimer le state
+            try:
+                requests.delete(
+                    f"{SUPERVISOR_URL}/states/{entity_id}",
+                    headers=_get_headers(),
+                    timeout=5
+                )
+            except Exception:
+                pass
+
+            removed += 1
+
+        if removed > 0:
+            logging.info(f"Nettoyage: {removed} entite(s) ClapTrap nettoyee(s). "
+                        "Si des doublons persistent, supprimez-les manuellement dans HA: "
+                        "Parametres > Appareils > ClapTrap > clic sur l'entite > Supprimer.")
     except Exception as e:
         logging.debug(f"Erreur nettoyage entites: {e}")
 
