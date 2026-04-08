@@ -110,7 +110,7 @@ def start_detection_route():
 
             detection_params = {
                 'model': "yamnet.tflite",
-                'max_results': 5,
+                'max_results': 10,
                 'score_threshold': float(global_settings.get('threshold', 0.5)),
                 'overlapping_factor': 0.8,
                 'socketio': _socketio,

@@ -389,7 +389,7 @@ if __name__ == '__main__':
                         })
                 if sources:
                     start_detection(
-                        model="yamnet.tflite", max_results=5,
+                        model="yamnet.tflite", max_results=10,
                         score_threshold=float(global_s.get('threshold', 0.5)),
                         overlapping_factor=0.8, socketio=socketio,
                         delay=float(global_s.get('delay', 1.0)), sources=sources
