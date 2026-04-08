@@ -729,6 +729,24 @@
                 });
             });
 
+            // VBAN webhook auto-save
+            document.querySelectorAll('.vban-webhook-url').forEach(function(input) {
+                var idx = input.getAttribute('data-index');
+                var timeout;
+                input.addEventListener('input', function() {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(function() {
+                        var vbanSrc = window.settings && window.settings.saved_vban_sources && window.settings.saved_vban_sources[parseInt(idx)];
+                        if (vbanSrc) {
+                            fetch(basePath + '/api/vban/update', {
+                                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, webhook_url: input.value.trim()})
+                            });
+                        }
+                    }, 500);
+                });
+            });
+
             // HA entities clap checkboxes
             document.querySelectorAll('.ha-clap-toggle').forEach(function(cb) {
                 cb.addEventListener('change', function() {
