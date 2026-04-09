@@ -88,10 +88,14 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
     try:
         process = (
             ffmpeg
-            .input(rtsp_url)
+            .input(rtsp_url, rtsp_transport='tcp', stimeout='5000000')  # timeout 5s
             .output('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar='16000', buffer_size='64k')
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
+        # Drainer stderr pour éviter le blocage
+        import threading
+        threading.Thread(target=lambda: process.stderr.read(), daemon=True).start()
+
         while True:
             in_bytes = process.stdout.read(buffer_size * 4)
             if not in_bytes:
@@ -104,7 +108,10 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
         yield None
     finally:
         if process:
-            process.kill()
+            try:
+                process.kill()
+            except Exception:
+                pass
 
 
 def start_detection(model, max_results, score_threshold, overlapping_factor,
@@ -294,6 +301,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 try:
                     if socketio:
                         socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connected'})
+                    reconnect_delay = 1  # Reset backoff on successful connection
                     for audio_data in read_audio_from_rtsp(rtsp_url, int(16000 * 0.1)):
                         if not detection_running:
                             break
