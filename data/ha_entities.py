@@ -155,7 +155,9 @@ def _mqtt_publish(topic, payload, retain=True):
             data = json.dumps(payload)
         else:
             data = str(payload)
-        _mqtt_client.publish(topic, data, retain=retain)
+        result = _mqtt_client.publish(topic, data, retain=retain)
+        return result
+    return None
 
 
 def _register_mqtt_entity(component, object_id, config):
@@ -501,11 +503,16 @@ def on_clap_detected(source_id, score, clap_count):
         return
 
     slug_n = f"{slug}_{clap_count}clap" if clap_count == 1 else f"{slug}_{clap_count}claps"
+    topic = f'claptrap/{slug_n}/state'
 
     if _mqtt_available:
-        _mqtt_publish(f'claptrap/{slug_n}/state', 'ON')
+        logging.info(f"MQTT publish: {topic} = ON (client connected: {_mqtt_client is not None and _mqtt_client.is_connected() if _mqtt_client else False})")
+        result = _mqtt_publish(topic, 'ON')
+        logging.info(f"MQTT publish result: {result}")
         # Auto-OFF apres 2s
         def _off():
             time.sleep(2)
-            _mqtt_publish(f'claptrap/{slug_n}/state', 'OFF')
+            _mqtt_publish(topic, 'OFF')
         threading.Thread(target=_off, daemon=True).start()
+    else:
+        logging.warning(f"MQTT non disponible pour publier {topic}")
