@@ -485,18 +485,19 @@ def update_detection_state(running, sources=None):
 
 def on_clap_detected(source_id, score, clap_count):
     """Appele quand un clap est detecte."""
-    # Resoudre le source_id technique vers l'entity_id
     entity_key = _source_id_map.get(source_id, source_id)
     info = _source_info.get(entity_key, {})
     slug = info.get('slug', source_id)
     clap_counts = info.get('clap_counts', [1, 2])
 
-    # Cap a 4
     if clap_count > 4:
         clap_count = 4
 
-    # Ignorer si ce clap_count n'est pas configure
+    logging.info(f"on_clap_detected: source={source_id}, entity_key={entity_key}, slug={slug}, "
+                 f"clap_count={clap_count}, configured={clap_counts}, mqtt={_mqtt_available}")
+
     if clap_count not in clap_counts:
+        logging.info(f"on_clap_detected: clap_count {clap_count} pas dans {clap_counts}, ignoré")
         return
 
     slug_n = f"{slug}_{clap_count}clap" if clap_count == 1 else f"{slug}_{clap_count}claps"
