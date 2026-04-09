@@ -299,13 +299,16 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             reconnect_delay = 1
             while detection_running:
                 try:
-                    if socketio:
-                        socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connected'})
-                    reconnect_delay = 1  # Reset backoff on successful connection
+                    got_data = False
                     for audio_data in read_audio_from_rtsp(rtsp_url, int(16000 * 0.1)):
                         if not detection_running:
                             break
                         if audio_data is not None:
+                            if not got_data:
+                                got_data = True
+                                reconnect_delay = 1  # Reset backoff on first data
+                                if socketio:
+                                    socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connected'})
                             gain = _rtsp_gains.get(rtsp_url, 10)
                             if gain != 1.0:
                                 audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
@@ -313,7 +316,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     if detection_running:
                         if socketio:
                             socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'reconnecting'})
-                        logging.warning(f"RTSP {rtsp_url} interrompu, reconnexion dans {reconnect_delay}s...")
+                        logging.warning(f"RTSP interrompu, reconnexion dans {reconnect_delay}s...")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
                 except Exception as e:
