@@ -88,7 +88,7 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
     try:
         process = (
             ffmpeg
-            .input(rtsp_url, rtsp_transport='tcp', stimeout='5000000')  # timeout 5s
+            .input(rtsp_url)
             .output('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar='16000', buffer_size='64k')
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
