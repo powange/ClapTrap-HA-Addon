@@ -195,6 +195,16 @@
                         </div>
                     </div>
                     <div class="setting-item">
+                        <label for="wyoming-forward-target">Cible Whisper detectee</label>
+                        <span class="setting-hint">Services Wyoming connus du supervisor. Selectionner remplit host + port.</span>
+                        <div class="setting-control" style="display:flex;gap:0.4rem;align-items:center;">
+                            <select id="wyoming-forward-target" style="flex:1;">
+                                <option value="">-- detecter / saisir manuellement --</option>
+                            </select>
+                            <button type="button" id="wyoming-refresh-targets" class="btn btn-secondary btn-sm" title="Rafraichir">&#x21BB;</button>
+                        </div>
+                    </div>
+                    <div class="setting-item">
                         <label for="wyoming-forward-host">Whisper - host</label>
                         <span class="setting-hint">Adresse du serveur Whisper Wyoming reel (ex: <code>core-whisper</code> ou <code>192.168.1.20</code>).</span>
                         <div class="setting-control">
@@ -300,6 +310,47 @@
                         f.el.addEventListener(evt, schedule);
                         if (f.type !== 'bool') f.el.addEventListener('change', schedule);
                     });
+
+                    // ===== Detection cibles Whisper Wyoming =====
+                    var sel = document.getElementById('wyoming-forward-target');
+                    var btn = document.getElementById('wyoming-refresh-targets');
+                    function loadTargets() {
+                        if (!sel) return;
+                        var basePath = window.basePath || '';
+                        fetch(basePath + '/api/wyoming/discover-targets')
+                            .then(function(r) { return r.json(); })
+                            .then(function(j) {
+                                var current = (window.settings && window.settings.wyoming) || {};
+                                var existing = current.forward_host + ':' + (current.forward_port || 10300);
+                                sel.innerHTML = '<option value="">-- detecter / saisir manuellement --</option>';
+                                (j.targets || []).forEach(function(t) {
+                                    var opt = document.createElement('option');
+                                    opt.value = t.host + '|' + t.port;
+                                    opt.textContent = t.name + ' (' + t.host + ':' + t.port + ')';
+                                    if ((t.host + ':' + t.port) === existing) opt.selected = true;
+                                    sel.appendChild(opt);
+                                });
+                                if ((j.targets || []).length === 0) {
+                                    var opt = document.createElement('option');
+                                    opt.value = '';
+                                    opt.textContent = 'Aucun service Wyoming detecte';
+                                    opt.disabled = true;
+                                    sel.appendChild(opt);
+                                }
+                            })
+                            .catch(function() {});
+                    }
+                    if (sel) {
+                        sel.addEventListener('change', function() {
+                            if (!sel.value) return;
+                            var parts = sel.value.split('|');
+                            if (fields.forward_host.el) fields.forward_host.el.value = parts[0] || '';
+                            if (fields.forward_port.el) fields.forward_port.el.value = parts[1] || '10300';
+                            schedule();
+                        });
+                    }
+                    if (btn) btn.addEventListener('click', loadTargets);
+                    loadTargets();
                 });
             </script>
         </section>

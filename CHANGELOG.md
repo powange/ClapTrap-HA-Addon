@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.8.0
+
+### Auto-detection des serveurs Whisper Wyoming dans l'UI
+
+- Nouveau endpoint `GET /api/wyoming/discover-targets` qui interroge le
+  supervisor (`/discovery`) pour lister les services Wyoming installes
+  (Whisper, etc.), avec leur host + port + nom d'addon.
+- Nouveau selecteur "Cible Whisper detectee" dans la card Wyoming :
+  choisir une option remplit automatiquement host ET port.
+- Bouton "rafraichir" pour relancer la detection.
+
 ## 6.7.4
 
 ### Fix : URI de discovery Wyoming inutilisable en host_network

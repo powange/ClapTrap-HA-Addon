@@ -155,6 +155,88 @@ def import_settings():
         return jsonify({'error': str(e)}), 400
 
 
+@settings_bp.route('/api/wyoming/discover-targets', methods=['GET'])
+def discover_wyoming_targets():
+    """Liste les services Wyoming connus du supervisor (Whisper, Piper, etc.)
+    pour aider l'utilisateur a configurer la cible de forward."""
+    token = os.environ.get('SUPERVISOR_TOKEN')
+    if not token:
+        return jsonify({'targets': []})
+    try:
+        # 1. Liste des services discovery actifs
+        r = requests.get(
+            'http://supervisor/discovery',
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=5,
+        )
+        if not r.ok:
+            return jsonify({'targets': [], 'error': f'discovery http {r.status_code}'})
+        items = r.json().get('data', {}).get('discovery', []) or []
+
+        # 2. Slug de l'addon courant pour s'auto-exclure
+        self_slug = ''
+        try:
+            r2 = requests.get(
+                'http://supervisor/addons/self/info',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=5,
+            )
+            if r2.ok:
+                self_slug = r2.json().get('data', {}).get('slug', '')
+        except Exception:
+            pass
+
+        # 3. Cache des metadata addon (nom court)
+        addon_names = {}
+
+        def _addon_name(slug):
+            if not slug:
+                return ''
+            if slug in addon_names:
+                return addon_names[slug]
+            try:
+                rr = requests.get(
+                    f'http://supervisor/addons/{slug}/info',
+                    headers={'Authorization': f'Bearer {token}'},
+                    timeout=3,
+                )
+                if rr.ok:
+                    name = rr.json().get('data', {}).get('name', slug)
+                    addon_names[slug] = name
+                    return name
+            except Exception:
+                pass
+            addon_names[slug] = slug
+            return slug
+
+        targets = []
+        for it in items:
+            if it.get('service') != 'wyoming':
+                continue
+            addon = it.get('addon', '')
+            if addon and self_slug and addon == self_slug:
+                continue  # ne pas se proposer soi-meme
+            uri = (it.get('config') or {}).get('uri', '')
+            if not uri.startswith('tcp://'):
+                continue
+            rest = uri[6:]
+            host, sep, port_s = rest.partition(':')
+            try:
+                port = int(port_s) if port_s else 10300
+            except ValueError:
+                port = 10300
+            targets.append({
+                'host': host,
+                'port': port,
+                'addon': addon,
+                'name': _addon_name(addon) or addon or host,
+                'uri': uri,
+            })
+        return jsonify({'targets': targets})
+    except Exception as e:
+        return jsonify({'targets': [], 'error': str(e)})
+
+
 @settings_bp.route('/api/webhook/test', methods=['POST'])
 def test_webhook():
     try:
