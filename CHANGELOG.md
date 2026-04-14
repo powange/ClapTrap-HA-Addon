@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.6.2
+
+### Fix : URL d'auto-save Wyoming sous ingress HA
+
+- Le script d'auto-save Wyoming s'executait avant la definition de
+  `window.basePath`, produisant une URL sans le prefixe ingress.
+- Wrap dans `DOMContentLoaded` + lecture deferee de `basePath` dans le
+  handler de save.
+
 ## 6.6.1
 
 ### Wyoming : auto-save UI + hot-reload du serveur

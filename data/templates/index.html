@@ -227,7 +227,7 @@
                 </div>
             </div>
             <script>
-                (function() {
+                document.addEventListener('DOMContentLoaded', function() {
                     var tgl = document.getElementById('wyomingToggle');
                     var body = document.getElementById('wyomingContent');
                     var arrow = document.getElementById('wyomingArrow');
@@ -248,7 +248,6 @@
                         threshold:    {el: document.getElementById('wyoming-threshold'),    type: 'float'},
                         webhook_url:  {el: document.getElementById('wyoming-webhook-url'),  type: 'str'}
                     };
-                    var basePath = window.basePath || '';
                     var saveTimer = null;
 
                     function buildPayload() {
@@ -266,6 +265,7 @@
 
                     function persist() {
                         var payload = buildPayload();
+                        var basePath = window.basePath || '';
                         fetch(basePath + '/api/settings/save', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
@@ -296,7 +296,7 @@
                         f.el.addEventListener(evt, schedule);
                         if (f.type !== 'bool') f.el.addEventListener('change', schedule);
                     });
-                })();
+                });
             </script>
         </section>
 
