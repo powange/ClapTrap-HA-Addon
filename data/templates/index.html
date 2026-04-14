@@ -1508,6 +1508,15 @@
                 if (src.enabled === false) return;
                 _addSourceRow('vban_' + src.ip, 'vban', src.name || src.ip);
             });
+            // Wyoming (umbrella row : les Atoms apparaitront en lignes filles a la connexion)
+            if (s.wyoming && s.wyoming.enabled) {
+                var port = s.wyoming.port || 10700;
+                var tr = _addSourceRow('wyoming_server', 'wyo', 'Wyoming STT (port ' + port + ')');
+                if (tr) {
+                    var cell = tr.querySelector('.detection-cell');
+                    if (cell) cell.innerHTML = '<span style="opacity:0.5;font-style:italic;">En attente d\'un client...</span>';
+                }
+            }
 
             if (Object.keys(_sourceRowsByKey).length === 0) {
                 var tr = document.createElement('tr');

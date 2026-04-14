@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.7.2
+
+### Fix : Wyoming visible dans la table sources des l'activation
+
+- Une ligne "Wyoming STT (port N)" apparait dans la table des sources des
+  que Wyoming est active dans les settings (avant qu'aucun Atom soit
+  connecte). Les Atoms restent ajoutes dynamiquement en lignes filles a
+  leur premiere connexion.
+
 ## 6.7.1
 
 ### Wyoming : auto-decouverte par Home Assistant
