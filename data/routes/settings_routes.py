@@ -160,18 +160,24 @@ def discover_wyoming_targets():
     """Liste les services Wyoming connus du supervisor (Whisper, Piper, etc.)
     pour aider l'utilisateur a configurer la cible de forward."""
     token = os.environ.get('SUPERVISOR_TOKEN')
+    errors = {}
     if not token:
-        return jsonify({'targets': []})
+        return jsonify({'targets': [], '_meta': {'error': 'no SUPERVISOR_TOKEN'}})
     try:
         # 1. Liste des services discovery actifs
-        r = requests.get(
-            'http://supervisor/discovery',
-            headers={'Authorization': f'Bearer {token}'},
-            timeout=5,
-        )
-        if not r.ok:
-            return jsonify({'targets': [], 'error': f'discovery http {r.status_code}'})
-        items = r.json().get('data', {}).get('discovery', []) or []
+        items = []
+        try:
+            r = requests.get(
+                'http://supervisor/discovery',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=5,
+            )
+            if r.ok:
+                items = r.json().get('data', {}).get('discovery', []) or []
+            else:
+                errors['discovery'] = f'http {r.status_code}'
+        except Exception as exc:
+            errors['discovery'] = f'exc {exc!s}'
 
         # 2. Slug de l'addon courant pour s'auto-exclure
         self_slug = ''
@@ -255,8 +261,10 @@ def discover_wyoming_targets():
             )
             if r3.ok:
                 installed = r3.json().get('data', {}).get('addons', []) or []
+            else:
+                errors['addons'] = f'http {r3.status_code}'
         except Exception as exc:
-            logging.debug(f"wyoming discover-targets: /addons failed: {exc}")
+            errors['addons'] = f'exc {exc!s}'
 
         for ad in installed:
             slug = ad.get('slug', '')
@@ -328,6 +336,8 @@ def discover_wyoming_targets():
                 headers={'Authorization': f'Bearer {token}'},
                 timeout=5,
             )
+            if not rh.ok:
+                errors['ha_core'] = f'http {rh.status_code}'
             if rh.ok:
                 entries = rh.json() or []
                 for entry in entries:
@@ -347,7 +357,7 @@ def discover_wyoming_targets():
                         if host:
                             _add_target(host, port, '', f'HA: {title}')
         except Exception as exc:
-            logging.debug(f"wyoming discover-targets: HA config_entries failed: {exc}")
+            errors['ha_core'] = f'exc {exc!s}'
 
         return jsonify({
             'targets': targets,
@@ -356,6 +366,7 @@ def discover_wyoming_targets():
                 'discovery_count': len(items),
                 'ha_entries_count': ha_entries_count,
                 'self_slug': self_slug,
+                'errors': errors,
             },
         })
     except Exception as e:

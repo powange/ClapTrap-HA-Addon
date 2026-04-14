@@ -334,10 +334,13 @@
                                     var opt = document.createElement('option');
                                     opt.value = '';
                                     var meta = j._meta || {};
-                                    opt.textContent = 'Aucun service Wyoming detecte (addons:' +
+                                    var errs = meta.errors || {};
+                                    var errStr = Object.keys(errs).map(function(k){return k+'='+errs[k];}).join(' ');
+                                    opt.textContent = 'Aucun service detecte (addons:' +
                                         (meta.installed_count || 0) + ', discovery:' +
                                         (meta.discovery_count || 0) + ', ha:' +
-                                        (meta.ha_entries_count || 0) + ')';
+                                        (meta.ha_entries_count || 0) +
+                                        (errStr ? ' | ' + errStr : '') + ')';
                                     opt.disabled = true;
                                     sel.appendChild(opt);
                                 }

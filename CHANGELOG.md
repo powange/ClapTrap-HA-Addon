@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.8.5
+
+### Fix : les fallbacks de detection Wyoming etaient court-circuites
+
+- Si /discovery renvoyait 401, on sortait immediatement sans jamais
+  essayer les fallbacks /addons, mapping connu, ni HA Core.
+- Maintenant chaque source est testee independamment, et les erreurs
+  sont collectees dans `_meta.errors` pour diagnostic.
+- `hassio_role` passe a `admin` (au cas ou /addons exige aussi ce role).
+
 ## 6.8.4
 
 ### Fix : 4eme fallback de detection Wyoming via HA Core
