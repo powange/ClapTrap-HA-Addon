@@ -243,10 +243,10 @@ def discover_wyoming_targets():
                 port = 10300
             _add_target(host, port, addon)
 
-        # 4b. Fallback : enumerer les addons installes et detecter ceux qui
-        # declarent 'wyoming' dans leur discovery (Whisper, Piper, openWakeWord...)
-        # Tres utile quand /discovery est vide ou que les addons n'utilisent
-        # pas l'API supervisor pour s'enregistrer.
+        # 4b. Fallback 1 : enumerer les addons installes et tenter de lire leur
+        # info detaillee (discovery + ports + hostname). Selon le hassio_role
+        # /addons/<slug>/info peut etre limite, on tolerera les echecs.
+        installed = []
         try:
             r3 = requests.get(
                 'http://supervisor/addons',
@@ -255,46 +255,70 @@ def discover_wyoming_targets():
             )
             if r3.ok:
                 installed = r3.json().get('data', {}).get('addons', []) or []
-                for ad in installed:
-                    slug = ad.get('slug', '')
-                    if not slug or slug == self_slug:
-                        continue
-                    try:
-                        ri = requests.get(
-                            f'http://supervisor/addons/{slug}/info',
-                            headers={'Authorization': f'Bearer {token}'},
-                            timeout=3,
-                        )
-                        if not ri.ok:
-                            continue
-                        info = ri.json().get('data', {}) or {}
-                    except Exception:
-                        continue
-
-                    discovery = info.get('discovery') or []
-                    if 'wyoming' not in discovery:
-                        continue
-
-                    hostname = info.get('hostname') or slug
-                    network = info.get('network') or {}
-                    # network: {"10300/tcp": 10300} ou {"10300/tcp": null}
-                    port = None
-                    for key, value in network.items():
-                        if not key.endswith('/tcp'):
-                            continue
-                        try:
-                            port = int(key.split('/')[0])
-                            break
-                        except ValueError:
-                            continue
-                    if port is None:
-                        continue
-                    addon_names[slug] = info.get('name', slug)
-                    _add_target(hostname, port, slug, info.get('name', slug))
         except Exception as exc:
-            logging.debug(f"wyoming discover-targets: addons enum failed: {exc}")
+            logging.debug(f"wyoming discover-targets: /addons failed: {exc}")
 
-        return jsonify({'targets': targets})
+        for ad in installed:
+            slug = ad.get('slug', '')
+            if not slug or slug == self_slug:
+                continue
+            try:
+                ri = requests.get(
+                    f'http://supervisor/addons/{slug}/info',
+                    headers={'Authorization': f'Bearer {token}'},
+                    timeout=3,
+                )
+                if not ri.ok:
+                    continue
+                info = ri.json().get('data', {}) or {}
+            except Exception:
+                continue
+
+            discovery = info.get('discovery') or []
+            if 'wyoming' not in discovery:
+                continue
+
+            hostname = info.get('hostname') or slug.replace('_', '-')
+            network = info.get('network') or {}
+            port = None
+            for key, _value in network.items():
+                if not key.endswith('/tcp'):
+                    continue
+                try:
+                    port = int(key.split('/')[0])
+                    break
+                except ValueError:
+                    continue
+            if port is None:
+                continue
+            addon_names[slug] = info.get('name', slug)
+            _add_target(hostname, port, slug, info.get('name', slug))
+
+        # 4c. Fallback 2 : mapping en dur des addons Wyoming connus (cas ou
+        # /addons/<slug>/info ne retourne pas la discovery, ou l'API supervisor
+        # est restreinte). On regarde simplement si le slug est installe.
+        # Hostname HA = slug avec '_' -> '-'.
+        known = {
+            # slug : (default_port, friendly_name)
+            'core_whisper':            (10300, 'Whisper'),
+            'core_faster_whisper':     (10300, 'Faster Whisper'),
+            'core_piper':              (10200, 'Piper (TTS)'),
+            'core_openwakeword':       (10400, 'openWakeWord'),
+            '47701997_whisper':        (10300, 'Whisper'),
+            '47701997_piper':          (10200, 'Piper (TTS)'),
+            '47701997_openwakeword':   (10400, 'openWakeWord'),
+            '47701997_faster-whisper': (10300, 'Faster Whisper'),
+        }
+        installed_slugs = {ad.get('slug', '') for ad in installed}
+        for slug, (port, friendly) in known.items():
+            if slug not in installed_slugs:
+                continue
+            if slug == self_slug:
+                continue
+            hostname = slug.replace('_', '-')
+            _add_target(hostname, port, slug, friendly)
+
+        return jsonify({'targets': targets, '_meta': {'installed_count': len(installed), 'discovery_count': len(items)}})
     except Exception as e:
         return jsonify({'targets': [], 'error': str(e)})
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.8.2
+
+### Fix : detection des addons Wyoming meme sans accees /addons/<slug>/info
+
+- Ajout d'un mapping en dur des addons Wyoming connus (Whisper, Faster
+  Whisper, Piper, openWakeWord) — repos officiel et community 47701997.
+- Le selecteur propose ces cibles si le slug est present dans la liste
+  des addons installes (pas besoin de lire les details restreints).
+- Hostname HA = slug avec `_` -> `-` (convention Supervisor).
+
 ## 6.8.1
 
 ### Fix : detection des cibles Wyoming meme si /discovery est vide
