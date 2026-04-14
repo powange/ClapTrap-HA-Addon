@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.6.0
+
+### Nouveau mode source : Wyoming STT (ESPHome voice_assistant)
+
+- Serveur Wyoming asyncio multi-client (port configurable, defaut 10700)
+- Intercepte les flux audio des Atom Echo (ou autres appareils ESPHome `voice_assistant`)
+- Detection YAMNet par appareil (non-bloquante) avec hostname resolu par reverse DNS
+- Forward transparent vers le serveur Whisper Wyoming reel (host + port configurables)
+- Reponse STT + TTS renvoyee a l'Atom d'origine (pas de broadcast)
+- Webhook par clap : `{"event":"clap_detected","source":"atom-chambre","count":N}`
+- Si Whisper est indisponible : erreur loggee, detection YAMNet poursuit sans crash
+- Options exposees dans l'interface web ; port 10700 expose dans config.yaml
+- Sources existantes (VBAN / RTSP / micro local) inchangees
+
 ## 6.0.0
 
 ### Entites HA par nombre de claps

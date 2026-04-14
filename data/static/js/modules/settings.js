@@ -46,6 +46,25 @@ function syncWithDOM() {
     // Ne pas les inclure ici pour éviter les doublons — le backend les préserve automatiquement
     delete updatedSettings.rtsp_sources;
 
+    // Synchroniser la section Wyoming (STT ESPHome voice_assistant)
+    const wyEnabled = document.getElementById('wyoming-enabled');
+    const wyPort = document.getElementById('wyoming-port');
+    const wyFwdHost = document.getElementById('wyoming-forward-host');
+    const wyFwdPort = document.getElementById('wyoming-forward-port');
+    const wyThreshold = document.getElementById('wyoming-threshold');
+    const wyWebhook = document.getElementById('wyoming-webhook-url');
+    if (wyEnabled || wyPort || wyFwdHost || wyFwdPort) {
+        updatedSettings.wyoming = {
+            ...(currentSettings.wyoming || {}),
+            enabled: wyEnabled ? wyEnabled.checked : !!(currentSettings.wyoming && currentSettings.wyoming.enabled),
+            port: wyPort ? parseInt(wyPort.value, 10) || 10700 : (currentSettings.wyoming?.port || 10700),
+            forward_host: wyFwdHost ? wyFwdHost.value.trim() : (currentSettings.wyoming?.forward_host || ''),
+            forward_port: wyFwdPort ? parseInt(wyFwdPort.value, 10) || 10300 : (currentSettings.wyoming?.forward_port || 10300),
+            threshold: wyThreshold ? parseFloat(wyThreshold.value) || 0.5 : (currentSettings.wyoming?.threshold || 0.5),
+            webhook_url: wyWebhook ? wyWebhook.value.trim() : (currentSettings.wyoming?.webhook_url || '')
+        };
+    }
+
     // Synchroniser les sources VBAN
     const savedVbanContainer = document.getElementById('savedVBANSources');
     if (savedVbanContainer) {

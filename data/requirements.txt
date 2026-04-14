@@ -7,3 +7,4 @@ flask
 flask_socketio
 ffmpeg-python
 paho-mqtt>=1.6
+wyoming>=1.5

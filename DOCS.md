@@ -18,6 +18,84 @@ Ajoutez l'URL d'un flux RTSP (camera IP, etc.) dans la section "Flux RTSP" de l'
 
 ClapTrap detecte automatiquement les sources VBAN sur le reseau local. Cliquez sur "Rafraichir" pour scanner les sources disponibles, puis ajoutez celles souhaitees.
 
+### Wyoming STT (ESPHome voice_assistant)
+
+ClapTrap peut se placer en intercepteur Wyoming entre vos appareils ESPHome equipes de `voice_assistant` (Atom Echo, M5 Atom S3R, etc.) et votre serveur Whisper Wyoming. Chaque flux audio :
+
+1. est analyse par YAMNet pour detecter les claps (par appareil) ;
+2. est transmis tel quel au serveur Whisper reel ;
+3. la reponse STT + TTS (Piper) est renvoyee vers l'Atom d'origine, sans broadcast.
+
+Le serveur Wyoming est **multi-client asynchrone** : plusieurs Atoms peuvent parler en meme temps sans se genera.
+
+#### Activation
+
+Dans l'interface ClapTrap, ouvrir la section **&#x1F399;&#xFE0F; Wyoming STT (ESPHome voice_assistant)** :
+
+- **Activer** : demarre le serveur (redemarrer l'addon apres modification).
+- **Port d'ecoute** : port expose aux Atoms (defaut `10700`).
+- **Whisper - host / port** : adresse et port du serveur Whisper Wyoming reel
+  (ex : `core-whisper` + `10300` pour l'addon officiel Home Assistant).
+- **Seuil de detection** : seuil YAMNet applique aux claps sur ces flux.
+- **Webhook** : URL appelee lors d'une detection. Payload :
+
+  ```json
+  { "event": "clap_detected", "source": "atom-chambre", "count": 2 }
+  ```
+
+  Le champ `source` est le hostname resolu par DNS inverse de l'Atom
+  (fallback sur l'IP si non resolu).
+
+#### Configuration ESPHome (Atom Echo S3R)
+
+```yaml
+# atom-chambre.yaml
+esphome:
+  name: atom-chambre
+
+micro_wake_word:
+  models:
+    - okay_nabu
+
+voice_assistant:
+  microphone: atom_mic
+  speaker: atom_speaker
+  use_wake_word: true
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+
+# microphone / speaker : configuration standard I2S de l'Atom Echo
+# (omise ici pour la brievete - cf. doc ESPHome)
+```
+
+Le hostname ESPHome (ici `atom-chambre`) est celui qui apparaitra dans le champ
+`source` du webhook et dans les logs ClapTrap. Assurez-vous qu'il est resolvable
+par DNS inverse depuis l'addon (sinon l'IP sera utilisee).
+
+#### Configuration Home Assistant (pipeline vocal)
+
+1. **Parametres > Modules complementaires** : installer et demarrer l'addon
+   Whisper (ou un autre serveur Wyoming STT) ; noter son host + port (ex :
+   `core-whisper:10300`).
+2. Dans l'interface ClapTrap, renseigner ces valeurs dans la section Wyoming,
+   activer, et redemarrer l'addon.
+3. **Parametres > Integrations > Wyoming Protocol > Ajouter** : pointer vers
+   `IP-de-ClapTrap:10700` (et non vers Whisper directement). L'integration
+   Wyoming verra alors une entree ASR "ClapTrap".
+4. **Parametres > Assistants & pipelines vocaux** : creer / modifier votre
+   pipeline et selectionner cet ASR ClapTrap. Garder Piper (ou autre) comme TTS.
+5. Dans chaque Atom, pointer le pipeline voice_assistant vers cet assistant.
+
+Lors d'un echange vocal, l'audio passe par ClapTrap (YAMNet ecoute les claps
+en parallele) puis transparent vers Whisper. La reponse TTS est renvoyee
+automatiquement au bon Atom.
+
+#### Ce qui arrive si Whisper est injoignable
+
+Le serveur Wyoming continue d'accepter les connexions et la detection YAMNet
+reste active (webhook + entites HA mis a jour). Une erreur est loggee, mais
+l'addon ne crash pas.
+
 ## Configuration
 
 ### Parametres de detection

@@ -137,6 +137,19 @@ import atexit
 def cleanup():
     """Nettoie les ressources lors de l'arrêt"""
     cleanup_vban_detector()
+    try:
+        from wyoming_server import stop_wyoming
+        stop_wyoming()
+    except Exception:
+        pass
+
+
+# Démarrer le serveur Wyoming (interception STT ESPHome) si active dans les settings
+try:
+    from wyoming_server import start_wyoming_if_enabled
+    start_wyoming_if_enabled(socketio)
+except Exception as _e:
+    logging.warning(f"Wyoming server init: {_e}")
 
 class VBANSource:
     def __init__(self, name, ip, port, stream_name, webhook_url, enabled=True):

@@ -42,6 +42,15 @@ DEFAULT_SETTINGS = {
         "port": 6980,
         "webhook_url": "",
         "enabled": False
+    },
+    "wyoming": {
+        "enabled": False,
+        "port": 10700,
+        "forward_host": "",
+        "forward_port": 10300,
+        "webhook_url": "",
+        "threshold": 0.5,
+        "ha_entities": [1, 2]
     }
 }
 

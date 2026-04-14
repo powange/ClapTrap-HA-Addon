@@ -158,6 +158,90 @@
             <div id="source-tab-content"></div>
         </section>
 
+        <!-- Wyoming STT (ESPHome voice_assistant) -->
+        <section class="config-card">
+            <div id="wyomingToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;">&#x1F399;&#xFE0F; Wyoming STT (ESPHome voice_assistant)</h3>
+                <span id="wyomingArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
+            </div>
+            <div id="wyomingContent" style="display:none;margin-top:0.75rem;">
+                <p class="setting-hint" style="margin-top:0;">
+                    Serveur Wyoming qui intercepte les flux audio des Atom Echo (ou autres appareils ESPHome
+                    <code>voice_assistant</code>), detecte les claps via YAMNet, et transmet le flux au serveur
+                    Whisper reel pour que le pipeline Home Assistant (STT + TTS) continue normalement.
+                </p>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <div class="control-setting">
+                            <label>Activer :</label>
+                            <label class="switch">
+                                <input type="checkbox" id="wyoming-enabled"
+                                       {% if settings.get('wyoming', {}).get('enabled', false) %}checked{% endif %}>
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                        <span class="setting-hint">Redemarrer l'addon apres avoir active/desactive.</span>
+                    </div>
+                    <div class="setting-item">
+                        <label for="wyoming-port">Port d'ecoute</label>
+                        <span class="setting-hint">Port Wyoming expose aux Atoms (STT dans HA -> ClapTrap:PORT).</span>
+                        <div class="setting-control">
+                            <input type="number" id="wyoming-port" min="1" max="65535"
+                                   value="{{ settings.get('wyoming', {}).get('port', 10700) }}">
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="wyoming-forward-host">Whisper - host</label>
+                        <span class="setting-hint">Adresse du serveur Whisper Wyoming reel (ex: <code>core-whisper</code> ou <code>192.168.1.20</code>).</span>
+                        <div class="setting-control">
+                            <input type="text" id="wyoming-forward-host"
+                                   value="{{ settings.get('wyoming', {}).get('forward_host', '') }}"
+                                   placeholder="core-whisper">
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="wyoming-forward-port">Whisper - port</label>
+                        <span class="setting-hint">Port Wyoming du serveur Whisper (defaut : 10300).</span>
+                        <div class="setting-control">
+                            <input type="number" id="wyoming-forward-port" min="1" max="65535"
+                                   value="{{ settings.get('wyoming', {}).get('forward_port', 10300) }}">
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="wyoming-threshold">Seuil de detection</label>
+                        <span class="setting-hint">Seuil YAMNet pour les claps sur les flux Wyoming (0 a 1).</span>
+                        <div class="setting-control">
+                            <input type="number" id="wyoming-threshold" min="0" max="1" step="0.05"
+                                   value="{{ settings.get('wyoming', {}).get('threshold', 0.5) }}">
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="wyoming-webhook-url">Webhook (clap detecte)</label>
+                        <span class="setting-hint">Payload envoye : <code>{"event":"clap_detected","source":"&lt;hostname&gt;","count":N}</code></span>
+                        <div class="setting-control">
+                            <input type="url" id="wyoming-webhook-url"
+                                   value="{{ settings.get('wyoming', {}).get('webhook_url', '') }}"
+                                   placeholder="https://votre-serveur.com/webhook">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script>
+                (function() {
+                    var tgl = document.getElementById('wyomingToggle');
+                    var body = document.getElementById('wyomingContent');
+                    var arrow = document.getElementById('wyomingArrow');
+                    if (tgl && body) {
+                        tgl.addEventListener('click', function() {
+                            var open = body.style.display !== 'none';
+                            body.style.display = open ? 'none' : 'block';
+                            if (arrow) arrow.innerHTML = open ? '&#x25BC;' : '&#x25B2;';
+                        });
+                    }
+                })();
+            </script>
+        </section>
+
         <!-- Options -->
         <section class="config-card">
             <h3>Options</h3>
