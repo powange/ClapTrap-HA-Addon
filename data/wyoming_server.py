@@ -552,12 +552,47 @@ def _register_discovery(port: int) -> None:
     if _discovery_uuid:
         _unregister_discovery()
 
-    # Purge any stale records from previous runs that are still lingering
-    # in the supervisor (module state is wiped at each addon restart).
-    self_slug = _get_self_slug(headers)
-    _cleanup_stale_discovery(self_slug, headers)
-
     hostname = _get_addon_hostname()
+    desired_uri = f"tcp://{hostname}:{port}"
+
+    # Look at what's already published for our addon. If an entry already
+    # has the desired URI we REUSE it (no DELETE/POST churn — avoids any
+    # risk of perturbing pipelines that reference this discovery) and only
+    # remove duplicates / stale URIs.
+    self_slug = _get_self_slug(headers)
+    try:
+        r = requests.get("http://supervisor/discovery", headers=headers, timeout=5)
+        if r.ok and self_slug:
+            items = r.json().get("data", {}).get("discovery", []) or []
+            kept_uuid = None
+            for it in items:
+                if it.get("addon") != self_slug or it.get("service") != "wyoming":
+                    continue
+                cur_uri = (it.get("config") or {}).get("uri", "")
+                uuid = it.get("uuid")
+                if cur_uri == desired_uri and kept_uuid is None:
+                    kept_uuid = uuid  # reuse this one
+                    continue
+                # duplicate or stale URI -> delete
+                if uuid:
+                    try:
+                        requests.delete(
+                            f"http://supervisor/discovery/{uuid}",
+                            headers=headers,
+                            timeout=5,
+                        )
+                        logger.info("Wyoming: cleaned stale discovery uuid=%s", uuid)
+                    except Exception:
+                        pass
+            if kept_uuid:
+                _discovery_uuid = kept_uuid
+                logger.info(
+                    "Wyoming: HA discovery already up-to-date (uuid=%s, uri=%s) — reused",
+                    kept_uuid, desired_uri,
+                )
+                return
+    except Exception as exc:
+        logger.debug("Wyoming: discovery inspection failed: %s", exc)
     payload = {
         "service": "wyoming",
         "config": {"uri": f"tcp://{hostname}:{port}"},

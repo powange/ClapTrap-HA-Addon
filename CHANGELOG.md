@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.8.7
+
+### Fix : reuse discovery record si URI inchangee
+
+- Plutot que DELETE+POST systematique, on inspecte les entrees existantes :
+  si une a deja la bonne URI on la garde (meme UUID), les duplicats et
+  URIs obsoletes sont supprimes.
+- Pas de churn inutile pour HA -> zero risque de perturber un pipeline
+  vocal deja configure sur ClapTrap.
+
 ## 6.8.6
 
 ### Fix : multiples cartes ClapTrap dans Decouvertes apres redemarrage
