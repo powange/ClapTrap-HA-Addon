@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.7.0
+
+### Refonte de la barre de detection en table par source
+
+- La premiere card affiche maintenant un tableau (1 ligne par source active)
+  avec deux colonnes : Source / Detection.
+- Chaque ligne montre le label dominant detecte en temps reel ou un flash
+  vert "&#x1F44F; N claps XX%" lors d'une detection.
+- Les sources Wyoming apparaissent dynamiquement quand un Atom se connecte.
+- La table se reconstruit automatiquement quand une source RTSP/VBAN est
+  ajoutee, supprimee ou (de)activee.
+
 ## 6.6.2
 
 ### Fix : URL d'auto-save Wyoming sous ingress HA

@@ -167,7 +167,117 @@ h1 {
     gap: 0.5rem;
 }
 
-/* ===== Active Sources ===== */
+/* ===== Sources Table (control-bar) ===== */
+.control-bar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.sources-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.sources-table thead th {
+    text-align: left;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 600;
+}
+
+.sources-table tbody td {
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+}
+
+.sources-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.sources-table .col-source {
+    width: 35%;
+}
+
+.sources-table .source-name {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.sources-table .source-type-badge {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    background: rgba(79, 110, 247, 0.12);
+    color: var(--color-primary);
+    padding: 1px 6px;
+    border-radius: 8px;
+    letter-spacing: 0.05em;
+}
+
+.sources-table .source-type-badge.type-mic   { background: rgba(34, 197, 94, 0.12);  color: #15803d; }
+.sources-table .source-type-badge.type-rtsp  { background: rgba(168, 85, 247, 0.12); color: #7e22ce; }
+.sources-table .source-type-badge.type-vban  { background: rgba(245, 158, 11, 0.12); color: #b45309; }
+.sources-table .source-type-badge.type-wyo   { background: rgba(14, 165, 233, 0.12); color: #0369a1; }
+
+.sources-table .detection-cell {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    min-height: 1.4rem;
+}
+
+.sources-table .detection-cell .det-label {
+    display: inline-block;
+    background: var(--color-bg);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 4px;
+    font-size: 0.78rem;
+}
+
+.sources-table .detection-cell .det-score {
+    font-size: 0.7em;
+    opacity: 0.65;
+    margin-left: 3px;
+}
+
+.sources-table .detection-cell .clap-flash {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    animation: clap-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.sources-table tr.row-clap {
+    background: rgba(34, 197, 94, 0.06);
+    transition: background 0.6s ease;
+}
+
+.sources-table tr.empty-row td {
+    text-align: center;
+    color: var(--color-text-secondary);
+    font-style: italic;
+    padding: 1rem;
+}
+
+/* ===== Active Sources (legacy) ===== */
 .active-sources {
     width: 100%;
     display: flex;

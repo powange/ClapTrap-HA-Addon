@@ -21,18 +21,13 @@
     </div>
 
     <main class="dashboard">
-        <!-- Control Bar -->
-        <!-- Detection bar -->
+        <!-- Control Bar : table sources / detection -->
         <section class="control-bar">
-            <div id="detection_display" class="detection-circle">
-                <span id="waiting-emoji">&#x1F442;</span>
-                <span class="clap-emoji" data-source="microphone" style="display: none;">&#x1F44F;</span>
-            </div>
-            <div class="control-panel">
-                <button id="startButton" class="btn btn-primary">Demarrer</button>
-                <button id="stopButton" class="btn btn-danger" style="display: none;">Arreter</button>
-            </div>
-            <div class="control-settings">
+            <div class="control-bar-header">
+                <div class="control-panel">
+                    <button id="startButton" class="btn btn-primary">Demarrer</button>
+                    <button id="stopButton" class="btn btn-danger" style="display: none;">Arreter</button>
+                </div>
                 <div class="control-setting">
                     <label>Auto-start :</label>
                     <label class="switch">
@@ -42,8 +37,17 @@
                     </label>
                 </div>
             </div>
-            <div id="active-sources" class="active-sources"></div>
-            <div id="current_detection" class="current-detection"></div>
+            <table class="sources-table" id="sourcesTable">
+                <thead>
+                    <tr>
+                        <th class="col-source">Source</th>
+                        <th class="col-detection">Detection</th>
+                    </tr>
+                </thead>
+                <tbody id="sourcesTableBody">
+                    <tr class="empty-row"><td colspan="2">Aucune source activee.</td></tr>
+                </tbody>
+            </table>
         </section>
 
         <!-- History -->
@@ -353,6 +357,8 @@
 
         // ===== Tab System =====
         function buildTabs() {
+            // Garder la table sources synchronisee avec les onglets.
+            try { if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable(); } catch (e) {}
             var tabs = document.getElementById('source-tabs');
             var content = document.getElementById('source-tab-content');
             if (!tabs || !content) return;
@@ -1450,6 +1456,141 @@
             buildTabs();
             refreshHaEntities();
         }
+
+        // ===== Sources table (control-bar) =====
+        // Une ligne par source active. Col 1 = nom, Col 2 = detection courante / clap.
+        var _sourceRowsByKey = {};   // key (source_id backend) -> tr element
+        var _detLabelTimers = {};    // key -> timeout id pour le clear du label
+
+        function _typeBadge(type) {
+            var labels = {mic: 'MIC', rtsp: 'RTSP', vban: 'VBAN', wyo: 'WYO'};
+            return '<span class="source-type-badge type-' + type + '">' + (labels[type] || type) + '</span>';
+        }
+
+        function _addSourceRow(key, type, name) {
+            var tbody = document.getElementById('sourcesTableBody');
+            if (!tbody) return null;
+            var empty = tbody.querySelector('.empty-row');
+            if (empty) empty.remove();
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-source-key', key);
+            tr.innerHTML =
+                '<td class="col-source"><div class="source-name">' + _typeBadge(type) +
+                    '<span class="src-label"></span></div></td>' +
+                '<td class="col-detection"><div class="detection-cell">&mdash;</div></td>';
+            tr.querySelector('.src-label').textContent = name;
+            tbody.appendChild(tr);
+            _sourceRowsByKey[key] = tr;
+            return tr;
+        }
+
+        function rebuildSourcesTable() {
+            var tbody = document.getElementById('sourcesTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            _sourceRowsByKey = {};
+            var s = window.settings || {};
+
+            // Microphone
+            if (s.microphone && s.microphone.enabled) {
+                var idx = s.microphone.device_index || 0;
+                var name = s.microphone.audio_source && s.microphone.audio_source !== 'default'
+                    ? s.microphone.audio_source : 'Microphone';
+                _addSourceRow('mic_' + idx, 'mic', name);
+            }
+            // RTSP
+            (s.rtsp_sources || []).forEach(function(src) {
+                if (!src.enabled || !src.url) return;
+                _addSourceRow('rtsp_' + src.url, 'rtsp', src.name || src.url);
+            });
+            // VBAN
+            (s.saved_vban_sources || []).forEach(function(src) {
+                if (src.enabled === false) return;
+                _addSourceRow('vban_' + src.ip, 'vban', src.name || src.ip);
+            });
+
+            if (Object.keys(_sourceRowsByKey).length === 0) {
+                var tr = document.createElement('tr');
+                tr.className = 'empty-row';
+                tr.innerHTML = '<td colspan="2">Aucune source activee.</td>';
+                tbody.appendChild(tr);
+            }
+        }
+
+        function _findRow(sourceId) {
+            if (!sourceId) return null;
+            if (_sourceRowsByKey[sourceId]) return _sourceRowsByKey[sourceId];
+            // Wyoming dynamic : ajoute la ligne au premier evt
+            if (sourceId.indexOf('wyoming_') === 0) {
+                var host = sourceId.replace('wyoming_', '');
+                return _addSourceRow(sourceId, 'wyo', 'Wyoming: ' + host);
+            }
+            return null;
+        }
+
+        function onSourceLabels(sourceId, labels) {
+            var tr = _findRow(sourceId);
+            if (!tr) return;
+            var cell = tr.querySelector('.detection-cell');
+            if (!cell || cell.querySelector('.clap-flash')) return; // ne pas ecraser un clap en cours
+            if (!labels || labels.length === 0) {
+                cell.innerHTML = '<span style="opacity:0.4;">&mdash;</span>';
+                return;
+            }
+            var top = labels[0];
+            cell.innerHTML = '<span class="det-label">' + top.label +
+                '<span class="det-score">' + Math.round((top.score || 0) * 100) + '%</span></span>';
+            clearTimeout(_detLabelTimers[sourceId]);
+            _detLabelTimers[sourceId] = setTimeout(function() {
+                if (cell.querySelector('.clap-flash')) return;
+                cell.innerHTML = '<span style="opacity:0.4;">&mdash;</span>';
+            }, 2500);
+        }
+
+        function onSourceClap(sourceId, clapCount, score) {
+            var tr = _findRow(sourceId);
+            if (!tr) return;
+            var cell = tr.querySelector('.detection-cell');
+            if (!cell) return;
+            var n = clapCount || 1;
+            var txt = n > 1 ? (n + ' claps') : '1 clap';
+            cell.innerHTML = '<span class="clap-flash">&#x1F44F; ' + txt +
+                ' <span style="opacity:0.8;">' + Math.round((score || 0) * 100) + '%</span></span>';
+            tr.classList.add('row-clap');
+            clearTimeout(_detLabelTimers[sourceId]);
+            _detLabelTimers[sourceId] = setTimeout(function() {
+                tr.classList.remove('row-clap');
+                cell.innerHTML = '<span style="opacity:0.4;">&mdash;</span>';
+            }, 2500);
+        }
+
+        // Initialiser la table maintenant ; rebuild quand window.settings change.
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', rebuildSourcesTable);
+        } else {
+            rebuildSourcesTable();
+        }
+        window.rebuildSourcesTable = rebuildSourcesTable;
+
+        // Brancher socket.io (en + des handlers existants).
+        (function() {
+            function attach() {
+                if (typeof io !== 'function') { return setTimeout(attach, 200); }
+                var basePath = window.basePath || '';
+                var sock = io({path: basePath + '/socket.io'});
+                sock.on('clap', function(data) {
+                    onSourceClap(data && data.source_id, data && data.clap_count, data && data.score);
+                });
+                sock.on('labels', function(data) {
+                    onSourceLabels(data && data.source, data && data.detected);
+                });
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', attach);
+            } else {
+                attach();
+            }
+        })();
     })();
     </script>
 
