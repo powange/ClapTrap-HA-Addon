@@ -68,6 +68,7 @@ _server_task: Optional[asyncio.Task] = None
 _server_started = threading.Event()
 _stop_requested = threading.Event()
 _socketio_ref: Any = None
+_discovery_uuid: Optional[str] = None
 
 
 def _resolve_hostname(peer_ip: str) -> str:
@@ -431,6 +432,90 @@ class ClapTrapWyomingHandler(AsyncEventHandler):  # type: ignore[misc]
                 pass
 
 
+# --- Supervisor discovery (HA auto-add as Wyoming STT) ----------------------
+
+
+def _get_addon_hostname() -> str:
+    """Resolve the addon's hostname as seen from Home Assistant containers.
+
+    Falls back to localhost if the supervisor API is unreachable.
+    """
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return "localhost"
+    try:
+        r = requests.get(
+            "http://supervisor/addons/self/info",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if r.ok:
+            return r.json().get("data", {}).get("hostname") or "localhost"
+    except Exception as exc:
+        logger.debug("supervisor addons/self/info failed: %s", exc)
+    return "localhost"
+
+
+def _register_discovery(port: int) -> None:
+    """Publish the Wyoming service to Home Assistant via supervisor discovery."""
+    global _discovery_uuid
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        logger.info("Wyoming: SUPERVISOR_TOKEN missing — skipping HA discovery registration")
+        return
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # If we already have a uuid, drop it first (port may have changed).
+    if _discovery_uuid:
+        _unregister_discovery()
+
+    hostname = _get_addon_hostname()
+    payload = {
+        "service": "wyoming",
+        "config": {"uri": f"tcp://{hostname}:{port}"},
+    }
+    try:
+        r = requests.post(
+            "http://supervisor/discovery",
+            headers=headers,
+            json=payload,
+            timeout=5,
+        )
+        if r.ok:
+            uuid = r.json().get("data", {}).get("uuid")
+            _discovery_uuid = uuid
+            logger.info(
+                "Wyoming: HA discovery registered (uuid=%s, uri=tcp://%s:%d)",
+                uuid, hostname, port,
+            )
+        else:
+            logger.warning(
+                "Wyoming: HA discovery POST failed (%s): %s", r.status_code, r.text[:200]
+            )
+    except Exception as exc:
+        logger.warning("Wyoming: HA discovery registration error: %s", exc)
+
+
+def _unregister_discovery() -> None:
+    global _discovery_uuid
+    if not _discovery_uuid:
+        return
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        _discovery_uuid = None
+        return
+    try:
+        requests.delete(
+            f"http://supervisor/discovery/{_discovery_uuid}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        logger.info("Wyoming: HA discovery unregistered (uuid=%s)", _discovery_uuid)
+    except Exception as exc:
+        logger.debug("Wyoming: HA discovery delete error: %s", exc)
+    _discovery_uuid = None
+
+
 # --- Public lifecycle API ---------------------------------------------------
 
 
@@ -502,12 +587,21 @@ def start_wyoming_if_enabled(socketio=None) -> bool:
     _server_thread.start()
     _server_started.wait(timeout=5)
     logger.info("Wyoming server thread started")
+
+    # Register the service with HA so the Wyoming integration auto-detects it
+    # as an STT/ASR provider (no manual integration setup needed).
+    try:
+        port = int((wy or {}).get("port", 10700))
+        _register_discovery(port)
+    except Exception as exc:
+        logger.warning(f"Wyoming: discovery registration failed: {exc}")
     return True
 
 
 def stop_wyoming() -> None:
     """Stop the Wyoming server (best effort; used on shutdown or hot-reload)."""
     global _server_thread, _server_loop, _server_task
+    _unregister_discovery()
     if _server_thread is None or not _server_thread.is_alive():
         _server_thread = None
         _server_loop = None

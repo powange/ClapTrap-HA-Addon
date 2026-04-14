@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.7.1
+
+### Wyoming : auto-decouverte par Home Assistant
+
+- Ajout de `discovery: [wyoming]` dans config.yaml.
+- A chaque demarrage du serveur Wyoming, l'addon s'enregistre aupres du
+  supervisor (`POST /discovery`) avec son URI `tcp://<hostname>:<port>`.
+- Au stop / port change, l'enregistrement est supprime puis re-publie.
+- HA cree alors automatiquement une entree "Wyoming Protocol" pointant
+  vers ClapTrap, utilisable comme fournisseur STT dans les pipelines vocaux.
+
 ## 6.7.0
 
 ### Refonte de la barre de detection en table par source
