@@ -210,12 +210,28 @@ def discover_wyoming_targets():
             return slug
 
         targets = []
+        seen_keys = set()
+
+        def _add_target(host, port, addon, name=None):
+            key = f"{host}:{port}"
+            if not host or key in seen_keys:
+                return
+            seen_keys.add(key)
+            targets.append({
+                'host': host,
+                'port': int(port),
+                'addon': addon or '',
+                'name': name or _addon_name(addon) or addon or host,
+                'uri': f'tcp://{host}:{port}',
+            })
+
+        # 4a. Premiere passe : services /discovery actifs
         for it in items:
             if it.get('service') != 'wyoming':
                 continue
             addon = it.get('addon', '')
             if addon and self_slug and addon == self_slug:
-                continue  # ne pas se proposer soi-meme
+                continue
             uri = (it.get('config') or {}).get('uri', '')
             if not uri.startswith('tcp://'):
                 continue
@@ -225,13 +241,59 @@ def discover_wyoming_targets():
                 port = int(port_s) if port_s else 10300
             except ValueError:
                 port = 10300
-            targets.append({
-                'host': host,
-                'port': port,
-                'addon': addon,
-                'name': _addon_name(addon) or addon or host,
-                'uri': uri,
-            })
+            _add_target(host, port, addon)
+
+        # 4b. Fallback : enumerer les addons installes et detecter ceux qui
+        # declarent 'wyoming' dans leur discovery (Whisper, Piper, openWakeWord...)
+        # Tres utile quand /discovery est vide ou que les addons n'utilisent
+        # pas l'API supervisor pour s'enregistrer.
+        try:
+            r3 = requests.get(
+                'http://supervisor/addons',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=5,
+            )
+            if r3.ok:
+                installed = r3.json().get('data', {}).get('addons', []) or []
+                for ad in installed:
+                    slug = ad.get('slug', '')
+                    if not slug or slug == self_slug:
+                        continue
+                    try:
+                        ri = requests.get(
+                            f'http://supervisor/addons/{slug}/info',
+                            headers={'Authorization': f'Bearer {token}'},
+                            timeout=3,
+                        )
+                        if not ri.ok:
+                            continue
+                        info = ri.json().get('data', {}) or {}
+                    except Exception:
+                        continue
+
+                    discovery = info.get('discovery') or []
+                    if 'wyoming' not in discovery:
+                        continue
+
+                    hostname = info.get('hostname') or slug
+                    network = info.get('network') or {}
+                    # network: {"10300/tcp": 10300} ou {"10300/tcp": null}
+                    port = None
+                    for key, value in network.items():
+                        if not key.endswith('/tcp'):
+                            continue
+                        try:
+                            port = int(key.split('/')[0])
+                            break
+                        except ValueError:
+                            continue
+                    if port is None:
+                        continue
+                    addon_names[slug] = info.get('name', slug)
+                    _add_target(hostname, port, slug, info.get('name', slug))
+        except Exception as exc:
+            logging.debug(f"wyoming discover-targets: addons enum failed: {exc}")
+
         return jsonify({'targets': targets})
     except Exception as e:
         return jsonify({'targets': [], 'error': str(e)})

@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.8.1
+
+### Fix : detection des cibles Wyoming meme si /discovery est vide
+
+- L'endpoint `/api/wyoming/discover-targets` enumere maintenant aussi
+  les addons installes et garde ceux qui declarent `wyoming` dans leur
+  discovery (Whisper, Piper, openWakeWord, etc.), avec leur hostname et
+  port reseau. Marche meme quand l'addon ne s'est pas auto-publie via
+  le supervisor /discovery.
+
 ## 6.8.0
 
 ### Auto-detection des serveurs Whisper Wyoming dans l'UI
