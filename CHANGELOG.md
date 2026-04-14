@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.7.3
+
+### Fix : warning auto-start trompeur quand seul Wyoming est actif
+
+- Le serveur Wyoming est independant du pipeline classify (mic/rtsp/vban).
+- Lorsque seules les sources Wyoming tournent, le message "aucune source
+  activee" devient un INFO explicatif au lieu d'un WARNING.
+
 ## 6.7.2
 
 ### Fix : Wyoming visible dans la table sources des l'activation

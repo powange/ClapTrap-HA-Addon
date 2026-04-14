@@ -401,7 +401,10 @@ if __name__ == '__main__':
                     logging.info(f"Auto-start: détection démarrée ({source_display})")
                     socketio.emit('detection_status', {'status': 'running', 'source': source_display})
                 else:
-                    logging.warning("Auto-start: aucune source activée")
+                    if s.get('wyoming', {}).get('enabled', False):
+                        logging.info("Auto-start: aucune source classify (mic/rtsp/vban) activee — seul le serveur Wyoming tourne (independant).")
+                    else:
+                        logging.warning("Auto-start: aucune source activée")
             except Exception as e:
                 logging.error(f"Auto-start: erreur - {e}")
 
