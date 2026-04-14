@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.7.4
+
+### Fix : URI de discovery Wyoming inutilisable en host_network
+
+- Avec `host_network: true`, le hostname docker de l'addon
+  (`<id>-claptrap`) n'est pas resolvable depuis le container HA core,
+  donc l'integration Wyoming ne pouvait pas se connecter au serveur.
+- L'addon detecte maintenant ce mode et publie l'IP primaire de l'hote
+  (via `supervisor /network/info`) dans l'URI de discovery, par ex.
+  `tcp://192.168.1.20:10700`.
+
 ## 6.7.3
 
 ### Fix : warning auto-start trompeur quand seul Wyoming est actif

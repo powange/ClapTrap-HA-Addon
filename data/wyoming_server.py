@@ -436,24 +436,61 @@ class ClapTrapWyomingHandler(AsyncEventHandler):  # type: ignore[misc]
 
 
 def _get_addon_hostname() -> str:
-    """Resolve the addon's hostname as seen from Home Assistant containers.
+    """Resolve a host:port that Home Assistant can reach for our Wyoming server.
 
-    Falls back to localhost if the supervisor API is unreachable.
+    With ``host_network: true`` (our case), the supervisor docker DNS does NOT
+    expose the addon hostname (e.g. ``691ff2c3-claptrap``), so HA core cannot
+    resolve it. We fall back to the host machine's primary IPv4 obtained from
+    the supervisor ``/network/info`` API.
     """
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
         return "localhost"
+    headers = {"Authorization": f"Bearer {token}"}
+    host_network = True
+    addon_hostname: Optional[str] = None
     try:
         r = requests.get(
-            "http://supervisor/addons/self/info",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=5,
+            "http://supervisor/addons/self/info", headers=headers, timeout=5
         )
         if r.ok:
-            return r.json().get("data", {}).get("hostname") or "localhost"
+            data = r.json().get("data", {})
+            host_network = bool(data.get("host_network", False))
+            addon_hostname = data.get("hostname")
     except Exception as exc:
         logger.debug("supervisor addons/self/info failed: %s", exc)
-    return "localhost"
+
+    if not host_network and addon_hostname:
+        return addon_hostname
+
+    # host_network: get the host's primary IPv4 via supervisor /network/info
+    try:
+        r = requests.get(
+            "http://supervisor/network/info", headers=headers, timeout=5
+        )
+        if r.ok:
+            data = r.json().get("data", {})
+            interfaces = data.get("interfaces") or []
+            # Prefer the interface flagged as primary (gateway)
+            interfaces.sort(key=lambda i: not i.get("primary", False))
+            for iface in interfaces:
+                ipv4 = iface.get("ipv4") or {}
+                addrs = ipv4.get("address") or []
+                for cidr in addrs:
+                    addr = cidr.split("/")[0].strip()
+                    if addr and not addr.startswith("127."):
+                        return addr
+    except Exception as exc:
+        logger.debug("supervisor network/info failed: %s", exc)
+
+    # Last-resort fallback: ask the OS
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    return addon_hostname or "localhost"
 
 
 def _register_discovery(port: int) -> None:
