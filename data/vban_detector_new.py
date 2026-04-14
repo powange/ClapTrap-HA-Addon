@@ -1,3 +1,4 @@
+import ipaddress
 import socket
 import struct
 import time
@@ -32,7 +33,55 @@ class VBANDetector:
         self._settings_cache = None
         self._last_settings_load = 0
         self._settings_cache_duration = 5  # Durée du cache en secondes
-        
+        self._joined_multicast_groups = set()  # IPs multicast deja rejointes
+        self._last_mcast_sync = 0
+
+    @staticmethod
+    def _is_multicast(ip_str):
+        """True si l'IP est dans la plage multicast IPv4 (224.0.0.0/4)."""
+        try:
+            return ipaddress.IPv4Address(ip_str).is_multicast
+        except Exception:
+            return False
+
+    def _sync_multicast_groups(self):
+        """Synchronise les memberships multicast avec les sources configurees.
+
+        Joint automatiquement les groupes pour toute source sauvegardee dont
+        l'IP est multicast, et quitte ceux qui n'ont plus de source associee.
+        """
+        if not self._socket:
+            return
+        try:
+            settings = self._load_settings() or {}
+        except Exception:
+            return
+        desired = set()
+        for src in (settings.get('saved_vban_sources') or []):
+            ip = src.get('ip', '')
+            if ip and self._is_multicast(ip):
+                desired.add(ip)
+
+        # Join nouveaux groupes
+        for ip in desired - self._joined_multicast_groups:
+            try:
+                mreq = struct.pack("4sL", socket.inet_aton(ip), socket.INADDR_ANY)
+                self._socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+                self._joined_multicast_groups.add(ip)
+                logging.info(f"VBAN: groupe multicast rejoint ({ip})")
+            except Exception as exc:
+                logging.warning(f"VBAN: echec du join multicast {ip}: {exc}")
+
+        # Leave groupes obsoletes
+        for ip in list(self._joined_multicast_groups - desired):
+            try:
+                mreq = struct.pack("4sL", socket.inet_aton(ip), socket.INADDR_ANY)
+                self._socket.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
+                logging.info(f"VBAN: groupe multicast quitte ({ip})")
+            except Exception:
+                pass
+            self._joined_multicast_groups.discard(ip)
+
     def start_listening(self):
         """Démarre l'écoute des flux VBAN"""
         if self._socket:
@@ -40,14 +89,31 @@ class VBANDetector:
                 self._socket.close()
             except:
                 pass
-            
+
         self.running = True
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Permet a un autre process de binder le meme port (utile si plusieurs
+        # consommateurs multicast sur la meme machine).
+        if hasattr(socket, 'SO_REUSEPORT'):
+            try:
+                self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
         self._socket.settimeout(0.5)
+        # Augmenter le TTL multicast (defaut 1 = meme subnet). 2 suffit pour
+        # traverser un routeur mais reste cantonne au LAN.
+        try:
+            self._socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        except Exception:
+            pass
         logging.info(f"Démarrage de l'écoute VBAN sur le port {self.port}")
         self._socket.bind(('0.0.0.0', self.port))
-        
+
+        # Auto-join des groupes multicast declares dans les sources sauvegardees.
+        self._sync_multicast_groups()
+        self._last_mcast_sync = time.time()
+
         # Démarrer l'écoute dans un thread séparé
         self._listen_thread = threading.Thread(target=self._listen_loop)
         self._listen_thread.daemon = True
@@ -153,12 +219,18 @@ class VBANDetector:
             except socket.timeout:
                 # Nettoyer les sources inactives (plus de 5 secondes)
                 current_time = time.time()
-                inactive = [ip for ip, info in self.sources.items() 
+                inactive = [ip for ip, info in self.sources.items()
                           if current_time - info['last_seen'] > 5]
                 for ip in inactive:
                     del self.sources[ip]
                     if self.source_callback:
                         self.source_callback(self.get_active_sources())
+
+                # Re-sync multicast groups periodically (user may have added
+                # or removed a multicast source via the UI).
+                if current_time - self._last_mcast_sync > 10:
+                    self._sync_multicast_groups()
+                    self._last_mcast_sync = current_time
                     
     def _parse_vban_packet(self, data, addr, logged_sources=None):
         """Parse un paquet VBAN et retourne les informations de la source"""

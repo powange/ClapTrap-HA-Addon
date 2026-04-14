@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.9.0
+
+### Support des sources VBAN multicast (auto-detecte)
+
+- Si l'IP d'une source VBAN sauvegardee est dans la plage multicast
+  (224.0.0.0/4, ex: 239.255.x.x), le socket UDP joint automatiquement
+  le groupe via `IP_ADD_MEMBERSHIP`.
+- Re-sync periodique (toutes les ~10s) pour prendre en compte les
+  ajouts/retraits de sources depuis l'UI sans redemarrage.
+- `SO_REUSEPORT` ajoute pour permettre plusieurs consommateurs
+  multicast du meme flux sur la meme machine.
+- Deconnexion propre (`IP_DROP_MEMBERSHIP`) quand une source multicast
+  est supprimee.
+
 ## 6.8.7
 
 ### Fix : reuse discovery record si URI inchangee
