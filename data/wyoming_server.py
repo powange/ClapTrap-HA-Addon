@@ -493,6 +493,52 @@ def _get_addon_hostname() -> str:
     return addon_hostname or "localhost"
 
 
+def _cleanup_stale_discovery(self_slug: str, headers: dict) -> int:
+    """Remove any existing discovery records published by THIS addon with
+    service=wyoming. Used at start to avoid accumulating duplicate entries
+    across restarts (the UUID is module-state and is lost on process death).
+    """
+    if not self_slug:
+        return 0
+    removed = 0
+    try:
+        r = requests.get("http://supervisor/discovery", headers=headers, timeout=5)
+        if not r.ok:
+            return 0
+        items = r.json().get("data", {}).get("discovery", []) or []
+        for it in items:
+            if it.get("addon") != self_slug or it.get("service") != "wyoming":
+                continue
+            uuid = it.get("uuid")
+            if not uuid:
+                continue
+            try:
+                requests.delete(
+                    f"http://supervisor/discovery/{uuid}",
+                    headers=headers,
+                    timeout=5,
+                )
+                removed += 1
+                logger.info("Wyoming: cleaned stale discovery uuid=%s", uuid)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.debug("Wyoming: discovery cleanup failed: %s", exc)
+    return removed
+
+
+def _get_self_slug(headers: dict) -> str:
+    try:
+        r = requests.get(
+            "http://supervisor/addons/self/info", headers=headers, timeout=5
+        )
+        if r.ok:
+            return r.json().get("data", {}).get("slug", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
 def _register_discovery(port: int) -> None:
     """Publish the Wyoming service to Home Assistant via supervisor discovery."""
     global _discovery_uuid
@@ -502,9 +548,14 @@ def _register_discovery(port: int) -> None:
         return
     headers = {"Authorization": f"Bearer {token}"}
 
-    # If we already have a uuid, drop it first (port may have changed).
+    # Drop our in-memory UUID reference (port may have changed).
     if _discovery_uuid:
         _unregister_discovery()
+
+    # Purge any stale records from previous runs that are still lingering
+    # in the supervisor (module state is wiped at each addon restart).
+    self_slug = _get_self_slug(headers)
+    _cleanup_stale_discovery(self_slug, headers)
 
     hostname = _get_addon_hostname()
     payload = {

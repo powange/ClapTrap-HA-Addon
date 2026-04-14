@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.8.6
+
+### Fix : multiples cartes ClapTrap dans Decouvertes apres redemarrage
+
+- Le UUID de discovery etait perdu a chaque redemarrage du process
+  (stocke en memoire), donc le DELETE ne nettoyait rien.
+- A chaque start on enumere `/discovery`, on DELETE toutes les entrees
+  `service=wyoming` publiees par notre addon, puis on re-publie une
+  seule fois.
+
 ## 6.8.5
 
 ### Fix : les fallbacks de detection Wyoming etaient court-circuites
