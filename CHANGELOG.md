@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.6.1
+
+### Wyoming : auto-save UI + hot-reload du serveur
+
+- Les champs Wyoming (port, forward host/port, threshold, webhook, enabled) sont
+  maintenant auto-sauvegardes (debounce 400ms) — plus besoin de bouton "Enregistrer".
+- Toggle "Activer" et changement de port appliquent immediatement la configuration
+  via restart en place du serveur Wyoming. Plus besoin de redemarrer l'addon.
+
 ## 6.6.0
 
 ### Nouveau mode source : Wyoming STT (ESPHome voice_assistant)

@@ -238,6 +238,64 @@
                             if (arrow) arrow.innerHTML = open ? '&#x25BC;' : '&#x25B2;';
                         });
                     }
+
+                    // Auto-save (debounced) — POST partiel {wyoming: {...}} vers /api/settings/save
+                    var fields = {
+                        enabled:      {el: document.getElementById('wyoming-enabled'),      type: 'bool'},
+                        port:         {el: document.getElementById('wyoming-port'),         type: 'int'},
+                        forward_host: {el: document.getElementById('wyoming-forward-host'), type: 'str'},
+                        forward_port: {el: document.getElementById('wyoming-forward-port'), type: 'int'},
+                        threshold:    {el: document.getElementById('wyoming-threshold'),    type: 'float'},
+                        webhook_url:  {el: document.getElementById('wyoming-webhook-url'),  type: 'str'}
+                    };
+                    var basePath = window.basePath || '';
+                    var saveTimer = null;
+
+                    function buildPayload() {
+                        var w = {};
+                        Object.keys(fields).forEach(function(k) {
+                            var f = fields[k];
+                            if (!f.el) return;
+                            if (f.type === 'bool')  w[k] = f.el.checked;
+                            else if (f.type === 'int')   w[k] = parseInt(f.el.value, 10) || 0;
+                            else if (f.type === 'float') w[k] = parseFloat(f.el.value) || 0;
+                            else                         w[k] = (f.el.value || '').trim();
+                        });
+                        return {wyoming: w};
+                    }
+
+                    function persist() {
+                        var payload = buildPayload();
+                        fetch(basePath + '/api/settings/save', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        }).then(function(r) {
+                            if (r.ok) {
+                                window.settings = window.settings || {};
+                                window.settings.wyoming = payload.wyoming;
+                                var n = document.getElementById('success');
+                                if (n) {
+                                    n.textContent = 'Wyoming : parametres sauvegardes';
+                                    n.style.display = 'block';
+                                    setTimeout(function() { n.style.display = 'none'; }, 1500);
+                                }
+                            }
+                        }).catch(function() {});
+                    }
+
+                    function schedule() {
+                        clearTimeout(saveTimer);
+                        saveTimer = setTimeout(persist, 400);
+                    }
+
+                    Object.keys(fields).forEach(function(k) {
+                        var f = fields[k];
+                        if (!f.el) return;
+                        var evt = (f.type === 'bool') ? 'change' : 'input';
+                        f.el.addEventListener(evt, schedule);
+                        if (f.type !== 'bool') f.el.addEventListener('change', schedule);
+                    });
                 })();
             </script>
         </section>

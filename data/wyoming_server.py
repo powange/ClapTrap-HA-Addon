@@ -474,7 +474,8 @@ def start_wyoming_if_enabled(socketio=None) -> bool:
     Returns True if the server is (now) running.
     """
     global _server_thread, _socketio_ref
-    _socketio_ref = socketio
+    if socketio is not None:
+        _socketio_ref = socketio
 
     settings = load_settings()
     wy = settings.get("wyoming", {}) or {}
@@ -505,15 +506,37 @@ def start_wyoming_if_enabled(socketio=None) -> bool:
 
 
 def stop_wyoming() -> None:
-    """Stop the Wyoming server (best effort; used on shutdown)."""
+    """Stop the Wyoming server (best effort; used on shutdown or hot-reload)."""
     global _server_thread, _server_loop, _server_task
     if _server_thread is None or not _server_thread.is_alive():
+        _server_thread = None
+        _server_loop = None
+        _server_task = None
         return
     loop = _server_loop
     task = _server_task
     if loop is not None and task is not None:
-        loop.call_soon_threadsafe(task.cancel)
-    _server_thread.join(timeout=3)
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except Exception:
+            pass
+    if loop is not None:
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass
+    _server_thread.join(timeout=5)
     _server_thread = None
     _server_loop = None
     _server_task = None
+    logger.info("Wyoming server stopped")
+
+
+def restart_wyoming(socketio=None) -> bool:
+    """Stop (if running) then start according to current settings.
+
+    Used to apply UI changes (enabled / port / forward host / forward port)
+    without requiring a full addon restart.
+    """
+    stop_wyoming()
+    return start_wyoming_if_enabled(socketio)

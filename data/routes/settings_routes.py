@@ -23,6 +23,14 @@ def save_settings_api():
 
         success, message = save_settings(settings)
         if success:
+            # Hot-reload du serveur Wyoming si la section a change
+            if 'wyoming' in settings:
+                try:
+                    from wyoming_server import restart_wyoming
+                    # _socketio_ref a deja ete capture au boot dans app.py
+                    restart_wyoming(None)
+                except Exception as exc:
+                    logging.warning(f"Wyoming hot-reload failed: {exc}")
             return jsonify({'success': True, 'message': message})
         else:
             return jsonify({'error': message}), 400
