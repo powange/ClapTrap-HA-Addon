@@ -318,7 +318,46 @@ def discover_wyoming_targets():
             hostname = slug.replace('_', '-')
             _add_target(hostname, port, slug, friendly)
 
-        return jsonify({'targets': targets, '_meta': {'installed_count': len(installed), 'discovery_count': len(items)}})
+        # 4d. Fallback 3 : interroger HA Core (homeassistant_api) pour lister
+        # les config_entries du domaine 'wyoming'. Marche meme si /discovery
+        # est restreint cote supervisor.
+        ha_entries_count = 0
+        try:
+            rh = requests.get(
+                'http://supervisor/core/api/config/config_entries/entry',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=5,
+            )
+            if rh.ok:
+                entries = rh.json() or []
+                for entry in entries:
+                    if entry.get('domain') != 'wyoming':
+                        continue
+                    ha_entries_count += 1
+                    title = entry.get('title') or ''
+                    # data n'est pas expose par defaut sur cet endpoint ;
+                    # le titre Wyoming integration est generalement "Host:Port"
+                    if ':' in title:
+                        host_part, _, port_part = title.rpartition(':')
+                        try:
+                            port = int(port_part)
+                        except ValueError:
+                            continue
+                        host = host_part.strip()
+                        if host:
+                            _add_target(host, port, '', f'HA: {title}')
+        except Exception as exc:
+            logging.debug(f"wyoming discover-targets: HA config_entries failed: {exc}")
+
+        return jsonify({
+            'targets': targets,
+            '_meta': {
+                'installed_count': len(installed),
+                'discovery_count': len(items),
+                'ha_entries_count': ha_entries_count,
+                'self_slug': self_slug,
+            },
+        })
     except Exception as e:
         return jsonify({'targets': [], 'error': str(e)})
 

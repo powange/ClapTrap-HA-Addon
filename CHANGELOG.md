@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.8.4
+
+### Fix : 4eme fallback de detection Wyoming via HA Core
+
+- Si /discovery et /addons restent vides, on interroge directement
+  l'API HA Core (`/core/api/config/config_entries/entry`) pour lister
+  les integrations Wyoming deja configurees dans HA et reutiliser
+  leur host:port.
+- Le selecteur affiche maintenant un compteur de diagnostic quand vide :
+  `(addons:N, discovery:N, ha:N)` pour identifier d'ou vient le souci.
+
 ## 6.8.3
 
 ### Fix : 401 sur /discovery (detection des cibles Wyoming)

@@ -333,7 +333,11 @@
                                 if ((j.targets || []).length === 0) {
                                     var opt = document.createElement('option');
                                     opt.value = '';
-                                    opt.textContent = 'Aucun service Wyoming detecte';
+                                    var meta = j._meta || {};
+                                    opt.textContent = 'Aucun service Wyoming detecte (addons:' +
+                                        (meta.installed_count || 0) + ', discovery:' +
+                                        (meta.discovery_count || 0) + ', ha:' +
+                                        (meta.ha_entries_count || 0) + ')';
                                     opt.disabled = true;
                                     sel.appendChild(opt);
                                 }
