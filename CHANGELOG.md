@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.8.3
+
+### Fix : 401 sur /discovery (detection des cibles Wyoming)
+
+- Ajout de `hassio_role: manager` dans config.yaml pour permettre la
+  lecture des services discovery et la liste des addons installes.
+- Sans ce role, l'endpoint /discovery renvoyait 401 et le selecteur
+  "Cible Whisper detectee" restait vide.
+
+> **Permissions** : apres l'update, HA demandera de re-valider les
+> permissions de l'addon (banniere "Permissions need attention").
+
 ## 6.8.2
 
 ### Fix : detection des addons Wyoming meme sans accees /addons/<slug>/info
