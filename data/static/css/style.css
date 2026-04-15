@@ -185,6 +185,15 @@ h1 {
     gap: 0.5rem;
 }
 
+/* ===== Source type icons ===== */
+.source-type-icon.icon-vban {
+    display: inline-block;
+    width: 1.1em;
+    height: 1.1em;
+    vertical-align: -0.2em;
+    background: url('../img/vban-icon.svg') center/contain no-repeat;
+}
+
 /* ===== VBAN Picker Modal ===== */
 .vban-modal-backdrop {
     position: fixed;

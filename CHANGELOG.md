@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.13.5
+
+### UI : logo VBAN officiel a la place de l'emoji
+
+- Telechargement du SVG officiel VBAN (music-assistant.io) dans
+  `data/static/img/vban-icon.svg`.
+- Classe CSS `.source-type-icon.icon-vban` appliquee partout ou
+  l'emoji antenne parabolique etait utilise : menu d'ajout, onglet
+  de source, header du panneau VBAN, bouton de test.
+
 ## 6.13.4
 
 ### UI : icone de type dans le panneau RTSP
