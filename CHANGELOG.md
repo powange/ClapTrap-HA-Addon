@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.13.7
+
+### UI : logo VBAN cadre sur le contenu visible
+
+- Le SVG telecharge etait un bitmap 512x512 avec ~37% de padding
+  transparent haut et bas. Recadrage sur la zone visible (512x137)
+  et suppression du pad.
+- CSS adapte : conteneur rectangulaire (hauteur 1.2em, largeur 4.5em
+  ~ ratio 3.74:1) pour que le logo remplisse sa ligne dans les onglets.
+
 ## 6.13.6
 
 ### Fix : 404 sur l'icone VBAN sous ingress HA

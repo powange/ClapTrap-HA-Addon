@@ -188,9 +188,11 @@ h1 {
 /* ===== Source type icons ===== */
 .source-type-icon.icon-vban {
     display: inline-block;
-    width: 1.1em;
-    height: 1.1em;
-    vertical-align: -0.2em;
+    /* Le SVG "VBAN" est rectangulaire (aspect ~3.74:1). On garde la
+       hauteur alignee sur le texte et on calcule la largeur via ratio. */
+    height: 1.2em;
+    width: 4.5em;
+    vertical-align: -0.25em;
     /* Le CSS est servi via /css/<ver>/style.css ; remonter 2 crans
        pour retomber sur /static/ (handler par defaut Flask, ingress-aware). */
     background: url('../../static/img/vban-icon.svg') center/contain no-repeat;
