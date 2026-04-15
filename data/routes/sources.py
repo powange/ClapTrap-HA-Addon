@@ -435,6 +435,14 @@ def update_vban_source():
                 # Mettre à jour threshold s'il est fourni
                 if 'threshold' in source:
                     s['threshold'] = float(source['threshold'])
+                # Mettre à jour gain s'il est fourni (live sans redémarrage)
+                if 'gain' in source:
+                    s['gain'] = float(source['gain'])
+                    try:
+                        from classify import update_vban_gain
+                        update_vban_gain(s['ip'], s['gain'])
+                    except Exception:
+                        pass
                 # Mettre à jour ha_entities s'il est fourni
                 if 'ha_entities' in source:
                     s['ha_entities'] = source['ha_entities']

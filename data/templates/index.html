@@ -612,6 +612,7 @@
             var enabled = d.enabled !== undefined ? d.enabled : true;
             var enabledAttr = enabled ? ' checked' : '';
             var threshold = d.threshold !== undefined ? d.threshold : 0.5;
+            var gain = d.gain !== undefined ? d.gain : 1;
             var webhookUrl = d.webhook_url || '';
             var name = d.name || 'VBAN';
             var ip = d.ip || '';
@@ -640,6 +641,10 @@
                 '<div class="setting-item">' +
                     '<label>Precision : <span class="vban-threshold-value">' + threshold + '</span></label>' +
                     '<input type="range" class="vban-threshold" data-index="' + src.id.replace('vban_', '') + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Volume : <span class="vban-gain-value">' + gain + 'x</span></label>' +
+                    '<input type="range" class="vban-gain" data-index="' + src.id.replace('vban_', '') + '" min="1" max="20" step="1" value="' + gain + '">' +
                 '</div>' +
                 '<div class="setting-item">' +
                     '<button type="button" class="btn-mic-test vban-test-btn" data-ip="' + escAttr(ip) + '">&#x1F3B5; Tester le flux</button>' +
@@ -1006,6 +1011,29 @@
                 slider.addEventListener('input', function() {
                     var label = slider.parentElement.querySelector('.vban-threshold-value');
                     if (label) label.textContent = slider.value;
+                });
+            });
+
+            // VBAN gain sliders (live update without restart)
+            document.querySelectorAll('.vban-gain').forEach(function(slider) {
+                var idx = slider.getAttribute('data-index');
+                var saveTimer = null;
+                slider.addEventListener('input', function() {
+                    var label = slider.parentElement.querySelector('.vban-gain-value');
+                    if (label) label.textContent = slider.value + 'x';
+                });
+                slider.addEventListener('change', function() {
+                    var vbanSrc = window.settings && window.settings.saved_vban_sources
+                        && window.settings.saved_vban_sources[parseInt(idx)];
+                    if (!vbanSrc) return;
+                    vbanSrc.gain = parseInt(slider.value);
+                    clearTimeout(saveTimer);
+                    saveTimer = setTimeout(function() {
+                        fetch(basePath + '/api/vban/update', {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, gain: vbanSrc.gain})
+                        });
+                    }, 150);
                 });
             });
 

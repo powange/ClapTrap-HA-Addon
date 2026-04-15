@@ -57,6 +57,7 @@ def build_sources_from_settings(settings):
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                 'webhook_url': src.get('webhook_url', ''),
                 'threshold': float(src.get('threshold', global_threshold)),
+                'gain': float(src.get('gain', 1)),
                 'ha_entities': src.get('ha_entities', [1, 2]),
                 'label': f'VBAN: {src.get("name", src["ip"])}'
             })
@@ -74,6 +75,7 @@ _socketio = None
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
 _rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
+_vban_gains = {}  # {vban_ip: volume_float} — modifiable en temps réel
 _active_detectors = []  # Liste des AudioDetector actifs (pour mise à jour en temps réel)
 _active_detectors_lock = threading.Lock()
 
@@ -331,12 +333,16 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         def run_vban_source(src):
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
+            _vban_gains[vban_ip] = float(src.get('gain', 1.0))
             detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
-            logging.info(f"VBAN: démarrage capture {vban_ip}")
+            logging.info(f"VBAN: démarrage capture {vban_ip} (gain={_vban_gains[vban_ip]}x)")
 
             vban_det = get_vban_detector()
             def audio_callback(audio_data, timestamp):
                 if detection_running and vban_ip in vban_det.get_active_sources():
+                    gain = _vban_gains.get(vban_ip, 1.0)
+                    if gain != 1.0:
+                        audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                     detector.process_audio(audio_data, source_id)
             vban_det.set_audio_callback(audio_callback)
 
@@ -454,6 +460,12 @@ def update_rtsp_gain(rtsp_url, gain):
     """Met à jour le gain d'une source RTSP en temps réel."""
     _rtsp_gains[rtsp_url] = float(gain)
     logging.info(f"Volume RTSP mis à jour: {rtsp_url} -> {gain}x")
+
+
+def update_vban_gain(ip, gain):
+    """Met à jour le gain d'une source VBAN en temps réel (pas de redémarrage)."""
+    _vban_gains[ip] = float(gain)
+    logging.info(f"Volume VBAN mis à jour: {ip} -> {gain}x")
 
 
 def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):

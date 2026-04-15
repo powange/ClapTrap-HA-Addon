@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.10.2
+
+### Gain audio pour les sources VBAN
+
+- Ajout d'un slider "Volume" (1x–20x) dans l'onglet de chaque source
+  VBAN, identique a RTSP.
+- Application en temps reel via `update_vban_gain(ip, gain)` — pas de
+  redemarrage de detection necessaire.
+- Champ `gain` propage via `build_sources_from_settings` et
+  `/api/vban/update`.
+
 ## 6.10.1
 
 ### Fix : toggle enabled d'une source VBAN ne faisait rien
