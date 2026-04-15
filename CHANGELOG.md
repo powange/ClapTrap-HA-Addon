@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.11.0
+
+### Refactor : factorisation des handlers sources (mic / RTSP / VBAN)
+
+- Quatre helpers JS introduits dans `bindTabEvents` :
+  - `refreshAfterSourceChange()` : refresh table + updateStartButton +
+    sync du bouton Start/Stop et du badge source actif.
+  - `bindEnabledToggle(el, opts)` : cablage uniforme des switches
+    activer/desactiver (mic, RTSP, VBAN) avec PUT + refresh.
+  - `bindLiveSlider(el, opts)` : cablage uniforme des sliders (label en
+    live + PUT debounce au change), utilise pour threshold + gain.
+  - `bindDebouncedInput(el, opts)` : cablage uniforme des input text
+    (url/name/webhook) avec PUT debounce.
+  - `bindTestButton(el, opts)` : bouton start/stop de VU-metre (RTSP,
+    VBAN) avec basculement label + affichage VU.
+- Tous les blocs dupliques (mic threshold, mic enabled, mic webhook,
+  rtsp threshold/volume/url/name/enabled/webhook/test, vban enabled/
+  threshold/gain/webhook/test) sont reecrits en 4-6 lignes chacun.
+- Aucun changement fonctionnel ; uniquement organisation du code.
+
 ## 6.10.3
 
 ### Fix : VU-metre VBAN ignore le gain + table des sources non rafraichie

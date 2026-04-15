@@ -744,49 +744,143 @@
         }
 
         // ===== Bind events inside tab panels =====
-        var _rtspTesting = {};  // {streamId: true/false}
-
         function bindTabEvents() {
             var basePath = window.basePath || '';
+
+            // ---- Generic helpers ---------------------------------------------
+            function refreshAfterSourceChange() {
+                if (typeof updateStartButton === 'function') updateStartButton();
+                if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
+                fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.running) {
+                        if (typeof updateSourceDisplay === 'function') updateSourceDisplay(data.source);
+                    } else {
+                        var sb = document.getElementById('startButton');
+                        var xb = document.getElementById('stopButton');
+                        if (sb) sb.style.display = 'block';
+                        if (xb) xb.style.display = 'none';
+                        if (typeof updateSourceDisplay === 'function') updateSourceDisplay(null);
+                    }
+                }).catch(function() {});
+            }
+
+            // opts: { putUrl(toggle), putBody(toggle), onLocalChange?(toggle) }
+            function bindEnabledToggle(toggle, opts) {
+                toggle.addEventListener('change', function() {
+                    if (opts.onLocalChange) opts.onLocalChange(toggle);
+                    fetch(basePath + opts.putUrl(toggle), {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(opts.putBody(toggle))
+                    }).then(function(r) { return r.json(); }).then(refreshAfterSourceChange);
+                });
+            }
+
+            // opts: {
+            //   label?: string | HTMLElement | fn(slider)=>el
+            //   formatLabel?(value)=>string
+            //   putUrl?(slider)=>string   (omit for input-only, no PUT)
+            //   putBody?(slider)=>object
+            //   putMethod?: 'PUT' | 'POST' (default PUT)
+            //   debounceMs?: number (default 0 on change)
+            //   onLocalChange?(slider)
+            // }
+            function bindLiveSlider(slider, opts) {
+                var label = null;
+                if (typeof opts.label === 'string') {
+                    label = slider.parentElement.querySelector(opts.label);
+                } else if (opts.label instanceof HTMLElement) {
+                    label = opts.label;
+                } else if (typeof opts.label === 'function') {
+                    label = opts.label(slider);
+                }
+                slider.addEventListener('input', function() {
+                    if (label) label.textContent = opts.formatLabel ? opts.formatLabel(slider.value) : slider.value;
+                });
+                var saveTimer = null;
+                slider.addEventListener('change', function() {
+                    if (opts.onLocalChange) opts.onLocalChange(slider);
+                    if (!opts.putUrl) return;
+                    clearTimeout(saveTimer);
+                    saveTimer = setTimeout(function() {
+                        fetch(basePath + opts.putUrl(slider), {
+                            method: opts.putMethod || 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(opts.putBody(slider))
+                        });
+                    }, opts.debounceMs || 0);
+                });
+            }
+
+            // opts: { putUrl(input)=>string, putBody(input)=>object, debounceMs?=500 }
+            function bindDebouncedInput(input, opts) {
+                var t;
+                input.addEventListener('input', function() {
+                    clearTimeout(t);
+                    t = setTimeout(function() {
+                        fetch(basePath + opts.putUrl(input), {
+                            method: 'PUT', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(opts.putBody(input))
+                        });
+                    }, opts.debounceMs || 500);
+                });
+            }
+
+            // opts: {
+            //   key(btn)=>string, labelStart, labelStop,
+            //   startUrl, startBody?(btn)=>object, stopUrl,
+            //   vuSelector?: string
+            // }
+            if (!window._sourceTesting) window._sourceTesting = {};
+            function bindTestButton(btn, opts) {
+                var key = opts.key(btn);
+                btn.addEventListener('click', function() {
+                    var panel = btn.closest('.tab-panel');
+                    var vu = panel && opts.vuSelector ? panel.querySelector(opts.vuSelector) : null;
+                    if (window._sourceTesting[key]) {
+                        fetch(basePath + opts.stopUrl, {method: 'POST'});
+                        window._sourceTesting[key] = false;
+                        btn.textContent = opts.labelStart;
+                        btn.classList.remove('active');
+                        if (vu) vu.style.display = 'none';
+                    } else {
+                        fetch(basePath + opts.startUrl, {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: opts.startBody ? JSON.stringify(opts.startBody(btn)) : null
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.success) {
+                                window._sourceTesting[key] = true;
+                                btn.textContent = opts.labelStop;
+                                btn.classList.add('active');
+                                if (vu) vu.style.display = 'flex';
+                            }
+                        }).catch(function(err) { console.error('Test error:', err); });
+                    }
+                });
+            }
+            // -----------------------------------------------------------------
 
             // Mic threshold slider
             var thresholdSlider = document.getElementById('threshold');
             var thresholdValue = document.getElementById('threshold-value');
             if (thresholdSlider && thresholdValue) {
-                thresholdSlider.addEventListener('input', function() {
-                    thresholdValue.textContent = thresholdSlider.value;
-                });
-                thresholdSlider.addEventListener('change', function() {
-                    fetch(basePath + '/api/microphone/threshold', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({threshold: parseFloat(thresholdSlider.value)})
-                    });
+                bindLiveSlider(thresholdSlider, {
+                    label: thresholdValue,
+                    putUrl: function() { return '/api/microphone/threshold'; },
+                    putBody: function(s) { return {threshold: parseFloat(s.value)}; }
                 });
             }
 
             // Mic enabled toggle
             var micEnabled = document.getElementById('webhook-mic-enabled');
             if (micEnabled) {
-                micEnabled.addEventListener('change', function() {
-                    if (window.settings && window.settings.microphone) {
-                        window.settings.microphone.enabled = micEnabled.checked;
+                bindEnabledToggle(micEnabled, {
+                    putUrl: function() { return '/api/microphone/enabled'; },
+                    putBody: function(t) { return {enabled: t.checked}; },
+                    onLocalChange: function(t) {
+                        if (window.settings && window.settings.microphone) {
+                            window.settings.microphone.enabled = t.checked;
+                        }
                     }
-                    fetch(basePath + '/api/microphone/enabled', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({enabled: micEnabled.checked})
-                    }).then(function(r) { return r.json(); }).then(function() {
-                        updateStartButton();
-                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
-                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.running) {
-                                updateSourceDisplay(data.source);
-                            } else {
-                                document.getElementById('startButton').style.display = 'block';
-                                document.getElementById('stopButton').style.display = 'none';
-                                updateSourceDisplay(null);
-                            }
-                        });
-                    });
                 });
             }
 
@@ -811,249 +905,150 @@
             // Mic webhook auto-save
             var micWebhook = document.getElementById('webhook-mic-url');
             if (micWebhook) {
-                var webhookTimeout;
-                micWebhook.addEventListener('input', function() {
-                    clearTimeout(webhookTimeout);
-                    webhookTimeout = setTimeout(function() {
-                        fetch(basePath + '/api/microphone/webhook', {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({webhook_url: micWebhook.value.trim()})
-                        });
-                    }, 500);
+                bindDebouncedInput(micWebhook, {
+                    putUrl: function() { return '/api/microphone/webhook'; },
+                    putBody: function(i) { return {webhook_url: i.value.trim()}; }
                 });
             }
 
-            // RTSP sliders + inputs
+            // Helpers locaux pour RTSP / VBAN
+            function rtspByIdUrl(slider) { return '/api/rtsp/stream/' + slider.getAttribute('data-id'); }
+            function vbanSrcByIndex(el) {
+                var idx = parseInt(el.getAttribute('data-index'), 10);
+                return window.settings && window.settings.saved_vban_sources &&
+                    window.settings.saved_vban_sources[idx];
+            }
+            function vbanPutBody(el, extra) {
+                var s = vbanSrcByIndex(el);
+                if (!s) return extra;
+                var body = {name: s.name, ip: s.ip};
+                return Object.assign(body, extra);
+            }
+
+            // ---- RTSP -------------------------------------------------------
             document.querySelectorAll('.rtsp-threshold').forEach(function(slider) {
-                var sid = slider.getAttribute('data-id');
-                slider.addEventListener('input', function() {
-                    var label = slider.parentElement.querySelector('.rtsp-threshold-value');
-                    if (label) label.textContent = slider.value;
-                });
-                slider.addEventListener('change', function() {
-                    fetch(basePath + '/api/rtsp/stream/' + sid, {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({threshold: parseFloat(slider.value)})
-                    });
+                bindLiveSlider(slider, {
+                    label: '.rtsp-threshold-value',
+                    putUrl: rtspByIdUrl,
+                    putBody: function(s) { return {threshold: parseFloat(s.value)}; }
                 });
             });
-
             document.querySelectorAll('.rtsp-volume').forEach(function(slider) {
-                var sid = slider.getAttribute('data-id');
-                slider.addEventListener('input', function() {
-                    var label = slider.parentElement.querySelector('.rtsp-volume-value');
-                    if (label) label.textContent = slider.value + 'x';
-                });
-                slider.addEventListener('change', function() {
-                    fetch(basePath + '/api/rtsp/stream/' + sid, {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({gain: parseInt(slider.value)})
-                    });
+                bindLiveSlider(slider, {
+                    label: '.rtsp-volume-value',
+                    formatLabel: function(v) { return v + 'x'; },
+                    putUrl: rtspByIdUrl,
+                    putBody: function(s) { return {gain: parseInt(s.value)}; }
                 });
             });
-
             document.querySelectorAll('.rtsp-url-input').forEach(function(input) {
-                var sid = input.getAttribute('data-id');
-                var timeout;
-                input.addEventListener('input', function() {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(function() {
-                        fetch(basePath + '/api/rtsp/stream/' + sid, {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({url: input.value.trim()})
-                        });
-                    }, 500);
+                bindDebouncedInput(input, {
+                    putUrl: function(i) { return '/api/rtsp/stream/' + i.getAttribute('data-id'); },
+                    putBody: function(i) { return {url: i.value.trim()}; }
                 });
             });
-
             document.querySelectorAll('.rtsp-name-input').forEach(function(input) {
-                var sid = input.getAttribute('data-id');
-                var timeout;
-                input.addEventListener('input', function() {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(function() {
-                        fetch(basePath + '/api/rtsp/stream/' + sid, {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({name: input.value.trim()})
-                        });
-                    }, 500);
+                bindDebouncedInput(input, {
+                    putUrl: function(i) { return '/api/rtsp/stream/' + i.getAttribute('data-id'); },
+                    putBody: function(i) { return {name: i.value.trim()}; }
                 });
             });
-
-            document.querySelectorAll('.rtsp-enabled-toggle').forEach(function(toggle) {
-                var sid = toggle.getAttribute('data-id');
-                toggle.addEventListener('change', function() {
-                    if (window.settings && window.settings.rtsp_sources) {
-                        window.settings.rtsp_sources.forEach(function(s) {
-                            if (s.id === sid) s.enabled = toggle.checked;
-                        });
-                    }
-                    fetch(basePath + '/api/rtsp/stream/' + sid, {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({enabled: toggle.checked})
-                    }).then(function(r) { return r.json(); }).then(function() {
-                        updateStartButton();
-                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
-                        // Mettre à jour les badges sources si la détection tourne
-                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.running) {
-                                updateSourceDisplay(data.source);
-                            } else {
-                                document.getElementById('startButton').style.display = 'block';
-                                document.getElementById('stopButton').style.display = 'none';
-                                updateSourceDisplay(null);
-                            }
-                        });
-                    });
-                });
-            });
-
             document.querySelectorAll('.rtsp-webhook-url').forEach(function(input) {
-                var sid = input.getAttribute('data-id');
-                var timeout;
-                input.addEventListener('input', function() {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(function() {
-                        fetch(basePath + '/api/rtsp/stream/' + sid, {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({webhook_url: input.value.trim()})
-                        });
-                    }, 500);
+                bindDebouncedInput(input, {
+                    putUrl: function(i) { return '/api/rtsp/stream/' + i.getAttribute('data-id'); },
+                    putBody: function(i) { return {webhook_url: i.value.trim()}; }
                 });
             });
-
-            // RTSP test buttons
+            document.querySelectorAll('.rtsp-enabled-toggle').forEach(function(toggle) {
+                bindEnabledToggle(toggle, {
+                    putUrl: function(t) { return '/api/rtsp/stream/' + t.getAttribute('data-id'); },
+                    putBody: function(t) { return {enabled: t.checked}; },
+                    onLocalChange: function(t) {
+                        var sid = t.getAttribute('data-id');
+                        if (window.settings && window.settings.rtsp_sources) {
+                            window.settings.rtsp_sources.forEach(function(s) {
+                                if (s.id === sid) s.enabled = t.checked;
+                            });
+                        }
+                    }
+                });
+            });
             document.querySelectorAll('.rtsp-test-btn').forEach(function(btn) {
-                var sid = btn.getAttribute('data-id');
-                btn.addEventListener('click', function() {
-                    var panel = btn.closest('.tab-panel');
-                    var urlInput = panel ? panel.querySelector('.rtsp-url-input') : null;
-                    var volSlider = panel ? panel.querySelector('.rtsp-volume') : null;
-                    var url = urlInput ? urlInput.value : '';
-                    var gain = volSlider ? parseInt(volSlider.value) : 10;
-                    var vu = panel ? panel.querySelector('.rtsp-test-vu') : null;
-
-                    if (_rtspTesting[sid]) {
-                        fetch(basePath + '/api/rtsp/test/stop', {method: 'POST'});
-                        _rtspTesting[sid] = false;
-                        btn.textContent = '📹 Tester le flux';
-                        btn.classList.remove('active');
-                        if (vu) vu.style.display = 'none';
-                    } else {
-                        fetch(basePath + '/api/rtsp/test/start', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({url: url, gain: gain})
-                        }).then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.success) {
-                                _rtspTesting[sid] = true;
-                                btn.textContent = '⏹ Arreter le test';
-                                btn.classList.add('active');
-                                if (vu) vu.style.display = 'flex';
-                            }
-                        }).catch(function(err) { console.error('RTSP test error:', err); });
-                    }
+                bindTestButton(btn, {
+                    key: function(b) { return 'rtsp_' + b.getAttribute('data-id'); },
+                    labelStart: '📹 Tester le flux',
+                    labelStop: '⏹ Arreter le test',
+                    startUrl: '/api/rtsp/test/start',
+                    startBody: function(b) {
+                        var panel = b.closest('.tab-panel');
+                        var urlInput = panel ? panel.querySelector('.rtsp-url-input') : null;
+                        var volSlider = panel ? panel.querySelector('.rtsp-volume') : null;
+                        return {
+                            url: urlInput ? urlInput.value : '',
+                            gain: volSlider ? parseInt(volSlider.value) : 10
+                        };
+                    },
+                    stopUrl: '/api/rtsp/test/stop',
+                    vuSelector: '.rtsp-test-vu'
                 });
             });
 
-            // VBAN test buttons (VU-meter)
-            if (!window._vbanTesting) window._vbanTesting = {};
-            document.querySelectorAll('.vban-test-btn').forEach(function(btn) {
-                var ip = btn.getAttribute('data-ip');
-                btn.addEventListener('click', function() {
-                    var panel = btn.closest('.tab-panel');
-                    var vu = panel ? panel.querySelector('.vban-test-vu') : null;
-
-                    if (window._vbanTesting[ip]) {
-                        fetch(basePath + '/api/vban/test/stop', {method: 'POST'});
-                        window._vbanTesting[ip] = false;
-                        btn.textContent = '🎵 Tester le flux';
-                        btn.classList.remove('active');
-                        if (vu) vu.style.display = 'none';
-                    } else {
-                        fetch(basePath + '/api/vban/test/start', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ip: ip})
-                        }).then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.success) {
-                                window._vbanTesting[ip] = true;
-                                btn.textContent = '⏹ Arreter le test';
-                                btn.classList.add('active');
-                                if (vu) vu.style.display = 'flex';
-                            }
-                        }).catch(function(err) { console.error('VBAN test error:', err); });
-                    }
-                });
-            });
-
-            // VBAN enabled toggle
+            // ---- VBAN -------------------------------------------------------
             document.querySelectorAll('.vban-enabled-toggle').forEach(function(toggle) {
-                var idx = toggle.getAttribute('data-index');
-                toggle.addEventListener('change', function() {
-                    var vbanSrc = window.settings && window.settings.saved_vban_sources
-                        && window.settings.saved_vban_sources[parseInt(idx)];
-                    if (!vbanSrc) return;
-                    vbanSrc.enabled = toggle.checked;
-                    fetch(basePath + '/api/vban/update', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, enabled: toggle.checked})
-                    }).then(function(r) { return r.json(); }).then(function() {
-                        if (typeof updateStartButton === 'function') updateStartButton();
-                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
-                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.running) {
-                                if (typeof updateSourceDisplay === 'function') updateSourceDisplay(data.source);
-                            }
-                        }).catch(function() {});
-                    });
+                bindEnabledToggle(toggle, {
+                    putUrl: function() { return '/api/vban/update'; },
+                    putBody: function(t) { return vbanPutBody(t, {enabled: t.checked}); },
+                    onLocalChange: function(t) {
+                        var s = vbanSrcByIndex(t);
+                        if (s) s.enabled = t.checked;
+                    }
                 });
             });
-
-            // VBAN threshold sliders
             document.querySelectorAll('.vban-threshold').forEach(function(slider) {
-                slider.addEventListener('input', function() {
-                    var label = slider.parentElement.querySelector('.vban-threshold-value');
-                    if (label) label.textContent = slider.value;
+                bindLiveSlider(slider, {
+                    label: '.vban-threshold-value',
+                    putUrl: function() { return '/api/vban/update'; },
+                    putBody: function(s) { return vbanPutBody(s, {threshold: parseFloat(s.value)}); },
+                    onLocalChange: function(s) {
+                        var v = vbanSrcByIndex(s);
+                        if (v) v.threshold = parseFloat(s.value);
+                    }
                 });
             });
-
-            // VBAN gain sliders (live update without restart)
             document.querySelectorAll('.vban-gain').forEach(function(slider) {
-                var idx = slider.getAttribute('data-index');
-                var saveTimer = null;
-                slider.addEventListener('input', function() {
-                    var label = slider.parentElement.querySelector('.vban-gain-value');
-                    if (label) label.textContent = slider.value + 'x';
+                bindLiveSlider(slider, {
+                    label: '.vban-gain-value',
+                    formatLabel: function(v) { return v + 'x'; },
+                    putUrl: function() { return '/api/vban/update'; },
+                    putBody: function(s) { return vbanPutBody(s, {gain: parseInt(s.value)}); },
+                    debounceMs: 150,
+                    onLocalChange: function(s) {
+                        var v = vbanSrcByIndex(s);
+                        if (v) v.gain = parseInt(s.value);
+                    }
                 });
-                slider.addEventListener('change', function() {
-                    var vbanSrc = window.settings && window.settings.saved_vban_sources
-                        && window.settings.saved_vban_sources[parseInt(idx)];
-                    if (!vbanSrc) return;
-                    vbanSrc.gain = parseInt(slider.value);
-                    clearTimeout(saveTimer);
-                    saveTimer = setTimeout(function() {
-                        fetch(basePath + '/api/vban/update', {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, gain: vbanSrc.gain})
-                        });
-                    }, 150);
+            });
+            document.querySelectorAll('.vban-test-btn').forEach(function(btn) {
+                bindTestButton(btn, {
+                    key: function(b) { return 'vban_' + b.getAttribute('data-ip'); },
+                    labelStart: '🎵 Tester le flux',
+                    labelStop: '⏹ Arreter le test',
+                    startUrl: '/api/vban/test/start',
+                    startBody: function(b) { return {ip: b.getAttribute('data-ip')}; },
+                    stopUrl: '/api/vban/test/stop',
+                    vuSelector: '.vban-test-vu'
                 });
             });
 
             // VBAN webhook auto-save
             document.querySelectorAll('.vban-webhook-url').forEach(function(input) {
-                var idx = input.getAttribute('data-index');
-                var timeout;
-                input.addEventListener('input', function() {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(function() {
-                        var vbanSrc = window.settings && window.settings.saved_vban_sources && window.settings.saved_vban_sources[parseInt(idx)];
-                        if (vbanSrc) {
-                            fetch(basePath + '/api/vban/update', {
-                                method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, webhook_url: input.value.trim()})
-                            });
-                        }
-                    }, 500);
+                bindDebouncedInput(input, {
+                    putUrl: function() { return '/api/vban/update'; },
+                    putBody: function(i) {
+                        var s = vbanSrcByIndex(i);
+                        if (!s) return {};
+                        return {name: s.name, ip: s.ip, webhook_url: i.value.trim()};
+                    }
                 });
             });
 
