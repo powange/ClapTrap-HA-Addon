@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.9.2
+
+### Fix : payload POST /api/vban/save enveloppe a tort
+
+- Le JS postait `{source: {...}}` mais le backend lit la racine du
+  JSON (`request.json['name']` etc.) → "Donnees manquantes".
+- On envoie maintenant directement l'objet source.
+
 ## 6.9.1
 
 ### UI : modale integree pour l'ajout de sources VBAN

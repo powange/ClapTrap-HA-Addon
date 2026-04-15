@@ -1732,7 +1732,7 @@
             status.textContent = 'Ajout de ' + (src.name || src.ip) + '...';
             fetch(basePath + '/api/vban/save', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({source: src})
+                body: JSON.stringify(src)
             }).then(function(r) { return r.json(); })
               .then(function(result) {
                   if (result.success) {
