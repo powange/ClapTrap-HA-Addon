@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.13.4
+
+### UI : icone de type dans le panneau RTSP
+
+- Ajout de l'icone camera (&#x1F4F9;) avant le champ nom de la source
+  RTSP selectionnee (mic et VBAN l'avaient deja).
+
 ## 6.13.3
 
 ### UI : icone de type dans les onglets de sources
