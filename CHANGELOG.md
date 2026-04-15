@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.10.0
+
+### Test audio pour les sources VBAN (VU-metre)
+
+- Ajout d'un bouton "Tester le flux" dans l'onglet de chaque source
+  VBAN, avec VU-metre temps reel (dB + barre de niveau), identique aux
+  onglets micro et RTSP.
+- Le detecteur VBAN partage est sollicite via un "tap" filtre par IP
+  (pas de second socket UDP, pas de conflit de port).
+- Endpoints `/api/vban/test/start` et `/stop`.
+
 ## 6.9.3
 
 ### Fix : bouton "Tester" webhook inactif pour VBAN et RTSP

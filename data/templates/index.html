@@ -641,6 +641,13 @@
                     '<label>Precision : <span class="vban-threshold-value">' + threshold + '</span></label>' +
                     '<input type="range" class="vban-threshold" data-index="' + src.id.replace('vban_', '') + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
                 '</div>' +
+                '<div class="setting-item">' +
+                    '<button type="button" class="btn-mic-test vban-test-btn" data-ip="' + escAttr(ip) + '">&#x1F3B5; Tester le flux</button>' +
+                    '<div class="vu-meter vban-test-vu" data-ip="' + escAttr(ip) + '" style="display: none;">' +
+                        '<div class="vu-meter-track"><div class="vu-meter-bar vban-test-bar"></div></div>' +
+                        '<span class="vu-meter-label vban-test-db">-60 dB</span>' +
+                    '</div>' +
+                '</div>' +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -937,6 +944,36 @@
                                 if (vu) vu.style.display = 'flex';
                             }
                         }).catch(function(err) { console.error('RTSP test error:', err); });
+                    }
+                });
+            });
+
+            // VBAN test buttons (VU-meter)
+            if (!window._vbanTesting) window._vbanTesting = {};
+            document.querySelectorAll('.vban-test-btn').forEach(function(btn) {
+                var ip = btn.getAttribute('data-ip');
+                btn.addEventListener('click', function() {
+                    var panel = btn.closest('.tab-panel');
+                    var vu = panel ? panel.querySelector('.vban-test-vu') : null;
+
+                    if (window._vbanTesting[ip]) {
+                        fetch(basePath + '/api/vban/test/stop', {method: 'POST'});
+                        window._vbanTesting[ip] = false;
+                        btn.textContent = '🎵 Tester le flux';
+                        btn.classList.remove('active');
+                        if (vu) vu.style.display = 'none';
+                    } else {
+                        fetch(basePath + '/api/vban/test/start', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ip: ip})
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.success) {
+                                window._vbanTesting[ip] = true;
+                                btn.textContent = '⏹ Arreter le test';
+                                btn.classList.add('active');
+                                if (vu) vu.style.display = 'flex';
+                            }
+                        }).catch(function(err) { console.error('VBAN test error:', err); });
                     }
                 });
             });
@@ -1363,6 +1400,23 @@
                             label.textContent = 'Erreur';
                         } else {
                             label.textContent = data.db + ' dB';
+                        }
+                    });
+                });
+
+                // VBAN test VU-metre
+                sock.on('vban_level', function(data) {
+                    if (!data || !data.ip) return;
+                    var vus = document.querySelectorAll('.vban-test-vu[data-ip="' + data.ip + '"]');
+                    vus.forEach(function(vu) {
+                        var bar = vu.querySelector('.vban-test-bar');
+                        var label = vu.querySelector('.vban-test-db');
+                        if (bar && !data.error) {
+                            var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
+                            bar.style.width = pct + '%';
+                        }
+                        if (label) {
+                            label.textContent = data.error ? 'Erreur' : (data.db + ' dB');
                         }
                     });
                 });

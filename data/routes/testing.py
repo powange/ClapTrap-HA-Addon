@@ -192,3 +192,49 @@ def stop_rtsp_test():
     global _rtsp_test_running
     _rtsp_test_running = False
     return jsonify({'success': True})
+
+
+# --- Test VBAN (VU-metre via tap sur le detecteur partage) -------------------
+@testing_bp.route('/api/vban/test/start', methods=['POST'])
+def start_vban_test():
+    data = request.get_json(silent=True) or {}
+    ip = (data.get('ip') or '').strip()
+    if not ip:
+        return jsonify({'error': 'IP requise'}), 400
+    try:
+        from vban_manager import get_vban_detector
+        detector = get_vban_detector()
+        if detector is None:
+            return jsonify({'error': 'VBAN detecteur non initialise'}), 500
+
+        def _tap(peak):
+            try:
+                import math as _math
+                peak_capped = min(1.0, peak)
+                db = max(-60, 20 * _math.log10(peak_capped + 1e-10))
+                _socketio.emit('vban_level', {
+                    'ip': ip,
+                    'peak': peak_capped,
+                    'db': round(db, 1),
+                })
+            except Exception:
+                pass
+
+        detector.set_test_tap(ip, _tap)
+        logging.info(f"VBAN test: tap actif sur {ip}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logging.error(f"Erreur start_vban_test: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@testing_bp.route('/api/vban/test/stop', methods=['POST'])
+def stop_vban_test():
+    try:
+        from vban_manager import get_vban_detector
+        detector = get_vban_detector()
+        if detector is not None:
+            detector.set_test_tap(None, None)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

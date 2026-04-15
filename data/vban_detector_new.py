@@ -35,6 +35,16 @@ class VBANDetector:
         self._settings_cache_duration = 5  # Durée du cache en secondes
         self._joined_multicast_groups = set()  # IPs multicast deja rejointes
         self._last_mcast_sync = 0
+        # Tap pour le VU-metre de test (une seule IP surveillee a la fois)
+        self._test_tap_ip = None
+        self._test_tap_callback = None
+
+    def set_test_tap(self, ip, callback):
+        """Configure un tap pour le VU-metre : appelle callback(peak) pour
+        chaque paquet dont l'IP source correspond. ip=None / callback=None
+        pour desactiver."""
+        self._test_tap_ip = ip
+        self._test_tap_callback = callback
 
     @staticmethod
     def _is_multicast(ip_str):
@@ -163,6 +173,15 @@ class VBANDetector:
                         
                         # Convertir en float32 et normaliser entre -1 et 1
                         audio_data = audio_data.astype(np.float32) / 32768.0
+
+                        # VU-meter test tap (avant mixing / resampling pour avoir
+                        # le signal brut multi-canal si besoin).
+                        if self._test_tap_callback and self._test_tap_ip == addr[0]:
+                            try:
+                                peak = float(np.max(np.abs(audio_data))) if len(audio_data) else 0.0
+                                self._test_tap_callback(peak)
+                            except Exception:
+                                pass
                         
                         # Convertir en mono si nécessaire
                         if source.channels > 1:
