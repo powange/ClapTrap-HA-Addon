@@ -15,12 +15,10 @@ import os
 import collections
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from vban_manager import get_vban_detector
 from audio_detector import AudioDetector
 from settings_manager import load_settings
-
-_webhook_executor = ThreadPoolExecutor(max_workers=2)
+from webhook import send_webhook_async
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 
@@ -192,13 +190,13 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             'score': round(detection_data['score'], 3), 'clap_count': clap_count
                         })
                     if webhook_url:
-                        _webhook_executor.submit(
-                            requests.post, webhook_url,
-                            json={'event': 'clap', 'source_id': source_name,
-                                  'timestamp': detection_data['timestamp'],
-                                  'score': detection_data['score'], 'clap_count': clap_count},
-                            timeout=5
-                        )
+                        send_webhook_async(webhook_url, {
+                            'event': 'clap',
+                            'source_id': source_name,
+                            'timestamp': detection_data['timestamp'],
+                            'score': detection_data['score'],
+                            'clap_count': clap_count,
+                        })
                 except Exception as e:
                     logging.error(f"Erreur callback clap {source_name}: {e}")
             return handle_detection

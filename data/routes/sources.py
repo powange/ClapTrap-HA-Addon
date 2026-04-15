@@ -212,44 +212,6 @@ def delete_rtsp_stream(stream_id):
         return jsonify({'error': str(e)}), 500
 
 
-@sources_bp.route('/api/rtsp/webhook', methods=['PUT'])
-def update_rtsp_webhook():
-    try:
-        data = request.get_json()
-        stream_id = data.get('stream_id')
-        webhook_url = data.get('webhook_url')
-
-        settings = load_settings()
-        for stream in settings.get('rtsp_sources', []):
-            if stream.get('id') == stream_id:
-                stream['webhook_url'] = webhook_url
-                break
-        save_settings(settings)
-
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@sources_bp.route('/api/rtsp/enabled', methods=['PUT'])
-def update_rtsp_enabled():
-    try:
-        data = request.get_json()
-        stream_id = data.get('stream_id')
-        enabled = data.get('enabled')
-
-        settings = load_settings()
-        for stream in settings.get('rtsp_sources', []):
-            if stream.get('id') == stream_id:
-                stream['enabled'] = enabled
-                break
-        save_settings(settings)
-
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @sources_bp.route('/api/vban/sources', methods=['GET'])
 def get_vban_sources():
     try:

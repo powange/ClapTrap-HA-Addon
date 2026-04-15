@@ -27,6 +27,8 @@ from typing import Any, Callable, Optional
 import numpy as np
 import requests
 
+from webhook import send_webhook_async
+
 try:
     from wyoming.asr import Transcribe, Transcript  # noqa: F401 (imported for availability check)
     from wyoming.audio import AudioChunk, AudioStart, AudioStop
@@ -57,7 +59,6 @@ _TARGET_RATE = 16000
 # Kept modest since each client already owns its AudioDetector and most of the
 # cost is already spent inside MediaPipe's own threads.
 _audio_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wyoming-audio")
-_webhook_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wyoming-webhook")
 
 
 # --- Module-level state -----------------------------------------------------
@@ -83,13 +84,6 @@ def _resolve_hostname(peer_ip: str) -> str:
         return peer_ip
 
 
-def _post_webhook(url: str, payload: dict) -> None:
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as exc:
-        logger.warning("Wyoming webhook POST failed (%s): %s", url, exc)
-
-
 def _notify_clap(source: str, score: float, clap_count: int) -> None:
     """Fan out a clap detection event: webhook, HA event, HA entities, socketio."""
     settings = load_settings()
@@ -105,7 +99,7 @@ def _notify_clap(source: str, score: float, clap_count: int) -> None:
     }
 
     if webhook_url:
-        _webhook_executor.submit(_post_webhook, webhook_url, payload)
+        send_webhook_async(webhook_url, payload)
 
     if _socketio_ref is not None:
         try:

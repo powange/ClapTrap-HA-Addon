@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.12.0
+
+### Refactor : suppression de code mort et unification webhooks
+
+- Suppression de `data/vban_processor.py` (VBANAudioProcessor, 379 lignes)
+  et de son test associe — remplace depuis longtemps par
+  `vban_detector_new.py` + `classify.run_vban_source`.
+- Suppression de `data/static/js/modules/rtspSources.js` (306 lignes)
+  — aucun import en production.
+- Suppression des endpoints `/api/rtsp/webhook` et `/api/rtsp/enabled`
+  non appeles (tout passe par le endpoint generique `/api/rtsp/stream/<id>`).
+- Unification des webhooks via `webhook.send_webhook_async(url, payload)` :
+  un seul `WebhookManager` + un seul `ThreadPoolExecutor` partages. Les
+  trois chemins (mic/RTSP/VBAN detection + Wyoming) utilisent le meme
+  helper avec retry et validation d'URL.
+
 ## 6.11.0
 
 ### Refactor : factorisation des handlers sources (mic / RTSP / VBAN)

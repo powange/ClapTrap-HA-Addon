@@ -1,7 +1,10 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
 from url_validator import is_valid_url
 
 
@@ -38,3 +41,29 @@ class WebhookManager:
         except requests.exceptions.RequestException as e:
             logging.error(f"Webhook failed: {str(e)}")
             raise
+
+
+# --- Async dispatch shared by all clap sources ------------------------------
+_shared_manager = WebhookManager()
+_shared_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="webhook")
+
+
+def send_webhook_async(url, payload):
+    """Envoie un webhook en arriere-plan (pool partage) avec retry via la
+    Session de `WebhookManager`. Tous les chemins de detection (mic/RTSP/VBAN
+    et Wyoming) passent par cette fonction pour homogeneiser:
+    validation d'URL, retry, timeouts, logging.
+    """
+    if not url:
+        return
+    if not validate_webhook_url(url):
+        logging.warning(f"URL webhook invalide, ignoree: {url}")
+        return
+
+    def _send():
+        try:
+            _shared_manager.send_webhook(url, payload)
+        except Exception as exc:
+            logging.debug(f"Webhook async vers {url} a echoue: {exc}")
+
+    _shared_executor.submit(_send)
