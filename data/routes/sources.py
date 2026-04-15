@@ -460,6 +460,10 @@ def update_vban_source():
         success, message = save_settings(settings)
 
         if success:
+            # Redemarrer la detection si 'enabled' ou 'threshold' a change,
+            # pour que la source soit effectivement (re)ajoutee ou retiree.
+            if 'enabled' in source or 'threshold' in source:
+                _restart_detection_if_running()
             return jsonify({'success': True})
         else:
             return jsonify({

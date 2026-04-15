@@ -978,6 +978,29 @@
                 });
             });
 
+            // VBAN enabled toggle
+            document.querySelectorAll('.vban-enabled-toggle').forEach(function(toggle) {
+                var idx = toggle.getAttribute('data-index');
+                toggle.addEventListener('change', function() {
+                    var vbanSrc = window.settings && window.settings.saved_vban_sources
+                        && window.settings.saved_vban_sources[parseInt(idx)];
+                    if (!vbanSrc) return;
+                    vbanSrc.enabled = toggle.checked;
+                    fetch(basePath + '/api/vban/update', {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, enabled: toggle.checked})
+                    }).then(function(r) { return r.json(); }).then(function() {
+                        if (typeof updateStartButton === 'function') updateStartButton();
+                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
+                        fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.running) {
+                                if (typeof updateSourceDisplay === 'function') updateSourceDisplay(data.source);
+                            }
+                        }).catch(function() {});
+                    });
+                });
+            });
+
             // VBAN threshold sliders
             document.querySelectorAll('.vban-threshold').forEach(function(slider) {
                 slider.addEventListener('input', function() {

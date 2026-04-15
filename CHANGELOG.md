@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.10.1
+
+### Fix : toggle enabled d'une source VBAN ne faisait rien
+
+- Le checkbox `.vban-enabled-toggle` n'avait aucun handler JS : cliquer
+  changeait uniquement l'apparence, sans requete serveur. Ajout du
+  handler qui PUT `/api/vban/update` avec `enabled`.
+- `/api/vban/update` relance maintenant la detection si `enabled` ou
+  `threshold` change, comme pour RTSP.
+
 ## 6.10.0
 
 ### Test audio pour les sources VBAN (VU-metre)
