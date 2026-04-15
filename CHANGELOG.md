@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.9.3
+
+### Fix : bouton "Tester" webhook inactif pour VBAN et RTSP
+
+- Le handler cherchait `data-source="vban-..."` (tiret) alors que le
+  HTML genere `vban_...` (underscore). Resultat : aucun input trouve,
+  le clic ne declenchait rien de visible.
+- Simplification : le bouton prend le 1er `input[type="url"]` de son
+  conteneur `.webhook-input-with-test`. Marche pour mic/rtsp/vban/etc.
+
 ## 6.9.2
 
 ### Fix : payload POST /api/vban/save enveloppe a tort

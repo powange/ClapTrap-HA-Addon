@@ -64,10 +64,10 @@ function setupTestWebhookButton(button) {
         // Déterminer l'input webhook en fonction de la source
         if (source === 'mic') {
             webhookInput = document.getElementById('webhook-mic-url');
-        } else if (source.startsWith('vban-')) {
-            webhookInput = this.closest('.webhook-input-with-test')?.querySelector('.webhook-url');
-        } else if (source.startsWith('rtsp-')) {
-            webhookInput = this.closest('.webhook-input-with-test')?.querySelector('.webhook-url');
+        } else {
+            // RTSP, VBAN et tout autre bouton dans un .webhook-input-with-test :
+            // on prend l'input URL situe dans le meme conteneur.
+            webhookInput = this.closest('.webhook-input-with-test')?.querySelector('input[type="url"]');
         }
         
         if (!webhookInput || !webhookInput.value) {
