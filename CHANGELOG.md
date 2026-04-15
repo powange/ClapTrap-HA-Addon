@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.13.3
+
+### UI : icone de type dans les onglets de sources
+
+- Chaque onglet de source affiche l'icone de son type avant le nom :
+  &#x1F3A4; micro, &#x1F4F9; RTSP, &#x1F4E1; VBAN.
+
 ## 6.13.2
 
 ### UI : icone dediee pour les sources VBAN

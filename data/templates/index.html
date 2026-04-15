@@ -444,8 +444,9 @@
             sources.forEach(function(src, idx) {
                 // Tab button
                 var tab = document.createElement('button');
-                tab.className = 'tab-btn' + (idx === 0 ? ' active' : '');
-                tab.textContent = src.name;
+                tab.className = 'tab-btn tab-type-' + src.type + (idx === 0 ? ' active' : '');
+                var icons = {mic: '\uD83C\uDFA4', rtsp: '\uD83D\uDCF9', vban: '\uD83D\uDCE1'};
+                tab.textContent = (icons[src.type] || '') + ' ' + src.name;
                 tab.setAttribute('data-tab', src.id);
                 tab.addEventListener('click', function() { switchTab(src.id); });
                 tabs.appendChild(tab);
