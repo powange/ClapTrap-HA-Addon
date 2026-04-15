@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.13.2
+
+### UI : icone dediee pour les sources VBAN
+
+- Remplacement de la note de musique (&#x1F3B5;) par une antenne
+  parabolique (&#x1F4E1;) : plus representatif de l'audio reseau
+  et visuellement distinct des autres sources (mic, camera).
+
 ## 6.13.1
 
 ### Fix : la layout 2 colonnes n'utilisait pas toute la largeur

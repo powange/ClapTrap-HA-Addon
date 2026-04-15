@@ -154,7 +154,7 @@
                     <div class="add-source-menu" id="addSourceMenu" style="display:none;top:100%;left:0;">
                         <button type="button" data-type="mic">&#x1F3A4; Microphone</button>
                         <button type="button" data-type="rtsp">&#x1F4F9; RTSP</button>
-                        <button type="button" data-type="vban">&#x1F3B5; VBAN</button>
+                        <button type="button" data-type="vban">&#x1F4E1; VBAN</button>
                     </div>
                 </div>
                 <div id="source-tabs" style="display:contents;"></div>
@@ -621,7 +621,7 @@
             return '<div class="source-header">' +
                 '<div style="display:flex;align-items:center;gap:0.5rem;">' +
                     '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="vban-enabled-toggle" data-index="' + src.id.replace('vban_', '') + '"' + enabledAttr + '><span class="slider round"></span></label>' +
-                    '<strong>&#x1F3B5; ' + esc(name) + '</strong>' +
+                    '<strong>&#x1F4E1; ' + esc(name) + '</strong>' +
                 '</div>' +
                 '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + src.id.replace('vban_', '') + '">&#x274C; Supprimer</button>' +
             '</div>' +
@@ -647,7 +647,7 @@
                     '<input type="range" class="vban-gain" data-index="' + src.id.replace('vban_', '') + '" min="1" max="20" step="1" value="' + gain + '">' +
                 '</div>' +
                 '<div class="setting-item">' +
-                    '<button type="button" class="btn-mic-test vban-test-btn" data-ip="' + escAttr(ip) + '">&#x1F3B5; Tester le flux</button>' +
+                    '<button type="button" class="btn-mic-test vban-test-btn" data-ip="' + escAttr(ip) + '">&#x1F4E1; Tester le flux</button>' +
                     '<div class="vu-meter vban-test-vu" data-ip="' + escAttr(ip) + '" style="display: none;">' +
                         '<div class="vu-meter-track"><div class="vu-meter-bar vban-test-bar"></div></div>' +
                         '<span class="vu-meter-label vban-test-db">-60 dB</span>' +
