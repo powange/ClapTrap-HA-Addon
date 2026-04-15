@@ -1,2 +1,3 @@
 .history/
 data/routes/__pycache__/
+.claude/
