@@ -191,7 +191,9 @@ h1 {
     width: 1.1em;
     height: 1.1em;
     vertical-align: -0.2em;
-    background: url('../img/vban-icon.svg') center/contain no-repeat;
+    /* Le CSS est servi via /css/<ver>/style.css ; remonter 2 crans
+       pour retomber sur /static/ (handler par defaut Flask, ingress-aware). */
+    background: url('../../static/img/vban-icon.svg') center/contain no-repeat;
 }
 
 /* ===== VBAN Picker Modal ===== */

@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.13.6
+
+### Fix : 404 sur l'icone VBAN sous ingress HA
+
+- Le CSS est servi via `/css/<ver>/style.css` (endpoint Flask versionne)
+  et la resolution relative `../img/...` tombait sur `/css/img/...` qui
+  n'est pas servi.
+- Chemin corrige vers `../../static/img/vban-icon.svg` pour taper le
+  handler `/static/*` par defaut de Flask (ingress-aware).
+
 ## 6.13.5
 
 ### UI : logo VBAN officiel a la place de l'emoji
