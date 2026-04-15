@@ -776,6 +776,7 @@
                         body: JSON.stringify({enabled: micEnabled.checked})
                     }).then(function(r) { return r.json(); }).then(function() {
                         updateStartButton();
+                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
                         fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
                             if (data.running) {
                                 updateSourceDisplay(data.source);
@@ -892,6 +893,7 @@
                         body: JSON.stringify({enabled: toggle.checked})
                     }).then(function(r) { return r.json(); }).then(function() {
                         updateStartButton();
+                        if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
                         // Mettre à jour les badges sources si la détection tourne
                         fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
                             if (data.running) {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.10.3
+
+### Fix : VU-metre VBAN ignore le gain + table des sources non rafraichie
+
+- Le tap de test VBAN applique maintenant le gain configure (live
+  depuis `_vban_gains` ou fallback settings) au peak avant le calcul
+  des dB, pour refleter ce que le classifier voit reellement.
+- Les toggles enabled/disabled micro et RTSP appellent maintenant
+  `rebuildSourcesTable()` pour que la table des sources se mette a
+  jour immediatement apres la bascule (meme comportement que VBAN).
+
 ## 6.10.2
 
 ### Gain audio pour les sources VBAN

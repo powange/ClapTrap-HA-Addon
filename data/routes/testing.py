@@ -210,12 +210,31 @@ def start_vban_test():
         def _tap(peak):
             try:
                 import math as _math
-                peak_capped = min(1.0, peak)
+                # Appliquer le gain configure en live (memes conditions que la
+                # detection en cours) pour que le VU-metre reflete ce que le
+                # classifier voit reellement.
+                try:
+                    from classify import _vban_gains
+                    gain = _vban_gains.get(ip)
+                except Exception:
+                    gain = None
+                if gain is None:
+                    try:
+                        s = load_settings()
+                        for src in (s.get('saved_vban_sources') or []):
+                            if src.get('ip') == ip:
+                                gain = float(src.get('gain', 1.0))
+                                break
+                    except Exception:
+                        gain = 1.0
+                gain = gain if gain is not None else 1.0
+                peak_capped = min(1.0, peak * gain)
                 db = max(-60, 20 * _math.log10(peak_capped + 1e-10))
                 _socketio.emit('vban_level', {
                     'ip': ip,
                     'peak': peak_capped,
                     'db': round(db, 1),
+                    'gain': gain,
                 })
             except Exception:
                 pass
