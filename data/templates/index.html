@@ -51,7 +51,7 @@
         </section>
 
         <!-- History -->
-        <section class="config-card">
+        <section class="config-card history-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <h3 style="margin:0;">Historique</h3>
                 <button type="button" id="clearHistoryBtn" class="btn btn-secondary btn-sm">Effacer</button>
@@ -163,7 +163,7 @@
         </section>
 
         <!-- Wyoming STT (ESPHome voice_assistant) -->
-        <section class="config-card">
+        <section class="config-card wyoming-card">
             <div id="wyomingToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
                 <h3 style="margin:0;">&#x1F399;&#xFE0F; Wyoming STT (ESPHome voice_assistant)</h3>
                 <span id="wyomingArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
@@ -363,7 +363,7 @@
         </section>
 
         <!-- Options -->
-        <section class="config-card">
+        <section class="config-card options-card">
             <h3>Options</h3>
             <div class="settings-grid">
                 <div class="setting-item">
@@ -1576,6 +1576,39 @@
                     el.innerHTML = '';
                 }
             });
+        }
+
+        // Two-column layout : wrap sections into 2 .dash-col containers.
+        // CSS only applies at >= 960px, below that stays single-column.
+        function applyTwoColumnLayout() {
+            var dash = document.querySelector('.dashboard');
+            if (!dash || dash.classList.contains('two-cols')) return;
+
+            var col1Selectors = ['.sources-section', '.wyoming-card', '.options-card'];
+            var col2Selectors = ['.advanced-card', '.control-bar', '.history-card'];
+
+            var col1 = document.createElement('div');
+            col1.className = 'dash-col dash-col-1';
+            var col2 = document.createElement('div');
+            col2.className = 'dash-col dash-col-2';
+
+            col1Selectors.forEach(function(sel) {
+                var el = dash.querySelector(sel);
+                if (el) col1.appendChild(el);
+            });
+            col2Selectors.forEach(function(sel) {
+                var el = dash.querySelector(sel);
+                if (el) col2.appendChild(el);
+            });
+
+            dash.appendChild(col1);
+            dash.appendChild(col2);
+            dash.classList.add('two-cols');
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', applyTwoColumnLayout);
+        } else {
+            applyTwoColumnLayout();
         }
 
         // Build tabs on load

@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.13.0
+
+### UI : layout en deux colonnes sur grand ecran
+
+- A >= 960px de largeur, l'interface s'organise en deux colonnes :
+  - Colonne gauche : Gestion des sources / Wyoming STT / Options
+  - Colonne droite : Parametres avances / Detection / Historique
+- En dessous de 960px, les cartes restent empilees en une colonne
+  (tablette/mobile inchange).
+- Le reordonnancement est fait en JS au DOM ready (pas de changement
+  de l'ordre HTML), les sections gardent ainsi leur ordre semantique
+  pour l'accessibilite.
+
 ## 6.12.0
 
 ### Refactor : suppression de code mort et unification webhooks
