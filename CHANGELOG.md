@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.13.1
+
+### Fix : la layout 2 colonnes n'utilisait pas toute la largeur
+
+- `.dashboard.two-cols` avait toujours `max-width: 1400px` (herite du
+  mode une colonne pour confort de lecture). Mis a `none` : les deux
+  colonnes remplissent toute la largeur disponible.
+
 ## 6.13.0
 
 ### UI : layout en deux colonnes sur grand ecran

@@ -81,7 +81,7 @@ h1 {
     .dashboard.two-cols {
         flex-direction: row;
         align-items: flex-start;
-        max-width: 1400px;
+        max-width: none;
     }
     .dashboard.two-cols > .dash-col {
         flex: 1 1 0;
