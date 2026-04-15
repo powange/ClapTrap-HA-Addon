@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.9.1
+
+### UI : modale integree pour l'ajout de sources VBAN
+
+- Remplacement du `window.prompt()` navigateur (liste texte + numero a
+  saisir) par une vraie modale avec :
+  - liste cliquable des sources detectees (nom + IP + sample rate + channels)
+  - badge "multicast" si IP dans 224.0.0.0/4
+  - bouton "Rafraichir" pour relancer le scan
+  - formulaire "Ajout manuel" (pour IP multicast non auto-decouverte
+    ou sources dont on a l'IP hors ligne)
+
 ## 6.9.0
 
 ### Support des sources VBAN multicast (auto-detecte)

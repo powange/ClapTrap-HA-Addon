@@ -167,6 +167,143 @@ h1 {
     gap: 0.5rem;
 }
 
+/* ===== VBAN Picker Modal ===== */
+.vban-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.vban-modal {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    width: 100%;
+    max-width: 520px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.vban-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.vban-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    padding: 0 0.3rem;
+}
+
+.vban-modal-close:hover { color: var(--color-text); }
+
+.vban-modal-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.vban-modal-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.vban-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.vban-picker-row {
+    text-align: left;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    color: var(--color-text);
+}
+
+.vban-picker-row:hover {
+    background: rgba(79, 110, 247, 0.08);
+    border-color: var(--color-primary);
+}
+
+.vban-picker-row-main { font-size: 0.9rem; }
+.vban-picker-row-meta { font-size: 0.75rem; opacity: 0.7; margin-top: 0.15rem; }
+
+.vban-badge-mcast {
+    display: inline-block;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    background: rgba(245, 158, 11, 0.15);
+    color: #b45309;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: 0.4rem;
+    letter-spacing: 0.04em;
+}
+
+.vban-picker-empty {
+    text-align: center;
+    padding: 1rem;
+    color: var(--color-text-secondary);
+    font-style: italic;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.vban-picker-status {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    min-height: 1em;
+}
+
+.vban-manual-form {
+    margin-top: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.vban-manual-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+}
+
+.vban-manual-form input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 0.85rem;
+}
+
 /* ===== Sources Table (control-bar) ===== */
 .control-bar-header {
     display: flex;

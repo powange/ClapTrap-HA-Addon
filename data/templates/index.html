@@ -727,38 +727,7 @@
                   })
                   .catch(function(err) { console.error('Add RTSP error:', err); });
             } else if (type === 'vban') {
-                // Récupérer les sources VBAN détectées sur le réseau
-                fetch(basePath + '/refresh_vban_sources')
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        var sources = data.sources || [];
-                        if (sources.length === 0) {
-                            alert('Aucune source VBAN detectee sur le reseau.');
-                            return;
-                        }
-                        // Proposer la première source trouvée
-                        var names = sources.map(function(s) { return s.name + ' (' + s.ip + ')'; });
-                        var choice = prompt('Sources VBAN detectees :\n' + names.join('\n') + '\n\nEntrez le numero (1-' + sources.length + ') :');
-                        if (!choice) return;
-                        var idx = parseInt(choice) - 1;
-                        if (idx < 0 || idx >= sources.length) return;
-                        var src = sources[idx];
-                        // Sauvegarder la source VBAN
-                        fetch(basePath + '/api/vban/save', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({source: src})
-                        }).then(function(r) { return r.json(); })
-                          .then(function(result) {
-                              if (result.success) {
-                                  if (!window.settings.saved_vban_sources) window.settings.saved_vban_sources = [];
-                                  window.settings.saved_vban_sources.push(src);
-                                  buildTabs();
-                                  switchTab('vban_' + (window.settings.saved_vban_sources.length - 1));
-                              }
-                          });
-                    })
-                    .catch(function(err) { console.error('VBAN discovery error:', err); });
+                openVbanPickerModal();
             }
         }
 
@@ -1658,6 +1627,152 @@
                 attach();
             }
         })();
+    })();
+    </script>
+
+    <!-- VBAN picker modal -->
+    <div id="vbanPickerBackdrop" class="vban-modal-backdrop" style="display:none;">
+        <div class="vban-modal">
+            <div class="vban-modal-header">
+                <h3 style="margin:0;">Ajouter une source VBAN</h3>
+                <button type="button" class="vban-modal-close" id="vbanPickerClose" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="vban-modal-body">
+                <p class="setting-hint" style="margin-top:0;">
+                    Selectionne une source detectee sur le reseau ou ajoute-la manuellement.
+                </p>
+                <div id="vbanPickerList" class="vban-picker-list"></div>
+                <div id="vbanPickerStatus" class="vban-picker-status"></div>
+                <details style="margin-top:1rem;">
+                    <summary style="cursor:pointer;font-size:0.85rem;">Ajout manuel (IP multicast, source non diffusante, etc.)</summary>
+                    <div class="vban-manual-form">
+                        <label>Nom<input type="text" id="vbanManualName" placeholder="Ma source"></label>
+                        <label>IP<input type="text" id="vbanManualIp" placeholder="239.255.0.1 ou 192.168.1.10"></label>
+                        <label>Port<input type="number" id="vbanManualPort" value="6980"></label>
+                        <label>Stream name<input type="text" id="vbanManualStream" placeholder="Stream1"></label>
+                        <button type="button" class="btn btn-primary btn-sm" id="vbanManualAdd">Ajouter cette source</button>
+                    </div>
+                </details>
+            </div>
+            <div class="vban-modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" id="vbanPickerRefresh">&#x21BB; Rafraichir</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="vbanPickerCancel">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        var basePath = window.basePath || '';
+        var backdrop = null, list = null, status = null;
+        function init() {
+            backdrop = document.getElementById('vbanPickerBackdrop');
+            list = document.getElementById('vbanPickerList');
+            status = document.getElementById('vbanPickerStatus');
+            if (!backdrop) return;
+            document.getElementById('vbanPickerClose').addEventListener('click', closeModal);
+            document.getElementById('vbanPickerCancel').addEventListener('click', closeModal);
+            document.getElementById('vbanPickerRefresh').addEventListener('click', refresh);
+            document.getElementById('vbanManualAdd').addEventListener('click', addManual);
+            backdrop.addEventListener('click', function(e) {
+                if (e.target === backdrop) closeModal();
+            });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        function closeModal() {
+            if (backdrop) backdrop.style.display = 'none';
+        }
+
+        function renderSources(sources) {
+            list.innerHTML = '';
+            if (!sources || sources.length === 0) {
+                list.innerHTML = '<div class="vban-picker-empty">Aucune source VBAN detectee sur le reseau.<br>' +
+                    '<span style="font-size:0.8rem;opacity:0.7;">Tu peux l\'ajouter manuellement ci-dessous.</span></div>';
+                return;
+            }
+            sources.forEach(function(src) {
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'vban-picker-row';
+                var isMcast = /^2(2[4-9]|3\d)\./.test(src.ip || '');
+                row.innerHTML =
+                    '<div class="vban-picker-row-main">' +
+                        '<strong>' + (src.name || '(sans nom)') + '</strong>' +
+                        (isMcast ? ' <span class="vban-badge-mcast">multicast</span>' : '') +
+                    '</div>' +
+                    '<div class="vban-picker-row-meta">' + (src.ip || '') +
+                        (src.sample_rate ? ' &middot; ' + src.sample_rate + ' Hz' : '') +
+                        (src.channels ? ' &middot; ' + src.channels + ' ch' : '') + '</div>';
+                row.addEventListener('click', function() { saveSource(src); });
+                list.appendChild(row);
+            });
+        }
+
+        function refresh() {
+            status.textContent = 'Detection en cours...';
+            list.innerHTML = '<div class="vban-picker-empty" style="opacity:0.6;">Scan du reseau...</div>';
+            fetch(basePath + '/refresh_vban_sources')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    status.textContent = '';
+                    renderSources(data.sources || []);
+                })
+                .catch(function(err) {
+                    status.textContent = 'Erreur: ' + err;
+                    list.innerHTML = '';
+                });
+        }
+
+        function saveSource(src) {
+            status.textContent = 'Ajout de ' + (src.name || src.ip) + '...';
+            fetch(basePath + '/api/vban/save', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({source: src})
+            }).then(function(r) { return r.json(); })
+              .then(function(result) {
+                  if (result.success) {
+                      if (!window.settings.saved_vban_sources) window.settings.saved_vban_sources = [];
+                      window.settings.saved_vban_sources.push(src);
+                      closeModal();
+                      if (typeof buildTabs === 'function') buildTabs();
+                      if (typeof switchTab === 'function') {
+                          switchTab('vban_' + (window.settings.saved_vban_sources.length - 1));
+                      }
+                  } else {
+                      status.textContent = 'Erreur: ' + (result.error || 'inconnue');
+                  }
+              })
+              .catch(function(err) { status.textContent = 'Erreur: ' + err; });
+        }
+
+        function addManual() {
+            var name = (document.getElementById('vbanManualName').value || '').trim();
+            var ip = (document.getElementById('vbanManualIp').value || '').trim();
+            var port = parseInt(document.getElementById('vbanManualPort').value, 10) || 6980;
+            var stream = (document.getElementById('vbanManualStream').value || '').trim() || name;
+            if (!ip || !name) {
+                status.textContent = 'Nom et IP obligatoires.';
+                return;
+            }
+            saveSource({name: name, ip: ip, port: port, stream_name: stream, webhook_url: '', enabled: true});
+        }
+
+        window.openVbanPickerModal = function() {
+            if (!backdrop) init();
+            if (!backdrop) return;
+            backdrop.style.display = 'flex';
+            status.textContent = '';
+            document.getElementById('vbanManualName').value = '';
+            document.getElementById('vbanManualIp').value = '';
+            document.getElementById('vbanManualPort').value = '6980';
+            document.getElementById('vbanManualStream').value = '';
+            refresh();
+        };
     })();
     </script>
 
