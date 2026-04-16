@@ -520,6 +520,60 @@ def update_sound_exclusions():
         return jsonify({'error': str(e)}), 500
 
 
+@sources_bp.route('/api/source/sound_whitelist/cleanup', methods=['POST'])
+def cleanup_source_sound_whitelist():
+    """Retire tous les labels non coches (value=false) de la whitelist."""
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        if kind not in ('mic', 'rtsp', 'vban'):
+            return jsonify({'error': 'kind requis'}), 400
+
+        settings = load_settings()
+        target = None
+        if kind == 'mic':
+            target = settings.setdefault('microphone', {})
+        elif kind == 'rtsp':
+            for s in settings.get('rtsp_sources', []):
+                if s.get('id') == source_key:
+                    target = s
+                    break
+        elif kind == 'vban':
+            for s in settings.get('saved_vban_sources', []):
+                if s.get('ip') == source_key:
+                    target = s
+                    break
+        if target is None:
+            return jsonify({'error': 'source introuvable'}), 404
+
+        wl = target.get('sound_whitelist') or {}
+        kept = {k: v for k, v in wl.items() if v}
+        removed = len(wl) - len(kept)
+        target['sound_whitelist'] = kept
+        save_settings(settings)
+
+        # Nettoyer aussi les seen labels du detecteur actif
+        source_id = _source_id_for(kind, source_key)
+        if source_id:
+            try:
+                from classify import _active_detectors_lock, _seen_labels_by_source, _detectors_by_source_id
+                with _active_detectors_lock:
+                    seen = _seen_labels_by_source.get(source_id)
+                    if seen is not None:
+                        seen.clear()
+                        seen.update(kept.keys())
+                    det = _detectors_by_source_id.get(source_id)
+                    if det is not None:
+                        det.set_whitelist(kept)
+            except Exception:
+                pass
+
+        return jsonify({'success': True, 'removed': removed, 'remaining': len(kept)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @sources_bp.route('/api/source/sound_whitelist', methods=['DELETE'])
 def delete_source_sound_whitelist_entry():
     """Retire un label de la sound_whitelist d'une source.

@@ -678,7 +678,10 @@
             var html = '<div class="setting-item sound-whitelist-section"' +
                 ' data-kind="' + escAttr(kind) + '"' +
                 ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
-                '<label>Sons detectes</label>' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                    '<label>Sons detectes</label>' +
+                    '<button type="button" class="btn btn-secondary btn-sm sound-whitelist-cleanup" title="Supprimer les sons non coches">&#x1F5D1; Nettoyer</button>' +
+                '</div>' +
                 '<span class="setting-hint">Cocher les sons a considerer comme un clap. Les nouveaux sons detectes apparaissent automatiquement (decoches).</span>' +
                 '<div class="sound-whitelist-list">';
             if (entries.length === 0) {
@@ -1082,6 +1085,34 @@
                     },
                     stopUrl: '/api/rtsp/test/stop',
                     vuSelector: '.rtsp-test-vu'
+                });
+            });
+
+            // ---- Sound whitelist cleanup (supprime les non-coches) ----------
+            document.querySelectorAll('.sound-whitelist-cleanup').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var section = btn.closest('.sound-whitelist-section');
+                    if (!section) return;
+                    var body = {
+                        kind: section.getAttribute('data-kind'),
+                        source_key: section.getAttribute('data-source-key')
+                    };
+                    fetch(basePath + '/api/source/sound_whitelist/cleanup', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.success) {
+                            // Retirer visuellement les items non coches
+                            section.querySelectorAll('.sound-whitelist-item').forEach(function(item) {
+                                var cb = item.querySelector('.sound-whitelist-toggle');
+                                if (cb && !cb.checked) item.remove();
+                            });
+                            var list = section.querySelector('.sound-whitelist-list');
+                            if (list && list.children.length === 0) {
+                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
+                            }
+                        }
+                    });
                 });
             });
 

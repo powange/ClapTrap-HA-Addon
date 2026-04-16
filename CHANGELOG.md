@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.17.5
+
+### UI : bouton "Nettoyer" dans les sons detectes par source
+
+- Bouton poubelle a cote du titre "Sons detectes" qui supprime tous
+  les labels non coches d'un coup. Les coches (sons actifs dans la
+  detection) sont preserves.
+- Endpoint `POST /api/source/sound_whitelist/cleanup {kind, source_key}`.
+- Nettoie aussi le "seen set" du detecteur actif pour que les labels
+  supprimes puissent etre re-proposes s'ils reapparaissent.
+
 ## 6.17.4
 
 ### Fix : seuils de logging en dur remplaces par score_threshold
