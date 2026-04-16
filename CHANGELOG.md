@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.16.1
+
+### Fix : suppression d'une source VBAN ne persistait pas
+
+- Le JS envoyait `{source: {...}}` au lieu de `{...}` directement —
+  le backend cherchait `ip` et `stream_name` a la racine, ne les
+  trouvait pas, renvoyait 400 silencieusement. L'onglet disparaissait
+  localement mais revenait au reload.
+
 ## 6.16.0
 
 ### Nouvelle carte : exclusions de sons globales

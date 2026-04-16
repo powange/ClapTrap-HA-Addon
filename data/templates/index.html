@@ -1268,7 +1268,7 @@
                     fetch(basePath + '/api/vban/remove', {
                         method: 'DELETE',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({source: vbanSrc})
+                        body: JSON.stringify(vbanSrc)
                     }).then(function(r) { return r.json(); })
                       .then(function(data) {
                           settings.saved_vban_sources.splice(idx, 1);
