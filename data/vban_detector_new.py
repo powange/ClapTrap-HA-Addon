@@ -213,10 +213,17 @@ class VBANDetector:
                             self._buf[self._buf_len:self._buf_len + n] = audio_data
                             self._buf_len += n
 
-                            # Appeler le callback audio si nous avons assez d'échantillons
-                            if self.audio_callback and self._buf_len >= self.target_sample_rate:
-                                audio_chunk = self._buf[:self.target_sample_rate].copy()
-                                self._buf_len = 0
+                            # Emettre par paquets de 100ms (1600 echantillons a
+                            # 16 kHz). Plus fin que 1 seconde : permet au
+                            # detecteur de pics de separer deux claps rapides.
+                            emit_samples = 1600
+                            while self.audio_callback and self._buf_len >= emit_samples:
+                                audio_chunk = self._buf[:emit_samples].copy()
+                                # Decaler le ring buffer
+                                remaining = self._buf_len - emit_samples
+                                if remaining > 0:
+                                    self._buf[:remaining] = self._buf[emit_samples:self._buf_len]
+                                self._buf_len = remaining
                                 current_time = time.time()
                                 self.audio_callback(audio_chunk, current_time)
                         

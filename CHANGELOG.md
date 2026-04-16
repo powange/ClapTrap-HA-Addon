@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.14.5
+
+### Fix : 2 claps rapides comptes comme 1 seul sur les sources VBAN
+
+- Le recepteur VBAN bufferisait 1 seconde avant d'appeler le
+  detecteur. Resultat : `process_audio` voyait un seul peak pour
+  l'ensemble du chunk, meme si 2 claps distincts se trouvaient
+  dedans (0.7 s d'ecart typiquement).
+- Emission par paquets de 100 ms (1600 echantillons a 16 kHz),
+  meme granularite que le micro et RTSP, donc le compteur de peaks
+  separe correctement les claps rapides.
+
 ## 6.14.4
 
 ### Fix : mapping RTSP source_id pour la mise a jour live de la whitelist
