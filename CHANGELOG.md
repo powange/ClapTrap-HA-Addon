@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.16.0
+
+### Nouvelle carte : exclusions de sons globales
+
+- Sous "Reglages de detection", nouvelle carte collapsible "Exclusions
+  globales" avec deux listes :
+  - **Exclus** : labels ignores par toutes les sources meme s'ils sont
+    coches dans la whitelist d'une source. Bouton x pour retirer.
+  - **Autres sons detectes** : union de tous les labels deja vus par
+    n'importe quelle source (diff: - exclus). Cocher un item le deplace
+    dans la liste d'exclusion.
+- Nouveau champ persistant `settings.global.sound_exclusions: [...]`.
+- Scoring audio modifie pour ignorer les labels exclus :
+  `score = sum(cat.score if whitelist[cat] and cat not in exclusions)`.
+- Endpoints :
+  - `GET  /api/sound_exclusions` -> `{excluded, available}`
+  - `PUT  /api/sound_exclusions {label, excluded}`
+- Mise a jour live via `update_global_exclusions(labels)` sur tous les
+  detecteurs actifs, sans restart.
+- Rafraichissement automatique de la liste "autres sons" quand un
+  nouveau label est decouvert en auto-discovery (event `sound_seen`).
+
 ## 6.15.1
 
 ### UI : bouton "Reinitialiser" dans les reglages de detection

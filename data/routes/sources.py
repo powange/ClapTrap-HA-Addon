@@ -471,6 +471,55 @@ def update_vban_source():
         }), 500
 
 
+@sources_bp.route('/api/sound_exclusions', methods=['GET'])
+def get_sound_exclusions():
+    """Retourne les exclusions globales et la liste des labels connus."""
+    try:
+        settings = load_settings()
+        excluded = list(settings.get('global', {}).get('sound_exclusions', []) or [])
+        try:
+            from classify import get_all_known_labels
+            known = get_all_known_labels()
+        except Exception:
+            known = []
+        # Les exclus ne doivent pas reapparaitre dans les "autres sons"
+        available = sorted([l for l in known if l not in excluded])
+        return jsonify({'excluded': sorted(excluded), 'available': available})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@sources_bp.route('/api/sound_exclusions', methods=['PUT'])
+def update_sound_exclusions():
+    """Ajoute ou retire un label des exclusions globales.
+
+    Body: {label: str, excluded: bool}
+    """
+    try:
+        data = request.get_json() or {}
+        label = (data.get('label') or '').strip()
+        excluded = bool(data.get('excluded', False))
+        if not label:
+            return jsonify({'error': 'label requis'}), 400
+        settings = load_settings()
+        g = settings.setdefault('global', {})
+        lst = list(g.get('sound_exclusions', []) or [])
+        if excluded and label not in lst:
+            lst.append(label)
+        elif not excluded and label in lst:
+            lst.remove(label)
+        g['sound_exclusions'] = lst
+        save_settings(settings)
+        try:
+            from classify import update_global_exclusions
+            update_global_exclusions(lst)
+        except Exception:
+            pass
+        return jsonify({'success': True, 'excluded': sorted(lst)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @sources_bp.route('/api/source/sound_whitelist', methods=['DELETE'])
 def delete_source_sound_whitelist_entry():
     """Retire un label de la sound_whitelist d'une source.

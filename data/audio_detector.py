@@ -36,11 +36,16 @@ class AudioDetector:
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
         self._peak_reset = 0.3  # delai apres lequel 'above' est force a False meme si l'amplitude reste haute
         self._whitelist = {}  # {label_name: True} — sons que l'utilisateur a coches comme "clap"
+        self._exclusions = set()  # labels exclus globalement (prioritaire sur whitelist)
         self._sound_seen_callback = None  # callable({label, score}) pour l'auto-decouverte
 
     def set_whitelist(self, whitelist):
         """Met a jour la whitelist de sons (appele en direct sans restart)."""
         self._whitelist = dict(whitelist or {})
+
+    def set_exclusions(self, labels):
+        """Met a jour les exclusions globales (appele en direct sans restart)."""
+        self._exclusions = set(labels or [])
 
     def set_sound_seen_callback(self, cb):
         self._sound_seen_callback = cb
@@ -133,11 +138,14 @@ class AudioDetector:
             classification = result.classifications[0]
 
             whitelist = self._whitelist or {}
+            exclusions = self._exclusions or set()
 
-            # Scoring : somme des scores des labels coches par l'utilisateur.
+            # Scoring : somme des scores des labels coches par l'utilisateur,
+            # en retirant les exclusions globales.
             score_sum = sum(
                 cat.score for cat in classification.categories
                 if whitelist.get(cat.category_name, False)
+                and cat.category_name not in exclusions
             )
 
             # Auto-decouverte : emettre chaque label au-dessus du seuil pour

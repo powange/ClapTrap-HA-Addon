@@ -157,6 +157,42 @@
             </div>
         </section>
 
+        <!-- Global sound exclusions -->
+        <section class="config-card exclusions-card">
+            <div id="exclusionsToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;font-size:0.85rem;">Exclusions globales</h3>
+                <span id="exclusionsArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
+            </div>
+            <div id="exclusionsContent" style="display:none;margin-top:0.75rem;">
+                <p class="setting-hint" style="margin-top:0;">
+                    Les sons de cette liste sont ignores par toutes les sources meme
+                    s'ils sont coches dans leur whitelist individuelle.
+                </p>
+                <label class="form-label">Sons exclus</label>
+                <div id="excludedSoundsList" class="sound-whitelist-list"></div>
+                <label class="form-label" style="margin-top:0.75rem;">Autres sons detectes</label>
+                <span class="setting-hint">Cocher un son ci-dessous l'ajoute aux exclusions.</span>
+                <div id="availableSoundsList" class="sound-whitelist-list"></div>
+            </div>
+            <script>
+                (function() {
+                    var tgl = document.getElementById('exclusionsToggle');
+                    var body = document.getElementById('exclusionsContent');
+                    var arrow = document.getElementById('exclusionsArrow');
+                    if (tgl && body) {
+                        tgl.addEventListener('click', function() {
+                            var open = body.style.display !== 'none';
+                            body.style.display = open ? 'none' : 'block';
+                            if (arrow) arrow.innerHTML = open ? '&#x25BC;' : '&#x25B2;';
+                            if (!open && typeof window.loadSoundExclusions === 'function') {
+                                window.loadSoundExclusions();
+                            }
+                        });
+                    }
+                })();
+            </script>
+        </section>
+
         <!-- Sources Tabs -->
         <section class="sources-section">
             <div class="tabs-header" style="position:relative;">
@@ -1465,6 +1501,69 @@
             }
         });
 
+        // ===== Global sound exclusions =====
+        (function() {
+            var basePath = window.basePath || '';
+            function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+            function escAttr2(s) { return escHtml(s).replace(/"/g,'&quot;'); }
+
+            function render(excluded, available) {
+                var excl = document.getElementById('excludedSoundsList');
+                var avail = document.getElementById('availableSoundsList');
+                if (!excl || !avail) return;
+                excl.innerHTML = '';
+                if (!excluded.length) {
+                    excl.innerHTML = '<div class="sound-whitelist-empty">Aucune exclusion.</div>';
+                } else {
+                    excluded.forEach(function(label) {
+                        var item = document.createElement('span');
+                        item.className = 'sound-whitelist-item';
+                        item.innerHTML = '<span>' + escHtml(label) + '</span>' +
+                            '<button type="button" class="sound-whitelist-remove" title="Retirer de la liste">&#x00D7;</button>';
+                        item.querySelector('button').addEventListener('click', function() {
+                            toggle(label, false);
+                        });
+                        excl.appendChild(item);
+                    });
+                }
+                avail.innerHTML = '';
+                if (!available.length) {
+                    avail.innerHTML = '<div class="sound-whitelist-empty">Aucun autre son connu.</div>';
+                } else {
+                    available.forEach(function(label) {
+                        var item = document.createElement('label');
+                        item.className = 'sound-whitelist-item';
+                        item.innerHTML = '<input type="checkbox"> <span>' + escHtml(label) + '</span>';
+                        item.querySelector('input').addEventListener('change', function(e) {
+                            toggle(label, e.target.checked);
+                        });
+                        avail.appendChild(item);
+                    });
+                }
+            }
+
+            function load() {
+                fetch(basePath + '/api/sound_exclusions')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) { render(data.excluded || [], data.available || []); })
+                    .catch(function() {});
+            }
+
+            function toggle(label, excluded) {
+                fetch(basePath + '/api/sound_exclusions', {
+                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({label: label, excluded: excluded})
+                }).then(function(r) { return r.json(); }).then(function() { load(); });
+            }
+
+            window.loadSoundExclusions = load;
+            // Recharger quand un nouveau son apparait (auto-decouverte source)
+            document.addEventListener('DOMContentLoaded', function() {
+                // Le socket listener sound_seen deja en place declenche load via
+                // window.loadSoundExclusions (ajoute plus loin).
+            });
+        })();
+
         // Advanced settings: reset to defaults
         (function() {
             var btn = document.getElementById('advancedResetBtn');
@@ -1619,6 +1718,12 @@
                         });
                         list.appendChild(row);
                     });
+                    // Rafraichir aussi la liste d'exclusions globales si ouverte
+                    var exclBody = document.getElementById('exclusionsContent');
+                    if (exclBody && exclBody.style.display !== 'none' &&
+                        typeof window.loadSoundExclusions === 'function') {
+                        window.loadSoundExclusions();
+                    }
                 });
 
                 // VBAN test VU-metre
@@ -1754,7 +1859,7 @@
             if (!dash || dash.classList.contains('two-cols')) return;
 
             var col1Selectors = ['.sources-section', '.wyoming-card', '.options-card'];
-            var col2Selectors = ['.advanced-card', '.control-bar', '.history-card'];
+            var col2Selectors = ['.advanced-card', '.exclusions-card', '.control-bar', '.history-card'];
 
             var col1 = document.createElement('div');
             col1.className = 'dash-col dash-col-1';

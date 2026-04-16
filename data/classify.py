@@ -234,6 +234,13 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                           clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio,
                           peak_reset=peak_reset)
             det.set_whitelist(whitelist or DEFAULT_SOUND_WHITELIST)
+            # Exclusions globales courantes
+            try:
+                current_settings = load_settings()
+                exclusions = current_settings.get('global', {}).get('sound_exclusions', []) or []
+                det.set_exclusions(exclusions)
+            except Exception:
+                pass
             det.set_sound_seen_callback(_build_sound_seen_handler(source_id))
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
@@ -593,6 +600,32 @@ def update_source_whitelist(source_id, label, enabled):
             wl[label] = False
         det.set_whitelist(wl)
         return True
+
+
+def update_global_exclusions(labels):
+    """Applique un nouveau set d'exclusions a tous les detecteurs actifs."""
+    with _active_detectors_lock:
+        for det in _active_detectors:
+            det.set_exclusions(labels)
+
+
+def get_all_known_labels():
+    """Union de tous les labels deja vus par n'importe quelle source.
+
+    Prend les cles des `sound_whitelist` de chaque source configuree.
+    Cas micro : on regarde `microphone.sound_whitelist`. RTSP : chaque
+    entree `rtsp_sources[i].sound_whitelist`. VBAN : chaque entree
+    `saved_vban_sources[i].sound_whitelist`.
+    """
+    settings = load_settings()
+    known = set()
+    mic = settings.get('microphone', {}) or {}
+    known.update((mic.get('sound_whitelist') or {}).keys())
+    for s in settings.get('rtsp_sources', []) or []:
+        known.update((s.get('sound_whitelist') or {}).keys())
+    for s in settings.get('saved_vban_sources', []) or []:
+        known.update((s.get('sound_whitelist') or {}).keys())
+    return sorted(known)
 
 
 def remove_source_whitelist_entry(source_id, label):

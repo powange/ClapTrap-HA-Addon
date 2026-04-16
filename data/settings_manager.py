@@ -22,7 +22,8 @@ DEFAULT_SETTINGS = {
         "debug": False,
         "peak_cooldown": 0.08,
         "peak_ratio": 3.0,
-        "peak_reset": 0.3
+        "peak_reset": 0.3,
+        "sound_exclusions": []
     },
     "microphone": {
         "device_index": 0,
