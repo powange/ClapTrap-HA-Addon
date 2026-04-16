@@ -473,7 +473,6 @@ h1 {
 .sources-table .source-type-badge.type-mic   { background: rgba(34, 197, 94, 0.12);  color: #15803d; }
 .sources-table .source-type-badge.type-rtsp  { background: rgba(168, 85, 247, 0.12); color: #7e22ce; }
 .sources-table .source-type-badge.type-vban  { background: rgba(245, 158, 11, 0.12); color: #b45309; }
-.sources-table .source-type-badge.type-wyo   { background: rgba(14, 165, 233, 0.12); color: #0369a1; }
 
 .sources-table .detection-cell {
     color: var(--color-text-secondary);

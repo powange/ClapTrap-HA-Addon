@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.18.0
+
+### Suppression du module Wyoming STT
+
+- Retrait complet de la fonctionnalite Wyoming STT (ESPHome voice_assistant
+  interceptor) : serveur, UI, route API, discovery, documentation.
+- Fichiers supprimes : `data/wyoming_server.py`.
+- Dependance `wyoming>=1.5` retiree de `requirements.txt`.
+- Port 10700 et `discovery: [wyoming]` retires de `config.yaml`.
+- Les sources existantes (micro, RTSP, VBAN) ne sont pas affectees.
+
 ## 6.17.7
 
 ### UI : badge unicast / multicast sur les sources VBAN

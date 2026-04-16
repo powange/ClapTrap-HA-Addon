@@ -50,8 +50,8 @@ _shared_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="webhook
 
 def send_webhook_async(url, payload):
     """Envoie un webhook en arriere-plan (pool partage) avec retry via la
-    Session de `WebhookManager`. Tous les chemins de detection (mic/RTSP/VBAN
-    et Wyoming) passent par cette fonction pour homogeneiser:
+    Session de `WebhookManager`. Tous les chemins de detection (mic/RTSP/VBAN)
+    passent par cette fonction pour homogeneiser:
     validation d'URL, retry, timeouts, logging.
     """
     if not url:

@@ -137,19 +137,7 @@ import atexit
 def cleanup():
     """Nettoie les ressources lors de l'arrêt"""
     cleanup_vban_detector()
-    try:
-        from wyoming_server import stop_wyoming
-        stop_wyoming()
-    except Exception:
-        pass
 
-
-# Démarrer le serveur Wyoming (interception STT ESPHome) si active dans les settings
-try:
-    from wyoming_server import start_wyoming_if_enabled
-    start_wyoming_if_enabled(socketio)
-except Exception as _e:
-    logging.warning(f"Wyoming server init: {_e}")
 
 class VBANSource:
     def __init__(self, name, ip, port, stream_name, webhook_url, enabled=True):
@@ -401,10 +389,7 @@ if __name__ == '__main__':
                     logging.info(f"Auto-start: détection démarrée ({source_display})")
                     socketio.emit('detection_status', {'status': 'running', 'source': source_display})
                 else:
-                    if s.get('wyoming', {}).get('enabled', False):
-                        logging.info("Auto-start: aucune source classify (mic/rtsp/vban) activee — seul le serveur Wyoming tourne (independant).")
-                    else:
-                        logging.warning("Auto-start: aucune source activée")
+                    logging.warning("Auto-start: aucune source activée")
             except Exception as e:
                 logging.error(f"Auto-start: erreur - {e}")
 

@@ -48,17 +48,6 @@ const settingsSchema = {
             webhook_url: '',
             enabled: false
         }
-    },
-    wyoming: {
-        required: ['enabled', 'port', 'forward_host', 'forward_port', 'webhook_url', 'threshold'],
-        defaults: {
-            enabled: false,
-            port: 10700,
-            forward_host: '',
-            forward_port: 10300,
-            webhook_url: '',
-            threshold: 0.5
-        }
     }
 };
 

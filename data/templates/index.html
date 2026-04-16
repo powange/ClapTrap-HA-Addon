@@ -208,207 +208,6 @@
             </div>
             <div id="source-tab-content"></div>
         </section>
-
-        <!-- Wyoming STT (ESPHome voice_assistant) -->
-        <section class="config-card wyoming-card">
-            <div id="wyomingToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
-                <h3 style="margin:0;">&#x1F399;&#xFE0F; Wyoming STT (ESPHome voice_assistant)</h3>
-                <span id="wyomingArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
-            </div>
-            <div id="wyomingContent" style="display:none;margin-top:0.75rem;">
-                <p class="setting-hint" style="margin-top:0;">
-                    Serveur Wyoming qui intercepte les flux audio des Atom Echo (ou autres appareils ESPHome
-                    <code>voice_assistant</code>), detecte les claps via YAMNet, et transmet le flux au serveur
-                    Whisper reel pour que le pipeline Home Assistant (STT + TTS) continue normalement.
-                </p>
-                <div class="settings-grid">
-                    <div class="setting-item">
-                        <div class="control-setting">
-                            <label>Activer :</label>
-                            <label class="switch">
-                                <input type="checkbox" id="wyoming-enabled"
-                                       {% if settings.get('wyoming', {}).get('enabled', false) %}checked{% endif %}>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                        <span class="setting-hint">Redemarrer l'addon apres avoir active/desactive.</span>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-port">Port d'ecoute</label>
-                        <span class="setting-hint">Port Wyoming expose aux Atoms (STT dans HA -> ClapTrap:PORT).</span>
-                        <div class="setting-control">
-                            <input type="number" id="wyoming-port" min="1" max="65535"
-                                   value="{{ settings.get('wyoming', {}).get('port', 10700) }}">
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-forward-target">Cible Whisper detectee</label>
-                        <span class="setting-hint">Services Wyoming connus du supervisor. Selectionner remplit host + port.</span>
-                        <div class="setting-control" style="display:flex;gap:0.4rem;align-items:center;">
-                            <select id="wyoming-forward-target" style="flex:1;">
-                                <option value="">-- detecter / saisir manuellement --</option>
-                            </select>
-                            <button type="button" id="wyoming-refresh-targets" class="btn btn-secondary btn-sm" title="Rafraichir">&#x21BB;</button>
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-forward-host">Whisper - host</label>
-                        <span class="setting-hint">Adresse du serveur Whisper Wyoming reel (ex: <code>core-whisper</code> ou <code>192.168.1.20</code>).</span>
-                        <div class="setting-control">
-                            <input type="text" id="wyoming-forward-host"
-                                   value="{{ settings.get('wyoming', {}).get('forward_host', '') }}"
-                                   placeholder="core-whisper">
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-forward-port">Whisper - port</label>
-                        <span class="setting-hint">Port Wyoming du serveur Whisper (defaut : 10300).</span>
-                        <div class="setting-control">
-                            <input type="number" id="wyoming-forward-port" min="1" max="65535"
-                                   value="{{ settings.get('wyoming', {}).get('forward_port', 10300) }}">
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-threshold">Seuil de detection</label>
-                        <span class="setting-hint">Seuil YAMNet pour les claps sur les flux Wyoming (0 a 1).</span>
-                        <div class="setting-control">
-                            <input type="number" id="wyoming-threshold" min="0" max="1" step="0.05"
-                                   value="{{ settings.get('wyoming', {}).get('threshold', 0.5) }}">
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="wyoming-webhook-url">Webhook (clap detecte)</label>
-                        <span class="setting-hint">Payload envoye : <code>{"event":"clap_detected","source":"&lt;hostname&gt;","count":N}</code></span>
-                        <div class="setting-control">
-                            <input type="url" id="wyoming-webhook-url"
-                                   value="{{ settings.get('wyoming', {}).get('webhook_url', '') }}"
-                                   placeholder="https://votre-serveur.com/webhook">
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    var tgl = document.getElementById('wyomingToggle');
-                    var body = document.getElementById('wyomingContent');
-                    var arrow = document.getElementById('wyomingArrow');
-                    if (tgl && body) {
-                        tgl.addEventListener('click', function() {
-                            var open = body.style.display !== 'none';
-                            body.style.display = open ? 'none' : 'block';
-                            if (arrow) arrow.innerHTML = open ? '&#x25BC;' : '&#x25B2;';
-                        });
-                    }
-
-                    // Auto-save (debounced) — POST partiel {wyoming: {...}} vers /api/settings/save
-                    var fields = {
-                        enabled:      {el: document.getElementById('wyoming-enabled'),      type: 'bool'},
-                        port:         {el: document.getElementById('wyoming-port'),         type: 'int'},
-                        forward_host: {el: document.getElementById('wyoming-forward-host'), type: 'str'},
-                        forward_port: {el: document.getElementById('wyoming-forward-port'), type: 'int'},
-                        threshold:    {el: document.getElementById('wyoming-threshold'),    type: 'float'},
-                        webhook_url:  {el: document.getElementById('wyoming-webhook-url'),  type: 'str'}
-                    };
-                    var saveTimer = null;
-
-                    function buildPayload() {
-                        var w = {};
-                        Object.keys(fields).forEach(function(k) {
-                            var f = fields[k];
-                            if (!f.el) return;
-                            if (f.type === 'bool')  w[k] = f.el.checked;
-                            else if (f.type === 'int')   w[k] = parseInt(f.el.value, 10) || 0;
-                            else if (f.type === 'float') w[k] = parseFloat(f.el.value) || 0;
-                            else                         w[k] = (f.el.value || '').trim();
-                        });
-                        return {wyoming: w};
-                    }
-
-                    function persist() {
-                        var payload = buildPayload();
-                        var basePath = window.basePath || '';
-                        fetch(basePath + '/api/settings/save', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify(payload)
-                        }).then(function(r) {
-                            if (r.ok) {
-                                window.settings = window.settings || {};
-                                window.settings.wyoming = payload.wyoming;
-                                var n = document.getElementById('success');
-                                if (n) {
-                                    n.textContent = 'Wyoming : parametres sauvegardes';
-                                    n.style.display = 'block';
-                                    setTimeout(function() { n.style.display = 'none'; }, 1500);
-                                }
-                            }
-                        }).catch(function() {});
-                    }
-
-                    function schedule() {
-                        clearTimeout(saveTimer);
-                        saveTimer = setTimeout(persist, 400);
-                    }
-
-                    Object.keys(fields).forEach(function(k) {
-                        var f = fields[k];
-                        if (!f.el) return;
-                        var evt = (f.type === 'bool') ? 'change' : 'input';
-                        f.el.addEventListener(evt, schedule);
-                        if (f.type !== 'bool') f.el.addEventListener('change', schedule);
-                    });
-
-                    // ===== Detection cibles Whisper Wyoming =====
-                    var sel = document.getElementById('wyoming-forward-target');
-                    var btn = document.getElementById('wyoming-refresh-targets');
-                    function loadTargets() {
-                        if (!sel) return;
-                        var basePath = window.basePath || '';
-                        fetch(basePath + '/api/wyoming/discover-targets')
-                            .then(function(r) { return r.json(); })
-                            .then(function(j) {
-                                var current = (window.settings && window.settings.wyoming) || {};
-                                var existing = current.forward_host + ':' + (current.forward_port || 10300);
-                                sel.innerHTML = '<option value="">-- detecter / saisir manuellement --</option>';
-                                (j.targets || []).forEach(function(t) {
-                                    var opt = document.createElement('option');
-                                    opt.value = t.host + '|' + t.port;
-                                    opt.textContent = t.name + ' (' + t.host + ':' + t.port + ')';
-                                    if ((t.host + ':' + t.port) === existing) opt.selected = true;
-                                    sel.appendChild(opt);
-                                });
-                                if ((j.targets || []).length === 0) {
-                                    var opt = document.createElement('option');
-                                    opt.value = '';
-                                    var meta = j._meta || {};
-                                    var errs = meta.errors || {};
-                                    var errStr = Object.keys(errs).map(function(k){return k+'='+errs[k];}).join(' ');
-                                    opt.textContent = 'Aucun service detecte (addons:' +
-                                        (meta.installed_count || 0) + ', discovery:' +
-                                        (meta.discovery_count || 0) + ', ha:' +
-                                        (meta.ha_entries_count || 0) +
-                                        (errStr ? ' | ' + errStr : '') + ')';
-                                    opt.disabled = true;
-                                    sel.appendChild(opt);
-                                }
-                            })
-                            .catch(function() {});
-                    }
-                    if (sel) {
-                        sel.addEventListener('change', function() {
-                            if (!sel.value) return;
-                            var parts = sel.value.split('|');
-                            if (fields.forward_host.el) fields.forward_host.el.value = parts[0] || '';
-                            if (fields.forward_port.el) fields.forward_port.el.value = parts[1] || '10300';
-                            schedule();
-                        });
-                    }
-                    if (btn) btn.addEventListener('click', loadTargets);
-                    loadTargets();
-                });
-            </script>
-        </section>
-
         <!-- Options -->
         <section class="config-card options-card">
             <h3>Options</h3>
@@ -1895,7 +1694,7 @@
             var dash = document.querySelector('.dashboard');
             if (!dash || dash.classList.contains('two-cols')) return;
 
-            var col1Selectors = ['.sources-section', '.wyoming-card', '.options-card'];
+            var col1Selectors = ['.sources-section', '.options-card'];
             var col2Selectors = ['.advanced-card', '.exclusions-card', '.control-bar', '.history-card'];
 
             var col1 = document.createElement('div');
@@ -1936,7 +1735,7 @@
         var _detLabelTimers = {};    // key -> timeout id pour le clear du label
 
         function _typeBadge(type) {
-            var labels = {mic: 'MIC', rtsp: 'RTSP', vban: 'VBAN', wyo: 'WYO'};
+            var labels = {mic: 'MIC', rtsp: 'RTSP', vban: 'VBAN'};
             return '<span class="source-type-badge type-' + type + '">' + (labels[type] || type) + '</span>';
         }
 
@@ -1981,15 +1780,6 @@
                 if (src.enabled === false) return;
                 _addSourceRow('vban_' + src.ip, 'vban', src.name || src.ip);
             });
-            // Wyoming (umbrella row : les Atoms apparaitront en lignes filles a la connexion)
-            if (s.wyoming && s.wyoming.enabled) {
-                var port = s.wyoming.port || 10700;
-                var tr = _addSourceRow('wyoming_server', 'wyo', 'Wyoming STT (port ' + port + ')');
-                if (tr) {
-                    var cell = tr.querySelector('.detection-cell');
-                    if (cell) cell.innerHTML = '<span style="opacity:0.5;font-style:italic;">En attente d\'un client...</span>';
-                }
-            }
 
             if (Object.keys(_sourceRowsByKey).length === 0) {
                 var tr = document.createElement('tr');
@@ -2002,11 +1792,6 @@
         function _findRow(sourceId) {
             if (!sourceId) return null;
             if (_sourceRowsByKey[sourceId]) return _sourceRowsByKey[sourceId];
-            // Wyoming dynamic : ajoute la ligne au premier evt
-            if (sourceId.indexOf('wyoming_') === 0) {
-                var host = sourceId.replace('wyoming_', '');
-                return _addSourceRow(sourceId, 'wyo', 'Wyoming: ' + host);
-            }
             return null;
         }
 
