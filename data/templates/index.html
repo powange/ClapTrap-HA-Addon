@@ -712,10 +712,16 @@
             var ip = d.ip || '';
             var port = d.port || '';
 
+            var isMulticast = /^2(2[4-9]|3\d)\./.test(ip);
+            var castBadge = isMulticast
+                ? '<span class="vban-cast-badge mcast">multicast</span>'
+                : '<span class="vban-cast-badge ucast">unicast</span>';
+
             return '<div class="source-header">' +
                 '<div style="display:flex;align-items:center;gap:0.5rem;">' +
                     '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="vban-enabled-toggle" data-index="' + src.id.replace('vban_', '') + '"' + enabledAttr + '><span class="slider round"></span></label>' +
                     '<strong><span class="source-type-icon icon-vban"></span> ' + esc(name) + '</strong>' +
+                    castBadge +
                 '</div>' +
                 '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + src.id.replace('vban_', '') + '">&#x274C; Supprimer</button>' +
             '</div>' +

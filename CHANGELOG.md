@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.17.7
+
+### UI : badge unicast / multicast sur les sources VBAN
+
+- Chaque source VBAN affiche un badge "unicast" (bleu) ou "multicast"
+  (orange) a cote du nom dans l'en-tete de son onglet.
+- Detection automatique via l'IP : 224.0.0.0/4 → multicast, sinon
+  unicast. Aucun champ supplementaire dans settings.
+
 ## 6.17.6
 
 ### Fix : noms d'entites HA etires sur toute la largeur
