@@ -163,12 +163,12 @@ class AudioDetector:
 
             all_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories]
             hot_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
-                          if whitelist.get(c.category_name, False) and c.score > 0.1]
+                          if whitelist.get(c.category_name, False) and c.score >= self.score_threshold]
             if hot_labels or self._result_count <= 10 or self._result_count % 100 == 0:
                 logging.info(f"[{self._source_label}] labels={all_labels}")
 
             # Log du score calculé
-            if score_sum > 0.1:
+            if score_sum > self.score_threshold * 0.2:
                 logging.debug(f"Score de clap calculé pour {self._source_label}: {score_sum}")
 
             # Préparer les labels pour le callback (sans les exclusions globales,

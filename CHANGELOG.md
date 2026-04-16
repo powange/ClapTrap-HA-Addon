@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.17.4
+
+### Fix : seuils de logging en dur remplaces par score_threshold
+
+- `hot_labels` log : `score > 0.1` → `score >= self.score_threshold`.
+- `score_sum` debug log : `> 0.1` → `> self.score_threshold * 0.2`
+  (20% du seuil : log quand on approche d'une detection, pas sur du
+  bruit irrelevant).
+
 ## 6.17.3
 
 ### Fix : labels sous le seuil de precision affiches dans Detection
