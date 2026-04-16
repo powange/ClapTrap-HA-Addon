@@ -185,6 +185,44 @@ h1 {
     gap: 0.5rem;
 }
 
+/* ===== Sound whitelist (per source) ===== */
+.sound-whitelist-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.6rem;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.3rem;
+    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+}
+
+.sound-whitelist-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    user-select: none;
+}
+
+.sound-whitelist-item input[type="checkbox"] { margin: 0; }
+.sound-whitelist-item.new {
+    animation: fadeIn 0.3s ease;
+    border-color: var(--color-primary);
+}
+
+.sound-whitelist-empty {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    font-style: italic;
+    padding: 0.3rem;
+}
+
 /* ===== Source type icons ===== */
 .source-type-icon.icon-vban {
     display: inline-block;

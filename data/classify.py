@@ -23,6 +23,9 @@ from webhook import send_webhook_async
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 
 
+DEFAULT_SOUND_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
+
+
 def build_sources_from_settings(settings):
     """Construit la liste des sources depuis les settings."""
     sources = []
@@ -32,9 +35,11 @@ def build_sources_from_settings(settings):
         mic_name = mic.get('audio_source', 'default')
         sources.append({
             'type': 'mic', 'audio_source': mic_name,
+            'source_key': str(mic.get('device_index', 0)),
             'webhook_url': mic.get('webhook_url', ''),
             'threshold': float(mic.get('threshold', global_threshold)),
             'ha_entities': mic.get('ha_entities', [1, 2]),
+            'sound_whitelist': dict(mic.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
             'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
         })
     for src in settings.get('rtsp_sources', []):
@@ -42,21 +47,25 @@ def build_sources_from_settings(settings):
             url = src['url'] if src['url'].startswith('rtsp') else f"rtsp://{src['url']}"
             sources.append({
                 'type': 'rtsp', 'stream_id': src.get('id', ''),
+                'source_key': src.get('id', ''),
                 'audio_source': url, 'rtsp_url': src['url'],
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': src.get('gain', 10),
                 'threshold': float(src.get('threshold', global_threshold)),
                 'ha_entities': src.get('ha_entities', [1, 2]),
+                'sound_whitelist': dict(src.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
                 'label': f'RTSP: {src.get("name", src["url"][:30])}'
             })
     for src in settings.get('saved_vban_sources', []):
         if src.get('enabled', True):
             sources.append({
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
+                'source_key': src.get('ip', ''),
                 'webhook_url': src.get('webhook_url', ''),
                 'threshold': float(src.get('threshold', global_threshold)),
                 'gain': float(src.get('gain', 1)),
                 'ha_entities': src.get('ha_entities', [1, 2]),
+                'sound_whitelist': dict(src.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
                 'label': f'VBAN: {src.get("name", src["ip"])}'
             })
     return sources
@@ -76,6 +85,12 @@ _rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
 _vban_gains = {}  # {vban_ip: volume_float} — modifiable en temps réel
 _active_detectors = []  # Liste des AudioDetector actifs (pour mise à jour en temps réel)
 _active_detectors_lock = threading.Lock()
+# Registre source_id -> AudioDetector actif, pour la mise à jour live de la whitelist
+_detectors_by_source_id = {}
+# Ensemble des labels déjà "vus" pour chaque source (évite les emits en boucle)
+_seen_labels_by_source = {}
+# Mapping source_id -> (kind, source_key) pour savoir où écrire dans les settings
+_source_info_by_id = {}
 
 
 def reload_settings():
@@ -207,11 +222,14 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None, clap_counts=None):
+        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None,
+                             clap_counts=None, whitelist=None, kind=None, source_key=None):
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
             det.initialize(max_results=max_results, score_threshold=threshold or score_threshold,
                           clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
+            det.set_whitelist(whitelist or DEFAULT_SOUND_WHITELIST)
+            det.set_sound_seen_callback(_build_sound_seen_handler(source_id))
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
                 labels_callback=create_labels_callback(source_id),
@@ -220,6 +238,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             detectors.append(det)
             with _active_detectors_lock:
                 _active_detectors.append(det)
+                _detectors_by_source_id[source_id] = det
+                _seen_labels_by_source[source_id] = set((whitelist or DEFAULT_SOUND_WHITELIST).keys())
+                if kind and source_key is not None:
+                    _source_info_by_id[source_id] = (kind, source_key)
             logging.info(f"Classifier dédié créé pour {source_id} ({label})")
             try:
                 from ha_entities import register_source
@@ -257,7 +279,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     pass
 
             source_id = f"mic_{saved_index}"
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
+            detector = create_detector(source_id, src.get('webhook_url'),
+                threshold=src.get('threshold'), label=src.get('label'),
+                clap_counts=src.get('ha_entities', [1, 2]),
+                whitelist=src.get('sound_whitelist'),
+                kind='mic', source_key=src.get('source_key', str(saved_index)))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1',
                    '--raw', '--latency-msec=50']
@@ -290,7 +316,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             source_id = f"rtsp_{rtsp_url}"
             from ha_entities import source_entity_key
             entity_id = source_entity_key('rtsp', src)
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]))
+            detector = create_detector(source_id, src.get('webhook_url'),
+                threshold=src.get('threshold'), label=src.get('label'),
+                entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]),
+                whitelist=src.get('sound_whitelist'),
+                kind='rtsp', source_key=src.get('source_key') or src.get('stream_id', ''))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
@@ -332,7 +362,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
             _vban_gains[vban_ip] = float(src.get('gain', 1.0))
-            detector = create_detector(source_id, src.get('webhook_url'), threshold=src.get('threshold'), label=src.get('label'), clap_counts=src.get('ha_entities', [1, 2]))
+            detector = create_detector(source_id, src.get('webhook_url'),
+                threshold=src.get('threshold'), label=src.get('label'),
+                clap_counts=src.get('ha_entities', [1, 2]),
+                whitelist=src.get('sound_whitelist'),
+                kind='vban', source_key=src.get('source_key') or vban_ip)
             logging.info(f"VBAN: démarrage capture {vban_ip} (gain={_vban_gains[vban_ip]}x)")
 
             vban_det = get_vban_detector()
@@ -404,6 +438,9 @@ def stop_detection():
     global detection_running, classifier, record, current_audio_source, _socketio
     with _active_detectors_lock:
         _active_detectors.clear()
+        _detectors_by_source_id.clear()
+        _seen_labels_by_source.clear()
+        _source_info_by_id.clear()
 
     try:
         try:
@@ -464,6 +501,88 @@ def update_vban_gain(ip, gain):
     """Met à jour le gain d'une source VBAN en temps réel (pas de redémarrage)."""
     _vban_gains[ip] = float(gain)
     logging.info(f"Volume VBAN mis à jour: {ip} -> {gain}x")
+
+
+def _persist_sound_seen(kind, source_key, label):
+    """Ajoute `label: False` à sound_whitelist de la source `(kind, source_key)`
+    dans settings.json si absent. Thread-safe via le lock global du settings_manager."""
+    try:
+        from settings_manager import save_settings
+        settings = load_settings()
+        updated = False
+        if kind == 'mic':
+            mic = settings.setdefault('microphone', {})
+            wl = mic.setdefault('sound_whitelist', {})
+            if label not in wl:
+                wl[label] = False
+                updated = True
+        elif kind == 'rtsp':
+            for s in settings.get('rtsp_sources', []):
+                if s.get('id') == source_key:
+                    wl = s.setdefault('sound_whitelist', {})
+                    if label not in wl:
+                        wl[label] = False
+                        updated = True
+                    break
+        elif kind == 'vban':
+            for s in settings.get('saved_vban_sources', []):
+                if s.get('ip') == source_key:
+                    wl = s.setdefault('sound_whitelist', {})
+                    if label not in wl:
+                        wl[label] = False
+                        updated = True
+                    break
+        if updated:
+            save_settings(settings)
+    except Exception as exc:
+        logging.debug(f"_persist_sound_seen({kind},{source_key},{label}) a echoue: {exc}")
+
+
+def _build_sound_seen_handler(source_id):
+    def _handle(data):
+        label = data.get('label') if isinstance(data, dict) else None
+        if not label:
+            return
+        with _active_detectors_lock:
+            seen = _seen_labels_by_source.get(source_id)
+            if seen is None:
+                return
+            if label in seen:
+                return
+            seen.add(label)
+            info = _source_info_by_id.get(source_id)
+        kind = source_key = None
+        if info:
+            kind, source_key = info
+            _persist_sound_seen(kind, source_key, label)
+        try:
+            if _socketio:
+                _socketio.emit('sound_seen', {
+                    'source_id': source_id,
+                    'kind': kind,
+                    'source_key': source_key,
+                    'label': label,
+                    'score': float(data.get('score', 0.0)),
+                })
+        except Exception:
+            pass
+    return _handle
+
+
+def update_source_whitelist(source_id, label, enabled):
+    """Met à jour la whitelist d'un détecteur actif (sans restart)."""
+    with _active_detectors_lock:
+        det = _detectors_by_source_id.get(source_id)
+        if det is None:
+            return False
+        wl = dict(det._whitelist or {})
+        if enabled:
+            wl[label] = True
+            _seen_labels_by_source.setdefault(source_id, set()).add(label)
+        else:
+            wl[label] = False
+        det.set_whitelist(wl)
+        return True
 
 
 def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):

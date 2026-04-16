@@ -549,6 +549,7 @@
                     return haHtml;
                 })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
+                buildSoundWhitelistHtml('mic', d.device_index || '0', d.sound_whitelist) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -609,6 +610,7 @@
                     return haHtml;
                 })() +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
+                buildSoundWhitelistHtml('rtsp', streamId, d.sound_whitelist) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -617,6 +619,33 @@
                     '</div>' +
                 '</div>' +
             '</div>';
+        }
+
+        function buildSoundWhitelistHtml(kind, sourceKey, whitelist) {
+            var entries = Object.entries(whitelist || {});
+            entries.sort(function(a, b) {
+                // Coches d'abord, puis alphabetique
+                if (a[1] !== b[1]) return b[1] - a[1];
+                return a[0].localeCompare(b[0]);
+            });
+            var html = '<div class="setting-item sound-whitelist-section"' +
+                ' data-kind="' + escAttr(kind) + '"' +
+                ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
+                '<label>Sons detectes</label>' +
+                '<span class="setting-hint">Cocher les sons a considerer comme un clap. Les nouveaux sons detectes apparaissent automatiquement (decoches).</span>' +
+                '<div class="sound-whitelist-list">';
+            if (entries.length === 0) {
+                html += '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
+            } else {
+                entries.forEach(function(e) {
+                    var label = e[0]; var on = !!e[1];
+                    html += '<label class="sound-whitelist-item"><input type="checkbox" class="sound-whitelist-toggle"' +
+                        ' data-label="' + escAttr(label) + '"' + (on ? ' checked' : '') + '>' +
+                        ' <span>' + esc(label) + '</span></label>';
+                });
+            }
+            html += '</div></div>';
+            return html;
         }
 
         function buildVbanTab(src) {
@@ -683,6 +712,7 @@
                     return haHtml;
                 })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
+                buildSoundWhitelistHtml('vban', ip, d.sound_whitelist) +
             '</div>';
         }
 
@@ -1002,6 +1032,24 @@
                     },
                     stopUrl: '/api/rtsp/test/stop',
                     vuSelector: '.rtsp-test-vu'
+                });
+            });
+
+            // ---- Sound whitelist (partage mic / rtsp / vban) ---------------
+            document.querySelectorAll('.sound-whitelist-toggle').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    var section = cb.closest('.sound-whitelist-section');
+                    if (!section) return;
+                    var body = {
+                        kind: section.getAttribute('data-kind'),
+                        source_key: section.getAttribute('data-source-key'),
+                        label: cb.getAttribute('data-label'),
+                        enabled: cb.checked
+                    };
+                    fetch(basePath + '/api/source/sound_whitelist', {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    });
                 });
             });
 
@@ -1461,6 +1509,41 @@
                         } else {
                             label.textContent = data.db + ' dB';
                         }
+                    });
+                });
+
+                // Sound auto-discovery: append new label rows in the right panel.
+                sock.on('sound_seen', function(data) {
+                    if (!data || !data.label) return;
+                    var sections = document.querySelectorAll('.sound-whitelist-section');
+                    sections.forEach(function(section) {
+                        if (section.getAttribute('data-kind') !== data.kind) return;
+                        if (String(section.getAttribute('data-source-key')) !== String(data.source_key)) return;
+                        var list = section.querySelector('.sound-whitelist-list');
+                        if (!list) return;
+                        // Already present?
+                        var already = list.querySelector('input[data-label="' + data.label.replace(/"/g, '\\"') + '"]');
+                        if (already) return;
+                        var empty = list.querySelector('.sound-whitelist-empty');
+                        if (empty) empty.remove();
+                        var row = document.createElement('label');
+                        row.className = 'sound-whitelist-item new';
+                        row.innerHTML = '<input type="checkbox" class="sound-whitelist-toggle" data-label="' +
+                            data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') +
+                            '"> <span>' + data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                        // Attach handler (same as bindTabEvents one)
+                        row.querySelector('input').addEventListener('change', function(e) {
+                            fetch((window.basePath || '') + '/api/source/sound_whitelist', {
+                                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    kind: data.kind,
+                                    source_key: data.source_key,
+                                    label: data.label,
+                                    enabled: e.target.checked
+                                })
+                            });
+                        });
+                        list.appendChild(row);
                     });
                 });
 

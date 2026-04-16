@@ -32,7 +32,8 @@ DEFAULT_SETTINGS = {
         "auto_volume": False,
         "auto_start": False,
         "threshold": 0.5,
-        "ha_entities": [1, 2]
+        "ha_entities": [1, 2],
+        "sound_whitelist": {"Clapping": True, "Hands": True, "Applause": True}
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],

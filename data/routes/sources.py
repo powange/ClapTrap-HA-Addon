@@ -11,6 +11,24 @@ sources_bp = Blueprint('sources', __name__)
 _socketio = None
 _restart_lock = threading.Lock()
 
+def _source_id_for(kind, source_key):
+    """Donne l'ID runtime (utilise par classify) a partir de (kind, source_key)."""
+    if kind == 'mic':
+        return f"mic_{source_key}"
+    if kind == 'rtsp':
+        # classify utilise l'URL complete ('rtsp://...'), pas le stream_id.
+        settings = load_settings()
+        for s in settings.get('rtsp_sources', []):
+            if s.get('id') == source_key:
+                url = s.get('url', '')
+                full_url = url if url.startswith('rtsp') else f"rtsp://{url}"
+                return f"rtsp_{full_url}"
+        return None
+    if kind == 'vban':
+        return f"vban_{source_key}"
+    return None
+
+
 def init_sources(socketio):
     global _socketio
     _socketio = socketio
@@ -447,6 +465,55 @@ def update_vban_source():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@sources_bp.route('/api/source/sound_whitelist', methods=['PUT'])
+def update_source_sound_whitelist():
+    """Active/desactive un label dans la sound_whitelist d'une source.
+
+    Body: {kind: 'mic'|'rtsp'|'vban', source_key: str, label: str, enabled: bool}
+    Applique en live sur le detecteur si la detection tourne.
+    """
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        label = data.get('label')
+        enabled = bool(data.get('enabled', False))
+        if kind not in ('mic', 'rtsp', 'vban') or not label:
+            return jsonify({'error': 'kind / label requis'}), 400
+
+        settings = load_settings()
+        target = None
+        if kind == 'mic':
+            target = settings.setdefault('microphone', {}).setdefault('sound_whitelist', {})
+        elif kind == 'rtsp':
+            for s in settings.get('rtsp_sources', []):
+                if s.get('id') == source_key:
+                    target = s.setdefault('sound_whitelist', {})
+                    break
+        elif kind == 'vban':
+            for s in settings.get('saved_vban_sources', []):
+                if s.get('ip') == source_key:
+                    target = s.setdefault('sound_whitelist', {})
+                    break
+        if target is None:
+            return jsonify({'error': 'source introuvable'}), 404
+
+        target[label] = enabled
+        save_settings(settings)
+
+        # Mise a jour live du detecteur si la detection tourne
+        source_id = _source_id_for(kind, source_key)
+        if source_id:
+            try:
+                from classify import update_source_whitelist
+                update_source_whitelist(source_id, label, enabled)
+            except Exception:
+                pass
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @sources_bp.route('/refresh_vban_sources')

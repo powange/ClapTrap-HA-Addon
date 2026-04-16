@@ -34,6 +34,15 @@ class AudioDetector:
         self._energy_state = {}  # source_id -> state dict
         self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
+        self._whitelist = {}  # {label_name: True} — sons que l'utilisateur a coches comme "clap"
+        self._sound_seen_callback = None  # callable({label, score}) pour l'auto-decouverte
+
+    def set_whitelist(self, whitelist):
+        """Met a jour la whitelist de sons (appele en direct sans restart)."""
+        self._whitelist = dict(whitelist or {})
+
+    def set_sound_seen_callback(self, cb):
+        self._sound_seen_callback = cb
 
     def initialize(self, max_results=10, score_threshold=0.3, clap_window=1.5,
                    peak_cooldown=0.08, peak_ratio=3.0):
@@ -45,23 +54,15 @@ class AudioDetector:
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             
-            # Labels pertinents pour la détection de claps + silence
-            clap_allowlist = [
-                # Sons de clap/mains
-                "Hands", "Clapping", "Applause",
-                # Sons impulsifs similaires
-                "Slap, smack", "Whack, thwack", "Knock", "Tap", "Snap",
-                "Bang", "Cap gun", "Crack",
-                # Bruits de fond (pour les filtrer)
-                "Silence", "Finger snapping", "Writing", "Typing",
-            ]
-
+            # Pas de category_allowlist : l'utilisateur definit par source les
+            # labels a considerer via `_whitelist`. Les labels hors whitelist
+            # sont quand meme remontes (si au-dessus du seuil) pour permettre
+            # l'auto-decouverte dans l'UI.
             options = audio.AudioClassifierOptions(
                 base_options=base_options,
                 running_mode=audio.RunningMode.AUDIO_STREAM,
                 max_results=max_results,
                 score_threshold=0,
-                category_allowlist=clap_allowlist,
                 result_callback=self._handle_result
             )
             self.classifier = audio.AudioClassifier.create_from_options(options)
@@ -129,36 +130,32 @@ class AudioDetector:
 
             classification = result.classifications[0]
 
-            # Scoring pondéré pour la détection de clap
-            CLAP_WEIGHTS = {
-                "Hands": 0.8,
-                "Clapping": 1.0,
-                "Slap, smack": 0.6,
-                "Whack, thwack": 0.5,
-                "Knock": 0.3,
-                "Cap gun": 0.3,
-                "Snap": 0.3,
-                "Crack": 0.2,
-            }
-            NOISE_WEIGHTS = {"Finger snapping": 0.5, "Writing": 0.3, "Typing": 0.2}
+            whitelist = self._whitelist or {}
 
-            # Log les labels reçus (filtrés par allowlist, donc tous pertinents)
-            all_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories]
-            clap_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
-                           if c.category_name in CLAP_WEIGHTS]
-            if clap_labels or self._result_count <= 10 or self._result_count % 100 == 0:
-                logging.info(f"[{self._source_label}] labels={all_labels}")
+            # Scoring : somme des scores des labels coches par l'utilisateur.
             score_sum = sum(
-                category.score * CLAP_WEIGHTS[category.category_name]
-                for category in classification.categories
-                if category.category_name in CLAP_WEIGHTS
+                cat.score for cat in classification.categories
+                if whitelist.get(cat.category_name, False)
             )
-            score_sum -= sum(
-                category.score * NOISE_WEIGHTS[category.category_name]
-                for category in classification.categories
-                if category.category_name in NOISE_WEIGHTS
-            )
-            score_sum = max(0.0, score_sum)
+
+            # Auto-decouverte : emettre chaque label au-dessus du seuil pour
+            # que l'UI puisse l'afficher comme "son entendu mais pas coche".
+            if self._sound_seen_callback:
+                for cat in classification.categories:
+                    if cat.score >= self.score_threshold:
+                        try:
+                            self._sound_seen_callback({
+                                'label': cat.category_name,
+                                'score': float(cat.score),
+                            })
+                        except Exception:
+                            pass
+
+            all_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories]
+            hot_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
+                          if whitelist.get(c.category_name, False) and c.score > 0.1]
+            if hot_labels or self._result_count <= 10 or self._result_count % 100 == 0:
+                logging.info(f"[{self._source_label}] labels={all_labels}")
 
             # Log du score calculé
             if score_sum > 0.1:

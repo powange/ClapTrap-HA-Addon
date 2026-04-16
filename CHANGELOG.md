@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.14.0
+
+### Whitelist de sons par source
+
+- Chaque source (micro / RTSP / VBAN) a sa propre liste de sons YAMNet
+  consideres comme "clap". Defaut : Clapping, Hands, Applause.
+- La section "Sons detectes" dans l'onglet de chaque source affiche
+  des cases a cocher : decocher = son ignore par le scoring.
+- **Auto-decouverte** : chaque label entendu au-dessus du seuil de
+  precision de la source est ajoute automatiquement a sa liste,
+  **decoche**. L'utilisateur peut le cocher pour l'ajouter a la
+  detection sans toucher au code.
+- `category_allowlist` MediaPipe retire : tous les labels YAMNet
+  peuvent desormais etre proposes (aboiements, klaxons, sifflet, etc.).
+- `CLAP_WEIGHTS` / `NOISE_WEIGHTS` codes en dur remplaces par la
+  whitelist utilisateur.
+- Application live via `update_source_whitelist(source_id, label, enabled)`
+  sans restart de la detection. Endpoint :
+  `PUT /api/source/sound_whitelist {kind, source_key, label, enabled}`.
+- Socket event `sound_seen` pour rafraichir la liste sans reload.
+
 ## 6.13.7
 
 ### UI : logo VBAN cadre sur le contenu visible
