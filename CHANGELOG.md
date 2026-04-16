@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.14.2
+
+### UI : logo VBAN plus compact dans les onglets
+
+- Reduction du conteneur du logo VBAN de 4.5em x 1.2em a 2.6em x
+  0.85em pour qu'il ne mange plus la largeur des onglets tout en
+  restant lisible.
+
 ## 6.14.1
 
 ### Fix : bouton "Tester le flux" VBAN etire sur toute la largeur
