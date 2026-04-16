@@ -151,6 +151,9 @@
                         </div>
                     </div>
                 </div>
+                <div style="margin-top:0.75rem;display:flex;justify-content:flex-end;">
+                    <button type="button" id="advancedResetBtn" class="btn btn-secondary btn-sm">&#x21BB; Reinitialiser</button>
+                </div>
             </div>
         </section>
 
@@ -1461,6 +1464,33 @@
                 }
             }
         });
+
+        // Advanced settings: reset to defaults
+        (function() {
+            var btn = document.getElementById('advancedResetBtn');
+            if (!btn) return;
+            btn.addEventListener('click', function() {
+                var defaults = {delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3.0, peak_reset: 0.3};
+                document.getElementById('adv-delay').value = defaults.delay;
+                document.getElementById('adv-cooldown').value = defaults.peak_cooldown;
+                document.getElementById('adv-ratio').value = defaults.peak_ratio;
+                document.getElementById('adv-reset').value = defaults.peak_reset;
+                var basePath = window.basePath || '';
+                fetch(basePath + '/api/settings/advanced', {
+                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(defaults)
+                }).then(function(r) {
+                    if (r.ok) {
+                        var n = document.getElementById('success');
+                        if (n) {
+                            n.textContent = 'Reglages de detection reinitialises';
+                            n.style.display = 'block';
+                            setTimeout(function() { n.style.display = 'none'; }, 1500);
+                        }
+                    }
+                });
+            });
+        })();
 
         // Advanced settings auto-save on change
         document.addEventListener('change', function(e) {

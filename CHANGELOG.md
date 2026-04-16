@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.15.1
+
+### UI : bouton "Reinitialiser" dans les reglages de detection
+
+- Bouton en bas de la carte qui repositionne les 4 champs a leurs
+  valeurs par defaut (fenetre 1.5s / cooldown 0.08s / ratio 3.0x /
+  reset 0.3s) et sauve en une requete PUT /api/settings/advanced.
+
 ## 6.15.0
 
 ### Nouveau reglage : "Reset du pic"
