@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.14.4
+
+### Fix : mapping RTSP source_id pour la mise a jour live de la whitelist
+
+- `_source_id_for('rtsp', ...)` reconstruisait l'URL en ajoutant
+  `rtsp://` si absent, alors que `classify.run_rtsp_source` utilise
+  `src['url']` brut. Mismatch quand l'utilisateur entrait une URL
+  sans le prefix : settings sauves mais detecteur live pas mis a
+  jour, le nouveau son n'etait pris en compte qu'apres restart.
+- Desormais les deux cotes utilisent la meme valeur brute.
+
 ## 6.14.3
 
 ### Retrait d'un son de la whitelist d'une source

@@ -12,17 +12,20 @@ _socketio = None
 _restart_lock = threading.Lock()
 
 def _source_id_for(kind, source_key):
-    """Donne l'ID runtime (utilise par classify) a partir de (kind, source_key)."""
+    """Donne l'ID runtime (utilise par classify) a partir de (kind, source_key).
+
+    Doit coller EXACTEMENT a ce que classify.run_*_source construit :
+    - mic  : f"mic_{device_index}"
+    - rtsp : f"rtsp_{src['url']}"  (URL brute, sans reparer le prefix)
+    - vban : f"vban_{ip}"
+    """
     if kind == 'mic':
         return f"mic_{source_key}"
     if kind == 'rtsp':
-        # classify utilise l'URL complete ('rtsp://...'), pas le stream_id.
         settings = load_settings()
         for s in settings.get('rtsp_sources', []):
             if s.get('id') == source_key:
-                url = s.get('url', '')
-                full_url = url if url.startswith('rtsp') else f"rtsp://{url}"
-                return f"rtsp_{full_url}"
+                return f"rtsp_{s.get('url', '')}"
         return None
     if kind == 'vban':
         return f"vban_{source_key}"
