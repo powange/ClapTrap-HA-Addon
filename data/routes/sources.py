@@ -57,7 +57,8 @@ def _restart_detection_if_running():
                     overlapping_factor=0.8, socketio=_socketio,
                     delay=float(global_s.get('delay', 1.5)), sources=sources,
                     peak_cooldown=float(global_s.get('peak_cooldown', 0.08)),
-                    peak_ratio=float(global_s.get('peak_ratio', 3.0))
+                    peak_ratio=float(global_s.get('peak_ratio', 3.0)),
+                    peak_reset=float(global_s.get('peak_reset', 0.3))
                 )
                 source_display = ' + '.join(s['label'] for s in sources)
                 _socketio.emit('detection_status', {'status': 'running', 'source': source_display})

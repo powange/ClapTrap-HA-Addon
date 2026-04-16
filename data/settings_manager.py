@@ -21,7 +21,8 @@ DEFAULT_SETTINGS = {
         "delay": 1.5,
         "debug": False,
         "peak_cooldown": 0.08,
-        "peak_ratio": 3.0
+        "peak_ratio": 3.0,
+        "peak_reset": 0.3
     },
     "microphone": {
         "device_index": 0,

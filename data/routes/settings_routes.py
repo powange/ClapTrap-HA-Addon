@@ -61,7 +61,7 @@ def update_advanced_settings():
     try:
         data = request.get_json()
         settings = load_settings()
-        for key in ['delay', 'peak_cooldown', 'peak_ratio']:
+        for key in ['delay', 'peak_cooldown', 'peak_ratio', 'peak_reset']:
             if key in data:
                 settings['global'][key] = float(data[key])
         save_settings(settings)
@@ -72,7 +72,8 @@ def update_advanced_settings():
             update_advanced_params(
                 peak_cooldown=data.get('peak_cooldown'),
                 peak_ratio=data.get('peak_ratio'),
-                delay=data.get('delay')
+                delay=data.get('delay'),
+                peak_reset=data.get('peak_reset'),
             )
         except Exception:
             pass

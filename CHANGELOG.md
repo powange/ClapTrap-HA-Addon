@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.15.0
+
+### Nouveau reglage : "Reset du pic"
+
+- Ajout d'un 4e champ dans les reglages de detection : `peak_reset`
+  (defaut 0.3 s). Si `above` reste True pendant plus de N secondes
+  (ex: bruit de fond ou reverb qui maintient l'amplitude haute), on
+  force `above=False` pour pouvoir compter les claps suivants.
+- Corrige le cas "2 claps rapides comptes comme 1 seul" quand
+  l'ambient entre les deux reste au-dessus de 60% du seuil.
+- Renommage : "Parametres avances" -> "Reglages de detection".
+- Cable de bout en bout : initialize(), update_advanced_params,
+  /api/settings/advanced, /api/detection/start, defaults settings.
+
 ## 6.14.6
 
 ### Fix : logs "Son fort detecte" continuaient apres arret detection

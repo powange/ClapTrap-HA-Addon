@@ -75,7 +75,8 @@ def start_detection_route():
                 'delay': float(global_settings.get('delay', 1.0)),
                 'sources': sources,
                 'peak_cooldown': float(global_settings.get('peak_cooldown', 0.08)),
-                'peak_ratio': float(global_settings.get('peak_ratio', 3.0))
+                'peak_ratio': float(global_settings.get('peak_ratio', 3.0)),
+                'peak_reset': float(global_settings.get('peak_reset', 0.3)),
             }
 
         except (ValueError, TypeError) as e:

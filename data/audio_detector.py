@@ -34,6 +34,7 @@ class AudioDetector:
         self._energy_state = {}  # source_id -> state dict
         self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
+        self._peak_reset = 0.3  # delai apres lequel 'above' est force a False meme si l'amplitude reste haute
         self._whitelist = {}  # {label_name: True} — sons que l'utilisateur a coches comme "clap"
         self._sound_seen_callback = None  # callable({label, score}) pour l'auto-decouverte
 
@@ -45,12 +46,13 @@ class AudioDetector:
         self._sound_seen_callback = cb
 
     def initialize(self, max_results=10, score_threshold=0.3, clap_window=1.5,
-                   peak_cooldown=0.08, peak_ratio=3.0):
+                   peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
         """Initialise le classificateur audio"""
         self.score_threshold = score_threshold
         self._clap_window_duration = clap_window
         self._peak_cooldown = peak_cooldown
         self._peak_ratio = peak_ratio
+        self._peak_reset = peak_reset
         try:
             base_options = python.BaseOptions(model_asset_path=self.model_path)
             
@@ -308,6 +310,11 @@ class AudioDetector:
                     es['above'] = True
                 elif peak < dynamic_threshold * 0.6:
                     # Seuil de retour plus souple (60% du seuil au lieu de 30%)
+                    es['above'] = False
+                elif es['above'] and (current_time - es['last_peak_time']) > self._peak_reset:
+                    # Reset temporel : si le pic dure trop longtemps, on le
+                    # considere fini pour pouvoir compter les claps suivants
+                    # meme si l'amplitude reste au-dessus du seuil.
                     es['above'] = False
 
             # Écrire dans le ring buffer pré-alloué (zéro allocation)

@@ -151,7 +151,11 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
         detection_thread = threading.Thread(
             target=run_detection,
             args=(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources),
-            kwargs={'peak_cooldown': kwargs.get('peak_cooldown', 0.08), 'peak_ratio': kwargs.get('peak_ratio', 3.0)},
+            kwargs={
+                'peak_cooldown': kwargs.get('peak_cooldown', 0.08),
+                'peak_ratio': kwargs.get('peak_ratio', 3.0),
+                'peak_reset': kwargs.get('peak_reset', 0.3),
+            },
             daemon=True
         )
         detection_thread.start()
@@ -165,7 +169,7 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
 
 
 def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources,
-                   peak_cooldown=0.08, peak_ratio=3.0):
+                   peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
     """Exécute la détection multi-source. Un classifier par source (isolation complète)."""
     global detection_running
     source_threads = []
@@ -227,7 +231,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             """Crée un AudioDetector dédié pour une source."""
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
             det.initialize(max_results=max_results, score_threshold=threshold or score_threshold,
-                          clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
+                          clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio,
+                          peak_reset=peak_reset)
             det.set_whitelist(whitelist or DEFAULT_SOUND_WHITELIST)
             det.set_sound_seen_callback(_build_sound_seen_handler(source_id))
             det.add_source(source_id=source_id,
@@ -605,7 +610,7 @@ def remove_source_whitelist_entry(source_id, label):
         return True
 
 
-def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
+def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None, peak_reset=None):
     """Met à jour les paramètres avancés sur tous les detectors actifs."""
     with _active_detectors_lock:
         for det in _active_detectors:
@@ -615,4 +620,6 @@ def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
                 det._peak_ratio = float(peak_ratio)
             if delay is not None:
                 det._clap_window_duration = float(delay)
+            if peak_reset is not None:
+                det._peak_reset = float(peak_reset)
         logging.info(f"Paramètres avancés mis à jour sur {len(_active_detectors)} detector(s)")

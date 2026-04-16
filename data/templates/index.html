@@ -62,7 +62,7 @@
         <!-- Advanced Settings (collapsible) -->
         <section class="config-card advanced-card">
             <div class="advanced-header" id="advancedToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
-                <h3 style="margin:0;font-size:0.85rem;">Parametres avances</h3>
+                <h3 style="margin:0;font-size:0.85rem;">Reglages de detection</h3>
                 <span id="advancedArrow" style="font-size:0.7rem;color:var(--color-text-secondary);">&#x25BC;</span>
             </div>
             <div id="advancedContent" style="display:none;margin-top:0.75rem;">
@@ -140,6 +140,14 @@
                         <div class="setting-control">
                             <input type="number" id="adv-ratio" min="1.5" max="10" step="0.5" value="{{ settings['global'].get('peak_ratio', 3.0) }}">
                             <span class="unit">x</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="adv-reset">Reset du pic</label>
+                        <span class="setting-hint">Delai au-dela duquel un pic est considere "termine", meme si l'amplitude reste elevee. Baisser si des claps rapides consecutifs ne sont comptes que comme un seul (bruit de fond / reverb qui empeche la redescente).</span>
+                        <div class="setting-control">
+                            <input type="number" id="adv-reset" min="0.1" max="2" step="0.05" value="{{ settings['global'].get('peak_reset', 0.3) }}">
+                            <span class="unit">sec</span>
                         </div>
                     </div>
                 </div>
@@ -1456,15 +1464,17 @@
 
         // Advanced settings auto-save on change
         document.addEventListener('change', function(e) {
-            if (['adv-delay', 'adv-cooldown', 'adv-ratio'].indexOf(e.target.id) === -1) return;
+            if (['adv-delay', 'adv-cooldown', 'adv-ratio', 'adv-reset'].indexOf(e.target.id) === -1) return;
             var basePath = window.basePath || '';
             var payload = {};
             var delayEl = document.getElementById('adv-delay');
             var cooldownEl = document.getElementById('adv-cooldown');
             var ratioEl = document.getElementById('adv-ratio');
+            var resetEl = document.getElementById('adv-reset');
             if (delayEl) payload.delay = parseFloat(delayEl.value);
             if (cooldownEl) payload.peak_cooldown = parseFloat(cooldownEl.value);
             if (ratioEl) payload.peak_ratio = parseFloat(ratioEl.value);
+            if (resetEl) payload.peak_reset = parseFloat(resetEl.value);
             fetch(basePath + '/api/settings/advanced', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
