@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.16.2
+
+### Fix : onglet VBAN non cree apres ajout via la modale
+
+- `buildTabs` et `switchTab` etaient definis dans un IIFE ferme,
+  inaccessibles depuis le script de la modale VBAN (scope separee).
+  Exposes sur `window` comme `rebuildSourcesTable` l'etait deja.
+
 ## 6.16.1
 
 ### Fix : suppression d'une source VBAN ne persistait pas
