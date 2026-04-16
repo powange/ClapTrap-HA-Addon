@@ -560,6 +560,13 @@ def _build_sound_seen_handler(source_id):
         label = data.get('label') if isinstance(data, dict) else None
         if not label:
             return
+        # Ne pas ajouter les sons exclus globalement dans les whitelists
+        try:
+            exclusions = load_settings().get('global', {}).get('sound_exclusions', []) or []
+            if label in exclusions:
+                return
+        except Exception:
+            pass
         with _active_detectors_lock:
             seen = _seen_labels_by_source.get(source_id)
             if seen is None:

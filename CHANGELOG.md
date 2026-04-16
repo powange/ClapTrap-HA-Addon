@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.17.1
+
+### Fix : les sons exclus globalement apparaissaient quand meme dans
+les listes "Sons detectes" des sources
+
+- L'auto-decouverte (`sound_seen`) ne verifie pas si le label est dans
+  `global.sound_exclusions` avant de l'ajouter a la whitelist de la
+  source. Ajout du filtre dans `_build_sound_seen_handler` : les labels
+  exclus ne sont plus persistes ni emis via socket.
+
 ## 6.17.0
 
 ### Fix : detection VBAN multi-source (1 seule source fonctionnait)
