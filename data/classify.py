@@ -585,6 +585,21 @@ def update_source_whitelist(source_id, label, enabled):
         return True
 
 
+def remove_source_whitelist_entry(source_id, label):
+    """Retire un label de la whitelist d'un détecteur actif et du set 'seen'
+    (pour que l'auto-découverte puisse le re-proposer s'il réapparaît)."""
+    with _active_detectors_lock:
+        det = _detectors_by_source_id.get(source_id)
+        if det is not None:
+            wl = dict(det._whitelist or {})
+            wl.pop(label, None)
+            det.set_whitelist(wl)
+        seen = _seen_labels_by_source.get(source_id)
+        if seen is not None:
+            seen.discard(label)
+        return True
+
+
 def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
     """Met à jour les paramètres avancés sur tous les detectors actifs."""
     with _active_detectors_lock:

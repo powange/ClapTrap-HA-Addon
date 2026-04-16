@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.14.3
+
+### Retrait d'un son de la whitelist d'une source
+
+- Chaque item de la liste "Sons detectes" a desormais un bouton x
+  pour le retirer completement (pas juste le decocher).
+- Endpoint `DELETE /api/source/sound_whitelist {kind, source_key, label}`.
+- Mise a jour live du detecteur : le label est retire de sa whitelist
+  en memoire ET du "seen set", donc si l'auto-decouverte l'entend a
+  nouveau au-dessus du seuil il sera re-propose.
+
 ## 6.14.2
 
 ### UI : logo VBAN plus compact dans les onglets

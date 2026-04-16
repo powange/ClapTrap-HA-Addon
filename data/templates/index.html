@@ -639,9 +639,12 @@
             } else {
                 entries.forEach(function(e) {
                     var label = e[0]; var on = !!e[1];
-                    html += '<label class="sound-whitelist-item"><input type="checkbox" class="sound-whitelist-toggle"' +
+                    html += '<span class="sound-whitelist-item"><label>' +
+                        '<input type="checkbox" class="sound-whitelist-toggle"' +
                         ' data-label="' + escAttr(label) + '"' + (on ? ' checked' : '') + '>' +
-                        ' <span>' + esc(label) + '</span></label>';
+                        ' <span>' + esc(label) + '</span></label>' +
+                        '<button type="button" class="sound-whitelist-remove" ' +
+                        'data-label="' + escAttr(label) + '" title="Retirer de la liste">&#x00D7;</button></span>';
                 });
             }
             html += '</div></div>';
@@ -1049,6 +1052,30 @@
                     fetch(basePath + '/api/source/sound_whitelist', {
                         method: 'PUT', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(body)
+                    });
+                });
+            });
+            document.querySelectorAll('.sound-whitelist-remove').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var section = btn.closest('.sound-whitelist-section');
+                    var item = btn.closest('.sound-whitelist-item');
+                    if (!section || !item) return;
+                    var body = {
+                        kind: section.getAttribute('data-kind'),
+                        source_key: section.getAttribute('data-source-key'),
+                        label: btn.getAttribute('data-label')
+                    };
+                    fetch(basePath + '/api/source/sound_whitelist', {
+                        method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    }).then(function(r) {
+                        if (r.ok) {
+                            item.remove();
+                            var list = section.querySelector('.sound-whitelist-list');
+                            if (list && list.children.length === 0) {
+                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
+                            }
+                        }
                     });
                 });
             });
@@ -1526,22 +1553,29 @@
                         if (already) return;
                         var empty = list.querySelector('.sound-whitelist-empty');
                         if (empty) empty.remove();
-                        var row = document.createElement('label');
+                        var labelEsc = data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        var labelAttr = labelEsc.replace(/"/g, '&quot;');
+                        var row = document.createElement('span');
                         row.className = 'sound-whitelist-item new';
-                        row.innerHTML = '<input type="checkbox" class="sound-whitelist-toggle" data-label="' +
-                            data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') +
-                            '"> <span>' + data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
-                        // Attach handler (same as bindTabEvents one)
-                        row.querySelector('input').addEventListener('change', function(e) {
+                        row.innerHTML =
+                            '<label><input type="checkbox" class="sound-whitelist-toggle" data-label="' + labelAttr + '"> <span>' + labelEsc + '</span></label>' +
+                            '<button type="button" class="sound-whitelist-remove" data-label="' + labelAttr + '" title="Retirer de la liste">&#x00D7;</button>';
+                        row.querySelector('.sound-whitelist-toggle').addEventListener('change', function(e) {
                             fetch((window.basePath || '') + '/api/source/sound_whitelist', {
                                 method: 'PUT', headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({
-                                    kind: data.kind,
-                                    source_key: data.source_key,
-                                    label: data.label,
-                                    enabled: e.target.checked
+                                    kind: data.kind, source_key: data.source_key,
+                                    label: data.label, enabled: e.target.checked
                                 })
                             });
+                        });
+                        row.querySelector('.sound-whitelist-remove').addEventListener('click', function() {
+                            fetch((window.basePath || '') + '/api/source/sound_whitelist', {
+                                method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    kind: data.kind, source_key: data.source_key, label: data.label
+                                })
+                            }).then(function(r) { if (r.ok) row.remove(); });
                         });
                         list.appendChild(row);
                     });

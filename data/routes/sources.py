@@ -467,6 +467,52 @@ def update_vban_source():
         }), 500
 
 
+@sources_bp.route('/api/source/sound_whitelist', methods=['DELETE'])
+def delete_source_sound_whitelist_entry():
+    """Retire un label de la sound_whitelist d'une source.
+
+    Body: {kind, source_key, label}
+    """
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        label = data.get('label')
+        if kind not in ('mic', 'rtsp', 'vban') or not label:
+            return jsonify({'error': 'kind / label requis'}), 400
+
+        settings = load_settings()
+        target = None
+        if kind == 'mic':
+            target = settings.setdefault('microphone', {}).setdefault('sound_whitelist', {})
+        elif kind == 'rtsp':
+            for s in settings.get('rtsp_sources', []):
+                if s.get('id') == source_key:
+                    target = s.setdefault('sound_whitelist', {})
+                    break
+        elif kind == 'vban':
+            for s in settings.get('saved_vban_sources', []):
+                if s.get('ip') == source_key:
+                    target = s.setdefault('sound_whitelist', {})
+                    break
+        if target is None:
+            return jsonify({'error': 'source introuvable'}), 404
+
+        target.pop(label, None)
+        save_settings(settings)
+
+        source_id = _source_id_for(kind, source_key)
+        if source_id:
+            try:
+                from classify import remove_source_whitelist_entry
+                remove_source_whitelist_entry(source_id, label)
+            except Exception:
+                pass
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @sources_bp.route('/api/source/sound_whitelist', methods=['PUT'])
 def update_source_sound_whitelist():
     """Active/desactive un label dans la sound_whitelist d'une source.
