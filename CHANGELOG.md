@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.17.6
+
+### Fix : noms d'entites HA etires sur toute la largeur
+
+- `.ha-entity-id` passait en `display: block` (pleine largeur) au lieu
+  de `inline-block` (largeur du texte). `.ha-entities-list` passe en
+  `flex-wrap: wrap` pour les aligner cote a cote si l'espace le permet.
+
 ## 6.17.5
 
 ### UI : bouton "Nettoyer" dans les sons detectes par source

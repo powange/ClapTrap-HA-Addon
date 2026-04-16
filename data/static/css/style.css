@@ -1590,12 +1590,12 @@ footer a:hover {
     padding-top: 0.75rem;
     border-top: 1px solid var(--color-border);
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 0.25rem;
 }
 
 .ha-entity-id {
-    display: block;
+    display: inline-block;
     font-size: 0.7rem;
     font-family: 'SF Mono', 'Cascadia Code', monospace;
     background: var(--color-bg);
