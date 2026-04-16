@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.17.2
+
+### Fix : les sons exclus apparaissaient dans la colonne Detection
+
+- Le top 3 des labels envoye via socket `labels` (colonne Detection de
+  la table des sources) n'etait pas filtre par les exclusions globales.
+- Les labels exclus sont maintenant retires avant le tri + troncature
+  du top 3, donc ils ne s'affichent plus dans la detection live.
+
 ## 6.17.1
 
 ### Fix : les sons exclus globalement apparaissaient quand meme dans

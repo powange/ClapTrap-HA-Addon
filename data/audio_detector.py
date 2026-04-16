@@ -171,9 +171,9 @@ class AudioDetector:
             if score_sum > 0.1:
                 logging.debug(f"Score de clap calculé pour {self._source_label}: {score_sum}")
 
-            # Préparer les labels pour le callback
+            # Préparer les labels pour le callback (sans les exclusions globales)
             top3_labels = sorted(
-                classification.categories,
+                [c for c in classification.categories if c.category_name not in exclusions],
                 key=lambda x: x.score,
                 reverse=True
             )[:3]
