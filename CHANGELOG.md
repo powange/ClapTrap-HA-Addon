@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.14.6
+
+### Fix : logs "Son fort detecte" continuaient apres arret detection
+
+- Le log etait INFO-level et declenche a chaque paquet VBAN depassant
+  0.3 d'amplitude, meme quand la detection est stoppee (le thread
+  VBAN ecoute en permanence). Passage en DEBUG.
+- `run_vban_source` detache aussi son `audio_callback` en sortie,
+  pour liberer la reference au detecteur mort.
+
 ## 6.14.5
 
 ### Fix : 2 claps rapides comptes comme 1 seul sur les sources VBAN

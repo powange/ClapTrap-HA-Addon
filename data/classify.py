@@ -380,6 +380,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             while detection_running:
                 time.sleep(0.5)
+            # Detacher le callback audio pour ne pas garder une ref morte
+            try:
+                vban_det.set_audio_callback(None)
+            except Exception:
+                pass
             detector.stop()
 
         # --- Lancer un thread par source ---

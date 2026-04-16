@@ -198,9 +198,11 @@ class VBANDetector:
                             down = source.sample_rate // gcd
                             audio_data = resample_poly(audio_data, up, down).astype(np.float32)
                         
-                        # Log pour debug
-                        if audio_data.max() > 0.3 or audio_data.min() < -0.3:  # Augmenté le seuil à 0.3
-                            logging.info(f"Son fort détecté sur {addr[0]}, amplitude: min={audio_data.min():.3f}, max={audio_data.max():.3f}")
+                        # Log de debug uniquement (sinon spam continu des que
+                        # quelqu'un diffuse du VBAN, meme hors detection).
+                        if logging.getLogger().isEnabledFor(logging.DEBUG) and \
+                                (audio_data.max() > 0.3 or audio_data.min() < -0.3):
+                            logging.debug(f"Son fort détecté sur {addr[0]}, amplitude: min={audio_data.min():.3f}, max={audio_data.max():.3f}")
                         
                         # Ajouter au ring buffer numpy de manière thread-safe
                         with self._lock:
