@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.17.3
+
+### Fix : labels sous le seuil de precision affiches dans Detection
+
+- Le filtre d'affichage des labels dans la colonne Detection etait
+  code en dur a `score > 0.1`. Remplace par `score >= score_threshold`
+  (le seuil de precision configure par source) pour ne montrer que
+  les sons reellement significatifs.
+
 ## 6.17.2
 
 ### Fix : les sons exclus apparaissaient dans la colonne Detection
