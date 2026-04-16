@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.14.1
+
+### Fix : bouton "Tester le flux" VBAN etire sur toute la largeur
+
+- Le bouton VBAN etait wrappe dans `.setting-item` (grid avec
+  `justify-items: stretch`) au lieu de `.mic-test-section` utilise
+  cote RTSP. Correction : meme conteneur que RTSP donc meme taille.
+
 ## 6.14.0
 
 ### Whitelist de sons par source
