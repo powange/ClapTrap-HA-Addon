@@ -383,18 +383,18 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             vban_det = get_vban_detector()
             def audio_callback(audio_data, timestamp):
-                if detection_running and vban_ip in vban_det.get_active_sources():
-                    gain = _vban_gains.get(vban_ip, 1.0)
-                    if gain != 1.0:
-                        audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
-                    detector.process_audio(audio_data, source_id)
-            vban_det.set_audio_callback(audio_callback)
+                if not detection_running:
+                    return
+                gain = _vban_gains.get(vban_ip, 1.0)
+                if gain != 1.0:
+                    audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
+                detector.process_audio(audio_data, source_id)
+            vban_det.add_source_callback(vban_ip, audio_callback)
 
             while detection_running:
                 time.sleep(0.5)
-            # Detacher le callback audio pour ne pas garder une ref morte
             try:
-                vban_det.set_audio_callback(None)
+                vban_det.remove_source_callback(vban_ip)
             except Exception:
                 pass
             detector.stop()

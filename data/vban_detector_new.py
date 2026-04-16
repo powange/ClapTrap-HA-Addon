@@ -18,14 +18,17 @@ class VBANDetector:
         self.sources = defaultdict(lambda: {'last_seen': 0, 'name': '', 'sample_rate': 0, 'channels': 0})
         self.running = False
         self._socket = None
-        self.audio_callback = None
+        self.audio_callback = None  # legacy single callback (compat)
         self.source_callback = None
         self.target_sample_rate = 16000  # Taux d'échantillonnage cible
-        
-        # Ring buffer numpy pré-alloué (1 seconde + marge)
+
+        # Ring buffer partage (legacy, utilise quand audio_callback est set)
         self._buf = np.zeros(self.target_sample_rate + 4800, dtype=np.float32)
         self._buf_len = 0
-        
+
+        # Per-IP ring buffers + callbacks pour multi-source
+        self._per_ip = {}  # ip -> {'buf': np.array, 'buf_len': int, 'callback': callable}
+
         self.last_timestamp = 0
         self.stream = None
         self._lock = threading.Lock()  # Verrou pour la thread-safety
@@ -38,6 +41,26 @@ class VBANDetector:
         # Tap pour le VU-metre de test (une seule IP surveillee a la fois)
         self._test_tap_ip = None
         self._test_tap_callback = None
+
+    def add_source_callback(self, ip, callback):
+        """Enregistre un callback audio pour une IP source specifique.
+
+        Chaque IP a son propre ring buffer (pas de melange inter-sources).
+        """
+        with self._lock:
+            emit_samples = 1600
+            self._per_ip[ip] = {
+                'buf': np.zeros(emit_samples + 4800, dtype=np.float32),
+                'buf_len': 0,
+                'callback': callback,
+            }
+        logging.info(f"VBAN: callback audio enregistre pour {ip}")
+
+    def remove_source_callback(self, ip):
+        """Retire le callback audio d'une IP source."""
+        with self._lock:
+            self._per_ip.pop(ip, None)
+        logging.info(f"VBAN: callback audio retire pour {ip}")
 
     def set_test_tap(self, ip, callback):
         """Configure un tap pour le VU-metre : appelle callback(peak) pour
@@ -204,30 +227,52 @@ class VBANDetector:
                                 (audio_data.max() > 0.3 or audio_data.min() < -0.3):
                             logging.debug(f"Son fort détecté sur {addr[0]}, amplitude: min={audio_data.min():.3f}, max={audio_data.max():.3f}")
                         
-                        # Ajouter au ring buffer numpy de manière thread-safe
+                        # Ajouter au ring buffer de cette IP et emettre par
+                        # paquets de 100 ms (1600 echantillons a 16 kHz).
                         with self._lock:
-                            n = len(audio_data)
-                            if self._buf_len + n > len(self._buf):
-                                # Débordement : garder les dernières données
-                                keep = len(self._buf) - n
-                                self._buf[:keep] = self._buf[self._buf_len - keep:self._buf_len]
-                                self._buf_len = keep
-                            self._buf[self._buf_len:self._buf_len + n] = audio_data
-                            self._buf_len += n
+                            src_ip = addr[0]
+                            pip = self._per_ip.get(src_ip)
 
-                            # Emettre par paquets de 100ms (1600 echantillons a
-                            # 16 kHz). Plus fin que 1 seconde : permet au
-                            # detecteur de pics de separer deux claps rapides.
-                            emit_samples = 1600
-                            while self.audio_callback and self._buf_len >= emit_samples:
-                                audio_chunk = self._buf[:emit_samples].copy()
-                                # Decaler le ring buffer
-                                remaining = self._buf_len - emit_samples
-                                if remaining > 0:
-                                    self._buf[:remaining] = self._buf[emit_samples:self._buf_len]
-                                self._buf_len = remaining
-                                current_time = time.time()
-                                self.audio_callback(audio_chunk, current_time)
+                            if pip and pip['callback']:
+                                # Buffer per-IP (multi-source propre)
+                                n = len(audio_data)
+                                buf = pip['buf']
+                                bl = pip['buf_len']
+                                if bl + n > len(buf):
+                                    keep = len(buf) - n
+                                    buf[:keep] = buf[bl - keep:bl]
+                                    bl = keep
+                                buf[bl:bl + n] = audio_data
+                                bl += n
+                                emit_samples = 1600
+                                while bl >= emit_samples:
+                                    chunk = buf[:emit_samples].copy()
+                                    remaining = bl - emit_samples
+                                    if remaining > 0:
+                                        buf[:remaining] = buf[emit_samples:bl]
+                                    bl = remaining
+                                    try:
+                                        pip['callback'](chunk, time.time())
+                                    except Exception as exc:
+                                        logging.error(f"VBAN callback {src_ip}: {exc}")
+                                pip['buf_len'] = bl
+                            elif self.audio_callback:
+                                # Fallback legacy : buffer partage unique
+                                n = len(audio_data)
+                                if self._buf_len + n > len(self._buf):
+                                    keep = len(self._buf) - n
+                                    self._buf[:keep] = self._buf[self._buf_len - keep:self._buf_len]
+                                    self._buf_len = keep
+                                self._buf[self._buf_len:self._buf_len + n] = audio_data
+                                self._buf_len += n
+                                emit_samples = 1600
+                                while self._buf_len >= emit_samples:
+                                    chunk = self._buf[:emit_samples].copy()
+                                    remaining = self._buf_len - emit_samples
+                                    if remaining > 0:
+                                        self._buf[:remaining] = self._buf[emit_samples:self._buf_len]
+                                    self._buf_len = remaining
+                                    self.audio_callback(chunk, time.time())
                         
                         # Mettre à jour les informations de la source
                         self.sources[addr[0]].update({

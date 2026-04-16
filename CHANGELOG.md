@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.17.0
+
+### Fix : detection VBAN multi-source (1 seule source fonctionnait)
+
+- L'ancien design avait UN seul `audio_callback` + UN seul ring buffer
+  partage. Chaque `run_vban_source` ecrasait le callback precedent, et
+  l'audio de toutes les sources VBAN etait melange dans le meme buffer.
+  Resultat : seule la derniere source enregistree detectait.
+- Nouveau design : `add_source_callback(ip, callback)` enregistre un
+  buffer + callback dedie par IP source. Les paquets VBAN sont routes
+  vers le bon buffer selon l'IP source, sans melange.
+- `remove_source_callback(ip)` a l'arret de la detection.
+- Retro-compatible : si aucun per-IP callback n'est enregistre, le
+  legacy `set_audio_callback` fonctionne toujours.
+
 ## 6.16.2
 
 ### Fix : onglet VBAN non cree apres ajout via la modale
