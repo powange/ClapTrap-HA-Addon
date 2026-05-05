@@ -208,6 +208,17 @@ class AudioDetector:
                         first_peak = peak_times[0] if peak_times else current_time
                         es['clap_detected_at'] = first_peak
                         es['clap_score'] = score_sum
+                        es['clap_labels'] = {}
+
+                    # Accumuler les labels qui ont contribué au clap (max score par label)
+                    contributing_labels = es.setdefault('clap_labels', {})
+                    for cat in classification.categories:
+                        if (whitelist.get(cat.category_name, False)
+                                and cat.category_name not in exclusions
+                                and cat.score > 0):
+                            existing = contributing_labels.get(cat.category_name, 0)
+                            if cat.score > existing:
+                                contributing_labels[cat.category_name] = float(cat.score)
 
                 # Émettre le résultat si la fenêtre multi-clap est expirée
                 clap_detected_at = es.get('clap_detected_at', 0)
@@ -216,6 +227,12 @@ class AudioDetector:
                     recent_peaks = [t for t in peak_times if t >= clap_detected_at]
                     clap_count = max(1, len(recent_peaks))
                     clap_score = es.get('clap_score', score_sum)
+                    clap_labels = sorted(
+                        ({'label': name, 'score': score}
+                         for name, score in es.get('clap_labels', {}).items()),
+                        key=lambda x: x['score'],
+                        reverse=True
+                    )
 
                     self.last_detection_time[source_id] = current_time
                     avg = es.get('avg_level', 0)
@@ -227,7 +244,8 @@ class AudioDetector:
                                 'timestamp': current_time,
                                 'score': float(clap_score),
                                 'source_id': source_id,
-                                'clap_count': clap_count
+                                'clap_count': clap_count,
+                                'labels': clap_labels
                             })
                         except Exception as e:
                             logging.error(f"Erreur callback détection {self._source_label}: {e}")
@@ -236,6 +254,7 @@ class AudioDetector:
                     es['clap_detected_at'] = 0
                     es['clap_score'] = 0
                     es['peak_times'] = []
+                    es['clap_labels'] = {}
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")

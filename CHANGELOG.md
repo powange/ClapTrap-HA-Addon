@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.18.1
+
+### Historique : afficher les sons ayant declenche le clap
+
+- Chaque entree de l'historique de l'interface web liste desormais les sons
+  detectes (label + score max) qui ont contribue a la detection du clap, en
+  plus du nombre de claps, du score global et de la source.
+- Les labels contributeurs sont accumules sur toute la fenetre multi-clap
+  (max score par label) et transmis via socket.io, webhook et l'API
+  `/api/detection/history`.
+
 ## 6.18.0
 
 ### Suppression du module Wyoming STT

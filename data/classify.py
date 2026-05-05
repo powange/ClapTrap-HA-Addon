@@ -180,11 +180,13 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             def handle_detection(detection_data):
                 try:
                     clap_count = detection_data.get('clap_count', 1)
+                    contributing_labels = detection_data.get('labels', []) or []
                     logging.info(f"CLAP sur {source_name}: score={detection_data['score']:.2f}, claps={clap_count}")
                     if socketio:
                         socketio.emit('clap', {
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
-                            'score': detection_data['score'], 'clap_count': clap_count
+                            'score': detection_data['score'], 'clap_count': clap_count,
+                            'labels': contributing_labels
                         })
                     supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
                     if supervisor_token:
@@ -192,7 +194,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             requests.post(
                                 'http://supervisor/core/api/events/claptrap_clap',
                                 headers={'Authorization': f'Bearer {supervisor_token}', 'Content-Type': 'application/json'},
-                                json={'source_id': source_name, 'score': detection_data['score'], 'clap_count': clap_count},
+                                json={'source_id': source_name, 'score': detection_data['score'], 'clap_count': clap_count, 'labels': contributing_labels},
                                 timeout=3
                             )
                         except Exception:
@@ -206,7 +208,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     with _history_lock:
                         _detection_history.appendleft({
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
-                            'score': round(detection_data['score'], 3), 'clap_count': clap_count
+                            'score': round(detection_data['score'], 3), 'clap_count': clap_count,
+                            'labels': contributing_labels
                         })
                     if webhook_url:
                         send_webhook_async(webhook_url, {
@@ -215,6 +218,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             'timestamp': detection_data['timestamp'],
                             'score': detection_data['score'],
                             'clap_count': clap_count,
+                            'labels': contributing_labels,
                         })
                 except Exception as e:
                     logging.error(f"Erreur callback clap {source_name}: {e}")

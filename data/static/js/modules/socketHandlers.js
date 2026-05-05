@@ -60,7 +60,13 @@ export function initializeSocketIO() {
             const clapText = claps > 1 ? `${claps} claps` : '1 clap';
             const el = document.createElement('div');
             el.className = 'clap-event-label';
-            el.innerHTML = `<strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span> <span class="label-score">${Math.round((data.score || 0) * 100)}%</span>`;
+            const labels = Array.isArray(data.labels) ? data.labels : [];
+            const labelsHtml = labels.length > 0
+                ? `<div class="clap-event-sounds">${labels.map(l =>
+                    `<span class="label">${l.label} <span class="label-score">${Math.round((l.score || 0) * 100)}%</span></span>`
+                  ).join('')}</div>`
+                : '';
+            el.innerHTML = `<div class="clap-event-header"><strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span> <span class="label-score">${Math.round((data.score || 0) * 100)}%</span></div>${labelsHtml}`;
             container.prepend(el);
             // Garder max 10 events
             while (container.children.length > 10) {
