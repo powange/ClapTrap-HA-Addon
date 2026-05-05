@@ -140,13 +140,15 @@ class AudioDetector:
             whitelist = self._whitelist or {}
             exclusions = self._exclusions or set()
 
-            # Scoring : somme des scores des labels coches par l'utilisateur,
-            # en retirant les exclusions globales.
-            score_sum = sum(
-                cat.score for cat in classification.categories
+            # Scoring : on cherche le meilleur score parmi les labels coches
+            # par l'utilisateur (hors exclusions). Le seuil s'applique a chaque
+            # son individuellement, pas a la somme.
+            clap_categories = [
+                cat for cat in classification.categories
                 if whitelist.get(cat.category_name, False)
                 and cat.category_name not in exclusions
-            )
+            ]
+            max_clap_score = max((cat.score for cat in clap_categories), default=0.0)
 
             # Auto-decouverte : emettre chaque label au-dessus du seuil pour
             # que l'UI puisse l'afficher comme "son entendu mais pas coche".
@@ -168,8 +170,8 @@ class AudioDetector:
                 logging.info(f"[{self._source_label}] labels={all_labels}")
 
             # Log du score calculé
-            if score_sum > self.score_threshold * 0.2:
-                logging.debug(f"Score de clap calculé pour {self._source_label}: {score_sum}")
+            if max_clap_score > self.score_threshold * 0.2:
+                logging.debug(f"Score de clap calculé pour {self._source_label}: {max_clap_score}")
 
             # Préparer les labels pour le callback (sans les exclusions globales,
             # et uniquement les labels dont le score >= le seuil de la source).
@@ -201,21 +203,23 @@ class AudioDetector:
                 es = self._energy_state.get(source_id, {})
                 peak_times = es.get('peak_times', [])
 
-                # Le classifier a détecté un clap
-                if score_sum > self.score_threshold:
+                # Le classifier a détecté un clap : au moins un son whitelist
+                # depasse individuellement le seuil.
+                if max_clap_score >= self.score_threshold:
                     if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
                         # Utiliser le premier pic comme début de fenêtre (pas le moment du classifier)
                         first_peak = peak_times[0] if peak_times else current_time
                         es['clap_detected_at'] = first_peak
-                        es['clap_score'] = score_sum
+                        es['clap_score'] = max_clap_score
                         es['clap_labels'] = {}
+                    elif max_clap_score > es.get('clap_score', 0):
+                        es['clap_score'] = max_clap_score
 
-                    # Accumuler les labels qui ont contribué au clap (max score par label)
+                    # Accumuler uniquement les sons qui ont franchi le seuil
+                    # individuellement pendant la fenetre (max score par label)
                     contributing_labels = es.setdefault('clap_labels', {})
-                    for cat in classification.categories:
-                        if (whitelist.get(cat.category_name, False)
-                                and cat.category_name not in exclusions
-                                and cat.score > 0):
+                    for cat in clap_categories:
+                        if cat.score >= self.score_threshold:
                             existing = contributing_labels.get(cat.category_name, 0)
                             if cat.score > existing:
                                 contributing_labels[cat.category_name] = float(cat.score)
@@ -226,7 +230,7 @@ class AudioDetector:
                     # Compter tous les pics depuis le début de la fenêtre
                     recent_peaks = [t for t in peak_times if t >= clap_detected_at]
                     clap_count = max(1, len(recent_peaks))
-                    clap_score = es.get('clap_score', score_sum)
+                    clap_score = es.get('clap_score', max_clap_score)
                     clap_labels = sorted(
                         ({'label': name, 'score': score}
                          for name, score in es.get('clap_labels', {}).items()),

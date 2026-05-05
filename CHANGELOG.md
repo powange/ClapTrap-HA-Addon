@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.18.2
+
+### Detection : seuil applique par son individuellement
+
+- Le seuil de precision s'applique desormais a chaque son whitelist
+  individuellement, plus a la somme cumulee des scores. Au moins un son
+  doit depasser le seuil pour declencher un clap.
+- Le score affiche/transmis est le meilleur score individuel observe sur
+  la fenetre multi-clap (et non plus la somme, qui pouvait depasser 100%).
+- L'historique liste uniquement les sons ayant franchi le seuil pendant
+  la fenetre.
+
 ## 6.18.1
 
 ### Historique : afficher les sons ayant declenche le clap
