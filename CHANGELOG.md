@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.19.2
+
+### Fix : conserver l'onglet de source actif apres modif de groupes
+
+- Lors de la creation, suppression ou modification d'un groupe additionnel,
+  la page se rechargeait et l'utilisateur etait remis sur le premier onglet
+  de source. L'onglet actif est desormais memorise (sessionStorage) avant
+  le reload puis restaure.
+
 ## 6.19.1
 
 ### UI : gestion des groupes de sons additionnels

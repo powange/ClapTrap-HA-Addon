@@ -317,6 +317,18 @@
 
             // Re-bind events inside tabs
             bindTabEvents();
+
+            // Restaurer l'onglet actif apres un reload declenche par une
+            // modif de groupes (cf. _refreshSourcesAfterChange).
+            try {
+                var savedTab = sessionStorage.getItem('claptrap_active_tab');
+                if (savedTab) {
+                    sessionStorage.removeItem('claptrap_active_tab');
+                    if (document.querySelector('.tab-btn[data-tab="' + savedTab + '"]')) {
+                        switchTab(savedTab);
+                    }
+                }
+            } catch (_e) {}
         }
 
         function switchTab(tabId) {
@@ -1056,9 +1068,15 @@
             function _groupSection(el) { return el.closest('.sound-groups-section'); }
             function _groupCard(el) { return el.closest('.sound-group-card'); }
             function _refreshSourcesAfterChange() {
-                // MVP : recharger la page pour re-rendre les onglets avec
-                // les nouveaux groupes. Une mise a jour incrementale
-                // necessiterait un endpoint GET /api/settings dedie.
+                // Memoriser l'onglet actif avant le reload pour eviter de
+                // remettre l'utilisateur sur le premier onglet.
+                try {
+                    var active = document.querySelector('.tab-btn.active');
+                    if (active) {
+                        sessionStorage.setItem('claptrap_active_tab',
+                            active.getAttribute('data-tab'));
+                    }
+                } catch (_e) {}
                 location.reload();
             }
 
