@@ -456,15 +456,32 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None, 
     source_slug = _make_slug(source_id)
 
     existing = _source_info.get(source_id)
+    # Skip uniquement si rien n'a change (label, slug, groupes : noms ET counts).
     if (existing and existing['slug'] == source_slug
+            and existing.get('label') == display_name
             and existing.get('groups') == norm_groups):
         if technical_id:
             _source_id_map[technical_id] = source_id
         return
 
-    # Avant d'ecrire, nettoyer les anciennes entites de ce source_slug
-    # (groupes supprimes ou clap_counts qui ont change).
-    _unregister_all_entities_for_source(existing or {'slug': source_slug, 'groups': {}})
+    # Calculer les object_ids nouveaux. On ne supprime que ceux qui
+    # disparaissent : un simple renommage de groupe garde les memes
+    # object_ids et republiera juste le discovery config (le `name` change
+    # est ainsi propage a HA).
+    new_obj_ids = set()
+    for g_slug, g_info in norm_groups.items():
+        for n in g_info['clap_counts']:
+            new_obj_ids.add(_group_object_id(source_slug, g_slug, n))
+    if existing and existing.get('slug') == source_slug:
+        old_obj_ids = set()
+        for g_slug, g_info in (existing.get('groups') or {}).items():
+            for n in g_info.get('clap_counts', []):
+                old_obj_ids.add(_group_object_id(source_slug, g_slug, n))
+        for obj in old_obj_ids - new_obj_ids:
+            _unregister_mqtt_entity('binary_sensor', obj)
+    else:
+        # Premiere registration ou source completement remplacee
+        _unregister_all_entities_for_source(existing or {'slug': source_slug, 'groups': {}})
 
     _source_info[source_id] = {
         'slug': source_slug, 'label': display_name, 'groups': norm_groups,

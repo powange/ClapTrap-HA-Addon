@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.20.4
+
+### Fix : propager le renommage d'un groupe vers les entites HA
+
+- Quand on renommait un groupe, les object_ids ne changeaient pas (le
+  slug est stable) mais l'ancien `name` du discovery config restait
+  dans HA. La garde "skip si inchange" de `register_source` ignorait
+  desormais correctement les changements de nom (et de label de source).
+- Refactor : on ne desinscrit plus systematiquement TOUTES les entites
+  avant de re-publier. On ne nettoie que les object_ids qui disparaissent
+  vraiment (groupes supprimes ou clap_counts retires). Les entites
+  existantes voient leur discovery config simplement republie avec le
+  nouveau `name`, ce que HA traduit par une mise a jour du nom convivial.
+
 ## 6.20.3
 
 ### Entites HA VBAN par nom + retouches UI
