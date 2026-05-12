@@ -1156,13 +1156,23 @@
             }
 
             document.querySelectorAll('.sound-group-name').forEach(function(input) {
-                var debounce;
-                input.addEventListener('input', function() {
-                    clearTimeout(debounce);
-                    debounce = setTimeout(function() {
-                        var section = _groupSection(input); var card = _groupCard(input);
-                        if (section && card) _putGroup(section, card, { name: input.value.trim() });
-                    }, 500);
+                // Sur 'change' (blur ou Enter) plutot que 'input' debounced :
+                // le renommage entraine la regeneration du slug (et donc des
+                // entity_id HA), il vaut mieux ne le faire qu'une fois quand
+                // l'utilisateur a fini de taper.
+                input.addEventListener('change', function() {
+                    var section = _groupSection(input); var card = _groupCard(input);
+                    if (!section || !card) return;
+                    _putGroup(section, card, { name: input.value.trim() })
+                        .then(function(r) { return r.ok ? r.json() : null; })
+                        .then(function(data) {
+                            // Si le slug a change, le card data-group-slug est
+                            // perime et toutes les entites HA sont renommees :
+                            // recharger pour refleter le nouvel etat.
+                            if (data && data.old_slug && data.old_slug !== data.group_slug) {
+                                _refreshSourcesAfterChange();
+                            }
+                        });
                 });
             });
 

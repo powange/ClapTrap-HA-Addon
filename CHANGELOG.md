@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.20.6
+
+### Fix : le slug d'un groupe suit son nom (entity_id HA cohérent)
+
+- Quand on renommait un groupe, le `name` changeait mais le `slug` (qui
+  constitue l'entity_id HA) restait celui de la creation. Du coup
+  l'entite gardait l'ancien nom dans son ID : `..._toc_table_4claps`
+  alors que le groupe s'appelle maintenant "Siffler".
+- Au renommage, le slug est regenere automatiquement a partir du nouveau
+  nom (`siffler` dans l'exemple), et les anciennes entites HA sont
+  supprimees, les nouvelles creees avec le bon entity_id.
+- Exception : le groupe par defaut "clap" garde son slug "clap" pour
+  preserver la compat retro des automations HA (entites historiques
+  sans suffixe de groupe).
+- L'input du nom est desormais sur `change` (blur / Enter) plutot que
+  debounced `input` : le slug se regenere une seule fois quand
+  l'utilisateur a fini de taper, et la page se recharge automatiquement
+  si le slug a effectivement change.
+
 ## 6.20.5
 
 ### Fix : forcer la mise a jour du nom convivial HA au renommage d'un groupe

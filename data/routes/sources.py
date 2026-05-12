@@ -869,8 +869,22 @@ def update_source_sound_group():
         target = next((g for g in groups if isinstance(g, dict) and g.get('slug') == slug), None)
         if target is None:
             return jsonify({'error': 'groupe introuvable'}), 404
+        old_slug = slug
+        new_slug = slug
         if 'name' in data:
-            target['name'] = (data['name'] or '').strip() or target.get('name', slug)
+            new_name = (data['name'] or '').strip() or target.get('name', slug)
+            target['name'] = new_name
+            # Pour que l'entity_id HA suive le nom, on regenere le slug a
+            # partir du nouveau nom. Exception : le groupe par defaut "clap"
+            # garde son slug "clap" pour la compat retro avec les automations
+            # HA existantes (entities sans suffixe de groupe).
+            if slug != 'clap':
+                existing_slugs = {g.get('slug') for g in groups
+                                  if isinstance(g, dict) and g.get('slug') != slug}
+                desired = _slugify_group(new_name, existing_slugs)
+                if desired != slug:
+                    target['slug'] = desired
+                    new_slug = desired
         if 'threshold' in data:
             try:
                 target['threshold'] = max(0.0, min(1.0, float(data['threshold'])))
@@ -882,7 +896,11 @@ def update_source_sound_group():
         save_settings(settings)
         _refresh_source_entities(kind, src)
         _push_groups_to_detector(kind, source_key, groups)
-        return jsonify({'success': True, 'group': target})
+        return jsonify({
+            'success': True, 'group': target,
+            'group_slug': new_slug,
+            'old_slug': old_slug if new_slug != old_slug else None,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
