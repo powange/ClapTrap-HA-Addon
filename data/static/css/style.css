@@ -696,6 +696,34 @@ h1 {
     cursor: not-allowed;
 }
 
+/* VBAN : Nom + IP:Port sur une seule ligne compacte */
+.vban-info-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: baseline;
+}
+
+.vban-info-cell {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+}
+
+.vban-info-cell label {
+    color: var(--color-text-muted, #777);
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.vban-info-cell code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.9rem;
+    background: rgba(0,0,0,0.04);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-xs, 4px);
+}
+
 /* ===== Config Panel ===== */
 .config-panel {
     display: flex;

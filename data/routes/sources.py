@@ -549,21 +549,43 @@ def cleanup_source_sound_whitelist():
         if target is None:
             return jsonify({'error': 'source introuvable'}), 404
 
-        wl = target.get('sound_whitelist') or {}
-        kept = {k: v for k, v in wl.items() if v}
-        removed = len(wl) - len(kept)
-        target['sound_whitelist'] = kept
-        # Propager au groupe par defaut "clap" (ou tous les groupes si on
-        # ne sait pas lequel viser).
-        for g in target.get('sound_groups', []) or []:
-            if not isinstance(g, dict):
-                continue
-            g_wl = g.get('sound_whitelist') or {}
-            g['sound_whitelist'] = {k: v for k, v in g_wl.items() if v}
+        group_slug = data.get('group_slug')
+        removed = 0
+        if group_slug:
+            # Nettoyer uniquement le groupe specifie
+            target_group = next((g for g in target.get('sound_groups', []) or []
+                                 if isinstance(g, dict) and g.get('slug') == group_slug), None)
+            if target_group is None:
+                return jsonify({'error': 'groupe introuvable'}), 404
+            wl = target_group.get('sound_whitelist') or {}
+            kept = {k: v for k, v in wl.items() if v}
+            removed = len(wl) - len(kept)
+            target_group['sound_whitelist'] = kept
+            # Si "clap", garder le legacy en phase
+            if group_slug == 'clap':
+                legacy = target.get('sound_whitelist') or {}
+                target['sound_whitelist'] = {k: v for k, v in legacy.items() if v}
+        else:
+            # Compat retro : nettoyer tous les groupes + legacy
+            wl = target.get('sound_whitelist') or {}
+            kept = {k: v for k, v in wl.items() if v}
+            removed = len(wl) - len(kept)
+            target['sound_whitelist'] = kept
+            for g in target.get('sound_groups', []) or []:
+                if not isinstance(g, dict):
+                    continue
+                g_wl = g.get('sound_whitelist') or {}
+                g['sound_whitelist'] = {k: v for k, v in g_wl.items() if v}
         save_settings(settings)
 
-        # Nettoyer aussi les seen labels du detecteur actif
+        # Nettoyer aussi les seen labels du detecteur actif et le pousser
         source_id = _source_id_for(kind, source_key)
+        # Calculer l'union des labels qui restent (dans groupes + legacy)
+        remaining_labels = set((target.get('sound_whitelist') or {}).keys())
+        for g in target.get('sound_groups', []) or []:
+            if isinstance(g, dict):
+                remaining_labels.update((g.get('sound_whitelist') or {}).keys())
+
         if source_id:
             try:
                 from classify import _active_detectors_lock, _seen_labels_by_source, _detectors_by_source_id
@@ -571,29 +593,26 @@ def cleanup_source_sound_whitelist():
                     seen = _seen_labels_by_source.get(source_id)
                     if seen is not None:
                         seen.clear()
-                        seen.update(kept.keys())
+                        seen.update(remaining_labels)
                     det = _detectors_by_source_id.get(source_id)
                     if det is not None:
-                        # Reconstruire les groupes depuis les settings frais
-                        groups = []
+                        groups_payload = []
                         for g in target.get('sound_groups', []) or []:
                             if not isinstance(g, dict):
                                 continue
-                            groups.append({
+                            groups_payload.append({
                                 'slug': g.get('slug', 'clap'),
                                 'name': g.get('name', 'Clap'),
                                 'whitelist': dict(g.get('sound_whitelist') or {}),
                                 'threshold': float(g.get('threshold', 0.5)),
                                 'clap_counts': list(g.get('ha_entities') or [1, 2]),
                             })
-                        if groups:
-                            det.set_groups(groups)
-                        else:
-                            det.set_whitelist(kept)
+                        if groups_payload:
+                            det.set_groups(groups_payload)
             except Exception:
                 pass
 
-        return jsonify({'success': True, 'removed': removed, 'remaining': len(kept)})
+        return jsonify({'success': True, 'removed': removed, 'remaining': len(remaining_labels)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

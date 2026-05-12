@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.20.0
+
+### UI : interface unifiee pour tous les groupes de sons
+
+- Le groupe par defaut "Clap" et les groupes additionnels partagent
+  desormais la meme presentation : tous sont rendus sous forme de cartes
+  dans le panneau "Groupes de sons" de chaque source.
+- VBAN : Nom et IP:Port reunis sur une seule ligne compacte (le port
+  apparait inline avec l'IP, separe par `:`).
+- Suppression des controles redondants au niveau de la source :
+  - slider Precision du micro / RTSP / VBAN (chaque groupe a le sien)
+  - cases "Entites HA (claps)" au niveau source (chaque groupe a les siennes)
+  - liste "Sons detectes" au niveau source (remplacee par la liste de
+    chaque carte de groupe)
+- Le groupe "Clap" reste indelebile (bouton supprimer masque). Son nom
+  peut etre renomme librement, son slug interne reste "clap" pour la
+  compat retro des entites HA.
+- Bouton "Nettoyer" desormais disponible par groupe : la route
+  `/api/source/sound_whitelist/cleanup` accepte un parametre
+  `group_slug` pour cibler un seul groupe ou tous les groupes (sans
+  parametre, comportement legacy).
+- L'auto-decouverte de sons (socket `sound_seen`) ajoute le nouveau label
+  comme decoche dans toutes les cartes de groupes de la source.
+
 ## 6.19.3
 
 ### Fix : auto-decouverte des sons dans les groupes additionnels

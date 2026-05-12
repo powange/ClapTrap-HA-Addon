@@ -375,10 +375,6 @@
                     '<label for="micro_source">Source :</label>' +
                     '<select name="micro_source" id="micro_source">' + deviceOptions + '</select>' +
                 '</div>' +
-                '<div class="setting-item">' +
-                    '<label for="threshold">Precision : <span id="threshold-value">' + threshold + '</span></label>' +
-                    '<input type="range" id="threshold" min="0" max="1" step="0.1" value="' + threshold + '">' +
-                '</div>' +
                 '<div class="mic-volume-section">' +
                     '<div class="mic-volume-header">' +
                         '<label for="mic-volume">Volume : <span id="mic-volume-value">' + volume + '%</span></label>' +
@@ -396,19 +392,8 @@
                         '<span id="mic-test-db" class="vu-meter-label">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
-                (function() {
-                    var haEntities = d.ha_entities || [1, 2];
-                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
-                    for (var n = 1; n <= 4; n++) {
-                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
-                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="mic"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
-                    }
-                    haHtml += '</div></div>';
-                    return haHtml;
-                })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
-                buildSoundWhitelistHtml('mic', d.device_index || '0', d.sound_whitelist) +
-                buildAdditionalGroupsHtml('mic', d.device_index || '0', d.sound_groups) +
+                buildSoundGroupsHtml('mic', d.device_index || '0', d.sound_groups) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -444,10 +429,6 @@
                     '<input type="url" class="rtsp-url-input" data-id="' + escAttr(streamId) + '" value="' + escAttr(url) + '" placeholder="rtsp://camera:554/stream">' +
                 '</div>' +
                 '<div class="setting-item">' +
-                    '<label>Precision : <span class="rtsp-threshold-value">' + threshold + '</span></label>' +
-                    '<input type="range" class="rtsp-threshold" data-id="' + escAttr(streamId) + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
-                '</div>' +
-                '<div class="setting-item">' +
                     '<label>Volume : <span class="rtsp-volume-value">' + volume + 'x</span></label>' +
                     '<input type="range" class="rtsp-volume" data-id="' + escAttr(streamId) + '" min="1" max="50" step="1" value="' + volume + '">' +
                 '</div>' +
@@ -458,19 +439,8 @@
                         '<span class="vu-meter-label rtsp-test-db">-60 dB</span>' +
                     '</div>' +
                 '</div>' +
-                (function() {
-                    var haEntities = d.ha_entities || [1, 2];
-                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
-                    for (var n = 1; n <= 4; n++) {
-                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
-                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="rtsp" data-source-id="' + escAttr(streamId) + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
-                    }
-                    haHtml += '</div></div>';
-                    return haHtml;
-                })() +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
-                buildSoundWhitelistHtml('rtsp', streamId, d.sound_whitelist) +
-                buildAdditionalGroupsHtml('rtsp', streamId, d.sound_groups) +
+                buildSoundGroupsHtml('rtsp', streamId, d.sound_groups) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -514,18 +484,15 @@
             return html;
         }
 
-        function buildAdditionalGroupsHtml(kind, sourceKey, groups) {
-            // Affiche les groupes additionnels (hors "clap" qui est gere par
-            // l'UI legacy ci-dessus). Permet d'ajouter, renommer, supprimer
-            // des groupes et de gerer leurs sons.
-            var nonDefaultGroups = (groups || []).filter(function(g) {
-                return g && g.slug && g.slug !== 'clap';
-            });
+        function buildSoundGroupsHtml(kind, sourceKey, groups) {
+            // Affiche TOUS les groupes de sons d'une source (clap par defaut +
+            // ceux ajoutes par l'utilisateur) avec une seule et meme UI.
+            var allGroups = (groups || []).filter(function(g) { return g && g.slug; });
             // Calculer l'ensemble des labels deja actifs dans CHACUN des groupes
-            // (y compris "clap") pour la validation d'exclusivite cote UI.
+            // pour la validation d'exclusivite cote UI.
             var enabledByGroup = {};
-            (groups || []).forEach(function(g) {
-                if (!g || !g.sound_whitelist) return;
+            allGroups.forEach(function(g) {
+                if (!g.sound_whitelist) return;
                 Object.entries(g.sound_whitelist).forEach(function(e) {
                     if (e[1]) {
                         if (!enabledByGroup[e[0]]) enabledByGroup[e[0]] = [];
@@ -537,16 +504,16 @@
                 ' data-kind="' + escAttr(kind) + '"' +
                 ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                    '<label>Groupes additionnels</label>' +
+                    '<label>Groupes de sons</label>' +
                     '<button type="button" class="btn btn-secondary btn-sm sound-group-add">' +
                         '&#x2795; Nouveau groupe</button>' +
                 '</div>' +
-                '<span class="setting-hint">Sur la meme source, vous pouvez differencier plusieurs sons (ex: claps des mains vs toc sur la table). Chaque groupe a son propre seuil et ses propres entites HA. Un son ne peut etre actif que dans un seul groupe a la fois.</span>' +
+                '<span class="setting-hint">Chaque groupe possede son propre seuil de detection, ses entites HA et sa liste de sons. Un son ne peut etre actif que dans un seul groupe d\'une meme source.</span>' +
                 '<div class="sound-groups-list">';
-            if (nonDefaultGroups.length === 0) {
-                html += '<div class="sound-groups-empty">Aucun groupe additionnel.</div>';
+            if (allGroups.length === 0) {
+                html += '<div class="sound-groups-empty">Aucun groupe configure.</div>';
             } else {
-                nonDefaultGroups.forEach(function(g) {
+                allGroups.forEach(function(g) {
                     html += renderGroupCard(kind, sourceKey, g, enabledByGroup);
                 });
             }
@@ -560,10 +527,16 @@
             var threshold = g.threshold !== undefined ? g.threshold : 0.5;
             var ha = g.ha_entities || [1, 2];
             var wl = g.sound_whitelist || {};
+            // Le groupe par defaut "clap" ne peut pas etre supprime
+            // (cf. route DELETE /api/source/sound_groups). On masque le bouton.
+            var deleteBtn = (slug === 'clap')
+                ? ''
+                : '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>';
             var html = '<div class="sound-group-card" data-group-slug="' + escAttr(slug) + '">' +
                 '<div class="sound-group-header">' +
                     '<input type="text" class="sound-group-name" value="' + escAttr(name) + '" />' +
-                    '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>' +
+                    '<button type="button" class="btn btn-secondary btn-sm sound-group-cleanup" title="Supprimer les sons non coches">&#x1F5D1; Nettoyer</button>' +
+                    deleteBtn +
                 '</div>' +
                 '<div class="setting-item">' +
                     '<label>Precision : <span class="sound-group-threshold-value">' + threshold + '</span></label>' +
@@ -625,21 +598,9 @@
                 '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + src.id.replace('vban_', '') + '">&#x274C; Supprimer</button>' +
             '</div>' +
             '<div class="source-config">' +
-                '<div class="setting-item">' +
-                    '<label>Nom</label>' +
-                    '<span>' + esc(name) + '</span>' +
-                '</div>' +
-                '<div class="setting-item">' +
-                    '<label>IP</label>' +
-                    '<span>' + esc(ip) + '</span>' +
-                '</div>' +
-                '<div class="setting-item">' +
-                    '<label>Port</label>' +
-                    '<span>' + esc(String(port)) + '</span>' +
-                '</div>' +
-                '<div class="setting-item">' +
-                    '<label>Precision : <span class="vban-threshold-value">' + threshold + '</span></label>' +
-                    '<input type="range" class="vban-threshold" data-index="' + src.id.replace('vban_', '') + '" min="0" max="1" step="0.1" value="' + threshold + '">' +
+                '<div class="setting-item vban-info-line">' +
+                    '<span class="vban-info-cell"><label>Nom</label> <span>' + esc(name) + '</span></span>' +
+                    '<span class="vban-info-cell"><label>Adresse</label> <code>' + esc(ip) + ':' + esc(String(port)) + '</code></span>' +
                 '</div>' +
                 '<div class="setting-item">' +
                     '<label>Volume : <span class="vban-gain-value">' + gain + 'x</span></label>' +
@@ -659,19 +620,8 @@
                         '<button type="button" class="test-webhook" data-source="vban_' + src.id.replace('vban_', '') + '">&#x1F514; Tester</button>' +
                     '</div>' +
                 '</div>' +
-                (function() {
-                    var haEntities = d.ha_entities || [1, 2];
-                    var haHtml = '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
-                    for (var n = 1; n <= 4; n++) {
-                        var checked = haEntities.indexOf(n) !== -1 ? ' checked' : '';
-                        haHtml += '<label class="ha-clap-check"><input type="checkbox" class="ha-clap-toggle" data-clap="' + n + '" data-source-type="vban" data-source-index="' + src.id.replace('vban_', '') + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
-                    }
-                    haHtml += '</div></div>';
-                    return haHtml;
-                })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
-                buildSoundWhitelistHtml('vban', ip, d.sound_whitelist) +
-                buildAdditionalGroupsHtml('vban', ip, d.sound_groups) +
+                buildSoundGroupsHtml('vban', ip, d.sound_groups) +
             '</div>';
         }
 
@@ -1096,6 +1046,37 @@
                     }).then(function(r) { return r.json(); }).then(function(data) {
                         if (data.success) _refreshSourcesAfterChange();
                         else alert(data.error || 'Erreur creation groupe');
+                    });
+                });
+            });
+
+            document.querySelectorAll('.sound-group-cleanup').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var section = _groupSection(btn);
+                    var card = _groupCard(btn);
+                    if (!section || !card) return;
+                    var body = {
+                        kind: section.getAttribute('data-kind'),
+                        source_key: section.getAttribute('data-source-key'),
+                        group_slug: card.getAttribute('data-group-slug')
+                    };
+                    fetch(basePath + '/api/source/sound_whitelist/cleanup', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.success) {
+                            // Retirer visuellement les items non coches du groupe
+                            card.querySelectorAll('.sound-whitelist-item').forEach(function(item) {
+                                var cb = item.querySelector('.sound-group-whitelist-toggle');
+                                if (cb && !cb.checked) item.remove();
+                            });
+                            var list = card.querySelector('.sound-whitelist-list');
+                            if (list && list.children.length === 0) {
+                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son dans ce groupe.</div>';
+                            }
+                        } else {
+                            alert(data.error || 'Erreur nettoyage');
+                        }
                     });
                 });
             });
