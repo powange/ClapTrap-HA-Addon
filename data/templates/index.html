@@ -1793,6 +1793,54 @@
                         });
                         list.appendChild(row);
                     });
+
+                    // Ajouter aussi le nouveau label dans chaque groupe additionnel
+                    // de la meme source (decoche). L'exclusivite UI est calculee
+                    // a partir des cases existantes de la source.
+                    var groupSections = document.querySelectorAll('.sound-groups-section');
+                    groupSections.forEach(function(section) {
+                        if (section.getAttribute('data-kind') !== data.kind) return;
+                        if (String(section.getAttribute('data-source-key')) !== String(data.source_key)) return;
+                        section.querySelectorAll('.sound-group-card').forEach(function(card) {
+                            var list = card.querySelector('.sound-whitelist-list');
+                            if (!list) return;
+                            var labelAttr = data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                            var already = list.querySelector('.sound-group-whitelist-toggle[data-label="' + labelAttr + '"]');
+                            if (already) return;
+                            var empty = list.querySelector('.sound-whitelist-empty');
+                            if (empty) empty.remove();
+                            var labelEsc = data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            var item = document.createElement('span');
+                            item.className = 'sound-whitelist-item';
+                            item.innerHTML =
+                                '<label><input type="checkbox" class="sound-group-whitelist-toggle"' +
+                                ' data-label="' + labelAttr + '"> <span>' + labelEsc + '</span></label>';
+                            // Reutiliser le meme handler (PUT avec group_slug + gestion 409)
+                            var cb = item.querySelector('.sound-group-whitelist-toggle');
+                            cb.addEventListener('change', function() {
+                                var body = {
+                                    kind: section.getAttribute('data-kind'),
+                                    source_key: section.getAttribute('data-source-key'),
+                                    group_slug: card.getAttribute('data-group-slug'),
+                                    label: data.label,
+                                    enabled: cb.checked
+                                };
+                                fetch((window.basePath || '') + '/api/source/sound_whitelist', {
+                                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(body)
+                                }).then(function(r) {
+                                    if (r.status === 409) {
+                                        return r.json().then(function(d) {
+                                            cb.checked = !cb.checked;
+                                            alert(d.error || 'Ce son est deja actif dans un autre groupe');
+                                        });
+                                    }
+                                });
+                            });
+                            list.appendChild(item);
+                        });
+                    });
+
                     // Rafraichir aussi la liste d'exclusions globales si ouverte
                     var exclBody = document.getElementById('exclusionsContent');
                     if (exclBody && exclBody.style.display !== 'none' &&

@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.19.3
+
+### Fix : auto-decouverte des sons dans les groupes additionnels
+
+- Quand un nouveau son etait detecte par l'auto-decouverte, il
+  apparaissait uniquement dans la liste "Sons detectes" du groupe par
+  defaut, jamais dans les groupes additionnels (qui n'avaient le son
+  qu'apres reload). Le handler socket `sound_seen` ajoute desormais le
+  nouveau label dans la carte de chaque groupe additionnel de la meme
+  source, decoche par defaut, avec le toggle PUT et la gestion du 409
+  d'exclusivite.
+
 ## 6.19.2
 
 ### Fix : conserver l'onglet de source actif apres modif de groupes
