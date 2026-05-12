@@ -464,23 +464,49 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None, 
             _source_id_map[technical_id] = source_id
         return
 
-    # Calculer les object_ids nouveaux. On ne supprime que ceux qui
-    # disparaissent : un simple renommage de groupe garde les memes
-    # object_ids et republiera juste le discovery config (le `name` change
-    # est ainsi propage a HA).
+    # On collecte les object_ids a supprimer :
+    # 1) ceux qui disparaissent (groupe ou clap_count supprime)
+    # 2) ceux dont le `name` (friendly name HA) doit changer
+    #
+    # Pourquoi (2) : HA, via MQTT Discovery, ignore parfois la mise a jour
+    # du friendly name si on republie le config avec le meme unique_id.
+    # Pour forcer l'update, il faut d'abord publier une config vide (HA
+    # supprime l'entite), puis publier la nouvelle config (HA la recree
+    # avec le nouveau nom).
     new_obj_ids = set()
     for g_slug, g_info in norm_groups.items():
         for n in g_info['clap_counts']:
             new_obj_ids.add(_group_object_id(source_slug, g_slug, n))
+
+    def _friendly_name(display, g_slug, g_name, n):
+        if g_slug == 'clap':
+            return f'{display} {n} clap{"s" if n > 1 else ""}'
+        return f'{display} {g_name} {n} clap{"s" if n > 1 else ""}'
+
+    to_unregister = set()
     if existing and existing.get('slug') == source_slug:
-        old_obj_ids = set()
-        for g_slug, g_info in (existing.get('groups') or {}).items():
+        old_display = existing.get('label') or source_id
+        old_groups = existing.get('groups') or {}
+        # 1) Entites qui disparaissent
+        for g_slug, g_info in old_groups.items():
             for n in g_info.get('clap_counts', []):
-                old_obj_ids.add(_group_object_id(source_slug, g_slug, n))
-        for obj in old_obj_ids - new_obj_ids:
+                obj = _group_object_id(source_slug, g_slug, n)
+                if obj not in new_obj_ids:
+                    to_unregister.add(obj)
+        # 2) Entites avec friendly name modifie
+        for g_slug, g_info in norm_groups.items():
+            old_g = old_groups.get(g_slug) or {}
+            old_g_name = old_g.get('name', g_slug)
+            new_g_name = g_info.get('name', g_slug)
+            for n in g_info['clap_counts']:
+                old_fn = _friendly_name(old_display, g_slug, old_g_name, n)
+                new_fn = _friendly_name(display_name, g_slug, new_g_name, n)
+                if old_fn != new_fn:
+                    to_unregister.add(_group_object_id(source_slug, g_slug, n))
+        for obj in to_unregister:
             _unregister_mqtt_entity('binary_sensor', obj)
     else:
-        # Premiere registration ou source completement remplacee
+        # Premiere registration : pas d'existing concret a nettoyer
         _unregister_all_entities_for_source(existing or {'slug': source_slug, 'groups': {}})
 
     _source_info[source_id] = {
@@ -490,14 +516,17 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None, 
         _source_id_map[technical_id] = source_id
 
     if _mqtt_available:
+        # Si on vient de desinscrire des entites pour un changement de nom,
+        # laisser le broker / HA traiter le payload vide avant de republier.
+        # Sans ce delai, HA peut coalescer la suppression et la creation, ce
+        # qui empeche la mise a jour du friendly name.
+        if to_unregister:
+            time.sleep(0.5)
         for g_slug, g_info in norm_groups.items():
             g_name = g_info.get('name', g_slug)
             for n in g_info['clap_counts']:
                 obj = _group_object_id(source_slug, g_slug, n)
-                entity_name = f'{display_name} {g_name} {n} clap{"s" if n > 1 else ""}'
-                if g_slug == 'clap':
-                    # Compat retro : conserver l'ancien nom lisible
-                    entity_name = f'{display_name} {n} clap{"s" if n > 1 else ""}'
+                entity_name = _friendly_name(display_name, g_slug, g_name, n)
                 _register_mqtt_entity('binary_sensor', obj, {
                     'name': entity_name,
                     'unique_id': f'claptrap_{obj}',

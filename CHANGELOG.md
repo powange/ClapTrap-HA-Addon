@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.20.5
+
+### Fix : forcer la mise a jour du nom convivial HA au renommage d'un groupe
+
+- v6.20.4 republiait bien la config MQTT discovery avec le nouveau nom,
+  mais HA ne met pas toujours a jour le `friendly_name` quand on republie
+  le config sur le meme `unique_id` (l'entite reste taggee avec son
+  ancien nom).
+- Le fix : detecter pour chaque entite si son friendly_name a change
+  (label de la source OU nom du groupe). Si oui, on publie d'abord un
+  config vide (HA supprime l'entite), on attend 500 ms que HA traite
+  la suppression, puis on republie le config avec le nouveau nom (HA
+  recree l'entite avec le nom a jour).
+- Les entites dont le nom n'a pas change ne sont plus touchees (pas de
+  flicker pour elles).
+
 ## 6.20.4
 
 ### Fix : propager le renommage d'un groupe vers les entites HA
