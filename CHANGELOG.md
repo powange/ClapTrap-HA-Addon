@@ -1,5 +1,14 @@
 # Changelog
 
+## 6.20.1
+
+### Historique : afficher le groupe de son declenche
+
+- Chaque entree de l'historique de detection (panneau de droite) affiche
+  desormais le nom du groupe de son qui a declenche (a cote de la source),
+  via un badge vert `.group-tag`. La donnee `group_name` est lue depuis
+  l'event socket `clap` (deja envoyee par le backend depuis 6.19.0).
+
 ## 6.20.0
 
 ### UI : interface unifiee pour tous les groupes de sons

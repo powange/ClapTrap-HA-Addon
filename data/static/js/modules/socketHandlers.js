@@ -66,7 +66,11 @@ export function initializeSocketIO() {
                     `<span class="label">${l.label} <span class="label-score">${Math.round((l.score || 0) * 100)}%</span></span>`
                   ).join('')}</div>`
                 : '';
-            el.innerHTML = `<div class="clap-event-header"><strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span> <span class="label-score">${Math.round((data.score || 0) * 100)}%</span></div>${labelsHtml}`;
+            const groupName = data.group_name || (data.group_slug ? data.group_slug : '');
+            const groupHtml = groupName
+                ? ` <span class="group-tag">${groupName}</span>`
+                : '';
+            el.innerHTML = `<div class="clap-event-header"><strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span>${groupHtml} <span class="label-score">${Math.round((data.score || 0) * 100)}%</span></div>${labelsHtml}`;
             container.prepend(el);
             // Garder max 10 events
             while (container.children.length > 10) {
