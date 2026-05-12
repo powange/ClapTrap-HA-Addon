@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.20.2
+
+### UI : afficher les entites HA generees par groupe
+
+- Sous les cases "Entites HA (claps)" de chaque carte de groupe, la liste
+  des `binary_sensor.claptrap_*` correspondants est desormais affichee
+  pour que l'utilisateur sache exactement quelles entites HA sont creees
+  ou declenchees par ce groupe.
+- Le calcul des slugs cote front respecte la convention de
+  `ha_entities._group_object_id` (groupe "clap" sans suffixe de groupe,
+  autres groupes avec `{source}_{groupe}_{n}clap[s]`).
+- Mise a jour live de la liste quand on coche/decoche les cases.
+
 ## 6.20.1
 
 ### Historique : afficher le groupe de son declenche

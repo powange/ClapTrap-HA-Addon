@@ -521,6 +521,32 @@
             return html;
         }
 
+        function _makeSlug(s) {
+            // Reproduit ha_entities._make_slug cote front pour calculer les
+            // entity_id afficher dans l'UI sans aller-retour serveur.
+            var out = String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+            while (out.indexOf('__') !== -1) out = out.replace('__', '_');
+            return out.replace(/^_|_$/g, '');
+        }
+
+        function _buildSourceSlug(kind, sourceKey) {
+            if (kind === 'mic') return _makeSlug('mic_' + sourceKey);
+            if (kind === 'rtsp') return _makeSlug('rtsp_' + String(sourceKey).substring(0, 8));
+            if (kind === 'vban') return _makeSlug('vban_' + sourceKey);
+            return _makeSlug(sourceKey);
+        }
+
+        function _buildGroupEntities(kind, sourceKey, groupSlug, clapCounts) {
+            var sourceSlug = _buildSourceSlug(kind, sourceKey);
+            return (clapCounts || []).map(function(n) {
+                var suffix = n === 1 ? n + 'clap' : n + 'claps';
+                var obj = (!groupSlug || groupSlug === 'clap')
+                    ? sourceSlug + '_' + suffix
+                    : sourceSlug + '_' + groupSlug + '_' + suffix;
+                return 'binary_sensor.claptrap_' + obj;
+            });
+        }
+
         function renderGroupCard(kind, sourceKey, g, enabledByGroup) {
             var slug = g.slug;
             var name = g.name || slug;
@@ -532,6 +558,14 @@
             var deleteBtn = (slug === 'clap')
                 ? ''
                 : '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>';
+            var entities = _buildGroupEntities(kind, sourceKey, slug, ha);
+            var entitiesHtml = entities.length > 0
+                ? '<div class="ha-entities-list group-ha-entities">' +
+                    entities.map(function(e) {
+                        return '<code class="ha-entity-id">' + esc(e) + '</code>';
+                    }).join('') +
+                  '</div>'
+                : '';
             var html = '<div class="sound-group-card" data-group-slug="' + escAttr(slug) + '">' +
                 '<div class="sound-group-header">' +
                     '<input type="text" class="sound-group-name" value="' + escAttr(name) + '" />' +
@@ -547,7 +581,7 @@
                 var checked = ha.indexOf(n) !== -1 ? ' checked' : '';
                 html += '<label class="ha-clap-check"><input type="checkbox" class="sound-group-ha-toggle" data-clap="' + n + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
             }
-            html += '</div></div>';
+            html += '</div>' + entitiesHtml + '</div>';
             html += '<div class="setting-item"><label>Sons</label><div class="sound-whitelist-list">';
             var entries = Object.entries(wl);
             entries.sort(function(a, b) {
@@ -1142,6 +1176,25 @@
                         if (c.checked) ha.push(parseInt(c.getAttribute('data-clap'), 10));
                     });
                     _putGroup(section, card, { ha_entities: ha });
+                    // Mise a jour live de la liste des entites affichees
+                    var existing = card.querySelector('.group-ha-entities');
+                    var entities = _buildGroupEntities(
+                        section.getAttribute('data-kind'),
+                        section.getAttribute('data-source-key'),
+                        card.getAttribute('data-group-slug'),
+                        ha
+                    );
+                    var html = entities.map(function(e) {
+                        return '<code class="ha-entity-id">' + esc(e) + '</code>';
+                    }).join('');
+                    if (existing) {
+                        existing.innerHTML = html;
+                    } else if (entities.length > 0) {
+                        var div = document.createElement('div');
+                        div.className = 'ha-entities-list group-ha-entities';
+                        div.innerHTML = html;
+                        cb.closest('.setting-item').appendChild(div);
+                    }
                 });
             });
 
