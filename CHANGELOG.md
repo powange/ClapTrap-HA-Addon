@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.19.1
+
+### UI : gestion des groupes de sons additionnels
+
+- Nouveau panneau "Groupes additionnels" dans chaque source audio
+  (micro, RTSP, VBAN). Permet de creer, renommer, supprimer des groupes
+  et configurer pour chacun : son seuil, ses entites HA (nb de claps),
+  et la liste des sons qui declenchent.
+- Validation d'exclusivite : un son ne peut etre actif que dans un seul
+  groupe d'une meme source. Les autres groupes affichent la case grisee
+  avec un tooltip indiquant le groupe ou il est actif. Si l'API retourne
+  409, la case est decoche automatiquement.
+- Le groupe par defaut "Clap" reste gere par l'UI existante (seuil et
+  sons du micro / RTSP / VBAN au niveau source) pour compat retro.
+- Nouvelles routes API : POST/PUT/DELETE /api/source/sound_groups.
+
 ## 6.19.0
 
 ### Backend : groupes de sons par source (UI a venir en 6.19.1)

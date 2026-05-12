@@ -717,6 +717,190 @@ def update_source_sound_whitelist():
         return jsonify({'error': str(e)}), 500
 
 
+def _refresh_source_entities(kind, source_dict):
+    """Re-enregistre les entites HA pour la source apres modification de groupes."""
+    try:
+        from ha_entities import register_source, source_entity_key
+        if kind == 'mic':
+            register_source(source_entity_key('mic', source_dict),
+                            label=source_dict.get('audio_source', 'Microphone'),
+                            groups=source_dict.get('sound_groups'))
+        elif kind == 'rtsp':
+            register_source(source_entity_key('rtsp', source_dict),
+                            label=f"RTSP: {source_dict.get('name', 'RTSP')}",
+                            groups=source_dict.get('sound_groups'))
+        elif kind == 'vban':
+            register_source(source_entity_key('vban', source_dict),
+                            label=f"VBAN: {source_dict.get('name', 'VBAN')}",
+                            groups=source_dict.get('sound_groups'))
+    except Exception as exc:
+        logging.debug(f"refresh_source_entities echoue ({kind}): {exc}")
+
+
+def _push_groups_to_detector(kind, source_key, groups):
+    """Recharge les groupes dans le detecteur actif si la detection tourne."""
+    try:
+        source_id = _source_id_for(kind, source_key)
+        if not source_id:
+            return
+        from classify import _active_detectors_lock, _detectors_by_source_id
+        with _active_detectors_lock:
+            det = _detectors_by_source_id.get(source_id)
+            if det is None:
+                return
+            payload = []
+            for g in groups or []:
+                if not isinstance(g, dict):
+                    continue
+                payload.append({
+                    'slug': g.get('slug', 'clap'),
+                    'name': g.get('name', 'Clap'),
+                    'whitelist': dict(g.get('sound_whitelist') or {}),
+                    'threshold': float(g.get('threshold', 0.5)),
+                    'clap_counts': list(g.get('ha_entities') or [1, 2]),
+                })
+            if payload:
+                det.set_groups(payload)
+    except Exception as exc:
+        logging.debug(f"push_groups_to_detector echoue: {exc}")
+
+
+@sources_bp.route('/api/source/sound_groups', methods=['GET'])
+def list_source_sound_groups():
+    """Liste les groupes d'une source. Query: ?kind=&source_key=."""
+    kind = request.args.get('kind')
+    source_key = request.args.get('source_key')
+    if kind not in ('mic', 'rtsp', 'vban'):
+        return jsonify({'error': 'kind requis'}), 400
+    settings = load_settings()
+    src = _find_source_dict(settings, kind, source_key)
+    if src is None:
+        return jsonify({'error': 'source introuvable'}), 404
+    return jsonify({'groups': src.get('sound_groups', []) or []})
+
+
+def _slugify_group(name, existing_slugs):
+    """Genere un slug unique a partir du nom."""
+    base = ''.join(c if c.isalnum() else '_' for c in (name or '').lower())
+    while '__' in base:
+        base = base.replace('__', '_')
+    base = base.strip('_') or 'group'
+    slug = base
+    i = 2
+    while slug in existing_slugs:
+        slug = f"{base}{i}"
+        i += 1
+    return slug
+
+
+@sources_bp.route('/api/source/sound_groups', methods=['POST'])
+def create_source_sound_group():
+    """Cree un nouveau groupe pour une source.
+
+    Body: {kind, source_key, name, threshold?, ha_entities?}
+    """
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        name = (data.get('name') or '').strip()
+        if kind not in ('mic', 'rtsp', 'vban') or not name:
+            return jsonify({'error': 'kind / name requis'}), 400
+        settings = load_settings()
+        src = _find_source_dict(settings, kind, source_key)
+        if src is None:
+            return jsonify({'error': 'source introuvable'}), 404
+        groups = src.setdefault('sound_groups', [])
+        existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)}
+        slug = _slugify_group(name, existing_slugs)
+        threshold = float(data.get('threshold', src.get('threshold', 0.5)))
+        ha_entities = list(data.get('ha_entities') or src.get('ha_entities') or [1, 2])
+        ha_entities = [n for n in ha_entities if 1 <= n <= 4]
+        new_group = {
+            'slug': slug, 'name': name,
+            'sound_whitelist': {}, 'threshold': threshold, 'ha_entities': ha_entities,
+        }
+        groups.append(new_group)
+        save_settings(settings)
+        _refresh_source_entities(kind, src)
+        _push_groups_to_detector(kind, source_key, groups)
+        return jsonify({'success': True, 'group': new_group})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@sources_bp.route('/api/source/sound_groups', methods=['PUT'])
+def update_source_sound_group():
+    """Met a jour les meta-donnees d'un groupe.
+
+    Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?}
+    """
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        slug = data.get('group_slug')
+        if kind not in ('mic', 'rtsp', 'vban') or not slug:
+            return jsonify({'error': 'kind / group_slug requis'}), 400
+        settings = load_settings()
+        src = _find_source_dict(settings, kind, source_key)
+        if src is None:
+            return jsonify({'error': 'source introuvable'}), 404
+        groups = src.get('sound_groups', []) or []
+        target = next((g for g in groups if isinstance(g, dict) and g.get('slug') == slug), None)
+        if target is None:
+            return jsonify({'error': 'groupe introuvable'}), 404
+        if 'name' in data:
+            target['name'] = (data['name'] or '').strip() or target.get('name', slug)
+        if 'threshold' in data:
+            try:
+                target['threshold'] = max(0.0, min(1.0, float(data['threshold'])))
+            except (TypeError, ValueError):
+                pass
+        if 'ha_entities' in data:
+            ents = [n for n in (data['ha_entities'] or []) if isinstance(n, int) and 1 <= n <= 4]
+            target['ha_entities'] = ents
+        save_settings(settings)
+        _refresh_source_entities(kind, src)
+        _push_groups_to_detector(kind, source_key, groups)
+        return jsonify({'success': True, 'group': target})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@sources_bp.route('/api/source/sound_groups', methods=['DELETE'])
+def delete_source_sound_group():
+    """Supprime un groupe (le groupe par defaut "clap" est protege).
+
+    Body: {kind, source_key, group_slug}
+    """
+    try:
+        data = request.get_json() or {}
+        kind = data.get('kind')
+        source_key = data.get('source_key')
+        slug = data.get('group_slug')
+        if kind not in ('mic', 'rtsp', 'vban') or not slug:
+            return jsonify({'error': 'kind / group_slug requis'}), 400
+        if slug == 'clap':
+            return jsonify({'error': 'Le groupe par defaut ne peut etre supprime'}), 400
+        settings = load_settings()
+        src = _find_source_dict(settings, kind, source_key)
+        if src is None:
+            return jsonify({'error': 'source introuvable'}), 404
+        groups = src.get('sound_groups', []) or []
+        before = len(groups)
+        groups = [g for g in groups if not (isinstance(g, dict) and g.get('slug') == slug)]
+        if len(groups) == before:
+            return jsonify({'error': 'groupe introuvable'}), 404
+        src['sound_groups'] = groups
+        save_settings(settings)
+        _refresh_source_entities(kind, src)
+        _push_groups_to_detector(kind, source_key, groups)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @sources_bp.route('/refresh_vban_sources')
 def refresh_vban_sources():
     try:

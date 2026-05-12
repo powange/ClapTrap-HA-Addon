@@ -396,6 +396,7 @@
                 })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
                 buildSoundWhitelistHtml('mic', d.device_index || '0', d.sound_whitelist) +
+                buildAdditionalGroupsHtml('mic', d.device_index || '0', d.sound_groups) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -457,6 +458,7 @@
                 })() +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
                 buildSoundWhitelistHtml('rtsp', streamId, d.sound_whitelist) +
+                buildAdditionalGroupsHtml('rtsp', streamId, d.sound_groups) +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -497,6 +499,92 @@
                 });
             }
             html += '</div></div>';
+            return html;
+        }
+
+        function buildAdditionalGroupsHtml(kind, sourceKey, groups) {
+            // Affiche les groupes additionnels (hors "clap" qui est gere par
+            // l'UI legacy ci-dessus). Permet d'ajouter, renommer, supprimer
+            // des groupes et de gerer leurs sons.
+            var nonDefaultGroups = (groups || []).filter(function(g) {
+                return g && g.slug && g.slug !== 'clap';
+            });
+            // Calculer l'ensemble des labels deja actifs dans CHACUN des groupes
+            // (y compris "clap") pour la validation d'exclusivite cote UI.
+            var enabledByGroup = {};
+            (groups || []).forEach(function(g) {
+                if (!g || !g.sound_whitelist) return;
+                Object.entries(g.sound_whitelist).forEach(function(e) {
+                    if (e[1]) {
+                        if (!enabledByGroup[e[0]]) enabledByGroup[e[0]] = [];
+                        enabledByGroup[e[0]].push(g.slug);
+                    }
+                });
+            });
+            var html = '<div class="setting-item sound-groups-section"' +
+                ' data-kind="' + escAttr(kind) + '"' +
+                ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                    '<label>Groupes additionnels</label>' +
+                    '<button type="button" class="btn btn-secondary btn-sm sound-group-add">' +
+                        '&#x2795; Nouveau groupe</button>' +
+                '</div>' +
+                '<span class="setting-hint">Sur la meme source, vous pouvez differencier plusieurs sons (ex: claps des mains vs toc sur la table). Chaque groupe a son propre seuil et ses propres entites HA. Un son ne peut etre actif que dans un seul groupe a la fois.</span>' +
+                '<div class="sound-groups-list">';
+            if (nonDefaultGroups.length === 0) {
+                html += '<div class="sound-groups-empty">Aucun groupe additionnel.</div>';
+            } else {
+                nonDefaultGroups.forEach(function(g) {
+                    html += renderGroupCard(kind, sourceKey, g, enabledByGroup);
+                });
+            }
+            html += '</div></div>';
+            return html;
+        }
+
+        function renderGroupCard(kind, sourceKey, g, enabledByGroup) {
+            var slug = g.slug;
+            var name = g.name || slug;
+            var threshold = g.threshold !== undefined ? g.threshold : 0.5;
+            var ha = g.ha_entities || [1, 2];
+            var wl = g.sound_whitelist || {};
+            var html = '<div class="sound-group-card" data-group-slug="' + escAttr(slug) + '">' +
+                '<div class="sound-group-header">' +
+                    '<input type="text" class="sound-group-name" value="' + escAttr(name) + '" />' +
+                    '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>' +
+                '</div>' +
+                '<div class="setting-item">' +
+                    '<label>Precision : <span class="sound-group-threshold-value">' + threshold + '</span></label>' +
+                    '<input type="range" class="sound-group-threshold" min="0" max="1" step="0.05" value="' + threshold + '">' +
+                '</div>' +
+                '<div class="setting-item"><label>Entites HA (claps)</label><div class="ha-clap-checkboxes">';
+            for (var n = 1; n <= 4; n++) {
+                var checked = ha.indexOf(n) !== -1 ? ' checked' : '';
+                html += '<label class="ha-clap-check"><input type="checkbox" class="sound-group-ha-toggle" data-clap="' + n + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
+            }
+            html += '</div></div>';
+            html += '<div class="setting-item"><label>Sons</label><div class="sound-whitelist-list">';
+            var entries = Object.entries(wl);
+            entries.sort(function(a, b) {
+                if (a[1] !== b[1]) return b[1] - a[1];
+                return a[0].localeCompare(b[0]);
+            });
+            if (entries.length === 0) {
+                html += '<div class="sound-whitelist-empty">Aucun son disponible dans ce groupe.</div>';
+            } else {
+                entries.forEach(function(e) {
+                    var label = e[0]; var on = !!e[1];
+                    var conflict = (enabledByGroup[label] || []).filter(function(s) { return s !== slug; });
+                    var disabled = (!on && conflict.length > 0) ? ' disabled' : '';
+                    var title = conflict.length > 0 ? 'Deja actif dans : ' + conflict.join(', ') : '';
+                    html += '<span class="sound-whitelist-item' + (disabled ? ' disabled' : '') + '"' +
+                        (title ? ' title="' + escAttr(title) + '"' : '') + '>' +
+                        '<label><input type="checkbox" class="sound-group-whitelist-toggle"' +
+                        ' data-label="' + escAttr(label) + '"' + (on ? ' checked' : '') + disabled + '>' +
+                        ' <span>' + esc(label) + '</span></label></span>';
+                });
+            }
+            html += '</div></div></div>';
             return html;
         }
 
@@ -571,6 +659,7 @@
                 })() +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
                 buildSoundWhitelistHtml('vban', ip, d.sound_whitelist) +
+                buildAdditionalGroupsHtml('vban', ip, d.sound_groups) +
             '</div>';
         }
 
@@ -958,6 +1047,138 @@
                             if (list && list.children.length === 0) {
                                 list.innerHTML = '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
                             }
+                        }
+                    });
+                });
+            });
+
+            // ---- Sound groups : creer / supprimer / renommer / threshold / ha_entities / sons ----
+            function _groupSection(el) { return el.closest('.sound-groups-section'); }
+            function _groupCard(el) { return el.closest('.sound-group-card'); }
+            function _refreshSourcesAfterChange() {
+                // MVP : recharger la page pour re-rendre les onglets avec
+                // les nouveaux groupes. Une mise a jour incrementale
+                // necessiterait un endpoint GET /api/settings dedie.
+                location.reload();
+            }
+
+            document.querySelectorAll('.sound-group-add').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var section = _groupSection(btn);
+                    if (!section) return;
+                    var name = (window.prompt('Nom du nouveau groupe (ex: "Toc table") :') || '').trim();
+                    if (!name) return;
+                    fetch(basePath + '/api/source/sound_groups', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            kind: section.getAttribute('data-kind'),
+                            source_key: section.getAttribute('data-source-key'),
+                            name: name
+                        })
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.success) _refreshSourcesAfterChange();
+                        else alert(data.error || 'Erreur creation groupe');
+                    });
+                });
+            });
+
+            document.querySelectorAll('.sound-group-delete').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var section = _groupSection(btn);
+                    var card = _groupCard(btn);
+                    if (!section || !card) return;
+                    if (!window.confirm('Supprimer ce groupe ?')) return;
+                    fetch(basePath + '/api/source/sound_groups', {
+                        method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            kind: section.getAttribute('data-kind'),
+                            source_key: section.getAttribute('data-source-key'),
+                            group_slug: card.getAttribute('data-group-slug')
+                        })
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (data.success) _refreshSourcesAfterChange();
+                        else alert(data.error || 'Erreur suppression');
+                    });
+                });
+            });
+
+            function _putGroup(section, card, payload) {
+                payload.kind = section.getAttribute('data-kind');
+                payload.source_key = section.getAttribute('data-source-key');
+                payload.group_slug = card.getAttribute('data-group-slug');
+                return fetch(basePath + '/api/source/sound_groups', {
+                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            document.querySelectorAll('.sound-group-name').forEach(function(input) {
+                var debounce;
+                input.addEventListener('input', function() {
+                    clearTimeout(debounce);
+                    debounce = setTimeout(function() {
+                        var section = _groupSection(input); var card = _groupCard(input);
+                        if (section && card) _putGroup(section, card, { name: input.value.trim() });
+                    }, 500);
+                });
+            });
+
+            document.querySelectorAll('.sound-group-threshold').forEach(function(slider) {
+                var label = slider.parentElement.querySelector('.sound-group-threshold-value');
+                slider.addEventListener('input', function() {
+                    if (label) label.textContent = slider.value;
+                });
+                slider.addEventListener('change', function() {
+                    var section = _groupSection(slider); var card = _groupCard(slider);
+                    if (section && card) _putGroup(section, card, { threshold: parseFloat(slider.value) });
+                });
+            });
+
+            document.querySelectorAll('.sound-group-ha-toggle').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    var section = _groupSection(cb); var card = _groupCard(cb);
+                    if (!section || !card) return;
+                    var ha = [];
+                    card.querySelectorAll('.sound-group-ha-toggle').forEach(function(c) {
+                        if (c.checked) ha.push(parseInt(c.getAttribute('data-clap'), 10));
+                    });
+                    _putGroup(section, card, { ha_entities: ha });
+                });
+            });
+
+            document.querySelectorAll('.sound-group-whitelist-toggle').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    var section = _groupSection(cb); var card = _groupCard(cb);
+                    if (!section || !card) return;
+                    var body = {
+                        kind: section.getAttribute('data-kind'),
+                        source_key: section.getAttribute('data-source-key'),
+                        group_slug: card.getAttribute('data-group-slug'),
+                        label: cb.getAttribute('data-label'),
+                        enabled: cb.checked
+                    };
+                    fetch(basePath + '/api/source/sound_whitelist', {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    }).then(function(r) {
+                        if (r.status === 409) {
+                            return r.json().then(function(d) {
+                                cb.checked = !cb.checked;
+                                alert(d.error || 'Ce son est deja actif dans un autre groupe');
+                            });
+                        }
+                        if (r.ok) {
+                            // Mettre a jour l'etat des autres checkboxes du meme label dans la source
+                            var allCards = section.querySelectorAll('.sound-group-card');
+                            allCards.forEach(function(other) {
+                                if (other === card) return;
+                                var otherCb = other.querySelector('.sound-group-whitelist-toggle[data-label="' + cb.getAttribute('data-label') + '"]');
+                                if (otherCb) {
+                                    otherCb.disabled = cb.checked;
+                                    var item = otherCb.closest('.sound-whitelist-item');
+                                    if (item) item.classList.toggle('disabled', cb.checked);
+                                }
+                            });
                         }
                     });
                 });
