@@ -76,6 +76,11 @@ def source_entity_key(source_type, source_data):
             return f"rtsp_{stream_id[:8]}"
         return f"rtsp_{_make_slug(source_data.get('name', 'unknown'))}"
     elif source_type == 'vban':
+        # Privilegier le nom (plus parlant pour l'utilisateur dans HA).
+        # Fallback sur l'IP si le nom est absent.
+        name = (source_data.get('name') or '').strip()
+        if name:
+            return f"vban_{_make_slug(name)}"
         ip = source_data.get('ip', '0')
         return f"vban_{_make_slug(ip)}"
     return f"source_{_make_slug(str(source_data))}"

@@ -86,6 +86,8 @@ def build_sources_from_settings(settings):
             sources.append({
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                 'source_key': src.get('ip', ''),
+                'name': src.get('name', ''),
+                'ip': src.get('ip', ''),
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 1)),
                 'groups': _build_groups_for_source(src, global_threshold),
@@ -416,8 +418,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             vban_ip = src['audio_source'].replace("vban://", "")
             source_id = f"vban_{vban_ip}"
             _vban_gains[vban_ip] = float(src.get('gain', 1.0))
+            from ha_entities import source_entity_key
+            entity_id = source_entity_key('vban', {'name': src.get('name', ''), 'ip': vban_ip})
             detector = create_detector(source_id, src.get('webhook_url'),
                 groups=src.get('groups'), label=src.get('label'),
+                entity_id=entity_id,
                 kind='vban', source_key=src.get('source_key') or vban_ip)
             logging.info(f"VBAN: démarrage capture {vban_ip} (gain={_vban_gains[vban_ip]}x)")
 

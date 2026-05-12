@@ -393,7 +393,7 @@
                     '</div>' +
                 '</div>' +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
-                buildSoundGroupsHtml('mic', d.device_index || '0', d.sound_groups) +
+                buildSoundGroupsHtml('mic', d.device_index || '0', d.sound_groups, '') +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -440,7 +440,7 @@
                     '</div>' +
                 '</div>' +
                 '<div class="ha-entities-info" data-source="rtsp_' + escAttr(streamId) + '"></div>' +
-                buildSoundGroupsHtml('rtsp', streamId, d.sound_groups) +
+                buildSoundGroupsHtml('rtsp', streamId, d.sound_groups, '') +
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
@@ -484,7 +484,7 @@
             return html;
         }
 
-        function buildSoundGroupsHtml(kind, sourceKey, groups) {
+        function buildSoundGroupsHtml(kind, sourceKey, groups, sourceName) {
             // Affiche TOUS les groupes de sons d'une source (clap par defaut +
             // ceux ajoutes par l'utilisateur) avec une seule et meme UI.
             var allGroups = (groups || []).filter(function(g) { return g && g.slug; });
@@ -502,7 +502,8 @@
             });
             var html = '<div class="setting-item sound-groups-section"' +
                 ' data-kind="' + escAttr(kind) + '"' +
-                ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
+                ' data-source-key="' + escAttr(String(sourceKey)) + '"' +
+                ' data-source-name="' + escAttr(String(sourceName || '')) + '">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                     '<label>Groupes de sons</label>' +
                     '<button type="button" class="btn btn-secondary btn-sm sound-group-add">' +
@@ -514,7 +515,7 @@
                 html += '<div class="sound-groups-empty">Aucun groupe configure.</div>';
             } else {
                 allGroups.forEach(function(g) {
-                    html += renderGroupCard(kind, sourceKey, g, enabledByGroup);
+                    html += renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName);
                 });
             }
             html += '</div></div>';
@@ -529,15 +530,20 @@
             return out.replace(/^_|_$/g, '');
         }
 
-        function _buildSourceSlug(kind, sourceKey) {
+        function _buildSourceSlug(kind, sourceKey, sourceName) {
             if (kind === 'mic') return _makeSlug('mic_' + sourceKey);
             if (kind === 'rtsp') return _makeSlug('rtsp_' + String(sourceKey).substring(0, 8));
-            if (kind === 'vban') return _makeSlug('vban_' + sourceKey);
+            if (kind === 'vban') {
+                // VBAN : privilegier le nom (plus parlant dans HA),
+                // fallback sur l'IP comme dans ha_entities.source_entity_key.
+                var stableId = (sourceName && String(sourceName).trim()) || sourceKey;
+                return _makeSlug('vban_' + stableId);
+            }
             return _makeSlug(sourceKey);
         }
 
-        function _buildGroupEntities(kind, sourceKey, groupSlug, clapCounts) {
-            var sourceSlug = _buildSourceSlug(kind, sourceKey);
+        function _buildGroupEntities(kind, sourceKey, groupSlug, clapCounts, sourceName) {
+            var sourceSlug = _buildSourceSlug(kind, sourceKey, sourceName);
             return (clapCounts || []).map(function(n) {
                 var suffix = n === 1 ? n + 'clap' : n + 'claps';
                 var obj = (!groupSlug || groupSlug === 'clap')
@@ -547,7 +553,7 @@
             });
         }
 
-        function renderGroupCard(kind, sourceKey, g, enabledByGroup) {
+        function renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName) {
             var slug = g.slug;
             var name = g.name || slug;
             var threshold = g.threshold !== undefined ? g.threshold : 0.5;
@@ -558,7 +564,7 @@
             var deleteBtn = (slug === 'clap')
                 ? ''
                 : '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>';
-            var entities = _buildGroupEntities(kind, sourceKey, slug, ha);
+            var entities = _buildGroupEntities(kind, sourceKey, slug, ha, sourceName);
             var entitiesHtml = entities.length > 0
                 ? '<div class="ha-entities-list group-ha-entities">' +
                     entities.map(function(e) {
@@ -569,7 +575,6 @@
             var html = '<div class="sound-group-card" data-group-slug="' + escAttr(slug) + '">' +
                 '<div class="sound-group-header">' +
                     '<input type="text" class="sound-group-name" value="' + escAttr(name) + '" />' +
-                    '<button type="button" class="btn btn-secondary btn-sm sound-group-cleanup" title="Supprimer les sons non coches">&#x1F5D1; Nettoyer</button>' +
                     deleteBtn +
                 '</div>' +
                 '<div class="setting-item">' +
@@ -582,7 +587,12 @@
                 html += '<label class="ha-clap-check"><input type="checkbox" class="sound-group-ha-toggle" data-clap="' + n + '"' + checked + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
             }
             html += '</div>' + entitiesHtml + '</div>';
-            html += '<div class="setting-item"><label>Sons</label><div class="sound-whitelist-list">';
+            html += '<div class="setting-item">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                    '<label>Sons d&eacute;tect&eacute;s</label>' +
+                    '<button type="button" class="btn btn-secondary btn-sm sound-group-cleanup" title="Supprimer les sons non coches">&#x1F5D1; Nettoyer</button>' +
+                '</div>' +
+                '<div class="sound-whitelist-list">';
             var entries = Object.entries(wl);
             entries.sort(function(a, b) {
                 if (a[1] !== b[1]) return b[1] - a[1];
@@ -655,7 +665,7 @@
                     '</div>' +
                 '</div>' +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
-                buildSoundGroupsHtml('vban', ip, d.sound_groups) +
+                buildSoundGroupsHtml('vban', ip, d.sound_groups, name) +
             '</div>';
         }
 
@@ -1182,7 +1192,8 @@
                         section.getAttribute('data-kind'),
                         section.getAttribute('data-source-key'),
                         card.getAttribute('data-group-slug'),
-                        ha
+                        ha,
+                        section.getAttribute('data-source-name')
                     );
                     var html = entities.map(function(e) {
                         return '<code class="ha-entity-id">' + esc(e) + '</code>';

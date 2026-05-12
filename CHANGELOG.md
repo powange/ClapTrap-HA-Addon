@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.20.3
+
+### Entites HA VBAN par nom + retouches UI
+
+- Les entites HA VBAN utilisent desormais le NOM de la source au lieu
+  de son IP : `binary_sensor.claptrap_vban_atombureau_2claps` au lieu de
+  `binary_sensor.claptrap_vban_192_168_0_183_2claps`. Cote backend
+  `source_entity_key('vban', ...)` privilegie le nom et garde l'IP en
+  fallback. `classify.run_vban_source` calcule et passe l'`entity_id`
+  desormais (auparavant seul l'IP servait). NOTE : si tu renommes une
+  source VBAN existante, les anciennes entites restent jusqu'au prochain
+  redemarrage de l'addon.
+- Section "Sons" renommee en "Sons detectes" dans chaque carte de groupe.
+- Bouton "Nettoyer" deplace dans la barre du label "Sons detectes" plutot
+  que dans l'en-tete de la carte.
+
 ## 6.20.2
 
 ### UI : afficher les entites HA generees par groupe
