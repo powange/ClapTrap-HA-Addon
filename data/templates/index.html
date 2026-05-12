@@ -544,12 +544,10 @@
 
         function _buildGroupEntities(kind, sourceKey, groupSlug, clapCounts, sourceName) {
             var sourceSlug = _buildSourceSlug(kind, sourceKey, sourceName);
+            var g = groupSlug || 'clap';
             return (clapCounts || []).map(function(n) {
                 var suffix = n === 1 ? n + 'clap' : n + 'claps';
-                var obj = (!groupSlug || groupSlug === 'clap')
-                    ? sourceSlug + '_' + suffix
-                    : sourceSlug + '_' + groupSlug + '_' + suffix;
-                return 'binary_sensor.claptrap_' + obj;
+                return 'binary_sensor.claptrap_' + sourceSlug + '_' + g + '_' + suffix;
             });
         }
 

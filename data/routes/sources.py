@@ -874,17 +874,15 @@ def update_source_sound_group():
         if 'name' in data:
             new_name = (data['name'] or '').strip() or target.get('name', slug)
             target['name'] = new_name
-            # Pour que l'entity_id HA suive le nom, on regenere le slug a
-            # partir du nouveau nom. Exception : le groupe par defaut "clap"
-            # garde son slug "clap" pour la compat retro avec les automations
-            # HA existantes (entities sans suffixe de groupe).
-            if slug != 'clap':
-                existing_slugs = {g.get('slug') for g in groups
-                                  if isinstance(g, dict) and g.get('slug') != slug}
-                desired = _slugify_group(new_name, existing_slugs)
-                if desired != slug:
-                    target['slug'] = desired
-                    new_slug = desired
+            # L'entity_id HA suit le nom : on regenere le slug pour TOUS les
+            # groupes, y compris "clap" (les anciennes automations HA
+            # devront etre mises a jour manuellement par l'utilisateur).
+            existing_slugs = {g.get('slug') for g in groups
+                              if isinstance(g, dict) and g.get('slug') != slug}
+            desired = _slugify_group(new_name, existing_slugs)
+            if desired != slug:
+                target['slug'] = desired
+                new_slug = desired
         if 'threshold' in data:
             try:
                 target['threshold'] = max(0.0, min(1.0, float(data['threshold'])))

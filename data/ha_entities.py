@@ -30,15 +30,14 @@ _mqtt_available = False
 def _group_object_id(source_slug, group_slug, n):
     """Construit l'object_id (sans le prefixe claptrap_) pour une entite clap.
 
-    Compat retro : pour le groupe par defaut "clap" (auto-migre depuis l'ancien
-    schema), on garde le naming historique `{source}_{n}clap[s]` afin de ne pas
-    casser les automations HA existantes. Les nouveaux groupes ajoutes via l'UI
-    utilisent `{source}_{group}_{n}clap[s]`.
+    Tous les groupes (y compris le groupe auto-migre "clap") suivent la meme
+    convention `{source}_{group}_{n}clap[s]`. Les automations HA existantes
+    qui pointaient vers l'ancien naming `{source}_{n}clap[s]` doivent etre
+    mises a jour manuellement.
     """
     suffix = f"{n}clap" if n == 1 else f"{n}claps"
-    if not group_slug or group_slug == 'clap':
-        return f"{source_slug}_{suffix}"
-    return f"{source_slug}_{group_slug}_{suffix}"
+    g = group_slug or 'clap'
+    return f"{source_slug}_{g}_{suffix}"
 
 
 def _get_headers():
@@ -479,8 +478,6 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None, 
             new_obj_ids.add(_group_object_id(source_slug, g_slug, n))
 
     def _friendly_name(display, g_slug, g_name, n):
-        if g_slug == 'clap':
-            return f'{display} {n} clap{"s" if n > 1 else ""}'
         return f'{display} {g_name} {n} clap{"s" if n > 1 else ""}'
 
     to_unregister = set()

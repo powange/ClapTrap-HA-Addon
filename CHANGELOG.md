@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.21.0
+
+### BREAKING : naming uniforme des entites HA pour tous les groupes
+
+- Le groupe par defaut "Clap" suit maintenant la meme convention de
+  nommage que les autres groupes : `binary_sensor.claptrap_{source}_clap_{n}claps`
+  au lieu de l'ancien `binary_sensor.claptrap_{source}_{n}claps`.
+- Le slug du groupe "Clap" suit egalement le nom au renommage (avant il
+  etait verrouille).
+- Les anciennes entites sans suffixe de groupe (ex.
+  `binary_sensor.claptrap_mic_0_2claps`) sont supprimees au demarrage
+  par `init_entities._cleanup_all_claptrap_entities` et remplacees par
+  les nouvelles (`binary_sensor.claptrap_mic_0_clap_2claps`).
+- ⚠️ A faire apres mise a jour : mettre a jour les automations HA qui
+  pointaient vers les anciennes entites.
+
 ## 6.20.6
 
 ### Fix : le slug d'un groupe suit son nom (entity_id HA cohérent)
