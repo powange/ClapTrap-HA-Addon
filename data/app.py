@@ -121,11 +121,13 @@ try:
     if _ha_mic.get('enabled', False):
         register_source(source_entity_key('mic', _ha_mic),
                         label=_ha_mic.get('audio_source', 'Microphone'),
+                        groups=_ha_mic.get('sound_groups'),
                         clap_counts=_ha_mic.get('ha_entities', [1, 2]))
     for _ha_src in _ha_settings.get('rtsp_sources', []):
         if _ha_src.get('enabled', False):
             register_source(source_entity_key('rtsp', _ha_src),
                            label=f"RTSP: {_ha_src.get('name', 'RTSP')}",
+                           groups=_ha_src.get('sound_groups'),
                            clap_counts=_ha_src.get('ha_entities', [1, 2]))
 except Exception as e:
     logging.warning(f"Init entites HA: {e}")

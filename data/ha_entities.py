@@ -21,10 +21,24 @@ SUPERVISOR_URL = "http://supervisor/core/api"
 MQTT_TOPIC_PREFIX = "homeassistant"
 
 # State
-_source_info = {}  # source_id -> {slug, label, clap_counts}
+_source_info = {}  # source_id -> {slug, label, groups: {group_slug: {name, clap_counts}}}
 _source_id_map = {}  # source_id technique -> entity_id
 _mqtt_client = None
 _mqtt_available = False
+
+
+def _group_object_id(source_slug, group_slug, n):
+    """Construit l'object_id (sans le prefixe claptrap_) pour une entite clap.
+
+    Compat retro : pour le groupe par defaut "clap" (auto-migre depuis l'ancien
+    schema), on garde le naming historique `{source}_{n}clap[s]` afin de ne pas
+    casser les automations HA existantes. Les nouveaux groupes ajoutes via l'UI
+    utilisent `{source}_{group}_{n}clap[s]`.
+    """
+    suffix = f"{n}clap" if n == 1 else f"{n}claps"
+    if not group_slug or group_slug == 'clap':
+        return f"{source_slug}_{suffix}"
+    return f"{source_slug}_{group_slug}_{suffix}"
 
 
 def _get_headers():
@@ -374,18 +388,26 @@ def init_entities(settings=None):
 
 
 def get_entities_info():
-    """Retourne les entites HA enregistrees par source."""
+    """Retourne les entites HA enregistrees par source (regroupees par groupe)."""
     result = {}
     for source_id, info in _source_info.items():
-        slug = info['slug']
-        clap_counts = info.get('clap_counts', [1, 2])
+        source_slug = info['slug']
+        groups = info.get('groups', {})
+        groups_payload = []
+        for g_slug, g_info in groups.items():
+            entities = [
+                f'binary_sensor.claptrap_{_group_object_id(source_slug, g_slug, n)}'
+                for n in g_info.get('clap_counts', [1, 2])
+            ]
+            groups_payload.append({
+                'slug': g_slug,
+                'name': g_info.get('name', g_slug),
+                'entities': entities,
+            })
         result[source_id] = {
             'label': info['label'],
-            'entities': [
-                f'binary_sensor.claptrap_{slug}_{n}clap{"s" if n > 1 else ""}' for n in clap_counts
-            ]
+            'groups': groups_payload,
         }
-    # Ajouter l'entite globale
     result['_global'] = {
         'label': 'Detection',
         'entities': ['binary_sensor.claptrap_detection']
@@ -393,73 +415,105 @@ def get_entities_info():
     return result
 
 
-def register_source(source_id, label=None, technical_id=None, clap_counts=None):
-    """Enregistre les entites pour une source.
+def _normalise_groups(groups, fallback_clap_counts=None):
+    """Normalise une liste de groupes en {slug: {name, clap_counts}} compact."""
+    out = {}
+    if isinstance(groups, list) and groups:
+        for idx, g in enumerate(groups):
+            if not isinstance(g, dict):
+                continue
+            slug = g.get('slug') or f'group{idx + 1}'
+            name = g.get('name') or slug
+            counts = list(g.get('clap_counts') or g.get('ha_entities') or fallback_clap_counts or [1, 2])
+            counts = [n for n in counts if 1 <= n <= 4]
+            out[slug] = {'name': name, 'clap_counts': counts}
+    if not out:
+        # Fallback : un seul groupe "clap" avec les clap_counts donnes
+        counts = [n for n in (fallback_clap_counts or [1, 2]) if 1 <= n <= 4]
+        out['clap'] = {'name': 'Clap', 'clap_counts': counts}
+    return out
+
+
+def register_source(source_id, label=None, technical_id=None, clap_counts=None, groups=None):
+    """Enregistre les entites pour une source (multi-groupes).
 
     Args:
         source_id: ID pour l'entite (ex: 'rtsp_5cabeef8', 'mic_7')
         label: Nom lisible (ex: 'RTSP: Bureau 2')
-        technical_id: ID technique utilise dans les callbacks (ex: 'rtsp_rtsp://admin:...')
-        clap_counts: Liste des nombres de claps pour lesquels creer des entites (1-4)
+        technical_id: ID technique utilise dans les callbacks
+        groups: Liste de groupes [{slug, name, clap_counts/ha_entities}].
+                Si absent, on retombe sur clap_counts (compat retro) avec un
+                seul groupe "Clap".
+        clap_counts: DEPRECATED. Utilise par compat retro si `groups` absent.
     """
-    if clap_counts is None:
-        clap_counts = [1, 2]
-    # Filtrer pour garder uniquement 1-4 (liste vide = pas d'entités)
-    clap_counts = [n for n in clap_counts if 1 <= n <= 4]
-
+    norm_groups = _normalise_groups(groups, fallback_clap_counts=clap_counts)
     display_name = label or source_id
-    slug = _make_slug(source_id)
+    source_slug = _make_slug(source_id)
 
-    # Si déjà enregistré avec le même slug et les mêmes clap_counts, skip
     existing = _source_info.get(source_id)
-    if existing and existing['slug'] == slug and existing.get('clap_counts') == clap_counts:
-        # Juste mettre à jour le mapping technique
+    if (existing and existing['slug'] == source_slug
+            and existing.get('groups') == norm_groups):
         if technical_id:
             _source_id_map[technical_id] = source_id
         return
 
-    _source_info[source_id] = {'slug': slug, 'label': display_name, 'clap_counts': clap_counts}
+    # Avant d'ecrire, nettoyer les anciennes entites de ce source_slug
+    # (groupes supprimes ou clap_counts qui ont change).
+    _unregister_all_entities_for_source(existing or {'slug': source_slug, 'groups': {}})
+
+    _source_info[source_id] = {
+        'slug': source_slug, 'label': display_name, 'groups': norm_groups,
+    }
     if technical_id:
         _source_id_map[technical_id] = source_id
 
     if _mqtt_available:
-        # D'abord supprimer TOUTES les entites clap (1-4) pour cette source
-        for n in range(1, 5):
-            old_slug = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
-            _unregister_mqtt_entity('binary_sensor', old_slug)
+        for g_slug, g_info in norm_groups.items():
+            g_name = g_info.get('name', g_slug)
+            for n in g_info['clap_counts']:
+                obj = _group_object_id(source_slug, g_slug, n)
+                entity_name = f'{display_name} {g_name} {n} clap{"s" if n > 1 else ""}'
+                if g_slug == 'clap':
+                    # Compat retro : conserver l'ancien nom lisible
+                    entity_name = f'{display_name} {n} clap{"s" if n > 1 else ""}'
+                _register_mqtt_entity('binary_sensor', obj, {
+                    'name': entity_name,
+                    'unique_id': f'claptrap_{obj}',
+                    'object_id': f'claptrap_{obj}',
+                    'state_topic': f'claptrap/{obj}/state',
+                    'device_class': 'sound',
+                    'icon': 'mdi:hand-clap',
+                    'payload_on': 'ON',
+                    'payload_off': 'OFF',
+                    'device': _device_block()
+                })
+                _mqtt_publish(f'claptrap/{obj}/state', 'OFF')
 
-        # Puis creer seulement celles configurees
-        for n in clap_counts:
-            slug_n = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
-            _register_mqtt_entity('binary_sensor', slug_n, {
-                'name': f'{display_name} {n} clap{"s" if n > 1 else ""}',
-                'unique_id': f'claptrap_{slug_n}',
-                'object_id': f'claptrap_{slug_n}',
-                'state_topic': f'claptrap/{slug_n}/state',
-                'device_class': 'sound',
-                'icon': 'mdi:hand-clap',
-                'payload_on': 'ON',
-                'payload_off': 'OFF',
-                'device': _device_block()
-            })
-            _mqtt_publish(f'claptrap/{slug_n}/state', 'OFF')
-    # Pas de fallback REST (cree des entites orphelines)
+    logging.info(
+        f"Entites HA: claptrap_{source_slug} groupes={list(norm_groups.keys())} ({display_name})"
+    )
 
-    logging.info(f"Entites HA: claptrap_{slug} clap_counts={clap_counts} ({display_name})")
+
+def _unregister_all_entities_for_source(info):
+    """Supprime toutes les entites MQTT enregistrees pour `info`."""
+    if not _mqtt_available or not info:
+        return
+    source_slug = info.get('slug')
+    if not source_slug:
+        return
+    for g_slug, g_info in (info.get('groups') or {}).items():
+        for n in g_info.get('clap_counts', []):
+            _unregister_mqtt_entity('binary_sensor', _group_object_id(source_slug, g_slug, n))
 
 
 def unregister_source(source_id):
-    """Supprime les entites d'une source."""
+    """Supprime toutes les entites d'une source (tous groupes)."""
     info = _source_info.pop(source_id, None)
     if not info:
         return
-    slug = info['slug']
-    clap_counts = info.get('clap_counts', [1, 2])
+    _unregister_all_entities_for_source(info)
     if _mqtt_available:
-        for n in clap_counts:
-            slug_n = f"{slug}_{n}clap" if n == 1 else f"{slug}_{n}claps"
-            _unregister_mqtt_entity('binary_sensor', slug_n)
-        logging.info(f"Entites MQTT supprimees pour {slug}")
+        logging.info(f"Entites MQTT supprimees pour {info['slug']}")
 
 
 def update_detection_state(running, sources=None):
@@ -485,31 +539,33 @@ def update_detection_state(running, sources=None):
     # Pas de fallback REST (cree des entites orphelines sans unique_id)
 
 
-def on_clap_detected(source_id, score, clap_count):
-    """Appele quand un clap est detecte."""
+def on_clap_detected(source_id, score, clap_count, group_slug='clap', group_clap_counts=None):
+    """Appele quand un clap est detecte. Route vers l'entite du bon groupe."""
     entity_key = _source_id_map.get(source_id, source_id)
     info = _source_info.get(entity_key, {})
-    slug = info.get('slug', source_id)
-    clap_counts = info.get('clap_counts', [1, 2])
+    source_slug = info.get('slug', source_id)
+    groups = info.get('groups') or {}
+    group_info = groups.get(group_slug, {})
+    clap_counts = group_info.get('clap_counts') or (group_clap_counts or [1, 2])
 
     if clap_count > 4:
         clap_count = 4
 
-    logging.info(f"on_clap_detected: source={source_id}, entity_key={entity_key}, slug={slug}, "
-                 f"clap_count={clap_count}, configured={clap_counts}, mqtt={_mqtt_available}")
+    logging.info(
+        f"on_clap_detected: source={source_id}, group={group_slug}, slug={source_slug}, "
+        f"clap_count={clap_count}, configured={clap_counts}, mqtt={_mqtt_available}"
+    )
 
     if clap_count not in clap_counts:
         logging.info(f"on_clap_detected: clap_count {clap_count} pas dans {clap_counts}, ignoré")
         return
 
-    slug_n = f"{slug}_{clap_count}clap" if clap_count == 1 else f"{slug}_{clap_count}claps"
-    topic = f'claptrap/{slug_n}/state'
+    obj = _group_object_id(source_slug, group_slug, clap_count)
+    topic = f'claptrap/{obj}/state'
 
     if _mqtt_available:
-        logging.info(f"MQTT publish: {topic} = ON (client connected: {_mqtt_client is not None and _mqtt_client.is_connected() if _mqtt_client else False})")
-        result = _mqtt_publish(topic, 'ON')
-        logging.info(f"MQTT publish result: {result}")
-        # Auto-OFF apres 2s
+        logging.info(f"MQTT publish: {topic} = ON")
+        _mqtt_publish(topic, 'ON')
         def _off():
             time.sleep(2)
             _mqtt_publish(topic, 'OFF')

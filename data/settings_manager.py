@@ -65,6 +65,68 @@ def _deep_merge(default, saved):
     return merged
 
 
+def _ensure_source_groups(source, default_threshold=0.5):
+    """Garantit que la source a un champ `sound_groups`.
+
+    Si absent ou vide, en cree un seul nomme "Clap" derive des champs
+    historiques (`sound_whitelist`, `threshold`, `ha_entities`). Permet la
+    coexistence des anciennes sources monogroupes et des nouvelles
+    multigroupes sans casser l'UI ni les entites HA existantes.
+    """
+    if not isinstance(source, dict):
+        return
+    groups = source.get('sound_groups')
+    if isinstance(groups, list) and groups:
+        # Normalise minimalement chaque groupe (nom + slug obligatoires)
+        for idx, g in enumerate(groups):
+            if not isinstance(g, dict):
+                continue
+            g.setdefault('name', f'Groupe {idx + 1}')
+            g.setdefault('slug', _slugify(g['name']) or f'group{idx + 1}')
+            g.setdefault('sound_whitelist', {})
+            g.setdefault('threshold', float(source.get('threshold', default_threshold)))
+            g.setdefault('ha_entities', source.get('ha_entities', [1, 2]))
+        return
+
+    legacy_whitelist = source.get('sound_whitelist') or {
+        "Clapping": True, "Hands": True, "Applause": True
+    }
+    source['sound_groups'] = [{
+        'name': 'Clap',
+        'slug': 'clap',
+        'sound_whitelist': dict(legacy_whitelist),
+        'threshold': float(source.get('threshold', default_threshold)),
+        'ha_entities': list(source.get('ha_entities', [1, 2])),
+    }]
+
+
+def _slugify(text):
+    """Slug minimaliste compatible MQTT topic / object_id HA."""
+    if not text:
+        return ''
+    s = str(text).lower()
+    s = ''.join(c if c.isalnum() else '_' for c in s)
+    while '__' in s:
+        s = s.replace('__', '_')
+    return s.strip('_')
+
+
+def _apply_group_migrations(settings):
+    """Applique la migration des sources monogroupe vers le format multigroupe."""
+    try:
+        global_threshold = float(settings.get('global', {}).get('threshold', 0.5))
+    except (TypeError, ValueError):
+        global_threshold = 0.5
+    mic = settings.get('microphone')
+    if isinstance(mic, dict):
+        _ensure_source_groups(mic, default_threshold=global_threshold)
+    for src in settings.get('rtsp_sources', []) or []:
+        _ensure_source_groups(src, default_threshold=global_threshold)
+    for src in settings.get('saved_vban_sources', []) or []:
+        _ensure_source_groups(src, default_threshold=global_threshold)
+    return settings
+
+
 def load_settings():
     """Charge les paramètres avec cache TTL et gestion d'erreurs."""
     global _cache, _cache_time
@@ -83,10 +145,12 @@ def load_settings():
                 _cache = DEFAULT_SETTINGS.copy()
                 with open(SETTINGS_FILE, 'w') as f:
                     json.dump(_cache, f, indent=4)
+            _apply_group_migrations(_cache)
         except Exception as e:
             logging.error(f"Erreur lors du chargement des paramètres: {e}")
             if _cache is None:
                 _cache = DEFAULT_SETTINGS.copy()
+                _apply_group_migrations(_cache)
 
         _cache_time = now
         return copy.deepcopy(_cache)

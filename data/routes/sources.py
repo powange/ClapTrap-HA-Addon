@@ -199,6 +199,7 @@ def update_rtsp_stream(stream_id):
                         entity_id = source_entity_key('rtsp', {'id': stream_id})
                         register_source(entity_id,
                                        label=f"RTSP: {stream.get('name', 'RTSP')}",
+                                       groups=stream.get('sound_groups'),
                                        clap_counts=data['ha_entities'])
                     except Exception:
                         pass
@@ -434,6 +435,7 @@ def update_vban_source():
                         from ha_entities import register_source, source_entity_key
                         register_source(source_entity_key('vban', s),
                                        label=f"VBAN: {s.get('name', 'VBAN')}",
+                                       groups=s.get('sound_groups'),
                                        clap_counts=source['ha_entities'])
                     except Exception:
                         pass
@@ -551,6 +553,13 @@ def cleanup_source_sound_whitelist():
         kept = {k: v for k, v in wl.items() if v}
         removed = len(wl) - len(kept)
         target['sound_whitelist'] = kept
+        # Propager au groupe par defaut "clap" (ou tous les groupes si on
+        # ne sait pas lequel viser).
+        for g in target.get('sound_groups', []) or []:
+            if not isinstance(g, dict):
+                continue
+            g_wl = g.get('sound_whitelist') or {}
+            g['sound_whitelist'] = {k: v for k, v in g_wl.items() if v}
         save_settings(settings)
 
         # Nettoyer aussi les seen labels du detecteur actif
@@ -565,7 +574,22 @@ def cleanup_source_sound_whitelist():
                         seen.update(kept.keys())
                     det = _detectors_by_source_id.get(source_id)
                     if det is not None:
-                        det.set_whitelist(kept)
+                        # Reconstruire les groupes depuis les settings frais
+                        groups = []
+                        for g in target.get('sound_groups', []) or []:
+                            if not isinstance(g, dict):
+                                continue
+                            groups.append({
+                                'slug': g.get('slug', 'clap'),
+                                'name': g.get('name', 'Clap'),
+                                'whitelist': dict(g.get('sound_whitelist') or {}),
+                                'threshold': float(g.get('threshold', 0.5)),
+                                'clap_counts': list(g.get('ha_entities') or [1, 2]),
+                            })
+                        if groups:
+                            det.set_groups(groups)
+                        else:
+                            det.set_whitelist(kept)
             except Exception:
                 pass
 
@@ -589,23 +613,17 @@ def delete_source_sound_whitelist_entry():
             return jsonify({'error': 'kind / label requis'}), 400
 
         settings = load_settings()
-        target = None
-        if kind == 'mic':
-            target = settings.setdefault('microphone', {}).setdefault('sound_whitelist', {})
-        elif kind == 'rtsp':
-            for s in settings.get('rtsp_sources', []):
-                if s.get('id') == source_key:
-                    target = s.setdefault('sound_whitelist', {})
-                    break
-        elif kind == 'vban':
-            for s in settings.get('saved_vban_sources', []):
-                if s.get('ip') == source_key:
-                    target = s.setdefault('sound_whitelist', {})
-                    break
-        if target is None:
+        source_dict = _find_source_dict(settings, kind, source_key)
+        if source_dict is None:
             return jsonify({'error': 'source introuvable'}), 404
 
-        target.pop(label, None)
+        # Retirer du legacy
+        legacy = source_dict.setdefault('sound_whitelist', {})
+        legacy.pop(label, None)
+        # Retirer aussi de tous les groupes
+        for g in source_dict.get('sound_groups', []) or []:
+            if isinstance(g, dict):
+                (g.get('sound_whitelist') or {}).pop(label, None)
         save_settings(settings)
 
         source_id = _source_id_for(kind, source_key)
@@ -620,12 +638,28 @@ def delete_source_sound_whitelist_entry():
         return jsonify({'error': str(e)}), 500
 
 
+def _find_source_dict(settings, kind, source_key):
+    if kind == 'mic':
+        return settings.setdefault('microphone', {})
+    if kind == 'rtsp':
+        for s in settings.get('rtsp_sources', []):
+            if s.get('id') == source_key:
+                return s
+    if kind == 'vban':
+        for s in settings.get('saved_vban_sources', []):
+            if s.get('ip') == source_key:
+                return s
+    return None
+
+
 @sources_bp.route('/api/source/sound_whitelist', methods=['PUT'])
 def update_source_sound_whitelist():
-    """Active/desactive un label dans la sound_whitelist d'une source.
+    """Active/desactive un label dans un groupe de la source.
 
-    Body: {kind: 'mic'|'rtsp'|'vban', source_key: str, label: str, enabled: bool}
-    Applique en live sur le detecteur si la detection tourne.
+    Body: {kind, source_key, label, enabled, group_slug?}
+    `group_slug` optionnel : si absent, cible le groupe "clap" par defaut.
+    Refuse l'activation si le label est deja active dans un autre groupe
+    de la meme source (regle d'exclusivite).
     """
     try:
         data = request.get_json() or {}
@@ -633,38 +667,52 @@ def update_source_sound_whitelist():
         source_key = data.get('source_key')
         label = data.get('label')
         enabled = bool(data.get('enabled', False))
+        target_slug = data.get('group_slug') or 'clap'
         if kind not in ('mic', 'rtsp', 'vban') or not label:
             return jsonify({'error': 'kind / label requis'}), 400
 
         settings = load_settings()
-        target = None
-        if kind == 'mic':
-            target = settings.setdefault('microphone', {}).setdefault('sound_whitelist', {})
-        elif kind == 'rtsp':
-            for s in settings.get('rtsp_sources', []):
-                if s.get('id') == source_key:
-                    target = s.setdefault('sound_whitelist', {})
-                    break
-        elif kind == 'vban':
-            for s in settings.get('saved_vban_sources', []):
-                if s.get('ip') == source_key:
-                    target = s.setdefault('sound_whitelist', {})
-                    break
-        if target is None:
+        source_dict = _find_source_dict(settings, kind, source_key)
+        if source_dict is None:
             return jsonify({'error': 'source introuvable'}), 404
 
-        target[label] = enabled
+        groups = source_dict.setdefault('sound_groups', [])
+        # Validation d'exclusivite : si on active le label, verifier qu'il
+        # n'est pas deja actif dans un autre groupe.
+        if enabled:
+            for g in groups:
+                if not isinstance(g, dict) or g.get('slug') == target_slug:
+                    continue
+                if (g.get('sound_whitelist') or {}).get(label) is True:
+                    return jsonify({
+                        'error': f'Le son "{label}" est deja active dans le groupe "{g.get("name", g.get("slug"))}"',
+                        'conflict_group': g.get('slug'),
+                    }), 409
+
+        # Trouver/creer le groupe cible
+        target_group = next((g for g in groups if isinstance(g, dict) and g.get('slug') == target_slug), None)
+        if target_group is None:
+            target_group = {
+                'slug': target_slug, 'name': target_slug.capitalize(),
+                'sound_whitelist': {}, 'threshold': 0.5, 'ha_entities': [1, 2],
+            }
+            groups.append(target_group)
+        target_group.setdefault('sound_whitelist', {})[label] = enabled
+
+        # Synchroniser le legacy (compat UI ancien) seulement pour 'clap'
+        if target_slug == 'clap':
+            source_dict.setdefault('sound_whitelist', {})[label] = enabled
+
         save_settings(settings)
 
-        # Mise a jour live du detecteur si la detection tourne
         source_id = _source_id_for(kind, source_key)
         if source_id:
             try:
                 from classify import update_source_whitelist
-                update_source_whitelist(source_id, label, enabled)
+                update_source_whitelist(source_id, label, enabled, group_slug=target_slug)
             except Exception:
                 pass
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'group_slug': target_slug})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -793,6 +841,7 @@ def update_microphone_ha_entities():
             mic = settings.get('microphone', {})
             register_source(source_entity_key('mic', mic),
                            label=mic.get('audio_source', 'Microphone'),
+                           groups=mic.get('sound_groups'),
                            clap_counts=ha_entities)
         except Exception:
             pass

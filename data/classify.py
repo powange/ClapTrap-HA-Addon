@@ -26,6 +26,35 @@ warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.
 DEFAULT_SOUND_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
 
 
+def _build_groups_for_source(source_settings, global_threshold):
+    """Convertit la config d'une source en liste de groupes pour le detecteur.
+
+    Le fallback retro applique sound_whitelist + threshold + ha_entities en un
+    groupe "Clap" unique : cela couvre les cas ou la migration n'a pas (encore)
+    tourne ou ou settings.json a ete edite manuellement.
+    """
+    groups = source_settings.get('sound_groups') or []
+    if not groups:
+        groups = [{
+            'name': 'Clap', 'slug': 'clap',
+            'sound_whitelist': dict(source_settings.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
+            'threshold': float(source_settings.get('threshold', global_threshold)),
+            'ha_entities': source_settings.get('ha_entities', [1, 2]),
+        }]
+    normalised = []
+    for idx, g in enumerate(groups):
+        if not isinstance(g, dict):
+            continue
+        normalised.append({
+            'name': g.get('name') or f'Groupe {idx + 1}',
+            'slug': g.get('slug') or f'group{idx + 1}',
+            'whitelist': dict(g.get('sound_whitelist') or g.get('whitelist') or {}),
+            'threshold': float(g.get('threshold', global_threshold)),
+            'clap_counts': list(g.get('ha_entities') or g.get('clap_counts') or [1, 2]),
+        })
+    return normalised
+
+
 def build_sources_from_settings(settings):
     """Construit la liste des sources depuis les settings."""
     sources = []
@@ -37,9 +66,7 @@ def build_sources_from_settings(settings):
             'type': 'mic', 'audio_source': mic_name,
             'source_key': str(mic.get('device_index', 0)),
             'webhook_url': mic.get('webhook_url', ''),
-            'threshold': float(mic.get('threshold', global_threshold)),
-            'ha_entities': mic.get('ha_entities', [1, 2]),
-            'sound_whitelist': dict(mic.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
+            'groups': _build_groups_for_source(mic, global_threshold),
             'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
         })
     for src in settings.get('rtsp_sources', []):
@@ -51,9 +78,7 @@ def build_sources_from_settings(settings):
                 'audio_source': url, 'rtsp_url': src['url'],
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': src.get('gain', 10),
-                'threshold': float(src.get('threshold', global_threshold)),
-                'ha_entities': src.get('ha_entities', [1, 2]),
-                'sound_whitelist': dict(src.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
+                'groups': _build_groups_for_source(src, global_threshold),
                 'label': f'RTSP: {src.get("name", src["url"][:30])}'
             })
     for src in settings.get('saved_vban_sources', []):
@@ -62,10 +87,8 @@ def build_sources_from_settings(settings):
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                 'source_key': src.get('ip', ''),
                 'webhook_url': src.get('webhook_url', ''),
-                'threshold': float(src.get('threshold', global_threshold)),
                 'gain': float(src.get('gain', 1)),
-                'ha_entities': src.get('ha_entities', [1, 2]),
-                'sound_whitelist': dict(src.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
+                'groups': _build_groups_for_source(src, global_threshold),
                 'label': f'VBAN: {src.get("name", src["ip"])}'
             })
     return sources
@@ -181,45 +204,51 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 try:
                     clap_count = detection_data.get('clap_count', 1)
                     contributing_labels = detection_data.get('labels', []) or []
-                    logging.info(f"CLAP sur {source_name}: score={detection_data['score']:.2f}, claps={clap_count}")
+                    group_slug = detection_data.get('group_slug', 'clap')
+                    group_name = detection_data.get('group_name', 'Clap')
+                    group_clap_counts = detection_data.get('group_clap_counts') or [1, 2]
+                    logging.info(
+                        f"CLAP sur {source_name} ({group_name}): "
+                        f"score={detection_data['score']:.2f}, claps={clap_count}"
+                    )
+                    base_payload = {
+                        'source_id': source_name,
+                        'timestamp': detection_data['timestamp'],
+                        'score': detection_data['score'],
+                        'clap_count': clap_count,
+                        'labels': contributing_labels,
+                        'group_slug': group_slug,
+                        'group_name': group_name,
+                    }
                     if socketio:
-                        socketio.emit('clap', {
-                            'source_id': source_name, 'timestamp': detection_data['timestamp'],
-                            'score': detection_data['score'], 'clap_count': clap_count,
-                            'labels': contributing_labels
-                        })
+                        socketio.emit('clap', base_payload)
                     supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
                     if supervisor_token:
                         try:
                             requests.post(
                                 'http://supervisor/core/api/events/claptrap_clap',
                                 headers={'Authorization': f'Bearer {supervisor_token}', 'Content-Type': 'application/json'},
-                                json={'source_id': source_name, 'score': detection_data['score'], 'clap_count': clap_count, 'labels': contributing_labels},
+                                json=base_payload,
                                 timeout=3
                             )
                         except Exception:
                             pass
-                    # Mettre à jour les entités HA
+                    # Mettre à jour les entités HA (route vers la bonne entite via group_slug)
                     try:
                         from ha_entities import on_clap_detected
-                        on_clap_detected(source_name, detection_data['score'], clap_count)
+                        on_clap_detected(source_name, detection_data['score'], clap_count,
+                                         group_slug=group_slug, group_clap_counts=group_clap_counts)
                     except Exception:
                         pass
                     with _history_lock:
                         _detection_history.appendleft({
                             'source_id': source_name, 'timestamp': detection_data['timestamp'],
                             'score': round(detection_data['score'], 3), 'clap_count': clap_count,
-                            'labels': contributing_labels
+                            'labels': contributing_labels,
+                            'group_slug': group_slug, 'group_name': group_name,
                         })
                     if webhook_url:
-                        send_webhook_async(webhook_url, {
-                            'event': 'clap',
-                            'source_id': source_name,
-                            'timestamp': detection_data['timestamp'],
-                            'score': detection_data['score'],
-                            'clap_count': clap_count,
-                            'labels': contributing_labels,
-                        })
+                        send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
                 except Exception as e:
                     logging.error(f"Erreur callback clap {source_name}: {e}")
             return handle_detection
@@ -230,15 +259,23 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     socketio.emit("labels", {"source": source_name, "detected": labels})
             return handle_labels
 
-        def create_detector(source_id, webhook_url, threshold=None, label=None, entity_id=None,
-                             clap_counts=None, whitelist=None, kind=None, source_key=None):
+        def create_detector(source_id, webhook_url, groups=None, label=None, entity_id=None,
+                             kind=None, source_key=None):
             """Crée un AudioDetector dédié pour une source."""
+            groups = list(groups or [])
+            if not groups:
+                groups = [{
+                    'name': 'Clap', 'slug': 'clap',
+                    'whitelist': dict(DEFAULT_SOUND_WHITELIST),
+                    'threshold': score_threshold,
+                    'clap_counts': [1, 2],
+                }]
+            min_threshold = min(g.get('threshold', score_threshold) for g in groups)
             det = AudioDetector(model, sample_rate=16000, buffer_duration=1.0)
-            det.initialize(max_results=max_results, score_threshold=threshold or score_threshold,
+            det.initialize(max_results=max_results, score_threshold=min_threshold,
                           clap_window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio,
                           peak_reset=peak_reset)
-            det.set_whitelist(whitelist or DEFAULT_SOUND_WHITELIST)
-            # Exclusions globales courantes
+            det.set_groups(groups)
             try:
                 current_settings = load_settings()
                 exclusions = current_settings.get('global', {}).get('sound_exclusions', []) or []
@@ -252,16 +289,20 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 label=label)
             det.start()
             detectors.append(det)
+            seen = set()
+            for g in groups:
+                seen.update((g.get('whitelist') or {}).keys())
             with _active_detectors_lock:
                 _active_detectors.append(det)
                 _detectors_by_source_id[source_id] = det
-                _seen_labels_by_source[source_id] = set((whitelist or DEFAULT_SOUND_WHITELIST).keys())
+                _seen_labels_by_source[source_id] = seen
                 if kind and source_key is not None:
                     _source_info_by_id[source_id] = (kind, source_key)
-            logging.info(f"Classifier dédié créé pour {source_id} ({label})")
+            logging.info(f"Classifier dédié créé pour {source_id} ({label}) avec {len(groups)} groupe(s)")
             try:
                 from ha_entities import register_source
-                register_source(entity_id or source_id, label=label, technical_id=source_id, clap_counts=clap_counts)
+                register_source(entity_id or source_id, label=label,
+                                technical_id=source_id, groups=groups)
             except Exception:
                 pass
             return det
@@ -296,9 +337,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             source_id = f"mic_{saved_index}"
             detector = create_detector(source_id, src.get('webhook_url'),
-                threshold=src.get('threshold'), label=src.get('label'),
-                clap_counts=src.get('ha_entities', [1, 2]),
-                whitelist=src.get('sound_whitelist'),
+                groups=src.get('groups'), label=src.get('label'),
                 kind='mic', source_key=src.get('source_key', str(saved_index)))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1',
@@ -333,9 +372,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             from ha_entities import source_entity_key
             entity_id = source_entity_key('rtsp', src)
             detector = create_detector(source_id, src.get('webhook_url'),
-                threshold=src.get('threshold'), label=src.get('label'),
-                entity_id=entity_id, clap_counts=src.get('ha_entities', [1, 2]),
-                whitelist=src.get('sound_whitelist'),
+                groups=src.get('groups'), label=src.get('label'),
+                entity_id=entity_id,
                 kind='rtsp', source_key=src.get('source_key') or src.get('stream_id', ''))
             logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
 
@@ -379,9 +417,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             source_id = f"vban_{vban_ip}"
             _vban_gains[vban_ip] = float(src.get('gain', 1.0))
             detector = create_detector(source_id, src.get('webhook_url'),
-                threshold=src.get('threshold'), label=src.get('label'),
-                clap_counts=src.get('ha_entities', [1, 2]),
-                whitelist=src.get('sound_whitelist'),
+                groups=src.get('groups'), label=src.get('label'),
                 kind='vban', source_key=src.get('source_key') or vban_ip)
             logging.info(f"VBAN: démarrage capture {vban_ip} (gain={_vban_gains[vban_ip]}x)")
 
@@ -524,34 +560,49 @@ def update_vban_gain(ip, gain):
     logging.info(f"Volume VBAN mis à jour: {ip} -> {gain}x")
 
 
+def _ensure_label_in_groups(source_dict, label):
+    """Ajoute `label: False` dans la whitelist de chaque groupe de la source
+    (s'il n'y est pas deja). Renvoie True si quelque chose a change."""
+    if not isinstance(source_dict, dict):
+        return False
+    groups = source_dict.get('sound_groups')
+    if not isinstance(groups, list) or not groups:
+        # Pas encore migre : on tombe sur l'ancien champ source-level.
+        wl = source_dict.setdefault('sound_whitelist', {})
+        if label not in wl:
+            wl[label] = False
+            return True
+        return False
+    changed = False
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        wl = g.setdefault('sound_whitelist', {})
+        if label not in wl:
+            wl[label] = False
+            changed = True
+    return changed
+
+
 def _persist_sound_seen(kind, source_key, label):
-    """Ajoute `label: False` à sound_whitelist de la source `(kind, source_key)`
-    dans settings.json si absent. Thread-safe via le lock global du settings_manager."""
+    """Ajoute `label: False` dans la whitelist de chaque groupe de la source
+    `(kind, source_key)` dans settings.json (s'il n'y est pas deja)."""
     try:
         from settings_manager import save_settings
         settings = load_settings()
         updated = False
         if kind == 'mic':
             mic = settings.setdefault('microphone', {})
-            wl = mic.setdefault('sound_whitelist', {})
-            if label not in wl:
-                wl[label] = False
-                updated = True
+            updated = _ensure_label_in_groups(mic, label)
         elif kind == 'rtsp':
             for s in settings.get('rtsp_sources', []):
                 if s.get('id') == source_key:
-                    wl = s.setdefault('sound_whitelist', {})
-                    if label not in wl:
-                        wl[label] = False
-                        updated = True
+                    updated = _ensure_label_in_groups(s, label)
                     break
         elif kind == 'vban':
             for s in settings.get('saved_vban_sources', []):
                 if s.get('ip') == source_key:
-                    wl = s.setdefault('sound_whitelist', {})
-                    if label not in wl:
-                        wl[label] = False
-                        updated = True
+                    updated = _ensure_label_in_groups(s, label)
                     break
         if updated:
             save_settings(settings)
@@ -597,19 +648,28 @@ def _build_sound_seen_handler(source_id):
     return _handle
 
 
-def update_source_whitelist(source_id, label, enabled):
-    """Met à jour la whitelist d'un détecteur actif (sans restart)."""
+def update_source_whitelist(source_id, label, enabled, group_slug=None):
+    """Met à jour la whitelist d'un détecteur actif (sans restart).
+
+    Si `group_slug` est fourni, n'agit que sur ce groupe. Sinon, applique le
+    changement sur tous les groupes du detecteur (compat retro).
+    """
     with _active_detectors_lock:
         det = _detectors_by_source_id.get(source_id)
         if det is None:
             return False
-        wl = dict(det._whitelist or {})
+        groups = list(det._groups or [])
+        if not groups:
+            return False
+        for g in groups:
+            if group_slug and g['slug'] != group_slug:
+                continue
+            wl = dict(g.get('whitelist') or {})
+            wl[label] = bool(enabled)
+            g['whitelist'] = wl
         if enabled:
-            wl[label] = True
             _seen_labels_by_source.setdefault(source_id, set()).add(label)
-        else:
-            wl[label] = False
-        det.set_whitelist(wl)
+        det.set_groups(groups)
         return True
 
 
@@ -630,24 +690,36 @@ def get_all_known_labels():
     """
     settings = load_settings()
     known = set()
-    mic = settings.get('microphone', {}) or {}
-    known.update((mic.get('sound_whitelist') or {}).keys())
+    def _collect(source_dict):
+        if not isinstance(source_dict, dict):
+            return
+        groups = source_dict.get('sound_groups')
+        if isinstance(groups, list) and groups:
+            for g in groups:
+                if isinstance(g, dict):
+                    known.update((g.get('sound_whitelist') or {}).keys())
+        else:
+            known.update((source_dict.get('sound_whitelist') or {}).keys())
     for s in settings.get('rtsp_sources', []) or []:
-        known.update((s.get('sound_whitelist') or {}).keys())
+        _collect(s)
     for s in settings.get('saved_vban_sources', []) or []:
-        known.update((s.get('sound_whitelist') or {}).keys())
+        _collect(s)
+    _collect(settings.get('microphone', {}) or {})
     return sorted(known)
 
 
 def remove_source_whitelist_entry(source_id, label):
-    """Retire un label de la whitelist d'un détecteur actif et du set 'seen'
-    (pour que l'auto-découverte puisse le re-proposer s'il réapparaît)."""
+    """Retire un label de la whitelist d'un détecteur actif (tous groupes
+    confondus) et du set 'seen'."""
     with _active_detectors_lock:
         det = _detectors_by_source_id.get(source_id)
         if det is not None:
-            wl = dict(det._whitelist or {})
-            wl.pop(label, None)
-            det.set_whitelist(wl)
+            groups = list(det._groups or [])
+            for g in groups:
+                wl = dict(g.get('whitelist') or {})
+                wl.pop(label, None)
+                g['whitelist'] = wl
+            det.set_groups(groups)
         seen = _seen_labels_by_source.get(source_id)
         if seen is not None:
             seen.discard(label)

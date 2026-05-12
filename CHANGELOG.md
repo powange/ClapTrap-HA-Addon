@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.19.0
+
+### Backend : groupes de sons par source (UI a venir en 6.19.1)
+
+- Chaque source audio (micro / RTSP / VBAN) peut desormais contenir plusieurs
+  groupes de sons independants, chacun avec sa propre whitelist, son seuil
+  et ses entites HA. Permet par exemple de differencier "2 claps des mains"
+  et "2 toc sur la table" sur le meme micro.
+- Migration auto : les sources existantes obtiennent un groupe unique nomme
+  "Clap" derive de leurs anciens champs (`sound_whitelist`, `threshold`,
+  `ha_entities`). Aucune action utilisateur requise, les entites HA
+  existantes restent identiques.
+- Topics MQTT : nouveaux groupes utilisent `claptrap/{source}_{groupe}_{n}claps/state`.
+  Le groupe par defaut "clap" garde le naming historique
+  `claptrap/{source}_{n}claps/state` (compat HA existante).
+- Detection : un seul classifier audio par source (pas de surcout CPU), mais
+  evaluation independante par groupe avec son propre seuil.
+- API : `PUT /api/source/sound_whitelist` accepte un champ `group_slug`
+  optionnel. Refuse l'activation d'un son deja active dans un autre groupe
+  (regle d'exclusivite, code 409).
+- L'UI de gestion des groupes (CRUD, validation visuelle d'exclusivite) sera
+  livree en 6.19.1.
+
 ## 6.18.2
 
 ### Detection : seuil applique par son individuellement

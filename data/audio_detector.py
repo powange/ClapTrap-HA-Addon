@@ -35,13 +35,40 @@ class AudioDetector:
         self._peak_cooldown = 0.08  # minimum entre deux pics (secondes)
         self._peak_ratio = 3.0  # un pic doit etre 3x le niveau moyen pour compter
         self._peak_reset = 0.3  # delai apres lequel 'above' est force a False meme si l'amplitude reste haute
-        self._whitelist = {}  # {label_name: True} — sons que l'utilisateur a coches comme "clap"
+        self._groups = []  # liste de groupes : [{slug, name, whitelist, threshold, clap_counts}]
         self._exclusions = set()  # labels exclus globalement (prioritaire sur whitelist)
         self._sound_seen_callback = None  # callable({label, score}) pour l'auto-decouverte
 
+    def set_groups(self, groups):
+        """Met a jour les groupes de sons (appele en direct sans restart).
+
+        Chaque groupe : {slug, name, whitelist: {label: bool}, threshold: float,
+        clap_counts: list[int]}. Le seuil utilise pour l'auto-decouverte et
+        l'emission de labels devient le minimum des seuils de groupe.
+        """
+        normalised = []
+        for idx, g in enumerate(groups or []):
+            if not isinstance(g, dict):
+                continue
+            normalised.append({
+                'slug': g.get('slug') or f'group{idx + 1}',
+                'name': g.get('name') or g.get('slug') or f'Groupe {idx + 1}',
+                'whitelist': dict(g.get('whitelist') or g.get('sound_whitelist') or {}),
+                'threshold': float(g.get('threshold', self.score_threshold)),
+                'clap_counts': list(g.get('clap_counts') or g.get('ha_entities') or [1, 2]),
+            })
+        self._groups = normalised
+        if normalised:
+            self.score_threshold = min(g['threshold'] for g in normalised)
+
     def set_whitelist(self, whitelist):
-        """Met a jour la whitelist de sons (appele en direct sans restart)."""
-        self._whitelist = dict(whitelist or {})
+        """Compat retro : un seul groupe "Clap" cree depuis la whitelist."""
+        self.set_groups([{
+            'slug': 'clap', 'name': 'Clap',
+            'whitelist': dict(whitelist or {}),
+            'threshold': self.score_threshold,
+            'clap_counts': [1, 2],
+        }])
 
     def set_exclusions(self, labels):
         """Met a jour les exclusions globales (appele en direct sans restart)."""
@@ -137,24 +164,15 @@ class AudioDetector:
 
             classification = result.classifications[0]
 
-            whitelist = self._whitelist or {}
             exclusions = self._exclusions or set()
+            groups = self._groups or []
+            global_threshold = self.score_threshold
 
-            # Scoring : on cherche le meilleur score parmi les labels coches
-            # par l'utilisateur (hors exclusions). Le seuil s'applique a chaque
-            # son individuellement, pas a la somme.
-            clap_categories = [
-                cat for cat in classification.categories
-                if whitelist.get(cat.category_name, False)
-                and cat.category_name not in exclusions
-            ]
-            max_clap_score = max((cat.score for cat in clap_categories), default=0.0)
-
-            # Auto-decouverte : emettre chaque label au-dessus du seuil pour
-            # que l'UI puisse l'afficher comme "son entendu mais pas coche".
+            # Auto-decouverte : emettre chaque label au-dessus du seuil global
+            # (= min des seuils de groupe) pour que l'UI puisse l'afficher.
             if self._sound_seen_callback:
                 for cat in classification.categories:
-                    if cat.score >= self.score_threshold:
+                    if cat.score >= global_threshold:
                         try:
                             self._sound_seen_callback({
                                 'label': cat.category_name,
@@ -164,17 +182,14 @@ class AudioDetector:
                             pass
 
             all_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories]
-            hot_labels = [(c.category_name, round(c.score, 3)) for c in classification.categories
-                          if whitelist.get(c.category_name, False) and c.score >= self.score_threshold]
-            if hot_labels or self._result_count <= 10 or self._result_count % 100 == 0:
+            any_whitelist_hot = any(
+                g['whitelist'].get(c.category_name, False) and c.score >= g['threshold']
+                for c in classification.categories for g in groups
+            )
+            if any_whitelist_hot or self._result_count <= 10 or self._result_count % 100 == 0:
                 logging.info(f"[{self._source_label}] labels={all_labels}")
 
-            # Log du score calculé
-            if max_clap_score > self.score_threshold * 0.2:
-                logging.debug(f"Score de clap calculé pour {self._source_label}: {max_clap_score}")
-
-            # Préparer les labels pour le callback (sans les exclusions globales,
-            # et uniquement les labels dont le score >= le seuil de la source).
+            # Labels emit (top3, hors exclusions, >= seuil minimum)
             top3_labels = sorted(
                 [c for c in classification.categories if c.category_name not in exclusions],
                 key=lambda x: x.score,
@@ -183,82 +198,88 @@ class AudioDetector:
             labels_data = [
                 {"label": label.category_name, "score": float(label.score)}
                 for label in top3_labels
-                if label.score >= self.score_threshold
+                if label.score >= global_threshold
             ]
-
-            # Log pour déboguer les labels
-            logging.debug(f"Labels détectés pour {self._source_label}: {labels_data}")
-
-            # Envoyer les labels si un callback est défini
             if labels_callback and labels_data:
                 try:
                     labels_callback(labels_data)
                 except Exception as e:
                     logging.error(f"Erreur dans le callback des labels pour {self._source_label}: {str(e)}")
 
-            # Vérifier si on a détecté un clap
+            # Detection per-group
             current_time = time.time()
             with self.lock:
-                last_det = self.last_detection_time.get(source_id, 0)
                 es = self._energy_state.get(source_id, {})
                 peak_times = es.get('peak_times', [])
+                es_groups = es.setdefault('groups', {})
 
-                # Le classifier a détecté un clap : au moins un son whitelist
-                # depasse individuellement le seuil.
-                if max_clap_score >= self.score_threshold:
-                    if 'clap_detected_at' not in es or es['clap_detected_at'] == 0:
-                        # Utiliser le premier pic comme début de fenêtre (pas le moment du classifier)
-                        first_peak = peak_times[0] if peak_times else current_time
-                        es['clap_detected_at'] = first_peak
-                        es['clap_score'] = max_clap_score
-                        es['clap_labels'] = {}
-                    elif max_clap_score > es.get('clap_score', 0):
-                        es['clap_score'] = max_clap_score
+                for group in groups:
+                    g_slug = group['slug']
+                    g_whitelist = group['whitelist']
+                    g_threshold = group['threshold']
 
-                    # Accumuler uniquement les sons qui ont franchi le seuil
-                    # individuellement pendant la fenetre (max score par label)
-                    contributing_labels = es.setdefault('clap_labels', {})
-                    for cat in clap_categories:
-                        if cat.score >= self.score_threshold:
-                            existing = contributing_labels.get(cat.category_name, 0)
-                            if cat.score > existing:
-                                contributing_labels[cat.category_name] = float(cat.score)
+                    g_clap_categories = [
+                        cat for cat in classification.categories
+                        if g_whitelist.get(cat.category_name, False)
+                        and cat.category_name not in exclusions
+                    ]
+                    g_max_score = max((cat.score for cat in g_clap_categories), default=0.0)
 
-                # Émettre le résultat si la fenêtre multi-clap est expirée
-                clap_detected_at = es.get('clap_detected_at', 0)
-                if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
-                    # Compter tous les pics depuis le début de la fenêtre
-                    recent_peaks = [t for t in peak_times if t >= clap_detected_at]
-                    clap_count = max(1, len(recent_peaks))
-                    clap_score = es.get('clap_score', max_clap_score)
-                    clap_labels = sorted(
-                        ({'label': name, 'score': score}
-                         for name, score in es.get('clap_labels', {}).items()),
-                        key=lambda x: x['score'],
-                        reverse=True
-                    )
+                    g_state = es_groups.setdefault(g_slug, {
+                        'clap_detected_at': 0, 'clap_score': 0, 'clap_labels': {},
+                    })
 
-                    self.last_detection_time[source_id] = current_time
-                    avg = es.get('avg_level', 0)
-                    logging.info(f"[{self._source_label}] CLAP: {clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s")
+                    if g_max_score >= g_threshold:
+                        if g_state['clap_detected_at'] == 0:
+                            first_peak = peak_times[0] if peak_times else current_time
+                            g_state['clap_detected_at'] = first_peak
+                            g_state['clap_score'] = g_max_score
+                            g_state['clap_labels'] = {}
+                        elif g_max_score > g_state.get('clap_score', 0):
+                            g_state['clap_score'] = g_max_score
+                        contributing = g_state.setdefault('clap_labels', {})
+                        for cat in g_clap_categories:
+                            if cat.score >= g_threshold:
+                                existing = contributing.get(cat.category_name, 0)
+                                if cat.score > existing:
+                                    contributing[cat.category_name] = float(cat.score)
 
-                    if detection_callback:
-                        try:
-                            detection_callback({
-                                'timestamp': current_time,
-                                'score': float(clap_score),
-                                'source_id': source_id,
-                                'clap_count': clap_count,
-                                'labels': clap_labels
-                            })
-                        except Exception as e:
-                            logging.error(f"Erreur callback détection {self._source_label}: {e}")
+                    clap_detected_at = g_state.get('clap_detected_at', 0)
+                    if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
+                        recent_peaks = [t for t in peak_times if t >= clap_detected_at]
+                        clap_count = max(1, len(recent_peaks))
+                        clap_score = g_state.get('clap_score', g_max_score)
+                        clap_labels = sorted(
+                            ({'label': name, 'score': score}
+                             for name, score in g_state.get('clap_labels', {}).items()),
+                            key=lambda x: x['score'],
+                            reverse=True
+                        )
 
-                    # Reset après émission
-                    es['clap_detected_at'] = 0
-                    es['clap_score'] = 0
-                    es['peak_times'] = []
-                    es['clap_labels'] = {}
+                        self.last_detection_time[source_id] = current_time
+                        logging.info(
+                            f"[{self._source_label}] CLAP groupe={group['name']}: "
+                            f"{clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s"
+                        )
+
+                        if detection_callback:
+                            try:
+                                detection_callback({
+                                    'timestamp': current_time,
+                                    'score': float(clap_score),
+                                    'source_id': source_id,
+                                    'clap_count': clap_count,
+                                    'labels': clap_labels,
+                                    'group_slug': g_slug,
+                                    'group_name': group['name'],
+                                    'group_clap_counts': list(group.get('clap_counts', [1, 2])),
+                                })
+                            except Exception as e:
+                                logging.error(f"Erreur callback détection {self._source_label}: {e}")
+
+                        g_state['clap_detected_at'] = 0
+                        g_state['clap_score'] = 0
+                        g_state['clap_labels'] = {}
                 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
