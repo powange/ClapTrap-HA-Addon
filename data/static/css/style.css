@@ -635,6 +635,29 @@ h1 {
     animation: fadeIn 0.3s ease;
 }
 
+/* Detection ignoree : groupe perdant de l'arbitrage d'exclusivite par source */
+.clap-event-label.ignored {
+    background: #fef2f2;
+    border-left-color: var(--color-danger);
+    opacity: 0.85;
+}
+
+.clap-event-label.ignored .clap-event-header strong {
+    text-decoration: line-through;
+}
+
+.clap-event-label.ignored .clap-event-header::after {
+    content: "ignoré";
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: var(--radius-xs);
+    background: var(--color-danger);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 .clap-event-sounds {
     display: flex;
     flex-wrap: wrap;

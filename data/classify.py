@@ -209,8 +209,12 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     group_slug = detection_data.get('group_slug', 'clap')
                     group_name = detection_data.get('group_name', 'Clap')
                     group_clap_counts = detection_data.get('group_clap_counts') or [1, 2]
+                    # Detection "ignored" : groupe perdant de l'arbitrage d'exclusivite
+                    # par source. On l'affiche dans l'historique (en rouge cote UI)
+                    # mais on ne declenche ni evenement HA, ni entites, ni webhook.
+                    ignored = bool(detection_data.get('ignored', False))
                     logging.info(
-                        f"CLAP sur {source_name} ({group_name}): "
+                        f"CLAP{' (ignore)' if ignored else ''} sur {source_name} ({group_name}): "
                         f"score={detection_data['score']:.2f}, claps={clap_count}"
                     )
                     base_payload = {
@@ -221,9 +225,20 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         'labels': contributing_labels,
                         'group_slug': group_slug,
                         'group_name': group_name,
+                        'ignored': ignored,
                     }
                     if socketio:
                         socketio.emit('clap', base_payload)
+                    with _history_lock:
+                        _detection_history.appendleft({
+                            'source_id': source_name, 'timestamp': detection_data['timestamp'],
+                            'score': round(detection_data['score'], 3), 'clap_count': clap_count,
+                            'labels': contributing_labels,
+                            'group_slug': group_slug, 'group_name': group_name,
+                            'ignored': ignored,
+                        })
+                    if ignored:
+                        return
                     supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
                     if supervisor_token:
                         try:
@@ -242,13 +257,6 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                                          group_slug=group_slug, group_clap_counts=group_clap_counts)
                     except Exception:
                         pass
-                    with _history_lock:
-                        _detection_history.appendleft({
-                            'source_id': source_name, 'timestamp': detection_data['timestamp'],
-                            'score': round(detection_data['score'], 3), 'clap_count': clap_count,
-                            'labels': contributing_labels,
-                            'group_slug': group_slug, 'group_name': group_name,
-                        })
                     if webhook_url:
                         send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
                 except Exception as e:

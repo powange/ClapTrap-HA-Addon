@@ -292,28 +292,33 @@ class AudioDetector:
                         g_state['clap_score'] = 0
                         g_state['clap_labels'] = {}
 
-                    group = winner['group']
                     self.last_detection_time[source_id] = current_time
                     logging.info(
-                        f"[{self._source_label}] CLAP groupe={group['name']}: "
+                        f"[{self._source_label}] CLAP groupe={winner['group']['name']}: "
                         f"{winner['clap_count']} pic(s), score={winner['clap_score']:.2f}, "
                         f"fenetre={self._clap_window_duration}s"
                     )
 
+                    # On declenche le gagnant normalement et les perdants en mode
+                    # "ignored" : ils s'affichent dans l'historique (en rouge cote UI)
+                    # mais ne declenchent ni webhook ni entites Home Assistant.
                     if detection_callback:
-                        try:
-                            detection_callback({
-                                'timestamp': current_time,
-                                'score': float(winner['clap_score']),
-                                'source_id': source_id,
-                                'clap_count': winner['clap_count'],
-                                'labels': winner['clap_labels'],
-                                'group_slug': winner['g_slug'],
-                                'group_name': group['name'],
-                                'group_clap_counts': list(group.get('clap_counts', [1, 2])),
-                            })
-                        except Exception as e:
-                            logging.error(f"Erreur callback détection {self._source_label}: {e}")
+                        for c in ready_candidates:
+                            group = c['group']
+                            try:
+                                detection_callback({
+                                    'timestamp': current_time,
+                                    'score': float(c['clap_score']),
+                                    'source_id': source_id,
+                                    'clap_count': c['clap_count'],
+                                    'labels': c['clap_labels'],
+                                    'group_slug': c['g_slug'],
+                                    'group_name': group['name'],
+                                    'group_clap_counts': list(group.get('clap_counts', [1, 2])),
+                                    'ignored': c is not winner,
+                                })
+                            except Exception as e:
+                                logging.error(f"Erreur callback détection {self._source_label}: {e}")
 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")

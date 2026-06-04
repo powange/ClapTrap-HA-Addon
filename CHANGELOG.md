@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.22.1
+
+### Detections ignorees visibles dans l'historique (en rouge)
+
+- Les groupes perdants de l'arbitrage d'exclusivite par source (6.22.0)
+  s'affichent desormais dans l'historique, barres et en rouge avec un
+  badge "ignore".
+- Ces detections ignorees ne declenchent ni evenement Home Assistant,
+  ni mise a jour d'entites, ni webhook, ni animation "clap valide" :
+  elles sont purement informatives.
+
 ## 6.22.0
 
 ### Exclusivite des groupes par source

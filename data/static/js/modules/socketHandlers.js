@@ -49,7 +49,7 @@ export function initializeSocketIO() {
     // Gestionnaire pour les claps
     socket.on('clap', (data) => {
         console.log('Clap event received:', data);
-        if (typeof window.showClap === 'function') {
+        if (!data.ignored && typeof window.showClap === 'function') {
             window.showClap(data.source_id);
         }
         // Afficher la source et le nombre de claps
@@ -59,7 +59,7 @@ export function initializeSocketIO() {
             const claps = data.clap_count || 1;
             const clapText = claps > 1 ? `${claps} claps` : '1 clap';
             const el = document.createElement('div');
-            el.className = 'clap-event-label';
+            el.className = 'clap-event-label' + (data.ignored ? ' ignored' : '');
             const labels = Array.isArray(data.labels) ? data.labels : [];
             const labelsHtml = labels.length > 0
                 ? `<div class="clap-event-sounds">${labels.map(l =>
