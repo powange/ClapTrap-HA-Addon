@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.22.0
+
+### Exclusivite des groupes par source
+
+- Sur une meme source, un seul groupe se declenche par evenement sonore :
+  celui dont le score de confiance est le plus eleve.
+- Avant, un meme son (ex. un clap) pouvait matcher plusieurs groupes a la
+  fois (ex. "clap" ET "snap") et declencher les deux. Desormais, les
+  groupes en concurrence sur le meme instant sont arbitres dans
+  `AudioDetector._handle_result` et seul le gagnant declenche ; les autres
+  voient leur etat reinitialise sans declenchement.
+
 ## 6.21.0
 
 ### BREAKING : naming uniforme des entites HA pour tous les groupes

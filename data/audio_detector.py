@@ -213,6 +213,12 @@ class AudioDetector:
                 peak_times = es.get('peak_times', [])
                 es_groups = es.setdefault('groups', {})
 
+                # Candidats prets a se declencher dans ce cycle : un meme evenement
+                # sonore (clap) peut matcher plusieurs groupes (ex. "clap" et "snap").
+                # On collecte tous les groupes dont la fenetre vient d'expirer, puis on
+                # ne declenche que le gagnant (meilleur score). Exclusivite par source.
+                ready_candidates = []
+
                 for group in groups:
                     g_slug = group['slug']
                     g_whitelist = group['whitelist']
@@ -256,31 +262,59 @@ class AudioDetector:
                             reverse=True
                         )
 
-                        self.last_detection_time[source_id] = current_time
+                        ready_candidates.append({
+                            'group': group,
+                            'g_slug': g_slug,
+                            'g_state': g_state,
+                            'clap_count': clap_count,
+                            'clap_score': clap_score,
+                            'clap_labels': clap_labels,
+                        })
+
+                # Arbitrage : un seul groupe gagnant par source, celui au meilleur score.
+                # Les perdants voient leur etat reinitialise sans declenchement.
+                if ready_candidates:
+                    winner = max(ready_candidates, key=lambda c: c['clap_score'])
+
+                    if len(ready_candidates) > 1:
+                        losers = ", ".join(
+                            f"{c['group']['name']}({c['clap_score']:.2f})"
+                            for c in ready_candidates if c is not winner
+                        )
                         logging.info(
-                            f"[{self._source_label}] CLAP groupe={group['name']}: "
-                            f"{clap_count} pic(s), score={clap_score:.2f}, fenetre={self._clap_window_duration}s"
+                            f"[{self._source_label}] Exclusivite groupe: gagnant="
+                            f"{winner['group']['name']}({winner['clap_score']:.2f}), ignore={losers}"
                         )
 
-                        if detection_callback:
-                            try:
-                                detection_callback({
-                                    'timestamp': current_time,
-                                    'score': float(clap_score),
-                                    'source_id': source_id,
-                                    'clap_count': clap_count,
-                                    'labels': clap_labels,
-                                    'group_slug': g_slug,
-                                    'group_name': group['name'],
-                                    'group_clap_counts': list(group.get('clap_counts', [1, 2])),
-                                })
-                            except Exception as e:
-                                logging.error(f"Erreur callback détection {self._source_label}: {e}")
-
+                    for c in ready_candidates:
+                        g_state = c['g_state']
                         g_state['clap_detected_at'] = 0
                         g_state['clap_score'] = 0
                         g_state['clap_labels'] = {}
-                
+
+                    group = winner['group']
+                    self.last_detection_time[source_id] = current_time
+                    logging.info(
+                        f"[{self._source_label}] CLAP groupe={group['name']}: "
+                        f"{winner['clap_count']} pic(s), score={winner['clap_score']:.2f}, "
+                        f"fenetre={self._clap_window_duration}s"
+                    )
+
+                    if detection_callback:
+                        try:
+                            detection_callback({
+                                'timestamp': current_time,
+                                'score': float(winner['clap_score']),
+                                'source_id': source_id,
+                                'clap_count': winner['clap_count'],
+                                'labels': winner['clap_labels'],
+                                'group_slug': winner['g_slug'],
+                                'group_name': group['name'],
+                                'group_clap_counts': list(group.get('clap_counts', [1, 2])),
+                            })
+                        except Exception as e:
+                            logging.error(f"Erreur callback détection {self._source_label}: {e}")
+
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
             import traceback
