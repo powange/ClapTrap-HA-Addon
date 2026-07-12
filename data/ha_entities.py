@@ -386,6 +386,18 @@ def init_entities(settings=None):
     if _mqtt_available:
         _cleanup_old_rest_entities()
         _cleanup_all_claptrap_entities()
+        # _cleanup_all_claptrap_entities() vient de supprimer de HA TOUTES les
+        # entites ClapTrap (binary_sensor.claptrap_*), y compris celles des
+        # sources deja enregistrees et l'entite globale de detection.
+        # Les caches en memoire (_source_info + le flag _registered de
+        # update_detection_state) croient pourtant qu'elles existent encore :
+        # sans reset, register_source() court-circuite la republication via son
+        # early-return "rien n'a change" et les entites ne reapparaissent jamais
+        # (bug : elles disparaissent au 2e demarrage de la detection).
+        # -> on invalide ces caches pour forcer une republication complete.
+        _source_info.clear()
+        if hasattr(update_detection_state, '_registered'):
+            del update_detection_state._registered
         logging.info("Entites HA via MQTT Discovery (appareil ClapTrap)")
     else:
         logging.info("Entites HA via API REST (pas d'appareil, MQTT non disponible)")

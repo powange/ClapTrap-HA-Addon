@@ -1,5 +1,22 @@
 # Changelog
 
+## 6.22.2
+
+### Corrections VBAN + entites HA
+
+- Les entites HA d'une source (ex. les groupes d'une source VBAN) ne
+  disparaissent plus quand on arrete puis relance la detection globale.
+  `init_entities()` purge toutes les entites ClapTrap de HA a chaque
+  demarrage ; les caches en memoire (`_source_info` et le flag
+  `_registered` de la detection) sont desormais reinitialises apres cette
+  purge pour forcer `register_source()` a bien republier les entites au
+  lieu de court-circuiter via son early-return "rien n'a change".
+- Desactiver une source VBAN via son interrupteur persiste maintenant
+  correctement l'etat : le champ `enabled` etait omis de la requete de
+  mise a jour, donc la source restait dans la liste des sources activees
+  et la detection n'etait pas redemarree. Le switch envoie desormais
+  `enabled` et rafraichit la liste.
+
 ## 6.22.1
 
 ### Detections ignorees visibles dans l'historique (en rouge)

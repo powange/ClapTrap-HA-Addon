@@ -148,7 +148,7 @@ export function refreshSavedVbanSources() {
                 if (enabledSwitch) {
                     enabledSwitch.addEventListener('change', (event) => {
                         source.enabled = event.target.checked;
-                        updateVBANSourceWebhook(source, source.webhook_url);
+                        updateVBANSourceEnabled(source);
                     });
                 }
 
@@ -249,4 +249,35 @@ function updateVBANSourceWebhook(source, webhookUrl) {
     });
 }
 
-// Autres fonctions spécifiques aux sources VBAN... 
+function updateVBANSourceEnabled(source) {
+    // Le champ `enabled` DOIT etre envoye explicitement : sans lui le backend
+    // ne persiste pas l'etat (la source reste dans la liste des sources
+    // activees) et ne redemarre pas la detection pour (re)ajouter/retirer la
+    // source. On rafraichit ensuite la liste pour refleter l'etat persiste.
+    fetch((window.basePath || '') + '/api/vban/update', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            ip: source.ip,
+            name: source.name,
+            enabled: source.enabled
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess(source.enabled ? 'Source VBAN activée' : 'Source VBAN désactivée');
+            refreshSavedVbanSources();
+        } else {
+            throw new Error(data.error || 'Erreur lors de la mise à jour de la source');
+        }
+    })
+    .catch(error => {
+        console.error('Erreur lors de la mise à jour de la source VBAN:', error);
+        showError(error.message);
+    });
+}
+
+// Autres fonctions spécifiques aux sources VBAN...
