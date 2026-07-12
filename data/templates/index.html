@@ -2349,44 +2349,5 @@
     })();
     </script>
 
-    <template id="vbanDetectedSourceTemplate">
-        <div class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <strong class="source-name"></strong>
-                <small class="text-muted d-block">IP: <span class="source-ip"></span> - Port: <span class="source-port"></span></small>
-            </div>
-            <button class="btn btn-sm btn-success add-vban-btn">Ajouter</button>
-        </div>
-    </template>
-
-    <template id="vbanSavedSourceTemplate">
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <strong class="source-name"></strong>
-                    <small class="text-muted d-block">IP: <span class="source-ip"></span> - Port: <span class="source-port"></span></small>
-                </div>
-                <div class="source-controls">
-                    <label class="switch" title="Activer/Desactiver">
-                        <input type="checkbox" class="source-enabled">
-                        <span class="slider round"></span>
-                    </label>
-                    <button type="button" class="btn btn-light btn-sm delete-vban-btn">
-                        <span class="icon" style="color: var(--color-danger);">&#x274C;</span>
-                    </button>
-                </div>
-            </div>
-            <div class="webhook-input-group mt-2">
-                <label class="form-label">Webhook</label>
-                <div class="webhook-input-with-test">
-                    <input type="url" class="webhook-input webhook-url"
-                           placeholder="https://votre-serveur.com/webhook">
-                    <button type="button" class="test-webhook">
-                        &#x1F514; Tester
-                    </button>
-                </div>
-            </div>
-        </div>
-    </template>
 </body>
 </html>

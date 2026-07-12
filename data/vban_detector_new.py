@@ -56,10 +56,20 @@ class VBANDetector:
             }
         logging.info(f"VBAN: callback audio enregistre pour {ip}")
 
-    def remove_source_callback(self, ip):
-        """Retire le callback audio d'une IP source."""
+    def remove_source_callback(self, ip, callback=None):
+        """Retire le callback audio d'une IP source.
+
+        Si `callback` est fourni, ne retire QUE si c'est bien celui actuellement
+        enregistre pour cette IP. Evite qu'un ancien thread (lors d'un
+        redemarrage) supprime le callback qu'un nouveau thread vient de
+        reenregistrer pour la meme IP.
+        """
         with self._lock:
-            self._per_ip.pop(ip, None)
+            entry = self._per_ip.get(ip)
+            if entry is not None and (callback is None or entry.get('callback') is callback):
+                self._per_ip.pop(ip, None)
+            else:
+                return
         logging.info(f"VBAN: callback audio retire pour {ip}")
 
     def set_test_tap(self, ip, callback):

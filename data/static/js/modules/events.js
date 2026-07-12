@@ -1,10 +1,8 @@
 import { startDetection, stopDetection } from './detection.js';
-import { refreshVbanSources } from './vbanSources.js';
 import { saveSettings } from './settings.js';
 
 export function setupEventListeners() {
     setupDetectionButtons();
-    setupRefreshButton();
     setupThresholdControl();
     setupParameterChangeListeners();
 }
@@ -21,13 +19,6 @@ function setupDetectionButtons() {
     
     if (stopButton) {
         stopButton.addEventListener('click', stopDetection);
-    }
-}
-
-function setupRefreshButton() {
-    const refreshBtn = document.getElementById('refreshVBANBtn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshVbanSources);
     }
 }
 

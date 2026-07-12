@@ -82,7 +82,9 @@ def build_sources_from_settings(settings):
                 'label': f'RTSP: {src.get("name", src["url"][:30])}'
             })
     for src in settings.get('saved_vban_sources', []):
-        if src.get('enabled', True):
+        # Defaut a False comme mic/rtsp (et comme le filtre cote frontend) :
+        # une source sans clé `enabled` n'est pas demarree silencieusement.
+        if src.get('enabled', False):
             sources.append({
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                 'source_key': src.get('ip', ''),
@@ -97,6 +99,14 @@ def build_sources_from_settings(settings):
 
 # Variables globales
 detection_running = False
+# Jeton de generation : incremente a chaque demarrage. Permet de distinguer
+# un ancien run d'un nouveau lors d'un redemarrage rapide (stop puis start).
+# Sans ce jeton, le `finally` d'un ancien run_detection pouvait ecraser le flag
+# global `detection_running` (et publier detection=OFF) APRES le demarrage du
+# nouveau run, tuant la nouvelle detection. Chaque run capture sa generation et
+# ne touche a l'etat partage / ne continue ses boucles que si elle est toujours
+# la generation courante.
+_detection_gen = 0
 _detection_lock = threading.Lock()
 classifier = None
 record = None
@@ -157,7 +167,7 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
 def start_detection(model, max_results, score_threshold, overlapping_factor,
                     socketio, delay, sources, **kwargs):
     """Démarre la détection multi-source."""
-    global detection_running, current_audio_source, _socketio
+    global detection_running, current_audio_source, _socketio, _detection_gen
 
     try:
         if (score_threshold < 0) or (score_threshold > 1.0):
@@ -167,6 +177,8 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
             if detection_running:
                 return False
             detection_running = True
+            _detection_gen += 1
+            my_gen = _detection_gen
 
         source_labels = [s['label'] for s in sources]
         logging.info(f"Démarrage détection multi-source: {source_labels}")
@@ -180,6 +192,7 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
                 'peak_cooldown': kwargs.get('peak_cooldown', 0.08),
                 'peak_ratio': kwargs.get('peak_ratio', 3.0),
                 'peak_reset': kwargs.get('peak_reset', 0.3),
+                'generation': my_gen,
             },
             daemon=True
         )
@@ -194,10 +207,16 @@ def start_detection(model, max_results, score_threshold, overlapping_factor,
 
 
 def run_detection(model, max_results, score_threshold, overlapping_factor, socketio, delay, sources,
-                   peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
+                   peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3, generation=0):
     """Exécute la détection multi-source. Un classifier par source (isolation complète)."""
     global detection_running
     source_threads = []
+
+    def _still_current():
+        # Vrai tant que la detection tourne ET que ce run est la generation
+        # courante. Un ancien run (redemarrage) voit _detection_gen changer et
+        # s'arrete, meme si detection_running est repasse a True pour le nouveau.
+        return detection_running and _detection_gen == generation
     detectors = []  # Pour cleanup
 
     try:
@@ -363,7 +382,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             block_bytes = 1600 * 4
             try:
-                while detection_running:
+                while _still_current():
                     data = proc.stdout.read(block_bytes)
                     if not data:
                         break
@@ -391,11 +410,11 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connecting'})
 
             reconnect_delay = 1
-            while detection_running:
+            while _still_current():
                 try:
                     got_data = False
                     for audio_data in read_audio_from_rtsp(rtsp_url, int(16000 * 0.1)):
-                        if not detection_running:
+                        if not _still_current():
                             break
                         if audio_data is not None:
                             if not got_data:
@@ -407,14 +426,14 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                             if gain != 1.0:
                                 audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                             detector.process_audio(audio_data, source_id)
-                    if detection_running:
+                    if _still_current():
                         if socketio:
                             socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'reconnecting'})
                         logging.warning(f"RTSP interrompu, reconnexion dans {reconnect_delay}s...")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
                 except Exception as e:
-                    if detection_running:
+                    if _still_current():
                         if socketio:
                             socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'error', 'error': str(e)})
                         logging.error(f"Erreur RTSP: {e}")
@@ -436,7 +455,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
             vban_det = get_vban_detector()
             def audio_callback(audio_data, timestamp):
-                if not detection_running:
+                if not _still_current():
                     return
                 gain = _vban_gains.get(vban_ip, 1.0)
                 if gain != 1.0:
@@ -444,10 +463,14 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 detector.process_audio(audio_data, source_id)
             vban_det.add_source_callback(vban_ip, audio_callback)
 
-            while detection_running:
+            while _still_current():
                 time.sleep(0.5)
             try:
-                vban_det.remove_source_callback(vban_ip)
+                # Retrait discriminant : ne retire QUE notre propre callback. Sans
+                # ce garde, l'ancien thread VBAN pouvait retirer le callback que le
+                # nouveau run venait de reenregistrer pour la meme IP (l'audio ne
+                # parvenait alors plus au detecteur apres un redemarrage).
+                vban_det.remove_source_callback(vban_ip, audio_callback)
             except Exception:
                 pass
             detector.stop()
@@ -473,7 +496,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 logging.info(f"Thread démarré pour {src['label']}")
 
         # Attendre la fin
-        while detection_running:
+        while _still_current():
             if all(not t.is_alive() for t in source_threads):
                 logging.warning("Toutes les sources se sont arrêtées")
                 break
@@ -487,19 +510,26 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         logging.error(traceback.format_exc())
         return False
     finally:
-        # Stopper tous les detectors restants
+        # Stopper tous les detectors restants (ceux de CE run uniquement).
         for det in detectors:
             try:
                 det.stop()
             except Exception:
                 pass
-        try:
-            from ha_entities import update_detection_state
-            update_detection_state(False)
-        except Exception:
-            pass
+        # Ne toucher a l'etat global QUE si on est encore la generation courante.
+        # Un redemarrage a pu lancer un nouveau run entre-temps : dans ce cas il
+        # ne faut pas ecraser son `detection_running` ni repasser le capteur HA
+        # a OFF (c'etait la cause du "la detection s'arrete au redemarrage").
         with _detection_lock:
-            detection_running = False
+            is_current = (_detection_gen == generation)
+            if is_current:
+                detection_running = False
+        if is_current:
+            try:
+                from ha_entities import update_detection_state
+                update_detection_state(False)
+            except Exception:
+                pass
         logging.info("run_detection terminé")
 
 

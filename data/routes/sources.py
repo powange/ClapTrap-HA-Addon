@@ -168,6 +168,7 @@ def update_rtsp_stream(stream_id):
 
         for stream in settings.get('rtsp_sources', []):
             if stream.get('id') == stream_id:
+                needs_restart = False
                 # Mettre à jour les champs fournis
                 if 'url' in data:
                     stream['url'] = data['url']
@@ -177,8 +178,10 @@ def update_rtsp_stream(stream_id):
                     stream['webhook_url'] = data['webhook_url']
                 if 'enabled' in data:
                     stream['enabled'] = data['enabled']
-                    # Redémarrer la détection si elle tourne
-                    _restart_detection_if_running()
+                    # Redemarrage differe APRES save_settings : sinon le restart
+                    # relit les settings du disque (encore periMes) et n'applique
+                    # pas le changement enabled avant le prochain redemarrage.
+                    needs_restart = True
                 if 'threshold' in data:
                     stream['threshold'] = float(data['threshold'])
                 if 'gain' in data:
@@ -205,6 +208,8 @@ def update_rtsp_stream(stream_id):
                         pass
 
                 save_settings(settings)
+                if needs_restart:
+                    _restart_detection_if_running()
                 return jsonify({'success': True, 'stream': stream})
 
         return jsonify({'error': 'Stream non trouvé'}), 404

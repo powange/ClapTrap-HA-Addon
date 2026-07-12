@@ -1,8 +1,35 @@
 # Changelog
 
+## 6.22.3
+
+### Fiabilisation du redemarrage de la detection + desactivation de source
+
+- **Race au redemarrage corrigee (cause du "la detection s'arrete quand on
+  desactive une source / relance la detection").** Un jeton de generation
+  est capture a chaque `start_detection` : le `finally` d'un ancien run ne
+  peut plus remettre le flag global `detection_running` a False ni repasser
+  le capteur HA `claptrap_detection` a OFF apres le demarrage d'un nouveau
+  run. Les boucles de chaque source s'arretent aussi des que leur
+  generation n'est plus la courante.
+- **VBAN : retrait de callback discriminant.** `remove_source_callback`
+  ne retire desormais que le callback effectivement enregistre : un ancien
+  thread ne peut plus supprimer le callback qu'un nouveau run vient de
+  reenregistrer pour la meme IP (l'audio VBAN cessait d'arriver apres un
+  redemarrage).
+- **RTSP : ordre save/restart corrige.** Activer/desactiver un flux RTSP
+  declenchait le redemarrage AVANT la sauvegarde des settings, donc le
+  changement n'etait pris en compte qu'au redemarrage suivant. La
+  sauvegarde precede maintenant le redemarrage.
+- Defaut du champ `enabled` uniformise pour les sources VBAN (`False`,
+  comme mic/rtsp et comme le filtre cote frontend).
+- Nettoyage : suppression du module JS mort `vbanSources.js` et de ses
+  templates orphelins (la carte VBAN active est rendue inline dans
+  `index.html`). Retrait de `updateVBANSourceEnabled` (6.22.2) qui etait
+  sur ce chemin mort.
+
 ## 6.22.2
 
-### Corrections VBAN + entites HA
+### Entites HA des sources ne disparaissent plus au redemarrage
 
 - Les entites HA d'une source (ex. les groupes d'une source VBAN) ne
   disparaissent plus quand on arrete puis relance la detection globale.
@@ -11,11 +38,6 @@
   `_registered` de la detection) sont desormais reinitialises apres cette
   purge pour forcer `register_source()` a bien republier les entites au
   lieu de court-circuiter via son early-return "rien n'a change".
-- Desactiver une source VBAN via son interrupteur persiste maintenant
-  correctement l'etat : le champ `enabled` etait omis de la requete de
-  mise a jour, donc la source restait dans la liste des sources activees
-  et la detection n'etait pas redemarree. Le switch envoie desormais
-  `enabled` et rafraichit la liste.
 
 ## 6.22.1
 
