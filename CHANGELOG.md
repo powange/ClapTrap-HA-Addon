@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.22.4
+
+### Sources audio : selecteur en dropdown
+
+- La liste des sources configurees (micro / RTSP / VBAN) est desormais un
+  menu deroulant au lieu d'une rangee d'onglets horizontaux. Avec beaucoup
+  de sources, les onglets debordaient et n'etaient plus tous visibles ; le
+  dropdown reste lisible quel que soit le nombre de sources. Le bouton
+  "+ Ajouter" et les panneaux de configuration sont inchanges.
+
 ## 6.22.3
 
 ### Fiabilisation du redemarrage de la detection + desactivation de source

@@ -1653,6 +1653,31 @@ footer a:hover {
     font-weight: 600;
 }
 
+/* Selecteur de source (dropdown) : remplace la rangee d'onglets pour ne pas
+   deborder horizontalement quand il y a beaucoup de sources. */
+.source-select {
+    margin: 0.3rem 0 0.3rem 0.5rem;
+    padding: 0.4rem 0.75rem;
+    max-width: min(100%, 24rem);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.source-select:hover {
+    border-color: var(--color-primary);
+}
+
+.source-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
 .tab-panel {
     display: none;
     padding: 1rem;

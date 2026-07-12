@@ -287,33 +287,36 @@
                 sources.push({type: 'vban', id: 'vban_' + i, name: s.name || 'VBAN', data: s});
             });
 
-            sources.forEach(function(src, idx) {
-                // Tab button
-                var tab = document.createElement('button');
-                tab.className = 'tab-btn tab-type-' + src.type + (idx === 0 ? ' active' : '');
-                var iconHtml;
-                if (src.type === 'vban') {
-                    iconHtml = '<span class="source-type-icon icon-vban"></span>';
-                } else if (src.type === 'mic') {
-                    iconHtml = '\uD83C\uDFA4';
-                } else if (src.type === 'rtsp') {
-                    iconHtml = '\uD83D\uDCF9';
-                } else {
-                    iconHtml = '';
-                }
-                tab.innerHTML = iconHtml + ' ' + document.createTextNode(src.name).textContent
-                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                tab.setAttribute('data-tab', src.id);
-                tab.addEventListener('click', function() { switchTab(src.id); });
-                tabs.appendChild(tab);
+            // Selecteur de source sous forme de dropdown : evite le
+            // debordement horizontal quand il y a beaucoup de sources.
+            var select = document.createElement('select');
+            select.id = 'source-select';
+            select.className = 'source-select';
+            select.setAttribute('aria-label', 'Source audio');
 
-                // Tab content
+            sources.forEach(function(src, idx) {
+                // Option dans le dropdown
+                var icon = src.type === 'mic' ? '\uD83C\uDFA4 '
+                    : src.type === 'rtsp' ? '\uD83D\uDCF9 '
+                    : src.type === 'vban' ? '\uD83D\uDD0A ' : '';
+                var opt = document.createElement('option');
+                opt.value = src.id;
+                opt.textContent = icon + src.name;  // textContent => echappement auto
+                if (idx === 0) opt.selected = true;
+                select.appendChild(opt);
+
+                // Panneau associe (un seul visible a la fois)
                 var panel = document.createElement('div');
                 panel.className = 'tab-panel' + (idx === 0 ? ' active' : '');
                 panel.id = 'panel-' + src.id;
                 panel.innerHTML = buildTabContent(src);
                 content.appendChild(panel);
             });
+
+            if (sources.length > 0) {
+                select.addEventListener('change', function() { switchTab(select.value); });
+                tabs.appendChild(select);
+            }
 
             // Re-bind events inside tabs
             bindTabEvents();
@@ -324,7 +327,7 @@
                 var savedTab = sessionStorage.getItem('claptrap_active_tab');
                 if (savedTab) {
                     sessionStorage.removeItem('claptrap_active_tab');
-                    if (document.querySelector('.tab-btn[data-tab="' + savedTab + '"]')) {
+                    if (document.getElementById('panel-' + savedTab)) {
                         switchTab(savedTab);
                     }
                 }
@@ -332,12 +335,13 @@
         }
 
         function switchTab(tabId) {
-            document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
             document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-            var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
             var panel = document.getElementById('panel-' + tabId);
-            if (btn) btn.classList.add('active');
             if (panel) panel.classList.add('active');
+            // Garder le dropdown synchronise (utile quand switchTab est appele
+            // par programme apres l'ajout d'une source).
+            var select = document.getElementById('source-select');
+            if (select && select.value !== tabId) select.value = tabId;
         }
 
         function buildTabContent(src) {
@@ -1063,10 +1067,9 @@
                 // Memoriser l'onglet actif avant le reload pour eviter de
                 // remettre l'utilisateur sur le premier onglet.
                 try {
-                    var active = document.querySelector('.tab-btn.active');
-                    if (active) {
-                        sessionStorage.setItem('claptrap_active_tab',
-                            active.getAttribute('data-tab'));
+                    var select = document.getElementById('source-select');
+                    if (select && select.value) {
+                        sessionStorage.setItem('claptrap_active_tab', select.value);
                     }
                 } catch (_e) {}
                 location.reload();
