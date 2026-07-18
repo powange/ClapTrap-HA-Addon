@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.24.1
+
+### Nettoyage de code mort (frontend)
+
+- Suppression de handlers/fonctions JS qui ciblaient des elements d'un ancien
+  layout jamais generes (donc sans effet) : `buildSoundWhitelistHtml`, et les
+  handlers `.rtsp-threshold`, `.vban-threshold`, `.ha-clap-toggle`. Aucun
+  changement de comportement visible ; purge conservatrice (les blocs encore
+  entremeles avec du code actif sont laisses pour un nettoyage ulterieur).
+
 ## 6.24.0
 
 ### Feedback de detection live par carte source

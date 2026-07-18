@@ -489,39 +489,6 @@
             '</div>';
         }
 
-        function buildSoundWhitelistHtml(kind, sourceKey, whitelist) {
-            var entries = Object.entries(whitelist || {});
-            entries.sort(function(a, b) {
-                // Coches d'abord, puis alphabetique
-                if (a[1] !== b[1]) return b[1] - a[1];
-                return a[0].localeCompare(b[0]);
-            });
-            var html = '<div class="setting-item sound-whitelist-section"' +
-                ' data-kind="' + escAttr(kind) + '"' +
-                ' data-source-key="' + escAttr(String(sourceKey)) + '">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                    '<label>Sons detectes</label>' +
-                    '<button type="button" class="btn btn-secondary btn-sm sound-whitelist-cleanup" title="Supprimer les sons non coches">&#x1F5D1; Nettoyer</button>' +
-                '</div>' +
-                '<span class="setting-hint">Cocher les sons a considerer comme un clap. Les nouveaux sons detectes apparaissent automatiquement (decoches).</span>' +
-                '<div class="sound-whitelist-list">';
-            if (entries.length === 0) {
-                html += '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
-            } else {
-                entries.forEach(function(e) {
-                    var label = e[0]; var on = !!e[1];
-                    html += '<span class="sound-whitelist-item"><label>' +
-                        '<input type="checkbox" class="sound-whitelist-toggle"' +
-                        ' data-label="' + escAttr(label) + '"' + (on ? ' checked' : '') + '>' +
-                        ' <span>' + esc(label) + '</span></label>' +
-                        '<button type="button" class="sound-whitelist-remove" ' +
-                        'data-label="' + escAttr(label) + '" title="Retirer de la liste">&#x00D7;</button></span>';
-                });
-            }
-            html += '</div></div>';
-            return html;
-        }
-
         function buildSoundGroupsHtml(kind, sourceKey, groups, sourceName) {
             // Affiche TOUS les groupes de sons d'une source (clap par defaut +
             // ceux ajoutes par l'utilisateur) avec une seule et meme UI.
@@ -995,13 +962,6 @@
             }
 
             // ---- RTSP -------------------------------------------------------
-            document.querySelectorAll('.rtsp-threshold').forEach(function(slider) {
-                bindLiveSlider(slider, {
-                    label: '.rtsp-threshold-value',
-                    putUrl: rtspByIdUrl,
-                    putBody: function(s) { return {threshold: parseFloat(s.value)}; }
-                });
-            });
             document.querySelectorAll('.rtsp-volume').forEach(function(slider) {
                 bindLiveSlider(slider, {
                     label: '.rtsp-volume-value',
@@ -1341,17 +1301,6 @@
                     }
                 });
             });
-            document.querySelectorAll('.vban-threshold').forEach(function(slider) {
-                bindLiveSlider(slider, {
-                    label: '.vban-threshold-value',
-                    putUrl: function() { return '/api/vban/update'; },
-                    putBody: function(s) { return vbanPutBody(s, {threshold: parseFloat(s.value)}); },
-                    onLocalChange: function(s) {
-                        var v = vbanSrcByIndex(s);
-                        if (v) v.threshold = parseFloat(s.value);
-                    }
-                });
-            });
             document.querySelectorAll('.vban-gain').forEach(function(slider) {
                 bindLiveSlider(slider, {
                     label: '.vban-gain-value',
@@ -1386,52 +1335,6 @@
                         if (!s) return {};
                         return {name: s.name, ip: s.ip, webhook_url: i.value.trim()};
                     }
-                });
-            });
-
-            // HA entities clap checkboxes
-            document.querySelectorAll('.ha-clap-toggle').forEach(function(cb) {
-                cb.addEventListener('change', function() {
-                    var sourceType = cb.getAttribute('data-source-type');
-                    var panel = cb.closest('.tab-panel');
-                    var checkboxes = panel.querySelectorAll('.ha-clap-toggle');
-                    var selected = [];
-                    checkboxes.forEach(function(c) {
-                        if (c.checked) selected.push(parseInt(c.getAttribute('data-clap')));
-                    });
-                    // Liste vide autorisée (pas d'entités pour cette source)
-
-                    if (sourceType === 'mic') {
-                        fetch(basePath + '/api/microphone/ha-entities', {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ha_entities: selected})
-                        });
-                        if (window.settings && window.settings.microphone) {
-                            window.settings.microphone.ha_entities = selected;
-                        }
-                    } else if (sourceType === 'rtsp') {
-                        var sid = cb.getAttribute('data-source-id');
-                        fetch(basePath + '/api/rtsp/stream/' + sid, {
-                            method: 'PUT', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ha_entities: selected})
-                        });
-                        if (window.settings && window.settings.rtsp_sources) {
-                            window.settings.rtsp_sources.forEach(function(s) {
-                                if (s.id === sid) s.ha_entities = selected;
-                            });
-                        }
-                    } else if (sourceType === 'vban') {
-                        var idx = parseInt(cb.getAttribute('data-source-index'));
-                        var vbanSrc = window.settings && window.settings.saved_vban_sources && window.settings.saved_vban_sources[idx];
-                        if (vbanSrc) {
-                            vbanSrc.ha_entities = selected;
-                            fetch(basePath + '/api/vban/update', {
-                                method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({name: vbanSrc.name, ip: vbanSrc.ip, ha_entities: selected})
-                            });
-                        }
-                    }
-                    refreshHaEntities();
                 });
             });
 
