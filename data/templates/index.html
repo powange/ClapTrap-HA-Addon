@@ -1229,6 +1229,11 @@
                         if (c.checked) ha.push(parseInt(c.getAttribute('data-clap'), 10));
                     });
                     _putGroup(section, card, { ha_entities: ha });
+                    // Synchro window.settings + rafraichir la boite source-level.
+                    _syncGroupHaEntities(section.getAttribute('data-kind'),
+                        section.getAttribute('data-source-key'),
+                        card.getAttribute('data-group-slug'), ha);
+                    refreshHaEntities();
                     // Mise a jour live de la liste des entites affichees
                     var existing = card.querySelector('.group-ha-entities');
                     var entities = _buildGroupEntities(
@@ -1982,40 +1987,61 @@
         })();
 
         // Afficher les entites HA dans chaque onglet (depuis les checkboxes locales)
+        // Resout (kind, sourceKey, sourceName, groups) d'une carte a partir du
+        // data-source de sa zone .ha-entities-info (mic / rtsp_<id> / vban_<idx>).
+        function _sourceFromCardId(sourceId) {
+            var s = window.settings || {};
+            if (sourceId === 'mic') {
+                var mic = s.microphone || {};
+                return { kind: 'mic',
+                         key: (mic.device_index != null ? mic.device_index : 0),
+                         name: mic.audio_source, groups: mic.sound_groups };
+            }
+            if (sourceId.indexOf('rtsp_') === 0) {
+                var sid = sourceId.slice(5);
+                var r = (s.rtsp_sources || []).filter(function(x) { return String(x.id) === sid; })[0];
+                return r ? { kind: 'rtsp', key: r.id, name: r.name, groups: r.sound_groups } : null;
+            }
+            if (sourceId.indexOf('vban_') === 0) {
+                var v = (s.saved_vban_sources || [])[parseInt(sourceId.slice(5), 10)];
+                return v ? { kind: 'vban', key: v.ip, name: v.name, groups: v.sound_groups } : null;
+            }
+            return null;
+        }
+
+        // Met a jour ha_entities d'un groupe dans window.settings, pour que la
+        // boite source-level (refreshHaEntities) reste synchro apres un toggle.
+        function _syncGroupHaEntities(kind, sourceKey, groupSlug, ha) {
+            var s = window.settings || {};
+            var src = null;
+            if (kind === 'mic') src = s.microphone;
+            else if (kind === 'rtsp') src = (s.rtsp_sources || []).filter(function(x) { return String(x.id) === String(sourceKey); })[0];
+            else if (kind === 'vban') src = (s.saved_vban_sources || []).filter(function(x) { return String(x.ip) === String(sourceKey); })[0];
+            if (src && Array.isArray(src.sound_groups)) {
+                var g = src.sound_groups.filter(function(x) { return x.slug === groupSlug; })[0];
+                if (g) g.ha_entities = ha;
+            }
+        }
+
         function refreshHaEntities() {
             document.querySelectorAll('.ha-entities-info').forEach(function(el) {
-                var panel = el.closest('.tab-panel');
-                if (!panel) return;
-                var checkboxes = panel.querySelectorAll('.ha-clap-toggle');
-                if (checkboxes.length === 0) return;
+                var info = _sourceFromCardId(el.getAttribute('data-source') || '');
+                if (!info) { el.innerHTML = ''; return; }
 
-                // Construire le slug court (meme logique que ha_entities.py)
-                var sourceId = el.getAttribute('data-source') || '';
-                // Pour RTSP: utiliser rtsp_ + 8 premiers chars de l'UUID
-                var slug;
-                if (sourceId.startsWith('rtsp_')) {
-                    var uuid = sourceId.replace('rtsp_', '');
-                    slug = 'rtsp_' + uuid.substring(0, 8).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-                } else {
-                    slug = sourceId.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-                }
-                while (slug.indexOf('__') !== -1) slug = slug.replace('__', '_');
-                slug = slug.replace(/^_|_$/g, '');
-
+                // Agreger les entites de TOUS les groupes de la source (le nommage
+                // inclut le slug du groupe, cf. ha_entities._group_object_id).
                 var entities = [];
-                checkboxes.forEach(function(cb) {
-                    if (cb.checked) {
-                        var n = parseInt(cb.getAttribute('data-clap'));
-                        var suffix = n === 1 ? '_1clap' : '_' + n + 'claps';
-                        entities.push('binary_sensor.claptrap_' + slug + suffix);
-                    }
+                (info.groups || []).forEach(function(g) {
+                    if (!g || !g.slug) return;
+                    entities = entities.concat(
+                        _buildGroupEntities(info.kind, info.key, g.slug, g.ha_entities || [1, 2], info.name));
                 });
 
                 if (entities.length > 0) {
                     el.innerHTML = '<div class="ha-entities-list">' +
                         '<label class="form-label" style="font-size:0.75rem;color:var(--color-text-secondary);">Entites HA</label>' +
                         entities.map(function(e) {
-                            return '<code class="ha-entity-id">' + e + '</code>';
+                            return '<code class="ha-entity-id">' + esc(e) + '</code>';
                         }).join('') +
                     '</div>';
                 } else {

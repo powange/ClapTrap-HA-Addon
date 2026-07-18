@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.24.2
+
+### Correction : liste des entites HA par source (zone vide)
+
+- La zone "Entites HA" au niveau de chaque carte source restait vide :
+  `refreshHaEntities` lisait une classe morte (`.ha-clap-toggle`) de l'ancien
+  layout. Elle reconstruit desormais la liste depuis `window.settings` en
+  agregeant les entites de tous les groupes de la source, avec le nommage
+  correct (slug du groupe inclus).
+- La liste se met a jour en direct quand on coche/decoche les entites HA d'un
+  groupe (window.settings synchronise + rafraichissement).
+
 ## 6.24.1
 
 ### Nettoyage de code mort (frontend)
