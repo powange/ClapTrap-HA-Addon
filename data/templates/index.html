@@ -761,14 +761,48 @@
                 }).catch(function() {});
             }
 
+            // Affiche une erreur transitoire dans la banniere #error.
+            function showUiError(msg) {
+                var box = document.getElementById('error');
+                if (!box) { console.error(msg); return; }
+                box.textContent = msg;
+                box.style.display = 'block';
+                clearTimeout(window._uiErrTimer);
+                window._uiErrTimer = setTimeout(function() { box.style.display = 'none'; }, 5000);
+            }
+            // Expose pour les fonctions hors de ce scope (ex: deleteSource).
+            window.showUiError = showUiError;
+
+            // Verifie r.ok + data.success, sinon rejette avec un message.
+            function _checkJson(r) {
+                return r.json().catch(function() { return {}; }).then(function(d) {
+                    if (!r.ok || (d && d.success === false)) {
+                        throw new Error((d && d.error) || ('HTTP ' + r.status));
+                    }
+                    return d;
+                });
+            }
+
             // opts: { putUrl(toggle), putBody(toggle), onLocalChange?(toggle) }
             function bindEnabledToggle(toggle, opts) {
                 toggle.addEventListener('change', function() {
+                    if (toggle._pending) return;   // anti double-clic
+                    toggle._pending = true;
+                    toggle.disabled = true;
                     if (opts.onLocalChange) opts.onLocalChange(toggle);
                     fetch(basePath + opts.putUrl(toggle), {
                         method: 'PUT', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(opts.putBody(toggle))
-                    }).then(function(r) { return r.json(); }).then(refreshAfterSourceChange);
+                    })
+                    .then(_checkJson)
+                    .then(function(data) { refreshAfterSourceChange(data); })
+                    .catch(function(err) {
+                        // Revert visuel + etat local pour rester synchro du backend.
+                        toggle.checked = !toggle.checked;
+                        if (opts.onLocalChange) opts.onLocalChange(toggle);
+                        showUiError('Echec de la mise a jour : ' + err.message);
+                    })
+                    .finally(function() { toggle._pending = false; toggle.disabled = false; });
                 });
             }
 
@@ -803,6 +837,8 @@
                             method: opts.putMethod || 'PUT',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify(opts.putBody(slider))
+                        }).then(_checkJson).catch(function(err) {
+                            showUiError('Echec de sauvegarde : ' + err.message);
                         });
                     }, opts.debounceMs || 0);
                 });
@@ -817,6 +853,8 @@
                         fetch(basePath + opts.putUrl(input), {
                             method: 'PUT', headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify(opts.putBody(input))
+                        }).then(_checkJson).catch(function(err) {
+                            showUiError('Echec de sauvegarde : ' + err.message);
                         });
                     }, opts.debounceMs || 500);
                 });
@@ -1383,15 +1421,16 @@
                 buildTabs();
             } else if (type === 'rtsp') {
                 fetch(basePath + '/api/rtsp/stream/' + id, {method: 'DELETE'})
-                    .then(function(r) { return r.json(); })
+                    .then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok||d.success===false) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
                     .then(function(data) {
-                        if (data.success) {
-                            settings.rtsp_sources = (settings.rtsp_sources || []).filter(function(s) { return s.id !== id; });
-                            window.settings = settings;
-                            buildTabs();
-                        }
+                        settings.rtsp_sources = (settings.rtsp_sources || []).filter(function(s) { return s.id !== id; });
+                        window.settings = settings;
+                        buildTabs();
                     })
-                    .catch(function(err) { console.error('Delete RTSP error:', err); });
+                    .catch(function(err) {
+                        console.error('Delete RTSP error:', err);
+                        if (window.showUiError) window.showUiError('Suppression impossible : ' + err.message);
+                    });
             } else if (type === 'vban') {
                 var idx = parseInt(id);
                 var vbanSrc = settings.saved_vban_sources && settings.saved_vban_sources[idx];
@@ -1400,13 +1439,17 @@
                         method: 'DELETE',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(vbanSrc)
-                    }).then(function(r) { return r.json(); })
+                    }).then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok||d.success===false) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
                       .then(function(data) {
+                          // Ne retirer de l'UI qu'apres confirmation du backend.
                           settings.saved_vban_sources.splice(idx, 1);
                           window.settings = settings;
                           buildTabs();
                       })
-                      .catch(function(err) { console.error('Delete VBAN error:', err); });
+                      .catch(function(err) {
+                          console.error('Delete VBAN error:', err);
+                          if (window.showUiError) window.showUiError('Suppression impossible : ' + err.message);
+                      });
                 }
             }
         }
@@ -1577,11 +1620,13 @@
             var basePath = window.basePath || '';
             if (e.target.id === 'startButton' || e.target.closest('#startButton')) {
                 if (!hasActiveSources()) return;
+                if (window._detectionBusy) return;   // anti double-clic
+                window._detectionBusy = true;
                 fetch(basePath + '/api/detection/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(window.settings || {})
-                }).then(function(r) { return r.json(); })
+                }).then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
                   .then(function(data) {
                       if (data.success) {
                           document.getElementById('startButton').style.display = 'none';
@@ -1590,14 +1635,21 @@
                           // Rafraichir les entites HA apres un delai
                           setTimeout(refreshHaEntities, 3000);
                       } else {
-                          alert('Erreur: ' + (data.error || 'Impossible de demarrer'));
+                          if (window.showUiError) window.showUiError('Erreur: ' + (data.error || 'Impossible de demarrer'));
+                          else alert('Erreur: ' + (data.error || 'Impossible de demarrer'));
                       }
                   })
-                  .catch(function(err) { console.error('Start error:', err); });
+                  .catch(function(err) {
+                      console.error('Start error:', err);
+                      if (window.showUiError) window.showUiError('Demarrage impossible : ' + err.message);
+                  })
+                  .finally(function() { window._detectionBusy = false; });
             }
             if (e.target.id === 'stopButton' || e.target.closest('#stopButton')) {
+                if (window._detectionBusy) return;   // anti double-clic
+                window._detectionBusy = true;
                 fetch(basePath + '/api/detection/stop', {method: 'POST'})
-                    .then(function(r) { return r.json(); })
+                    .then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
                     .then(function(data) {
                         if (data.success) {
                             document.getElementById('startButton').style.display = 'block';
@@ -1605,7 +1657,11 @@
                             updateSourceDisplay(null);
                         }
                     })
-                    .catch(function(err) { console.error('Stop error:', err); });
+                    .catch(function(err) {
+                        console.error('Stop error:', err);
+                        if (window.showUiError) window.showUiError('Arret impossible : ' + err.message);
+                    })
+                    .finally(function() { window._detectionBusy = false; });
             }
         });
 

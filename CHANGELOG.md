@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.23.2
+
+### Robustesse de l'interface (retours d'erreur)
+
+- Les echecs de sauvegarde (toggle activer/desactiver, sliders, webhooks,
+  suppression de source, demarrage/arret de la detection) sont maintenant
+  remontes a l'utilisateur via la banniere d'erreur, au lieu d'echouer en
+  silence dans la console.
+- Toggle d'activation : revert visuel + etat local si le backend refuse, pour
+  rester synchronise avec les settings reels.
+- Suppression de source (RTSP/VBAN) : la source n'est retiree de l'UI qu'apres
+  confirmation du backend.
+- Anti double-clic sur l'activation de source et sur demarrer/arreter la
+  detection (evite d'envoyer deux requetes concurrentes).
+
 ## 6.23.1
 
 ### settings.json : ecritures concurrentes atomiques
