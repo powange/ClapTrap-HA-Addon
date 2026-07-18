@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.24.0
+
+### Feedback de detection live par carte source
+
+- Chaque carte source (micro / RTSP / VBAN) affiche desormais, pendant la
+  detection reelle, une ligne de feedback live : les derniers sons detectes
+  (avec leur score) et un flash + dernier clap quand un applaudissement est
+  reconnu. Utile pour regler les seuils et les groupes sans passer par le
+  mode "test".
+- Aucune donnee supplementaire cote backend : reutilise les evenements socket
+  `labels` et `clap` deja emis, routes vers la bonne carte via un identifiant
+  de detection (`data-detid`).
+
 ## 6.23.2
 
 ### Robustesse de l'interface (retours d'erreur)

@@ -259,6 +259,30 @@
     (function() {
         var testing = false;
 
+        // Reconstruit le source_id emis par le backend pour une source, afin de
+        // router les evenements socket (labels/clap) vers la bonne carte.
+        // Doit matcher classify.py : mic_<device_index>, rtsp_<url rtsp://...>,
+        // vban_<ip>.
+        function _detectionIdFor(src) {
+            var d = src.data || {};
+            if (src.type === 'mic') {
+                var s = window.settings || {};
+                var idx = (s.microphone && s.microphone.device_index != null)
+                    ? s.microphone.device_index
+                    : (d.device_index != null ? d.device_index : 0);
+                return 'mic_' + idx;
+            }
+            if (src.type === 'rtsp') {
+                var u = d.url || '';
+                if (u && !/^rtsp/i.test(u)) u = 'rtsp://' + u;
+                return 'rtsp_' + u;
+            }
+            if (src.type === 'vban') {
+                return 'vban_' + (d.ip || '');
+            }
+            return '';
+        }
+
         // ===== Tab System =====
         function buildTabs() {
             // Garder la table sources synchronisee avec les onglets.
@@ -309,7 +333,17 @@
                 var panel = document.createElement('div');
                 panel.className = 'tab-panel' + (idx === 0 ? ' active' : '');
                 panel.id = 'panel-' + src.id;
+                // Identifiant de detection (le source_id emis par le backend) :
+                // permet de router les evenements socket "labels"/"clap" vers la
+                // bonne carte pour le feedback live.
+                panel.setAttribute('data-detid', _detectionIdFor(src));
                 panel.innerHTML = buildTabContent(src);
+                // Zone de feedback live, mise a jour pendant la detection reelle.
+                var live = document.createElement('div');
+                live.className = 'source-live';
+                live.innerHTML = '<span class="source-live-dot"></span>' +
+                    '<span class="source-live-text">En attente de détection…</span>';
+                panel.insertBefore(live, panel.firstChild);
                 content.appendChild(panel);
             });
 

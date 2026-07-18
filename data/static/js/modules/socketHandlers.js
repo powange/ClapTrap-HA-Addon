@@ -9,6 +9,26 @@ function escHtml(s) {
     });
 }
 
+// Met a jour la zone de feedback live de la carte source dont data-detid ==
+// detid (le source_id emis par le backend). No-op si la carte n'existe pas.
+function _setSourceLive(detid, text, flash) {
+    if (!detid) return;
+    let panel;
+    try {
+        panel = document.querySelector('.tab-panel[data-detid="' + String(detid).replace(/["\\]/g, '\\$&') + '"]');
+    } catch (e) { return; }
+    if (!panel) return;
+    const live = panel.querySelector('.source-live');
+    if (!live) return;
+    const txt = live.querySelector('.source-live-text');
+    if (txt && text != null) txt.textContent = text;   // textContent => pas de XSS
+    if (flash) {
+        live.classList.remove('flash');
+        void live.offsetWidth;   // force un reflow pour rejouer l'animation
+        live.classList.add('flash');
+    }
+}
+
 function formatSourceId(sourceId) {
     if (!sourceId) return '';
     const settings = window.settings || {};
@@ -86,10 +106,26 @@ export function initializeSocketIO() {
                 container.removeChild(container.lastChild);
             }
         }
+        // Feedback live sur la carte de la source : flash + dernier clap.
+        _setSourceLive(
+            data.source_id,
+            (data.clap_count > 1 ? `${data.clap_count} claps` : '1 clap')
+                + (data.group_name ? ` · ${data.group_name}` : '')
+                + ` (${Math.round((data.score || 0) * 100)}%)`,
+            !data.ignored
+        );
     });
 
     // Gestionnaire pour les labels (detection en cours → barre de controle)
     socket.on('labels', (data) => {
+        // Feedback live par carte (independant de #current_detection, qui peut
+        // ne pas exister dans le layout actuel).
+        if (data && Array.isArray(data.detected) && data.detected.length && data.source) {
+            const top = data.detected.slice(0, 3)
+                .map(l => `${l.label} ${Math.round((l.score || 0) * 100)}%`).join(' · ');
+            _setSourceLive(data.source, top, false);
+        }
+
         const container = document.getElementById('current_detection');
         if (!container) return;
 

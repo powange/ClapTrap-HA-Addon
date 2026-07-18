@@ -1687,6 +1687,43 @@ footer a:hover {
     display: block;
 }
 
+/* Feedback de detection live par carte source (evenements socket labels/clap) */
+.source-live {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.7rem;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg);
+    font-size: 0.82rem;
+    color: var(--color-text-secondary);
+    transition: background 0.5s ease, border-color 0.5s ease, color 0.5s ease;
+}
+.source-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-border);
+    flex: 0 0 auto;
+}
+.source-live-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.source-live.flash {
+    animation: source-live-flash 0.9s ease;
+}
+.source-live.flash .source-live-dot {
+    background: var(--color-primary);
+}
+@keyframes source-live-flash {
+    0% { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+    100% { background: var(--color-bg); border-color: var(--color-border); color: var(--color-text-secondary); }
+}
+
 /* Add source dropdown */
 .add-source-menu {
     position: absolute;
