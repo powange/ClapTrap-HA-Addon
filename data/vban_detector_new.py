@@ -33,9 +33,12 @@ class VBANDetector:
         self.stream = None
         self._lock = threading.Lock()  # Verrou pour la thread-safety
         self._settings_lock = threading.Lock()  # Verrou pour les paramètres
-        self._settings_cache = None
+        # Cache de l'ensemble des sources ACTIVEES {(ip, stream_name)}, rafraichi
+        # periodiquement : evite un copy.deepcopy des settings a CHAQUE paquet
+        # (~170/s/source) juste pour tester si la source est activee.
+        self._enabled_sources = set()
         self._last_settings_load = 0
-        self._settings_cache_duration = 5  # Durée du cache en secondes
+        self._settings_cache_duration = 2  # Rafraichissement du cache (secondes)
         self._joined_multicast_groups = set()  # IPs multicast deja rejointes
         self._last_mcast_sync = 0
         # Tap pour le VU-metre de test (une seule IP surveillee a la fois)
@@ -178,20 +181,11 @@ class VBANDetector:
                     
                 source = self._parse_vban_packet(data, addr, logged_sources)
                 if source:
-                    # Vérifier si la source est activée dans settings.json
-                    settings = self._load_settings()
-                    if settings and 'saved_vban_sources' in settings:
-                        source_enabled = False
-                        for saved_source in settings['saved_vban_sources']:
-                            if (saved_source['ip'] == source.ip and 
-                                saved_source['stream_name'] == source.name and 
-                                saved_source.get('enabled', False)):
-                                source_enabled = True
-                                break
-                        
-                        if not source_enabled:
-                            continue  # Ignorer les sources désactivées
-                            
+                    # Ignorer les sources non activées (test via cache, cf.
+                    # _is_source_enabled : pas de deepcopy des settings par paquet).
+                    if not self._is_source_enabled(source.ip, source.name):
+                        continue
+
                     try:
                         # Calculer le nombre d'échantillons complets disponibles
                         audio_bytes = data[28:]
@@ -239,11 +233,19 @@ class VBANDetector:
                         
                         # Ajouter au ring buffer de cette IP et emettre par
                         # paquets de 100 ms (1600 echantillons a 16 kHz).
+                        # On accumule les chunks a emettre SOUS le verrou, puis on
+                        # appelle les callbacks HORS verrou : le callback fait la
+                        # detection (inference lourde) et le tenir sous _lock
+                        # bloquait toute l'API VBAN (add/remove/get_sources) et le
+                        # parsing des autres paquets.
+                        chunks_to_emit = []
+                        callback = None
+                        src_ip = addr[0]
                         with self._lock:
-                            src_ip = addr[0]
                             pip = self._per_ip.get(src_ip)
 
                             if pip and pip['callback']:
+                                callback = pip['callback']
                                 # Buffer per-IP (multi-source propre)
                                 n = len(audio_data)
                                 buf = pip['buf']
@@ -256,17 +258,14 @@ class VBANDetector:
                                 bl += n
                                 emit_samples = 1600
                                 while bl >= emit_samples:
-                                    chunk = buf[:emit_samples].copy()
+                                    chunks_to_emit.append(buf[:emit_samples].copy())
                                     remaining = bl - emit_samples
                                     if remaining > 0:
                                         buf[:remaining] = buf[emit_samples:bl]
                                     bl = remaining
-                                    try:
-                                        pip['callback'](chunk, time.time())
-                                    except Exception as exc:
-                                        logging.error(f"VBAN callback {src_ip}: {exc}")
                                 pip['buf_len'] = bl
                             elif self.audio_callback:
+                                callback = self.audio_callback
                                 # Fallback legacy : buffer partage unique
                                 n = len(audio_data)
                                 if self._buf_len + n > len(self._buf):
@@ -277,20 +276,30 @@ class VBANDetector:
                                 self._buf_len += n
                                 emit_samples = 1600
                                 while self._buf_len >= emit_samples:
-                                    chunk = self._buf[:emit_samples].copy()
+                                    chunks_to_emit.append(self._buf[:emit_samples].copy())
                                     remaining = self._buf_len - emit_samples
                                     if remaining > 0:
                                         self._buf[:remaining] = self._buf[emit_samples:self._buf_len]
                                     self._buf_len = remaining
-                                    self.audio_callback(chunk, time.time())
-                        
-                        # Mettre à jour les informations de la source
-                        self.sources[addr[0]].update({
-                            'last_seen': time.time(),
-                            'name': source.name,
-                            'sample_rate': source.sample_rate,
-                            'channels': source.channels
-                        })
+
+                        # Callbacks HORS verrou (detection potentiellement lourde).
+                        if callback is not None:
+                            now_ts = time.time()
+                            for chunk in chunks_to_emit:
+                                try:
+                                    callback(chunk, now_ts)
+                                except Exception as exc:
+                                    logging.error(f"VBAN callback {src_ip}: {exc}")
+
+                        # Mettre à jour les informations de la source (sous verrou :
+                        # self.sources est lu/itere par get_sources et le cleanup).
+                        with self._lock:
+                            self.sources[addr[0]].update({
+                                'last_seen': time.time(),
+                                'name': source.name,
+                                'sample_rate': source.sample_rate,
+                                'channels': source.channels
+                            })
                         
                         # Appeler le callback source si défini
                         if self.source_callback:
@@ -300,28 +309,51 @@ class VBANDetector:
                         logging.error(f"Erreur lors du traitement des données audio: {str(e)}")
                         continue
             except socket.timeout:
-                # Nettoyer les sources inactives (plus de 5 secondes)
+                # Nettoyer les sources inactives (plus de 5 secondes). Sous
+                # verrou : self.sources est mute par le thread audio et lu par
+                # l'API (sinon "dictionary changed size during iteration").
                 current_time = time.time()
-                inactive = [ip for ip, info in self.sources.items()
-                          if current_time - info['last_seen'] > 5]
-                for ip in inactive:
-                    del self.sources[ip]
-                    if self.source_callback:
-                        self.source_callback(self.get_active_sources())
+                removed = False
+                with self._lock:
+                    inactive = [ip for ip, info in self.sources.items()
+                              if current_time - info['last_seen'] > 5]
+                    for ip in inactive:
+                        del self.sources[ip]
+                        removed = True
+                if removed and self.source_callback:
+                    self.source_callback(self.get_active_sources())
 
                 # Re-sync multicast groups periodically (user may have added
                 # or removed a multicast source via the UI).
                 if current_time - self._last_mcast_sync > 10:
                     self._sync_multicast_groups()
                     self._last_mcast_sync = current_time
-                    
+            except OSError as e:
+                # Socket ferme (arret/redemarrage) : sortir proprement si on
+                # ne tourne plus, sinon logger et continuer.
+                if not self.running:
+                    break
+                logging.error(f"VBAN: erreur socket, poursuite: {e}")
+                time.sleep(0.1)
+            except Exception as e:
+                # Filet de securite : AUCUNE exception ne doit tuer le thread
+                # d'ecoute (sinon la detection VBAN meurt en silence jusqu'a un
+                # redemarrage manuel).
+                logging.error(f"VBAN: erreur inattendue dans la boucle d'écoute: {e}")
+                time.sleep(0.1)
+
     def _parse_vban_packet(self, data, addr, logged_sources=None):
         """Parse un paquet VBAN et retourne les informations de la source"""
         try:
             if len(data) >= 28 and data[0:4] == b'VBAN':
                 # Extraire les informations du header VBAN
                 sr_index = data[4] & 0x1F
-                channels = ((data[4] & 0xE0) >> 5) + 1
+                # NBC = octet 6 (nb de canaux - 1). Les bits 5-7 de l'octet 4
+                # sont le SOUS-PROTOCOLE, pas le nombre de canaux : les lire
+                # donnait toujours 1 canal, donc un flux stereo n'etait jamais
+                # converti en mono (echantillons L/R entrelaces traites comme
+                # du mono -> audio corrompu).
+                channels = (data[6] & 0xFF) + 1
                 name = self.clean_vban_name(data[8:28])
                 ip = addr[0]
                 port = addr[1]
@@ -376,11 +408,21 @@ class VBANDetector:
         """Arrête l'écoute des flux VBAN"""
         self.running = False
         if self._socket:
-            self._socket.close()
-            
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+            self._socket = None
+        # Joindre le thread d'ecoute : evite qu'un ancien thread survive (et
+        # reouvre un socket) pendant qu'un nouveau detecteur demarre.
+        t = getattr(self, '_listen_thread', None)
+        if t and t.is_alive():
+            t.join(timeout=1.0)
+
     def get_active_sources(self):
         """Retourne un dictionnaire des sources actives"""
-        return dict(self.sources)
+        with self._lock:
+            return dict(self.sources)
         
     def set_audio_callback(self, callback):
         """Définit le callback pour les données audio"""
@@ -468,3 +510,28 @@ class VBANDetector:
     def _load_settings(self):
         """Charge les paramètres via le module centralisé (avec cache TTL)."""
         return _load_settings_from_manager()
+
+    def _is_source_enabled(self, ip, name):
+        """Indique si la source (ip, stream_name) est activée dans les settings.
+
+        Utilise un cache rafraichi toutes les `_settings_cache_duration` s pour
+        eviter un deepcopy des settings par paquet. Les `.get()` evitent aussi
+        un KeyError (source sauvegardee sans clé 'ip'/'stream_name') qui, non
+        rattrape dans la boucle, tuait le thread d'ecoute.
+        """
+        now = time.time()
+        with self._settings_lock:
+            if now - self._last_settings_load > self._settings_cache_duration:
+                try:
+                    settings = self._load_settings() or {}
+                    saved = settings.get('saved_vban_sources', []) or []
+                    self._enabled_sources = {
+                        (s.get('ip'), s.get('stream_name') or s.get('name'))
+                        for s in saved
+                        if isinstance(s, dict) and s.get('enabled', False)
+                    }
+                except Exception as exc:
+                    logging.debug(f"VBAN: rafraichissement des sources activées échoué: {exc}")
+                self._last_settings_load = now
+            enabled = self._enabled_sources
+        return (ip, name) in enabled

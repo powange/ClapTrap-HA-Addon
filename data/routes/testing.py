@@ -123,6 +123,13 @@ def start_rtsp_test():
     initial_gain = float(data.get('gain', 10))
     if not rtsp_url:
         return jsonify({'error': 'URL RTSP requise'}), 400
+    # Securite : n'accepter que rtsp://. Sans ca, ffmpeg accepterait file://,
+    # http://, concat: etc. -> lecture de fichiers locaux / SSRF.
+    if '://' in rtsp_url:
+        if not rtsp_url.startswith(('rtsp://', 'rtsps://')):
+            return jsonify({'error': 'Seul le protocole rtsp:// est autorisé'}), 400
+    else:
+        rtsp_url = 'rtsp://' + rtsp_url
 
     # Initialiser le gain dans le dict partagé pour le temps réel
     from classify import _rtsp_gains, update_rtsp_gain
@@ -136,7 +143,9 @@ def start_rtsp_test():
         proc = None
         try:
             cmd = [
-                'ffmpeg', '-i', rtsp_url,
+                'ffmpeg',
+                '-protocol_whitelist', 'rtsp,rtp,udp,tcp,tls',
+                '-i', rtsp_url,
                 '-vn',
                 '-f', 'f32le', '-acodec', 'pcm_f32le',
                 '-ac', '1', '-ar', '16000',

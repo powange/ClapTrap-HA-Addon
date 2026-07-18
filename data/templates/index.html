@@ -2265,6 +2265,13 @@
         }
 
         function renderSources(sources) {
+            // Echappement HTML : le nom/IP viennent de paquets VBAN d'un tiers
+            // sur le reseau -> injectes en innerHTML sans echappement = XSS.
+            var e = function (s) {
+                return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            };
             list.innerHTML = '';
             if (!sources || sources.length === 0) {
                 list.innerHTML = '<div class="vban-picker-empty">Aucune source VBAN detectee sur le reseau.<br>' +
@@ -2278,12 +2285,12 @@
                 var isMcast = /^2(2[4-9]|3\d)\./.test(src.ip || '');
                 row.innerHTML =
                     '<div class="vban-picker-row-main">' +
-                        '<strong>' + (src.name || '(sans nom)') + '</strong>' +
+                        '<strong>' + e(src.name || '(sans nom)') + '</strong>' +
                         (isMcast ? ' <span class="vban-badge-mcast">multicast</span>' : '') +
                     '</div>' +
-                    '<div class="vban-picker-row-meta">' + (src.ip || '') +
-                        (src.sample_rate ? ' &middot; ' + src.sample_rate + ' Hz' : '') +
-                        (src.channels ? ' &middot; ' + src.channels + ' ch' : '') + '</div>';
+                    '<div class="vban-picker-row-meta">' + e(src.ip || '') +
+                        (src.sample_rate ? ' &middot; ' + e(src.sample_rate) + ' Hz' : '') +
+                        (src.channels ? ' &middot; ' + e(src.channels) + ' ch' : '') + '</div>';
                 row.addEventListener('click', function() { saveSource(src); });
                 list.appendChild(row);
             });

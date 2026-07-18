@@ -138,7 +138,8 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
     try:
         process = (
             ffmpeg
-            .input(rtsp_url)
+            # protocol_whitelist : empeche ffmpeg d'ouvrir file://, http://, etc.
+            .input(rtsp_url, protocol_whitelist='rtsp,rtp,udp,tcp,tls')
             .output('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar='16000', buffer_size='64k')
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
@@ -658,7 +659,14 @@ def _build_sound_seen_handler(source_id):
         label = data.get('label') if isinstance(data, dict) else None
         if not label:
             return
-        # Ne pas ajouter les sons exclus globalement dans les whitelists
+        # Court-circuit RAPIDE : si le label est deja "vu", sortir AVANT tout
+        # load_settings() (qui fait un copy.deepcopy des settings). Ce chemin est
+        # le plus chaud (~10 labels/s/source, deja tous vus la plupart du temps).
+        with _active_detectors_lock:
+            seen = _seen_labels_by_source.get(source_id)
+            if seen is None or label in seen:
+                return
+        # Nouveau label (rare) : ne pas l'ajouter s'il est exclu globalement.
         try:
             exclusions = load_settings().get('global', {}).get('sound_exclusions', []) or []
             if label in exclusions:
@@ -667,9 +675,7 @@ def _build_sound_seen_handler(source_id):
             pass
         with _active_detectors_lock:
             seen = _seen_labels_by_source.get(source_id)
-            if seen is None:
-                return
-            if label in seen:
+            if seen is None or label in seen:
                 return
             seen.add(label)
             info = _source_info_by_id.get(source_id)

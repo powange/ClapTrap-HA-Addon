@@ -351,6 +351,12 @@ class AudioDetector:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
 
+            # Assainir NaN/inf : un seul bloc corrompu (flux ffmpeg abime,
+            # clip(nan)) empoisonnait `avg_level` de facon PERMANENTE (il ne se
+            # reassainit jamais), coupant l'auto-gain et polluant le classifieur.
+            if not np.isfinite(audio_data).all():
+                audio_data = np.nan_to_num(audio_data, nan=0.0, posinf=0.0, neginf=0.0)
+
             # Supprimer le DC offset (certains micros ont un signal non centré sur zéro)
             audio_data = (audio_data - np.mean(audio_data)).astype(np.float32)
 

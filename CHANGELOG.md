@@ -1,5 +1,39 @@
 # Changelog
 
+## 6.23.0
+
+### Corrections de bugs, securite et performance (audit)
+
+**Bugs**
+- Supprimer la DERNIERE source RTSP/VBAN ne la restaure plus : `save_settings`
+  traitait une liste vide explicite comme "non fournie" et rechargeait
+  l'ancienne liste depuis le disque -> la source supprimee reapparaissait.
+- VBAN : le nombre de canaux etait lu sur les mauvais bits (toujours 1) -> un
+  flux stereo n'etait jamais converti en mono (audio entrelace corrompu). Lu
+  desormais sur l'octet NBC correct.
+- VBAN : le thread d'ecoute ne mourait plus en silence sur une erreur socket
+  ou une source sans clé attendue (filet `except` global + accès `self.sources`
+  verrouilles). La detection VBAN ne s'arrete plus jusqu'a un redemarrage.
+- Audio : les blocs NaN/inf sont assainis en entree (`np.nan_to_num`) ; un seul
+  bloc corrompu empoisonnait `avg_level` de facon permanente (auto-gain coupe).
+- VBAN : creation du detecteur protegee par verrou (plus de double detecteur /
+  double socket au demarrage concurrent) ; `stop_listening` ferme et joint
+  proprement le thread.
+
+**Securite**
+- Path traversal corrige sur `/css/<v>/<f>` et `/js/<v>/<f>` (`safe_join`).
+- URL RTSP : whitelist de protocole ffmpeg (`rtsp,rtp,udp,tcp,tls`) + rejet des
+  schemas non rtsp (empeche `file://`, `http://`, `concat:` -> lecture locale).
+- XSS : echappement des noms de source / groupe / flux VBAN injectes dans le
+  DOM (historique de claps et picker VBAN).
+
+**Performance**
+- Plus de `deepcopy` des settings a chaque paquet VBAN (cache des sources
+  activees) ni a chaque label deja "vu" (court-circuit avant `load_settings`).
+- VBAN : les callbacks de detection (inference) ne sont plus appeles en tenant
+  le verrou -> l'API VBAN et le parsing ne sont plus bloques pendant l'inference.
+- Webhooks : retry/backoff alleges (temps reel) pour ne plus saturer le pool.
+
 ## 6.22.4
 
 ### Sources audio : selecteur en dropdown

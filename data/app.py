@@ -298,8 +298,10 @@ _js_version = str(int(time.time()))
 @app.route('/css/<version>/<path:filename>')
 def serve_versioned_css(version, filename):
     """Sert le CSS avec la version dans le chemin (bypass service worker cache)."""
-    file_path = os.path.join(app.static_folder, 'css', filename)
-    if not os.path.exists(file_path):
+    from werkzeug.utils import safe_join
+    # safe_join rejette les traversees de repertoire (../) -> None.
+    file_path = safe_join(app.static_folder, 'css', filename)
+    if not file_path or not os.path.exists(file_path):
         return 'Not found', 404
     with open(file_path, 'r') as f:
         content = f.read()
@@ -311,11 +313,12 @@ def serve_versioned_css(version, filename):
 def serve_versioned_js(version, filename):
     """Sert les modules JS avec la version dans le chemin (bypass service worker cache).
     Réécrit les imports relatifs pour pointer vers le même chemin versionné."""
-    file_path = os.path.join(app.static_folder, 'js', 'modules', filename)
-    if not os.path.exists(file_path):
+    from werkzeug.utils import safe_join
+    file_path = safe_join(app.static_folder, 'js', 'modules', filename)
+    if not file_path or not os.path.exists(file_path):
         # Essayer dans js/ directement
-        file_path = os.path.join(app.static_folder, 'js', filename)
-    if not os.path.exists(file_path):
+        file_path = safe_join(app.static_folder, 'js', filename)
+    if not file_path or not os.path.exists(file_path):
         return 'Not found', 404
 
     with open(file_path, 'r') as f:

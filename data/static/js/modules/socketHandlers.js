@@ -1,5 +1,14 @@
 import { showNotification, showSuccess, showError } from './notifications.js';
 
+// Echappe le HTML : les noms de source / groupe sont saisis par l'utilisateur
+// et les noms de flux VBAN peuvent venir d'un tiers sur le reseau -> injectes
+// dans innerHTML ci-dessous, ils permettraient un XSS.
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
 function formatSourceId(sourceId) {
     if (!sourceId) return '';
     const settings = window.settings || {};
@@ -63,14 +72,14 @@ export function initializeSocketIO() {
             const labels = Array.isArray(data.labels) ? data.labels : [];
             const labelsHtml = labels.length > 0
                 ? `<div class="clap-event-sounds">${labels.map(l =>
-                    `<span class="label">${l.label} <span class="label-score">${Math.round((l.score || 0) * 100)}%</span></span>`
+                    `<span class="label">${escHtml(l.label)} <span class="label-score">${Math.round((l.score || 0) * 100)}%</span></span>`
                   ).join('')}</div>`
                 : '';
             const groupName = data.group_name || (data.group_slug ? data.group_slug : '');
             const groupHtml = groupName
-                ? ` <span class="group-tag">${groupName}</span>`
+                ? ` <span class="group-tag">${escHtml(groupName)}</span>`
                 : '';
-            el.innerHTML = `<div class="clap-event-header"><strong>${clapText}</strong> <span class="source-tag">${sourceLabel}</span>${groupHtml} <span class="label-score">${Math.round((data.score || 0) * 100)}%</span></div>${labelsHtml}`;
+            el.innerHTML = `<div class="clap-event-header"><strong>${clapText}</strong> <span class="source-tag">${escHtml(sourceLabel)}</span>${groupHtml} <span class="label-score">${Math.round((data.score || 0) * 100)}%</span></div>${labelsHtml}`;
             container.prepend(el);
             // Garder max 10 events
             while (container.children.length > 10) {
@@ -91,9 +100,9 @@ export function initializeSocketIO() {
                 const labelElement = document.createElement('span');
                 labelElement.className = 'label';
                 labelElement.innerHTML = `
-                    ${label.label}
+                    ${escHtml(label.label)}
                     <span class="label-score">${Math.round(label.score * 100)}%</span>
-                    ${sourceTag ? `<span class="source-tag">${sourceTag}</span>` : ''}
+                    ${sourceTag ? `<span class="source-tag">${escHtml(sourceTag)}</span>` : ''}
                 `;
                 container.appendChild(labelElement);
             });

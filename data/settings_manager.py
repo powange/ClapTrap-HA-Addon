@@ -167,9 +167,14 @@ def save_settings(new_settings):
                 with open(SETTINGS_FILE, 'r') as f:
                     current = _deep_merge(current, json.load(f))
 
-            # Préserver les sources RTSP et VBAN sauf si explicitement fournies avec du contenu
+            # Préserver les sources RTSP et VBAN uniquement si la clé est ABSENTE
+            # du payload (ex: sauvegarde de réglages globaux qui ne gère pas les
+            # sources). Une liste vide EXPLICITE (`[]`) est honorée : c'est ce qui
+            # permet de supprimer la dernière source. Avant, `== []` était traité
+            # comme "non fourni" et restaurait l'ancienne liste → la source
+            # supprimée réapparaissait.
             for key in ['rtsp_sources', 'saved_vban_sources']:
-                if key not in new_settings or new_settings[key] == []:
+                if key not in new_settings:
                     new_settings[key] = current.get(key, [])
 
             # Deep merge pour préserver les sous-clés (ex: microphone.pulse_name)

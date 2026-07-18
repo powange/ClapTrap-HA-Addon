@@ -22,10 +22,14 @@ def validate_webhook_url(url):
 class WebhookManager:
     def __init__(self):
         self.session = requests.Session()
+        # Retry/backoff volontairement LEGERS : un webhook de clap est temps
+        # reel. Avec total=3/backoff=1 + timeout=5, un endpoint lent bloquait un
+        # worker ~20 s -> le pool (4) se saturait et les claps suivants etaient
+        # retardes/perdus. Ici : au plus 1 retry rapide.
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[500, 502, 503, 504]
+            total=1,
+            backoff_factor=0.3,
+            status_forcelist=[502, 503, 504]
         )
         self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy))
         self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy))
@@ -35,7 +39,8 @@ class WebhookManager:
         if not validate_webhook_url(url):
             raise ValueError(f"URL webhook invalide: {url}")
         try:
-            response = self.session.post(url, json=data, timeout=5)
+            # timeout = (connect, read) : fast-fail si l'hote ne repond pas.
+            response = self.session.post(url, json=data, timeout=(3, 5))
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
