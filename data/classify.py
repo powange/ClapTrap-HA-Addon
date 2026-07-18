@@ -630,26 +630,33 @@ def _ensure_label_in_groups(source_dict, label):
 
 def _persist_sound_seen(kind, source_key, label):
     """Ajoute `label: False` dans la whitelist de chaque groupe de la source
-    `(kind, source_key)` dans settings.json (s'il n'y est pas deja)."""
+    `(kind, source_key)` dans settings.json (s'il n'y est pas deja).
+
+    Ecrit via atomic_update : ce writer tourne sur le thread de detection et
+    peut entrer en concurrence avec des sauvegardes de l'UI -> load+save doit
+    etre atomique pour ne pas perdre l'une des deux modifications.
+    """
     try:
-        from settings_manager import save_settings
-        settings = load_settings()
-        updated = False
-        if kind == 'mic':
-            mic = settings.setdefault('microphone', {})
-            updated = _ensure_label_in_groups(mic, label)
-        elif kind == 'rtsp':
-            for s in settings.get('rtsp_sources', []):
-                if s.get('id') == source_key:
-                    updated = _ensure_label_in_groups(s, label)
-                    break
-        elif kind == 'vban':
-            for s in settings.get('saved_vban_sources', []):
-                if s.get('ip') == source_key:
-                    updated = _ensure_label_in_groups(s, label)
-                    break
-        if updated:
-            save_settings(settings)
+        from settings_manager import atomic_update, NO_CHANGE
+
+        def _mutate(settings):
+            updated = False
+            if kind == 'mic':
+                mic = settings.setdefault('microphone', {})
+                updated = _ensure_label_in_groups(mic, label)
+            elif kind == 'rtsp':
+                for s in settings.get('rtsp_sources', []):
+                    if s.get('id') == source_key:
+                        updated = _ensure_label_in_groups(s, label)
+                        break
+            elif kind == 'vban':
+                for s in settings.get('saved_vban_sources', []):
+                    if s.get('ip') == source_key:
+                        updated = _ensure_label_in_groups(s, label)
+                        break
+            return settings if updated else NO_CHANGE
+
+        atomic_update(_mutate)
     except Exception as exc:
         logging.debug(f"_persist_sound_seen({kind},{source_key},{label}) a echoue: {exc}")
 

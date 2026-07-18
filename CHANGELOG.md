@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.23.1
+
+### settings.json : ecritures concurrentes atomiques
+
+- Ajout de `atomic_update()` (verrou reentrant) : lecture + modification +
+  sauvegarde des settings sous un seul verrou. Les threads d'arriere-plan qui
+  ecrivent pendant que l'UI modifie les settings — persistance des sons "vus"
+  (thread de detection) et volume auto — passent desormais par ce chemin, ce
+  qui evite les pertes d'ecriture (read-modify-write concurrent qui s'ecrasait).
+
 ## 6.23.0
 
 ### Corrections de bugs, securite et performance (audit)

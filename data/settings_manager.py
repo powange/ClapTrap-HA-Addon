@@ -3,7 +3,7 @@ import json
 import os
 import time
 import logging
-from threading import Lock
+from threading import RLock
 
 # /data est le volume persistant HA (survit aux mises à jour de l'addon)
 PERSISTENT_DIR = '/data'
@@ -48,7 +48,10 @@ DEFAULT_SETTINGS = {
     }
 }
 
-_lock = Lock()
+# RLock (reentrant) : permet a atomic_update() de tenir le verrou pendant tout
+# le cycle load -> mutate -> save, alors que load_settings/save_settings
+# reacquierent le meme verrou en interne.
+_lock = RLock()
 _cache = None
 _cache_time = 0
 _CACHE_TTL = 5  # secondes
@@ -200,3 +203,33 @@ def save_settings(new_settings):
 
         except Exception as e:
             return False, f"Erreur lors de la sauvegarde des paramètres: {str(e)}"
+
+
+# Sentinelle : un mutator qui retourne NO_CHANGE indique "rien a sauvegarder".
+NO_CHANGE = object()
+
+
+def atomic_update(mutator):
+    """Applique une modification de settings de facon ATOMIQUE.
+
+    `mutator(settings)` recoit les settings courants (deja charges), les mute
+    en place (ou retourne un nouveau dict), et le tout — lecture puis
+    ecriture — est realise sous un seul verrou. Evite les pertes d'ecriture
+    quand plusieurs threads (routes UI + threads d'arriere-plan "son vu" /
+    volume auto) font un read-modify-write concurrent sur settings.json.
+
+    Le mutator peut retourner `NO_CHANGE` pour eviter une reecriture inutile.
+    Retourne le tuple (success, message) de save_settings.
+    """
+    with _lock:  # RLock : load_settings/save_settings reacquierent sans blocage
+        try:
+            settings = load_settings()
+            result = mutator(settings)
+            if result is NO_CHANGE:
+                return True, "Aucun changement"
+            if result is None:
+                result = settings
+            return save_settings(result)
+        except Exception as e:
+            logging.error(f"atomic_update a echoue: {e}")
+            return False, str(e)

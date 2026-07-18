@@ -104,11 +104,19 @@ class AutoVolume:
                     self._persist_volume(new_volume)
 
     def _persist_volume(self, volume):
-        """Persiste le volume actuel dans les settings sur disque."""
+        """Persiste le volume actuel dans les settings sur disque.
+
+        Via atomic_update : ce thread ecrit periodiquement en parallele des
+        sauvegardes de l'UI -> load+save atomique pour ne pas se clobberer.
+        """
         try:
-            settings = load_settings()
-            settings['microphone']['volume'] = volume
-            save_settings(settings)
+            from settings_manager import atomic_update
+
+            def _mutate(settings):
+                settings.setdefault('microphone', {})['volume'] = volume
+                return settings
+
+            atomic_update(_mutate)
         except Exception as e:
             logging.warning(f"Auto-volume: erreur sauvegarde settings: {e}")
 
