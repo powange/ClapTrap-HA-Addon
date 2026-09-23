@@ -127,12 +127,14 @@
                     <h2 id="cfg-title">Configuration</h2>
                     <div class="button-row">
                         <button type="button" class="btn btn-ghost" id="export-config">Exporter</button>
+                        <button type="button" class="btn btn-ghost" id="export-shareable">Exporter sans secrets</button>
                         <button type="button" class="btn btn-ghost" id="show-config">Afficher</button>
                         <label class="btn btn-ghost file-btn">Importer…
                             <input type="file" id="import-config" accept=".json,application/json">
                         </label>
                     </div>
-                    <p class="hint">L'export contient les adresses des caméras, identifiants compris : gardez le fichier en lieu sûr.</p>
+                    <p class="hint">« Exporter » est une sauvegarde complète (identifiants des caméras et adresses des webhooks compris) : gardez-la en lieu sûr.
+                       Pour demander de l'aide, partagez plutôt « Exporter sans secrets ».</p>
                     <label class="switch-inline">
                         <input type="checkbox" role="switch" id="debug-toggle"> Journal détaillé (pour diagnostiquer un problème)
                     </label>

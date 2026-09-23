@@ -1,0 +1,23 @@
+{
+    "global": {
+        "threshold": "0.5",
+        "delay": "1.0"
+    },
+    "microphone": {
+        "device_index": "0",
+        "audio_source": "default",
+        "webhook_url": "",
+        "enabled": false,
+        "volume": 100,
+        "auto_volume": false
+    },
+    "rtsp_sources": [],
+    "saved_vban_sources": [],
+    "vban": {
+        "stream_name": "",
+        "ip": "0.0.0.0",
+        "port": 6980,
+        "webhook_url": "",
+        "enabled": false
+    }
+}

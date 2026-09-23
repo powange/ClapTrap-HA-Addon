@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.40.0
+
+### Sécurité
+
+- **Export sans secrets** : nouveau bouton « Exporter sans secrets »
+  (`/api/settings/export?secrets=0`) qui masque les identifiants des caméras
+  et le chemin des webhooks (le secret d'un webhook Home Assistant), pour
+  partager sa configuration dans une demande d'aide. « Exporter » reste la
+  sauvegarde complète, et l'interface le dit.
+- **Repli d'écoute signalé** : si l'interface interne de Home Assistant
+  (172.30.32.1) est absente, le journal indique que le port 16045 est de
+  nouveau joignable depuis le réseau (l'accès y reste refusé hors ingress).
+- **Socket.IO** : la protection par l'ingress (seul le Supervisor peut
+  joindre le serveur, après authentification HA) est documentée dans le code ;
+  `CORS_ORIGINS` permet de restreindre l'origine.
+- Rappel : l'import vérifie désormais le protocole des URL RTSP et les IP
+  VBAN (6.39.0).
+
 ## 6.39.0
 
 ### API et réglages

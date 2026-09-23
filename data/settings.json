@@ -1,7 +1,11 @@
 {
     "global": {
         "threshold": "0.5",
-        "delay": "1.0"
+        "delay": "1.0",
+        "debug": false,
+        "peak_cooldown": 0.08,
+        "peak_ratio": 3.0,
+        "sound_exclusions": []
     },
     "microphone": {
         "device_index": "0",
@@ -9,15 +13,26 @@
         "webhook_url": "",
         "enabled": false,
         "volume": 100,
-        "auto_volume": false
+        "auto_volume": false,
+        "auto_start": false,
+        "configured": false,
+        "sound_groups": [
+            {
+                "name": "Clap",
+                "slug": "clap",
+                "sound_whitelist": {
+                    "Clapping": true,
+                    "Hands": true,
+                    "Applause": true
+                },
+                "threshold": 0.5,
+                "ha_entities": [
+                    1,
+                    2
+                ]
+            }
+        ]
     },
     "rtsp_sources": [],
-    "saved_vban_sources": [],
-    "vban": {
-        "stream_name": "",
-        "ip": "0.0.0.0",
-        "port": 6980,
-        "webhook_url": "",
-        "enabled": false
-    }
+    "saved_vban_sources": []
 }

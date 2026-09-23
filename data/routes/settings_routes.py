@@ -119,8 +119,23 @@ def get_ha_entities():
 
 @settings_bp.route('/api/settings/export', methods=['GET'])
 def export_settings():
-    from flask import send_file
-    return send_file(SETTINGS_FILE, as_attachment=True, download_name='claptrap-settings.json')
+    """Sauvegarde complete, ou `?secrets=0` pour une copie a partager
+    (demande d'aide, issue GitHub) : identifiants RTSP et chemins de webhook
+    (le secret d'un webhook Home Assistant) masques."""
+    from flask import Response, send_file
+    if request.args.get('secrets', '1') not in ('0', 'false', 'no'):
+        return send_file(SETTINGS_FILE, as_attachment=True, download_name='claptrap-settings.json')
+    from url_validator import mask_url_credentials, mask_webhook_url
+    data = load_settings()
+    sources = [data.get('microphone') or {}] + list(data.get('rtsp_sources') or []) + \
+        list(data.get('saved_vban_sources') or [])
+    for src in sources:
+        if src.get('webhook_url'):
+            src['webhook_url'] = mask_webhook_url(src['webhook_url'])
+        if src.get('url'):
+            src['url'] = mask_url_credentials(src['url'])
+    return Response(json.dumps(data, indent=4, ensure_ascii=False), mimetype='application/json',
+                    headers={'Content-Disposition': 'attachment; filename=claptrap-settings-partage.json'})
 
 
 @settings_bp.route('/api/settings/import', methods=['POST'])

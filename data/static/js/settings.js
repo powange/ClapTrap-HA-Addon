@@ -80,6 +80,9 @@
         CT.$('#export-config').addEventListener('click', function () {
             window.location.href = CT.basePath + '/api/settings/export';
         });
+        CT.$('#export-shareable').addEventListener('click', function () {
+            window.location.href = CT.basePath + '/api/settings/export?secrets=0';
+        });
         // Le telechargement peut etre bloque dans l'app Companion : afficher
         // la configuration pour la copier.
         CT.$('#show-config').addEventListener('click', function () {

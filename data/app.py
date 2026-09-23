@@ -85,6 +85,12 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Désactiver le cache des fichiers statiques
 # Taille maximale d'une requete (import de configuration compris) : 2 Mo.
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
+# Origine non filtree ici : l'ingress protege l'acces. Seul le Supervisor
+# (172.30.32.2, cf. IngressOnlyMiddleware) peut joindre le serveur, et il
+# n'ouvre l'ingress qu'a une session Home Assistant authentifiee (jeton
+# d'ingress imprevisible). L'Origin vue ici est celle de HA, variable selon
+# l'adresse utilisee (locale, Nabu Casa, application) : la filtrer casserait
+# des acces legitimes sans rien ajouter. CORS_ORIGINS permet de la restreindre.
 socketio = SocketIO(app,
     cors_allowed_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     logger=False,

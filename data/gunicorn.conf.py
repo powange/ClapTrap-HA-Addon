@@ -20,7 +20,8 @@ def _bind_address():
         return '0.0.0.0'
 
 
-bind = f"{_bind_address()}:16045"
+_address = _bind_address()
+bind = f"{_address}:16045"
 workers = 1
 worker_class = 'gthread'
 threads = 64
@@ -29,6 +30,14 @@ graceful_timeout = 5
 accesslog = None
 errorlog = '-'
 loglevel = 'warning'
+
+
+def when_ready(server):
+    if _address == '0.0.0.0':
+        # Le filtre ingress reste actif (403 hors Supervisor), mais le port est
+        # de nouveau ouvert sur le reseau : le dire au lieu de le faire en silence.
+        server.log.warning(f"Interface {HASSIO_IP} introuvable : écoute sur toutes les interfaces "
+                           "(port 16045 joignable depuis le réseau, accès refusé hors ingress)")
 
 
 def worker_exit(server, worker):
