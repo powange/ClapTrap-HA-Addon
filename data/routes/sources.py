@@ -972,45 +972,81 @@ def _set_auto_volume(enabled):
 
 # --- API unifiee -------------------------------------------------------------
 
+_PATCH_FIELDS = {
+    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'ha_entities', 'enabled'},
+    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'threshold', 'gain', 'ha_entities'},
+    'vban': {'webhook_url', 'enabled', 'threshold', 'gain', 'ha_entities'},
+}
+
+
+def _check_fields(kind, data):
+    unknown = sorted(set(data) - _PATCH_FIELDS[kind])
+    if unknown:
+        # Avant : ignores en silence avec success: true.
+        raise ApiError(f"Champ(s) non modifiable(s) : {', '.join(unknown)}")
+
+
 def _update_mic_fields(data):
-    """Champs du micro modifiables via PATCH /api/sources/mic/mic."""
-    mic = load_settings().get('microphone', {})
+    """Champs du micro modifiables via PATCH /api/sources/mic/mic.
+
+    Tout le corps est valide AVANT d'ecrire, puis applique en une seule
+    ecriture : avant, jusqu'a 6 ecritures s'enchainaient et une erreur au
+    milieu laissait une partie des changements enregistree.
+    """
+    _check_fields('mic', data)
+    changes = {}
     if 'device' in data:
         dev = data['device'] or {}
-        audio_source = str(dev.get('name') or 'default')
-        device_index = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
-        pulse_name = str(dev.get('pulse_name') or '')
-
-        def _mut(settings):
-            m = settings.setdefault('microphone', {})
-            changed = (m.get('audio_source'), m.get('device_index'), m.get('pulse_name')) != \
-                (audio_source, device_index, pulse_name)
-            m.update(audio_source=audio_source, device_index=device_index, pulse_name=pulse_name)
-            return changed and bool(m.get('enabled'))
-        if modify_settings(_mut):
-            _restart_detection_if_running()
+        if not isinstance(dev, dict):
+            raise ApiError('device : objet attendu')
+        changes['audio_source'] = str(dev.get('name') or 'default')
+        changes['device_index'] = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
+        changes['pulse_name'] = str(dev.get('pulse_name') or '')
     if 'volume' in data:
-        if load_settings().get('microphone', {}).get('auto_volume'):
-            raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
-        volume = int(max(0, min(150, to_number(data['volume'], 'volume'))))
-        mic = _update_mic('volume', volume)
-        if mic.get('pulse_name'):
-            from audio_utils import set_pulse_volume
-            set_pulse_volume(mic['pulse_name'], volume)
+        changes['volume'] = int(max(0, min(150, to_number(data['volume'], 'volume'))))
     if 'auto_volume' in data:
-        _set_auto_volume(to_bool(data['auto_volume'], 'auto_volume'))
+        changes['auto_volume'] = to_bool(data['auto_volume'], 'auto_volume')
     if 'webhook_url' in data:
-        url = to_webhook(data['webhook_url'])
-        mic = _update_mic('webhook_url', url)
-        from classify import update_source_webhook
-        update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), url)
+        changes['webhook_url'] = to_webhook(data['webhook_url'])
     if 'ha_entities' in data:
-        mic = _update_mic('ha_entities', to_clap_counts(data['ha_entities']))
-        _refresh_source_entities('mic', mic)
+        changes['ha_entities'] = to_clap_counts(data['ha_entities'])
     if 'enabled' in data:
-        _update_mic('enabled', to_bool(data['enabled'], 'enabled'))
+        changes['enabled'] = to_bool(data['enabled'], 'enabled')
+
+    current = load_settings().get('microphone', {})
+    auto_after = changes.get('auto_volume', current.get('auto_volume', False))
+    if 'volume' in changes and auto_after:
+        raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
+    if changes.get('auto_volume') and not _resolve_pulse_name(load_settings()):
+        raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+
+    def _mut(settings):
+        m = settings.setdefault('microphone', {})
+        before = dict(m)
+        m.update(changes)
+        return before, dict(m)
+
+    before, mic = modify_settings(_mut)
+
+    # Effets en direct, une fois tout enregistre.
+    if 'volume' in changes and mic.get('pulse_name'):
+        from audio_utils import set_pulse_volume
+        set_pulse_volume(mic['pulse_name'], changes['volume'])
+    if 'webhook_url' in changes:
+        from classify import update_source_webhook
+        update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), changes['webhook_url'])
+    if 'ha_entities' in changes:
+        _refresh_source_entities('mic', mic)
+    if changes.get('auto_volume') is False:
+        from auto_volume import auto_volume_mgr
+        auto_volume_mgr.stop()
+    device_changed = any(before.get(k) != mic.get(k) for k in ('audio_source', 'device_index', 'pulse_name'))
+    needs_restart = (('enabled' in changes and before.get('enabled') != mic.get('enabled'))
+                     or ('auto_volume' in changes and before.get('auto_volume') != mic.get('auto_volume'))
+                     or (device_changed and mic.get('enabled')))
+    if needs_restart:
         _restart_detection_if_running()
-    return load_settings().get('microphone', {})
+    return mic
 
 
 @sources_bp.route('/api/sources/<kind>/<path:key>', methods=['PATCH'])
@@ -1022,6 +1058,8 @@ def patch_source(kind, key):
     - vban : /api/sources/vban/<id>
     """
     data = _json()
+    if kind in ('rtsp', 'vban'):
+        _check_fields(kind, data)
     if kind == 'rtsp':
         return jsonify({'success': True, 'source': _update_rtsp(key, data)})
     if kind == 'vban':

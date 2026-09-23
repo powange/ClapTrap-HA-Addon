@@ -73,6 +73,15 @@ def _deep_merge(default, saved):
     return merged
 
 
+def _safe_float(value, default):
+    """float() tolerant : un seuil corrompu dans settings.json faisait
+    planter TOUS les chargements (donc l'add-on entier)."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _ensure_source_groups(source, default_threshold=0.5):
     """Garantit que la source a un champ `sound_groups`.
 
@@ -92,7 +101,7 @@ def _ensure_source_groups(source, default_threshold=0.5):
             g.setdefault('name', f'Groupe {idx + 1}')
             g.setdefault('slug', _slugify(g['name']) or f'group{idx + 1}')
             g.setdefault('sound_whitelist', {})
-            g.setdefault('threshold', float(source.get('threshold', default_threshold)))
+            g.setdefault('threshold', _safe_float(source.get('threshold'), default_threshold))
             g.setdefault('ha_entities', source.get('ha_entities', [1, 2]))
         return
 
@@ -103,8 +112,8 @@ def _ensure_source_groups(source, default_threshold=0.5):
         'name': 'Clap',
         'slug': 'clap',
         'sound_whitelist': dict(legacy_whitelist),
-        'threshold': float(source.get('threshold', default_threshold)),
-        'ha_entities': list(source.get('ha_entities', [1, 2])),
+        'threshold': _safe_float(source.get('threshold'), default_threshold),
+        'ha_entities': list(source.get('ha_entities', [1, 2]) or []),
     }]
 
 
@@ -452,10 +461,28 @@ def _norm_groups(src, path):
         return
     if not isinstance(groups, list):
         raise ValueError(f"{path}.sound_groups : liste attendue")
+    slugs = set()
     for i, g in enumerate(groups):
         gp = f"{path}.sound_groups[{i}]"
         if not isinstance(g, dict):
             raise ValueError(f"{gp} : objet attendu")
+        name = g.get('name')
+        if name is not None and (not isinstance(name, str) or len(name) > 80):
+            raise ValueError(f"{gp}.name : texte de 80 caractères au plus attendu")
+        # Slug : identifiant MQTT et entity_id, donc ASCII [a-z0-9_] et unique
+        # dans la source (/, +, #, accents ou doublons cassaient les topics).
+        # Un export ancien peut contenir des slugs accentues : on les convertit
+        # plutot que de refuser l'import.
+        slug = g.get('slug')
+        if slug is not None and not isinstance(slug, str):
+            raise ValueError(f"{gp}.slug : texte attendu")
+        if not slug or not _VALID_SLUG.match(slug):
+            slug = ascii_slug(slug) or ascii_slug(name) or f'group{i + 1}'
+        base, n = slug, 2
+        while slug in slugs:
+            slug, n = f"{base}{n}", n + 1
+        slugs.add(slug)
+        g['slug'] = slug
         if 'threshold' in g:
             g['threshold'] = to_number(g['threshold'], f"{gp}.threshold", 0, 1)
         if 'ha_entities' in g:
@@ -479,6 +506,13 @@ def _norm_source(src, path):
         src['gain'] = to_number(src['gain'], f"{path}.gain", 0, 100)
     if 'volume' in src:
         src['volume'] = to_number(src['volume'], f"{path}.volume", 0, 150, integer=True)
+    if 'device_index' in src:
+        src['device_index'] = to_number(src['device_index'], f"{path}.device_index", 0, 10000, integer=True)
+    if 'port' in src:
+        src['port'] = to_number(src['port'], f"{path}.port", 1, 65535, integer=True)
+    for key in ('name', 'audio_source', 'pulse_name', 'stream_name'):
+        if key in src and src[key] is not None and not isinstance(src[key], str):
+            raise ValueError(f"{path}.{key} : texte attendu")
     if 'ha_entities' in src:
         src['ha_entities'] = to_clap_counts(src['ha_entities'], f"{path}.ha_entities")
     if 'webhook_url' in src:
@@ -516,6 +550,13 @@ def normalize_settings(data):
     mic = data.get('microphone')
     if mic is not None:
         _norm_source(mic, 'microphone')
+    legacy = data.get('vban')
+    if legacy is not None:
+        # Ancienne section, sans effet : on la valide sommairement puis on
+        # l'ignore pour ne pas reimporter des valeurs corrompues.
+        if not isinstance(legacy, dict):
+            raise ValueError("vban : objet attendu")
+        data.pop('vban')
     for key in ('rtsp_sources', 'saved_vban_sources'):
         lst = data.get(key)
         if lst is None:

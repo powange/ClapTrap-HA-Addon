@@ -82,6 +82,8 @@ app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Désactiver le cache des fichiers statiques
+# Taille maximale d'une requete (import de configuration compris) : 2 Mo.
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 socketio = SocketIO(app,
     cors_allowed_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     logger=False,
@@ -124,6 +126,14 @@ except Exception as e:
 @atexit.register
 def cleanup():
     """Nettoie les ressources lors de l'arrêt"""
+    # Fermer d'abord la detection (processus ffmpeg/parecord, classifieurs,
+    # volume auto persiste), avec des delais courts : le superviseur tue le
+    # processus apres quelques secondes.
+    try:
+        from classify import stop_detection
+        stop_detection(timeout=3)
+    except Exception as e:
+        logging.debug(f"Arret de la detection: {e}")
     try:
         from ha_entities import shutdown as ha_shutdown
         ha_shutdown()

@@ -460,11 +460,11 @@ def start_from_settings(socketio, settings=None):
     return start_detection(sources, socketio, **detection_params_from_settings(settings)), sources
 
 
-def stop_detection():
+def stop_detection(timeout=10):
     """Arrete la session en cours et attend la fin de ses threads."""
     session = _current()
     if session is not None:
-        session.stop()
+        session.stop(timeout=timeout)
     return True
 
 

@@ -283,8 +283,8 @@ def shutdown():
         return
     try:
         if _mqtt_connected.is_set():
-            client.publish('claptrap/detection/state', 'OFF', retain=True).wait_for_publish(2)
-            client.publish(AVAILABILITY_TOPIC, 'offline', retain=True).wait_for_publish(2)
+            client.publish('claptrap/detection/state', 'OFF', retain=True).wait_for_publish(1)
+            client.publish(AVAILABILITY_TOPIC, 'offline', retain=True).wait_for_publish(1)
         client.disconnect()
         client.loop_stop()
     except Exception as e:

@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.34.0
+
+### API et réglages
+
+- **Modification du micro atomique** : `PATCH /api/sources/mic/mic` valide tout
+  le corps puis enregistre en une seule écriture (avant, une erreur au milieu
+  laissait une partie des changements enregistrée alors que l'interface
+  annulait l'affichage). La détection ne redémarre que si c'est nécessaire.
+- **Champs inconnus refusés** (micro, caméra, VBAN) au lieu d'être ignorés
+  avec un succès.
+- **Validation complétée** : index du micro, port VBAN, textes (noms, nom du
+  flux…), noms et slugs de groupe (un ancien export avec des slugs accentués ou
+  en double est converti automatiquement), ancienne section `vban` ignorée.
+- **Réglages corrompus tolérés** : un seuil illisible dans `settings.json` ne
+  fait plus planter tous les chargements.
+- **Taille maximale des requêtes** : 2 Mo (import compris).
+- **Arrêt de l'add-on** : la détection est fermée proprement (processus
+  ffmpeg/parecord, classifieurs, volume automatique enregistré) avant la
+  publication MQTT de fin, avec des délais courts.
+
 ## 6.33.0
 
 ### Home Assistant / MQTT
