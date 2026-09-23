@@ -1,5 +1,46 @@
 # Changelog
 
+## 6.27.0
+
+### Reglages et persistance
+
+- **Demarrer applique les reglages enregistres** : le serveur ignore le
+  corps de la requete et relit `settings.json`. Avant, l'UI envoyait son
+  etat du chargement de la page : une camera RTSP ajoutee puis demarree sans
+  recharger ne demarrait pas, et seuils / sons coches revenaient en arriere.
+- **Changer de micro n'ecrase plus rien** : nouvelle route
+  `PUT /api/microphone/device` qui n'ecrit que le device (l'ancien envoi de
+  toute la section microphone remettait auto-start, webhook et groupes a leur
+  valeur du chargement). Le changement redemarre la detection si le micro
+  est actif.
+- **Plus d'ecritures perdues** : toutes les routes passent par
+  `modify_settings()` (lecture, modification et ecriture sous un seul verrou).
+  Deux modifications simultanees ne s'ecrasent plus.
+- **`load_settings()` renvoie toujours une copie** (le cache partage etait
+  modifie hors verrou par les routes) et `DEFAULT_SETTINGS` n'est plus mute.
+- **Ecriture sure** : fichier temporaire + fsync + `os.replace`, la
+  sauvegarde est une copie de la version precedente (plus de fenetre sans
+  fichier). Si `settings.json` est absent ou corrompu, il est restaure depuis
+  `settings.json.backup` au lieu de repartir sur les valeurs par defaut.
+- **Validation** : import et `/api/settings/save` valident et normalisent
+  les types (seuils, delais, booleens, volumes, entites 1-4, URL de webhook)
+  et refusent un fichier invalide en indiquant le champ fautif. L'import
+  s'applique sans redemarrage manuel. `"false"` n'est plus considere comme
+  vrai pour activer le micro. Ajout RTSP : URL `rtsp://` seulement, prefixe
+  ajoute si absent, corps vide refuse proprement.
+- **Echecs d'ecriture signales** : disque plein ou `/data` en lecture seule
+  renvoient une erreur au lieu d'un faux succes.
+- **Changements appliques a chaud** : ajout, changement d'URL et suppression
+  d'une source RTSP, ajout et suppression d'une source VBAN redemarrent la
+  detection si elle tourne ; les webhooks sont pris en compte au prochain
+  clap sans redemarrage ; supprimer une source VBAN retire ses entites HA.
+- Groupe par defaut : c'est desormais le premier groupe, meme renomme (un
+  renommage de "clap" suivi d'un clic sur un son recreait un groupe vide).
+- Le test RTSP ne modifie plus le gain de la detection en cours.
+- La resolution du nom PulseAudio enregistre ses corrections de facon
+  atomique.
+- La suppression d'une source VBAN accepte `name` si `stream_name` manque.
+
 ## 6.26.0
 
 ### Detection audio : fiabilite et comptage des claps

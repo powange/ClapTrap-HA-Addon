@@ -127,6 +127,7 @@ _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
 _rtsp_gains = {}  # {rtsp_url: volume_float} — modifiable en temps réel
 _vban_gains = {}  # {vban_ip: volume_float} — modifiable en temps réel
+_source_webhooks = {}  # {source_id: url} — modifiable en temps réel (sans redemarrage)
 _active_detectors = []  # Liste des AudioDetector actifs (pour mise à jour en temps réel)
 _active_detectors_lock = threading.Lock()
 # Registre source_id -> AudioDetector actif, pour la mise à jour live de la whitelist
@@ -321,6 +322,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
 
     try:
         def create_detection_callback(source_name, webhook_url=None):
+            _source_webhooks[source_name] = webhook_url or ''
+
             def handle_detection(detection_data):
                 try:
                     clap_count = detection_data.get('clap_count', 1)
@@ -360,7 +363,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         return
                     score = detection_data['score']
                     _side_effects.submit(_run_side_effects, source_name, base_payload, score,
-                                         clap_count, group_slug, group_clap_counts, webhook_url)
+                                         clap_count, group_slug, group_clap_counts,
+                                         _source_webhooks.get(source_name, ''))
                 except Exception as e:
                     logging.error(f"Erreur callback clap {source_name}: {e}")
             return handle_detection
@@ -716,6 +720,13 @@ def get_current_source():
 def get_detection_history():
     with _history_lock:
         return list(_detection_history)
+
+def update_source_webhook(source_id, url):
+    """Change le webhook d'une source en cours de detection (pris en compte
+    au prochain clap, sans redemarrage)."""
+    if source_id:
+        _source_webhooks[source_id] = url or ''
+
 
 def update_rtsp_gain(rtsp_url, gain):
     """Met à jour le gain d'une source RTSP en temps réel."""

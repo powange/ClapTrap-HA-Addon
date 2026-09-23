@@ -131,9 +131,10 @@ def start_rtsp_test():
     else:
         rtsp_url = 'rtsp://' + rtsp_url
 
-    # Initialiser le gain dans le dict partagé pour le temps réel
-    from classify import _rtsp_gains, update_rtsp_gain
-    _rtsp_gains[rtsp_url] = initial_gain
+    # Le gain en direct est LU dans _rtsp_gains (mis a jour par la route du
+    # slider) mais jamais ecrit ici : ce dict est partage avec la detection
+    # active, un test changeait sinon le gain de la vraie detection.
+    from classify import _rtsp_gains
 
     _rtsp_test_running = True
 

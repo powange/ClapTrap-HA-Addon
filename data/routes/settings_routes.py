@@ -5,10 +5,13 @@ import os
 from datetime import datetime
 import requests
 
-from settings_manager import load_settings, save_settings, SETTINGS_FILE
+from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
+                              to_bool, to_number, SettingsSaveError, SETTINGS_FILE)
 from webhook import WebhookManager
+from routes.sources import api_error_response, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
+settings_bp.register_error_handler(Exception, api_error_response)
 
 # Singleton WebhookManager (réutilise le pool de connexions HTTP)
 _webhook_manager = WebhookManager()
@@ -16,63 +19,57 @@ _webhook_manager = WebhookManager()
 
 @settings_bp.route('/api/settings/save', methods=['POST'])
 def save_settings_api():
-    try:
-        settings = request.json
-        if not settings:
-            return jsonify({'error': 'Aucun paramètre fourni'}), 400
-
-        success, message = save_settings(settings)
-        if success:
-            return jsonify({'success': True, 'message': message})
-        else:
-            return jsonify({'error': message}), 400
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    settings = request.get_json(silent=True)
+    if not settings:
+        return jsonify({'error': 'Aucun paramètre fourni'}), 400
+    normalize_settings(settings)  # ValueError -> 400 avec le champ fautif
+    success, message = save_settings(settings)
+    if not success:
+        raise SettingsSaveError(message)
+    return jsonify({'success': True, 'message': message})
 
 
 @settings_bp.route('/api/settings/debug', methods=['PUT'])
 def toggle_debug():
-    try:
-        data = request.get_json()
-        enabled = bool(data.get('enabled', False))
-        settings = load_settings()
-        settings['global']['debug'] = enabled
-        save_settings(settings)
-        # Appliquer immédiatement
-        level = logging.DEBUG if enabled else logging.INFO
-        logging.getLogger().setLevel(level)
-        logging.info(f"Logs debug {'actives' if enabled else 'desactives'}")
-        return jsonify({'success': True, 'debug': enabled})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    data = request.get_json(silent=True) or {}
+    enabled = to_bool(data.get('enabled', False), 'enabled')
+
+    def _mut(settings):
+        settings.setdefault('global', {})['debug'] = enabled
+
+    modify_settings(_mut)
+    # Appliquer immédiatement
+    logging.getLogger().setLevel(logging.DEBUG if enabled else logging.INFO)
+    logging.info(f"Logs debug {'actives' if enabled else 'desactives'}")
+    return jsonify({'success': True, 'debug': enabled})
+
+
+_ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2),
+                    'peak_ratio': (1, 50), 'peak_reset': (0, 5)}
 
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
+    data = request.get_json(silent=True) or {}
+    values = {key: to_number(data[key], key, lo, hi)
+              for key, (lo, hi) in _ADVANCED_LIMITS.items() if key in data}
+
+    def _mut(settings):
+        settings.setdefault('global', {}).update(values)
+
+    modify_settings(_mut)
+    # Appliquer en temps réel sur les detectors actifs
     try:
-        data = request.get_json()
-        settings = load_settings()
-        for key in ['delay', 'peak_cooldown', 'peak_ratio', 'peak_reset']:
-            if key in data:
-                settings['global'][key] = float(data[key])
-        save_settings(settings)
-
-        # Appliquer en temps réel sur les detectors actifs
-        try:
-            from classify import update_advanced_params
-            update_advanced_params(
-                peak_cooldown=data.get('peak_cooldown'),
-                peak_ratio=data.get('peak_ratio'),
-                delay=data.get('delay'),
-                peak_reset=data.get('peak_reset'),
-            )
-        except Exception:
-            pass
-
-        return jsonify({'success': True})
+        from classify import update_advanced_params
+        update_advanced_params(
+            peak_cooldown=values.get('peak_cooldown'),
+            peak_ratio=values.get('peak_ratio'),
+            delay=values.get('delay'),
+            peak_reset=values.get('peak_reset'),
+        )
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.warning(f"Réglages avancés non appliqués en direct: {e}")
+    return jsonify({'success': True})
 
 
 @settings_bp.route('/api/ha/cleanup', methods=['POST'])
@@ -136,16 +133,22 @@ def export_settings():
 def import_settings():
     try:
         if 'file' in request.files:
-            file = request.files['file']
-            imported = json.loads(file.read().decode('utf-8'))
+            imported = json.loads(request.files['file'].read().decode('utf-8'))
         else:
-            imported = request.get_json()
-        if not isinstance(imported, dict):
-            return jsonify({'error': 'Format invalide'}), 400
-        success, msg = save_settings(imported)
-        return jsonify({'success': success, 'message': msg})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+            imported = request.get_json(silent=True)
+    except (ValueError, UnicodeDecodeError) as e:
+        return jsonify({'error': f'Fichier JSON illisible : {e}'}), 400
+    # Validation AVANT ecriture : un seuil "abc" faisait planter float() au
+    # demarrage suivant (auto-start en echec silencieux).
+    normalize_settings(imported)
+    success, msg = save_settings(imported)
+    if not success:
+        raise SettingsSaveError(msg)
+    # Appliquer la configuration importee sans attendre un redemarrage manuel.
+    level = logging.DEBUG if load_settings().get('global', {}).get('debug') else logging.INFO
+    logging.getLogger().setLevel(level)
+    _restart_detection_if_running()
+    return jsonify({'success': True, 'message': msg})
 
 
 @settings_bp.route('/api/webhook/test', methods=['POST'])
