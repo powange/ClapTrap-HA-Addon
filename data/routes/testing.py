@@ -152,7 +152,8 @@ def start_rtsp_test():
                 '-loglevel', 'error',
                 'pipe:1'
             ]
-            logging.info(f"Test RTSP: ffmpeg {rtsp_url} (volume={initial_gain}x)")
+            from url_validator import mask_url_credentials
+            logging.info(f"Test RTSP: ffmpeg {mask_url_credentials(rtsp_url)} (volume={initial_gain}x)")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
             import threading as _thr

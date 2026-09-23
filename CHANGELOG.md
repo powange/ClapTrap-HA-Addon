@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.25.0
+
+### Securite et privileges
+
+- **Acces reserve a l'ingress** : le port 16045 (UI, API, Socket.IO) n'est
+  plus joignable depuis le LAN. Seules les connexions venant de l'ingress
+  Home Assistant (172.30.32.2) et de la boucle locale sont acceptees ; les
+  autres recoivent un 403 (loggue une fois par IP). Avant, l'API etait
+  accessible sans authentification sur `http://<ip-HA>:16045` (export des
+  URL RTSP avec identifiants, import de config, test webhook...).
+- **Privileges reduits** : `hassio_role: default` au lieu de `admin`, et
+  suppression de `usb: true` (le micro passe par PulseAudio).
+- **Identifiants RTSP proteges** : le `source_id` d'une source RTSP est
+  desormais `rtsp_<id>` au lieu de `rtsp_<url>`. L'URL (qui peut contenir
+  `user:pass@`) ne part plus dans l'evenement HA `claptrap_clap`, les
+  webhooks, socketio ni l'historique, et elle est masquee dans les logs.
+  **A noter** : une automation qui filtrait `claptrap_clap` sur un
+  `source_id` RTSP base sur l'URL doit utiliser le nouveau format.
+- **Plus de dependances externes cote navigateur** : le client Socket.IO
+  (4.8.1) est servi par l'add-on au lieu de `cdn.socket.io`, et la police
+  Google Fonts est remplacee par la police systeme. L'interface fonctionne
+  sur une installation HA hors ligne.
+- Suppression de la route `/clap_detected` et du handler socket
+  `clap_detected` qui permettaient d'injecter un faux clap dans l'UI.
+- Effet de bord corrige : la bande live d'une source RTSP dont l'URL a ete
+  saisie sans `rtsp://` recoit bien ses evenements.
+
 ## 6.24.2
 
 ### Correction : liste des entites HA par source (zone vide)

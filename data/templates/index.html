@@ -243,7 +243,7 @@
         <a href="https://korben.info">Korben</a> & <a href="https://lesfrerespoulain.fr/">Les Freres Poulain</a>
     </footer>
 
-    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/vendor/socket.io.min.js') }}"></script>
 
     <script type="text/javascript">
         window.settings = {{ settings|tojson }};
@@ -261,7 +261,7 @@
 
         // Reconstruit le source_id emis par le backend pour une source, afin de
         // router les evenements socket (labels/clap) vers la bonne carte.
-        // Doit matcher classify.py : mic_<device_index>, rtsp_<url rtsp://...>,
+        // Doit matcher classify.py : mic_<device_index>, rtsp_<id de la source>,
         // vban_<ip>.
         function _detectionIdFor(src) {
             var d = src.data || {};
@@ -273,9 +273,7 @@
                 return 'mic_' + idx;
             }
             if (src.type === 'rtsp') {
-                var u = d.url || '';
-                if (u && !/^rtsp/i.test(u)) u = 'rtsp://' + u;
-                return 'rtsp_' + u;
+                return 'rtsp_' + (d.id || '');
             }
             if (src.type === 'vban') {
                 return 'vban_' + (d.ip || '');
@@ -457,7 +455,7 @@
                     '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="rtsp-enabled-toggle" data-id="' + escAttr(streamId) + '"' + enabled + '><span class="slider round"></span></label>' +
                     '<span class="source-type-icon">&#x1F4F9;</span>' +
                     '<input type="text" class="rtsp-name-input" data-id="' + escAttr(streamId) + '" value="' + escAttr(name) + '">' +
-                    '<span class="rtsp-status-dot status-connecting" data-url="' + escAttr(url) + '" title="Connexion..."></span>' +
+                    '<span class="rtsp-status-dot status-connecting" data-id="' + escAttr(streamId) + '" title="Connexion..."></span>' +
                 '</div>' +
                 '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="rtsp" data-id="' + escAttr(streamId) + '">&#x274C; Supprimer</button>' +
             '</div>' +
@@ -1924,7 +1922,7 @@
                 sock.on('rtsp_status', function(data) {
                     var dots = document.querySelectorAll('.rtsp-status-dot');
                     dots.forEach(function(dot) {
-                        if (dot.getAttribute('data-url') === data.url) {
+                        if (dot.getAttribute('data-id') === data.id) {
                             dot.className = 'rtsp-status-dot status-' + data.status;
                             var titles = {
                                 'connecting': 'Connexion...',
@@ -2135,7 +2133,7 @@
             // RTSP
             (s.rtsp_sources || []).forEach(function(src) {
                 if (!src.enabled || !src.url) return;
-                _addSourceRow('rtsp_' + src.url, 'rtsp', src.name || src.url);
+                _addSourceRow('rtsp_' + src.id, 'rtsp', src.name || 'RTSP');
             });
             // VBAN
             (s.saved_vban_sources || []).forEach(function(src) {

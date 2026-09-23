@@ -19,6 +19,7 @@ from vban_manager import get_vban_detector
 from audio_detector import AudioDetector
 from settings_manager import load_settings
 from webhook import send_webhook_async
+from url_validator import mask_url_credentials
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 
@@ -79,7 +80,7 @@ def build_sources_from_settings(settings):
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': src.get('gain', 10),
                 'groups': _build_groups_for_source(src, global_threshold),
-                'label': f'RTSP: {src.get("name", src["url"][:30])}'
+                'label': f'RTSP: {src.get("name") or "RTSP"}'
             })
     for src in settings.get('saved_vban_sources', []):
         # Defaut a False comme mic/rtsp (et comme le filtre cote frontend) :
@@ -155,7 +156,7 @@ def read_audio_from_rtsp(rtsp_url, buffer_size):
             if len(audio_chunk) > 0:
                 yield audio_chunk
     except Exception as e:
-        logging.error(f"Erreur lecture RTSP: {e}")
+        logging.error(f"Erreur lecture RTSP: {mask_url_credentials(str(e))}")
         yield None
     finally:
         if process:
@@ -398,17 +399,21 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         def run_rtsp_source(src):
             rtsp_url = src.get('rtsp_url', src['audio_source'])
             _rtsp_gains[rtsp_url] = float(src.get('gain', 10))
-            source_id = f"rtsp_{rtsp_url}"
+            # ID base sur l'id de la source, jamais sur l'URL : elle peut contenir
+            # des identifiants (rtsp://user:pass@...) et source_id part dans
+            # l'evenement HA, les webhooks, socketio et les logs.
+            stream_id = src.get('stream_id') or src.get('source_key', '')
+            source_id = f"rtsp_{stream_id}"
             from ha_entities import source_entity_key
             entity_id = source_entity_key('rtsp', src)
             detector = create_detector(source_id, src.get('webhook_url'),
                 groups=src.get('groups'), label=src.get('label'),
                 entity_id=entity_id,
                 kind='rtsp', source_key=src.get('source_key') or src.get('stream_id', ''))
-            logging.info(f"RTSP: démarrage capture {rtsp_url} (volume={_rtsp_gains[rtsp_url]}x)")
+            logging.info(f"RTSP: démarrage capture {mask_url_credentials(rtsp_url)} (volume={_rtsp_gains[rtsp_url]}x)")
 
             if socketio:
-                socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connecting'})
+                socketio.emit('rtsp_status', {'id': stream_id, 'status': 'connecting'})
 
             reconnect_delay = 1
             while _still_current():
@@ -422,22 +427,22 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                                 got_data = True
                                 reconnect_delay = 1  # Reset backoff on first data
                                 if socketio:
-                                    socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'connected'})
+                                    socketio.emit('rtsp_status', {'id': stream_id, 'status': 'connected'})
                             gain = _rtsp_gains.get(rtsp_url, 10)
                             if gain != 1.0:
                                 audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                             detector.process_audio(audio_data, source_id)
                     if _still_current():
                         if socketio:
-                            socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'reconnecting'})
+                            socketio.emit('rtsp_status', {'id': stream_id, 'status': 'reconnecting'})
                         logging.warning(f"RTSP interrompu, reconnexion dans {reconnect_delay}s...")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
                 except Exception as e:
                     if _still_current():
                         if socketio:
-                            socketio.emit('rtsp_status', {'url': rtsp_url, 'status': 'error', 'error': str(e)})
-                        logging.error(f"Erreur RTSP: {e}")
+                            socketio.emit('rtsp_status', {'id': stream_id, 'status': 'error', 'error': mask_url_credentials(str(e))})
+                        logging.error(f"Erreur RTSP: {mask_url_credentials(str(e))}")
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
             detector.stop()
@@ -595,7 +600,7 @@ def get_detection_history():
 def update_rtsp_gain(rtsp_url, gain):
     """Met à jour le gain d'une source RTSP en temps réel."""
     _rtsp_gains[rtsp_url] = float(gain)
-    logging.info(f"Volume RTSP mis à jour: {rtsp_url} -> {gain}x")
+    logging.info(f"Volume RTSP mis à jour: {mask_url_credentials(rtsp_url)} -> {gain}x")
 
 
 def update_vban_gain(ip, gain):

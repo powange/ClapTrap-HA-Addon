@@ -18,3 +18,12 @@ def is_valid_url(url):
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     
     return bool(url_pattern.match(url)) 
+
+def mask_url_credentials(url):
+    """Masque 'user:pass@' dans une URL pour les logs et les messages d'erreur.
+
+    rtsp://admin:secret@192.168.1.5:554/stream -> rtsp://***@192.168.1.5:554/stream
+    """
+    if not url:
+        return url
+    return re.sub(r'(?<=://)[^/@\s]+@', '***@', str(url))

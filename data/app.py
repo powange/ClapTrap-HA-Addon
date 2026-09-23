@@ -75,6 +75,35 @@ class IngressMiddleware:
             environ['SCRIPT_NAME'] = ingress_path
         return self.app(environ, start_response)
 
+
+class IngressOnlyMiddleware:
+    """Middleware WSGI : n'accepte que les connexions venant de l'ingress HA.
+
+    L'add-on tourne en host_network : sans ce filtre, le port 16045 (UI, API,
+    Socket.IO) est joignable sans authentification depuis tout le LAN. Le
+    Supervisor proxifie l'ingress depuis 172.30.32.2 ; on autorise aussi la
+    boucle locale. Hors Home Assistant (dev local, pas de SUPERVISOR_TOKEN),
+    le filtre est desactive.
+    """
+    ALLOWED = {'172.30.32.2', '127.0.0.1', '::1'}
+
+    def __init__(self, app):
+        self.app = app
+        self.enabled = bool(os.environ.get('SUPERVISOR_TOKEN'))
+        self._rejected = set()
+
+    def __call__(self, environ, start_response):
+        remote = environ.get('REMOTE_ADDR', '')
+        if remote.startswith('::ffff:'):
+            remote = remote[7:]
+        if self.enabled and remote not in self.ALLOWED:
+            if remote not in self._rejected:
+                self._rejected.add(remote)
+                logging.warning(f"Acces refuse depuis {remote} : l'interface n'est accessible que via l'ingress Home Assistant")
+            start_response('403 Forbidden', [('Content-Type', 'text/plain; charset=utf-8')])
+            return [b"ClapTrap n'est accessible que depuis Home Assistant (ingress)."]
+        return self.app(environ, start_response)
+
 # Configurer Flask pour qu'il soit moins verbeux
 app = Flask(__name__)
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
@@ -89,6 +118,8 @@ socketio = SocketIO(app,
     ping_interval=25,
     async_mode='threading'
 )
+# Enveloppe externe (apres SocketIO) : le filtre couvre aussi /socket.io.
+app.wsgi_app = IngressOnlyMiddleware(app.wsgi_app)
 
 
 from audio_utils import get_audio_input_devices
@@ -244,11 +275,6 @@ def verify_settings_saved(new_settings, saved_settings):
         logging.error(f"Erreur lors de la vérification des paramètres: {str(e)}")
         return False
 
-@app.route('/clap_detected')  # Added route for clap detection
-def clap_detected():
-    socketio.emit('clap', {'message': 'Applaudissement détecté!'})
-    return "Notification envoyée"
-
 def validate_settings(settings):
     """Valide les paramètres avant la sauvegarde"""
     required_fields = ['threshold', 'delay', 'audio_source']
@@ -277,18 +303,6 @@ def validate_settings(settings):
         return False
 
     return True
-
-@socketio.on('clap_detected')
-def handle_clap(data):
-    logging.debug(f"🎯 Clap detected: {data}")  # Debug log
-    try:
-        socketio.emit('clap', {
-            'source_id': 'microphone',
-            'timestamp': time.time()
-        }, broadcast=True)
-        logging.debug(f"✅ Clap event emitted")
-    except Exception as e:
-        logging.debug(f"❌ Error emitting clap event: {str(e)}")
 
 import re as _re
 

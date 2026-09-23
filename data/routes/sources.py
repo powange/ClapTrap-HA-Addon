@@ -16,7 +16,7 @@ def _source_id_for(kind, source_key):
 
     Doit coller EXACTEMENT a ce que classify.run_*_source construit :
     - mic  : f"mic_{device_index}"
-    - rtsp : f"rtsp_{src['url']}"  (URL brute, sans reparer le prefix)
+    - rtsp : f"rtsp_{src['id']}"  (jamais l'URL : elle peut contenir des identifiants)
     - vban : f"vban_{ip}"
     """
     if kind == 'mic':
@@ -25,7 +25,7 @@ def _source_id_for(kind, source_key):
         settings = load_settings()
         for s in settings.get('rtsp_sources', []):
             if s.get('id') == source_key:
-                return f"rtsp_{s.get('url', '')}"
+                return f"rtsp_{s.get('id', '')}"
         return None
     if kind == 'vban':
         return f"vban_{source_key}"
