@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.33.0
+
+### Home Assistant / MQTT
+
+- **Noms accentués** : un groupe « Bébé » ou une source « Salon-Télé » créait
+  un identifiant MQTT invalide que Home Assistant rejetait (entité jamais
+  créée). Les identifiants sont désormais en ASCII (« bebe », « salon_tele ») ;
+  les groupes existants concernés sont convertis une fois.
+- **Entity_id affichés = entity_id publiés** : l'interface les reçoit du
+  serveur (`GET /api/ha/entity-ids`) au lieu de les recalculer de son côté.
+- **« Aucune entité » respecté** : décocher tous les nombres de claps d'un
+  groupe ne publie plus quand même les entités 1 et 2 claps.
+- **Deux sources VBAN de même nom** (deux PC qui émettent « Stream1 ») : la
+  seconde reçoit une clé d'entité suffixée au lieu d'être ignorée côté HA. La
+  clé est enregistrée avec la source et ne change plus.
+- **Version minimale de Home Assistant** : 2025.10 (`default_entity_id`).
+- Suppression d'une source pendant une coupure MQTT : faite à la reconnexion
+  (les entités restaient pour toujours) ; les entités d'un micro retiré et les
+  messages de disponibilité des sources disparues sont nettoyés ; après 3
+  refus de connexion, les identifiants du broker sont relus (Mosquitto
+  réinstallé).
+- **`source_id` du micro stable** : il vaut désormais `mic` dans l'événement
+  `claptrap_clap`, les webhooks et l'historique (au lieu de `mic_<index>`, qui
+  changeait au rebranchement). **À noter** : mettez à jour les automations qui
+  filtrent sur l'ancien `mic_<n>`.
+
 ## 6.32.0
 
 ### Détection audio

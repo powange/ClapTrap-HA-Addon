@@ -99,6 +99,12 @@ def cleanup_ha_entities():
     })
 
 
+@settings_bp.route('/api/ha/entity-ids', methods=['GET'])
+def get_entity_ids():
+    from ha_entities import entity_ids_for_settings
+    return jsonify(entity_ids_for_settings(load_settings()))
+
+
 @settings_bp.route('/api/ha/entities', methods=['GET'])
 def get_ha_entities():
     try:

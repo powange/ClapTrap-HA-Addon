@@ -43,6 +43,10 @@ _mqtt_started = False
 _discovered = set()   # object_ids claptrap vus (retenus) sur le broker
 _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage des orphelines
 _off_timers = {}      # topic -> threading.Timer
+_availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
+_pending_removal = set()    # object_ids a supprimer des que le broker est joignable
+_mic_configured = True      # micro present dans la configuration (sinon ses entites sont orphelines)
+_auth_failures = 0
 _warned_collisions = set()
 
 
@@ -60,11 +64,8 @@ def _get_headers():
 
 
 def _make_slug(entity_id):
-    s = str(entity_id).lower()
-    s = ''.join(c if c.isalnum() else '_' for c in s)
-    while '__' in s:
-        s = s.replace('__', '_')
-    return s.strip('_')
+    from settings_manager import ascii_slug
+    return ascii_slug(entity_id)
 
 
 def source_entity_key(source_type, source_data):
@@ -83,6 +84,8 @@ def source_entity_key(source_type, source_data):
             return f"rtsp_{stream_id[:8]}"
         return f"rtsp_{_make_slug(source_data.get('name', 'unknown'))}"
     if source_type == 'vban':
+        if source_data.get('entity_key'):
+            return source_data['entity_key']
         name = (source_data.get('name') or '').strip()
         if name:
             return f"vban_{_make_slug(name)}"
@@ -143,14 +146,24 @@ def _fetch_broker_info():
 
 
 def _on_connect(client, userdata, flags, rc, *args):
+    global _auth_failures
     failed = getattr(rc, 'is_failure', rc != 0)
     if failed:
+        _auth_failures += 1
         logging.warning(f"MQTT: connexion refusée ({rc})")
+        if _auth_failures >= 3:
+            # Identifiants peut-etre changes (Mosquitto reinstalle) : ils
+            # n'etaient lus qu'une fois, d'ou des refus en boucle jusqu'au
+            # redemarrage de l'add-on. On relit les infos du broker.
+            _auth_failures = 0
+            threading.Thread(target=_reconnect_fresh, args=(client,), daemon=True).start()
         return
+    _auth_failures = 0
     logging.info("MQTT connecté")
     _mqtt_connected.set()
     client.subscribe(HA_STATUS_TOPIC)
     client.subscribe(DISCOVERY_WILDCARD)
+    client.subscribe('claptrap/+/availability')
     # Republication complete : le broker a pu perdre ses messages retenus, et
     # tout ce qui a ete publie pendant la coupure est perdu (QoS 0).
     threading.Thread(target=_after_connect, daemon=True).start()
@@ -168,6 +181,14 @@ def _on_message(client, userdata, msg):
             logging.info("Home Assistant redémarré : republication des entités")
             threading.Thread(target=republish_all, daemon=True).start()
         return
+    a = re.match(r'^claptrap/([^/]+)/availability$', msg.topic)
+    if a:
+        with _lock:
+            if msg.payload:
+                _availability_seen.add(a.group(1))
+            else:
+                _availability_seen.discard(a.group(1))
+        return
     m = re.match(r'^homeassistant/binary_sensor/claptrap/([^/]+)/config$', msg.topic)
     if m:
         with _lock:
@@ -179,6 +200,11 @@ def _on_message(client, userdata, msg):
 
 def _after_connect():
     _mqtt_publish(AVAILABILITY_TOPIC, 'online', retain=True)
+    with _lock:
+        pending = set(_pending_removal)
+        _pending_removal.clear()
+    for obj in pending:
+        _unpublish_object(obj)
     republish_all()
     # Laisser arriver les configs retenues avant de chercher les orphelines.
     time.sleep(3)
@@ -225,6 +251,18 @@ def _mqtt_worker():
             logging.warning(f"MQTT non disponible ({e}), nouvel essai dans {delay}s")
             time.sleep(delay)
             delay = min(delay * 2, 60)
+
+
+def _reconnect_fresh(old_client):
+    global _mqtt_client
+    try:
+        old_client.loop_stop()
+        old_client.disconnect()
+    except Exception:
+        pass
+    _mqtt_connected.clear()
+    _mqtt_client = None
+    _mqtt_worker()
 
 
 def init_entities(settings=None):
@@ -336,9 +374,9 @@ def _normalise_groups(groups, fallback_clap_counts=None):
             if not isinstance(g, dict):
                 continue
             slug = g.get('slug') or f'group{idx + 1}'
-            counts = list(g.get('clap_counts') or g.get('ha_entities') or fallback_clap_counts or [1, 2])
+            from settings_manager import clap_counts_of
             out[slug] = {'name': g.get('name') or slug,
-                         'clap_counts': [n for n in counts if isinstance(n, int) and 1 <= n <= 4]}
+                         'clap_counts': clap_counts_of(g, fallback_clap_counts or [1, 2])}
     if not out:
         counts = [n for n in (fallback_clap_counts or [1, 2]) if 1 <= n <= 4]
         out['clap'] = {'name': 'Clap', 'clap_counts': counts}
@@ -386,6 +424,11 @@ def unregister_source(source_id):
         info = _source_info.pop(source_id, None)
     if not info:
         return
+    if not _mqtt_connected.is_set():
+        # Broker injoignable : sans cela, la suppression etait perdue et les
+        # entites restaient pour toujours. Elle sera faite a la reconnexion.
+        with _lock:
+            _pending_removal.update(_object_ids(info))
     for obj in _object_ids(info):
         _unpublish_object(obj)
     _mqtt_publish(f"claptrap/{info['slug']}/availability", '', retain=True)
@@ -422,7 +465,8 @@ def _configured_sources(settings):
 def sync_sources(settings):
     """Aligne les entites sur la configuration : toutes les sources configurees
     sont enregistrees, une source desactivee est simplement "indisponible"."""
-    global _expected_keys
+    global _expected_keys, _mic_configured
+    _mic_configured = (settings.get('microphone') or {}).get('configured', True) is not False
     configured = _configured_sources(settings)
     for key, label, groups, available in configured:
         register_source(key, label=label, groups=groups, available=available)
@@ -450,14 +494,46 @@ def cleanup_orphans():
                 continue
             # Entites d'un micro desactive (non publie cette session) : garder.
             # L'ancien format mic_<index>_... est en revanche supprime.
-            if obj.startswith(mic_prefix) and not re.match(r'^mic_\d+_', obj) and MIC_KEY not in _source_info:
+            # Un micro retire (configured = false) n'est pas epargne.
+            if (_mic_configured and obj.startswith(mic_prefix) and not re.match(r'^mic_\d+_', obj)
+                    and MIC_KEY not in _source_info):
                 continue
             orphans.append(obj)
+        known_slugs = {info['slug'] for info in _source_info.values()}
+        if _mic_configured:
+            known_slugs.add(MIC_KEY)
+        stale_availability = [slug for slug in _availability_seen if slug not in known_slugs]
     for obj in orphans:
         _unpublish_object(obj)
+    # Topics de disponibilite retenus des sources disparues : les effacer aussi.
+    for slug in stale_availability:
+        _mqtt_publish(f'claptrap/{slug}/availability', '', retain=True)
     if orphans:
         logging.info(f"Entités orphelines supprimées: {', '.join(sorted(orphans))}")
     return sorted(orphans)
+
+
+def entity_ids_for_settings(settings):
+    """entity_id de chaque groupe de chaque source configuree, calcules comme
+    a la publication : l'interface les affiche tels quels au lieu de les
+    recalculer (les deux calculs divergeaient sur les accents).
+    Cles : "mic", "rtsp:<id>", "vban:<id>"."""
+    from settings_manager import clap_counts_of
+    out = {}
+    mic = settings.get('microphone') or {}
+    items = []
+    if mic.get('configured', True) is not False:
+        items.append(('mic', 'mic', mic))
+    for src in settings.get('rtsp_sources', []) or []:
+        items.append((f"rtsp:{src.get('id')}", 'rtsp', src))
+    for src in settings.get('saved_vban_sources', []) or []:
+        items.append((f"vban:{src.get('id')}", 'vban', src))
+    for key, kind, src in items:
+        slug = _make_slug(source_entity_key(kind, src))
+        out[key] = {g.get('slug'): [f'binary_sensor.claptrap_{_group_object_id(slug, g.get("slug"), n)}'
+                                    for n in clap_counts_of(g)]
+                    for g in src.get('sound_groups') or [] if isinstance(g, dict) and g.get('slug')}
+    return out
 
 
 def get_entities_info():
@@ -515,7 +591,7 @@ def on_clap_detected(source_id, score, clap_count, group_slug='clap', group_clap
         info = _source_info.get(entity_key, {})
     source_slug = info.get('slug', _make_slug(entity_key))
     group_info = (info.get('groups') or {}).get(group_slug, {})
-    clap_counts = group_info.get('clap_counts') or (group_clap_counts or [1, 2])
+    clap_counts = group_info['clap_counts'] if 'clap_counts' in group_info else (group_clap_counts or [])
     clap_count = min(clap_count, 4)
 
     if clap_count not in clap_counts:

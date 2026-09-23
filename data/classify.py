@@ -20,7 +20,7 @@ import requests
 from audio_detector import AudioDetector
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
 from ha_entities import source_label, source_entity_key
-from settings_manager import load_settings
+from settings_manager import load_settings, clap_counts_of
 from url_validator import mask_url_credentials
 from vban_manager import get_vban_detector
 from webhook import send_webhook_async
@@ -71,7 +71,7 @@ def _build_groups_for_source(source_settings, global_threshold):
             'slug': g.get('slug') or f'group{idx + 1}',
             'whitelist': dict(g.get('sound_whitelist') or g.get('whitelist') or {}),
             'threshold': float(g.get('threshold', global_threshold)),
-            'clap_counts': list(g.get('ha_entities') or g.get('clap_counts') or [1, 2]),
+            'clap_counts': clap_counts_of(g),
         })
     return normalised
 
@@ -84,7 +84,9 @@ def build_sources_from_settings(settings):
     if mic.get('enabled', False) and mic.get('configured', True) is not False:
         sources.append({
             'type': 'mic', 'kind': 'mic',
-            'source_id': f"mic_{int(mic.get('device_index', 0) or 0)}",
+            # Stable : l'index PulseAudio change au rebranchement et cassait les
+            # automations qui filtrent claptrap_clap sur source_id.
+            'source_id': 'mic',
             'source_key': str(mic.get('device_index', 0)),
             'entity_key': source_entity_key('mic', mic),
             'webhook_url': mic.get('webhook_url', ''),
@@ -228,7 +230,7 @@ class DetectionSession:
             return  # perdant de l'arbitrage : historique seulement
         _side_effects.submit(_run_side_effects, src['source_id'], src['entity_key'], base_payload,
                              data['score'], base_payload['clap_count'], base_payload['group_slug'],
-                             data.get('group_clap_counts') or [1, 2],
+                             data.get('group_clap_counts') if data.get('group_clap_counts') is not None else [1, 2],
                              _source_webhooks.get(src['source_id'], ''))
 
     def _on_sound_seen(self, src, data):

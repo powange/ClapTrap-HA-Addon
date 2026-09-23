@@ -14,7 +14,8 @@
         rtspStatus: {},     // id -> connecting|connected|reconnecting|error
         live: {},           // sourceId -> {scores: {slug: [[t, score]...]}}
         testing: null,      // {key, stopUrl, domId}
-        openPanels: {}      // ids des <details> ouverts (conserves entre rendus)
+        openPanels: {},     // ids des <details> ouverts (conserves entre rendus)
+        entityIds: {}       // entity_id calcules par le serveur ("mic", "rtsp:<id>", "vban:<id>")
     };
 
     // ---- Outils --------------------------------------------------------------
@@ -161,7 +162,7 @@
         var mic = s.microphone;
         if (mic && mic.configured !== false) {
             out.push({kind: 'mic', key: 'mic', apiKey: String(mic.device_index || 0),
-                      sourceId: 'mic_' + (parseInt(mic.device_index, 10) || 0), domId: 'src-mic',
+                      sourceId: 'mic', domId: 'src-mic',
                       name: mic.audio_source && mic.audio_source !== 'default' ? mic.audio_source : 'Micro par défaut',
                       enabled: !!mic.enabled, data: mic});
         }
@@ -188,8 +189,13 @@
     };
 
     // ---- Resynchronisation ------------------------------------------------------
+    CT.reloadEntityIds = function () {
+        return CT.api('GET', '/api/ha/entity-ids').then(function (ids) { CT.state.entityIds = ids || {}; })
+            .catch(function () {});
+    };
     CT.reloadSettings = function () {
-        return CT.api('GET', '/api/settings').then(function (s) { CT.state.settings = s; return s; });
+        return Promise.all([CT.api('GET', '/api/settings'), CT.reloadEntityIds()])
+            .then(function (r) { CT.state.settings = r[0]; return r[0]; });
     };
     CT.reloadStatus = function () {
         return fetch(basePath + '/status').then(function (r) { return r.json(); }).then(function (st) {

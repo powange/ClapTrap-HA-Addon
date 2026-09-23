@@ -4,7 +4,7 @@ import logging
 import threading
 import uuid
 
-from settings_manager import (load_settings, modify_settings, SettingsSaveError,
+from settings_manager import (load_settings, modify_settings, SettingsSaveError, clap_counts_of,
                               to_bool, to_number, to_clap_counts, to_webhook)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
@@ -53,12 +53,12 @@ def _source_id_for(kind, source_key):
     """Donne l'ID runtime (utilise par classify) a partir de (kind, source_key).
 
     Doit coller EXACTEMENT a ce que classify.run_*_source construit :
-    - mic  : f"mic_{device_index}"
+    - mic  : "mic"
     - rtsp : f"rtsp_{src['id']}"  (jamais l'URL : elle peut contenir des identifiants)
     - vban : f"vban_{id}"
     """
     if kind == 'mic':
-        return f"mic_{source_key}"
+        return 'mic'
     if kind == 'rtsp':
         return f"rtsp_{source_key}" if source_key else None
     if kind == 'vban':
@@ -337,6 +337,8 @@ def save_vban_source():
 
     def _mut(settings):
         lst = settings.setdefault('saved_vban_sources', [])
+        from settings_manager import vban_entity_key
+        new_source['entity_key'] = vban_entity_key(new_source, lst)
         if any(s.get('ip') == ip and s.get('name') == name for s in lst):
             raise ApiError('Cette source VBAN existe déjà')
         # Le listener route les paquets par (IP, nom du flux) : deux sources
@@ -532,7 +534,7 @@ def _groups_payload(groups):
             'name': g.get('name', 'Clap'),
             'whitelist': dict(g.get('sound_whitelist') or {}),
             'threshold': float(g.get('threshold', 0.5)),
-            'clap_counts': list(g.get('ha_entities') or [1, 2]),
+            'clap_counts': clap_counts_of(g),
         })
     return payload
 
@@ -710,10 +712,8 @@ def list_source_sound_groups():
 
 def _slugify_group(name, existing_slugs):
     """Genere un slug unique a partir du nom."""
-    base = ''.join(c if c.isalnum() else '_' for c in (name or '').lower())
-    while '__' in base:
-        base = base.replace('__', '_')
-    base = base.strip('_') or 'group'
+    from settings_manager import ascii_slug
+    base = ascii_slug(name) or 'groupe'
     slug = base
     i = 2
     while slug in existing_slugs:

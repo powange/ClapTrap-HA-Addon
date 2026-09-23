@@ -69,7 +69,8 @@ class ClapTracker:
                 'name': g.get('name') or g.get('slug') or f'Groupe {idx + 1}',
                 'whitelist': dict(g.get('whitelist') or g.get('sound_whitelist') or {}),
                 'threshold': float(g.get('threshold', default_threshold)),
-                'clap_counts': list(g.get('clap_counts') or g.get('ha_entities') or [1, 2]),
+                'clap_counts': list(g['clap_counts'] if g.get('clap_counts') is not None
+                                    else g.get('ha_entities') if g.get('ha_entities') is not None else [1, 2]),
             })
         self.groups = normalised
 

@@ -22,7 +22,10 @@
         return CT.slug('vban_' + (src.data.name || src.data.ip));
     }
     function entitiesOf(src, g) {
-        return (g.ha_entities || [1, 2]).map(function (n) {
+        var key = src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key;
+        var fromServer = (CT.state.entityIds[key] || {})[g.slug];
+        if (fromServer) return fromServer;
+        return (Array.isArray(g.ha_entities) ? g.ha_entities : [1, 2]).map(function (n) {
             return 'binary_sensor.claptrap_' + slugOfSource(src) + '_' + g.slug + '_' + n + (n === 1 ? 'clap' : 'claps');
         });
     }
@@ -44,7 +47,7 @@
         }).join('');
         var claps = [1, 2, 3, 4].map(function (n) {
             return '<label class="check"><input type="checkbox" data-clap="' + n + '"' +
-                ((g.ha_entities || [1, 2]).indexOf(n) !== -1 ? ' checked' : '') + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
+                ((Array.isArray(g.ha_entities) ? g.ha_entities : [1, 2]).indexOf(n) !== -1 ? ' checked' : '') + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
         }).join('');
         var entities = entitiesOf(src, g).map(function (e) {
             return '<li><code>' + esc(e) + '</code><button type="button" class="btn-link" data-copy="' + esc(e) + '">Copier</button></li>';
@@ -140,7 +143,10 @@
                     var counts = CT.$$('[data-clap]', cardEl).filter(function (c) { return c.checked; })
                         .map(function (c) { return parseInt(c.getAttribute('data-clap'), 10); });
                     putGroup(src, slug, {ha_entities: counts})
-                        .then(function () { group.ha_entities = counts; CT.renderGroupsManage(box.closest('.source-card'), src); })
+                        .then(function () {
+                            group.ha_entities = counts;
+                            return CT.reloadEntityIds().then(function () { CT.renderGroupsManage(box.closest('.source-card'), src); });
+                        })
                         .catch(function (err) { cb.checked = !cb.checked; CT.error('Entités non enregistrées : ' + err.message); });
                 });
             });

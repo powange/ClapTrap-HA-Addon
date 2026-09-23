@@ -108,15 +108,32 @@ def _ensure_source_groups(source, default_threshold=0.5):
     }]
 
 
-def _slugify(text):
-    """Slug minimaliste compatible MQTT topic / object_id HA."""
+def ascii_slug(text):
+    """Slug ASCII [a-z0-9_] : seul format accepte dans les topics MQTT
+    discovery et les entity_id de Home Assistant. Les accents sont
+    translitteres (« Bébé » -> « bebe ») ; avant, `isalnum()` gardait « é » et
+    HA rejetait le topic : l'entite n'etait jamais creee."""
+    import unicodedata
     if not text:
         return ''
-    s = str(text).lower()
+    s = unicodedata.normalize('NFKD', str(text)).encode('ascii', 'ignore').decode('ascii').lower()
     s = ''.join(c if c.isalnum() else '_' for c in s)
     while '__' in s:
         s = s.replace('__', '_')
     return s.strip('_')
+
+
+_slugify = ascii_slug
+
+
+def clap_counts_of(group, fallback=(1, 2)):
+    """Nombres de claps exposes a HA pour un groupe. Une liste VIDE veut dire
+    « aucune entite » : `a or b or [1, 2]` la remplacait par 1 et 2 claps."""
+    for key in ('clap_counts', 'ha_entities'):
+        if key in group and group[key] is not None:
+            return [n for n in group[key] if isinstance(n, int) and 1 <= n <= 4]
+    return list(fallback)
+_VALID_SLUG = __import__('re').compile(r'^[a-z0-9_]+$')
 
 
 def _apply_group_migrations(settings):
@@ -135,16 +152,49 @@ def _apply_group_migrations(settings):
     return settings
 
 
+def vban_entity_key(src, others):
+    """Cle d'entite HA d'une source VBAN : son nom, suffixe d'un bout d'id
+    si une autre source VBAN porte deja le meme (deux PC qui emettent
+    « Stream1 » : la seconde n'avait aucune entite)."""
+    base = 'vban_' + (ascii_slug(src.get('name')) or ascii_slug(src.get('ip')) or 'source')
+    taken = {o.get('entity_key') for o in others if o is not src}
+    if base not in taken:
+        return base
+    return f"{base}_{ascii_slug(src.get('id', ''))[:4] or 'x'}"
+
+
 def _ensure_vban_ids(settings):
-    """Donne un id stable a chaque source VBAN (comme les cameras).
-    Retourne True si des ids ont ete ajoutes (a enregistrer une fois)."""
+    """Migrations a enregistrer une seule fois (sinon instables d'un
+    chargement a l'autre) : id et cle d'entite de chaque source VBAN, slugs de
+    groupe non ASCII. Retourne True si quelque chose a change."""
     import uuid
-    added = False
-    for src in settings.get('saved_vban_sources', []) or []:
-        if isinstance(src, dict) and not src.get('id'):
+    changed = False
+    vbans = [s for s in settings.get('saved_vban_sources', []) or [] if isinstance(s, dict)]
+    for src in vbans:
+        if not src.get('id'):
             src['id'] = str(uuid.uuid4())
-            added = True
-    return added
+            changed = True
+    for src in vbans:
+        if not src.get('entity_key'):
+            src['entity_key'] = vban_entity_key(src, vbans)
+            changed = True
+    sources = [settings.get('microphone')] + list(settings.get('rtsp_sources', []) or []) + vbans
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        groups = [g for g in src.get('sound_groups') or [] if isinstance(g, dict)]
+        used = set()
+        for g in groups:
+            slug = g.get('slug') or ''
+            if not _VALID_SLUG.match(slug) or slug in used:
+                base = ascii_slug(slug) or ascii_slug(g.get('name')) or 'groupe'
+                new, i = base, 2
+                while new in used:
+                    new, i = f"{base}{i}", i + 1
+                g['slug'] = new
+                changed = True
+            used.add(g['slug'])
+    return changed
 
 
 class SettingsSaveError(Exception):
