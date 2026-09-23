@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.38.0
+
+### Home Assistant / MQTT
+
+- **Plus d'entité supprimée par deux clics rapides** : toutes les
+  publications passent par une seule synchronisation, sérialisée et faite à
+  partir des réglages courants. Deux requêtes qui publiaient chacune leur
+  copie pouvaient retirer de HA une entité que l'autre venait d'ajouter (avec
+  ses personnalisations).
+- **Micro désactivé** : ses entités sont publiées dès qu'il est ajouté
+  (« indisponibles » tant qu'il est désactivé), comme les autres sources ; un
+  groupe supprimé pendant qu'il est désactivé est retiré de HA.
+- **Disponibilité = écoute réelle** : les entités d'une source ne sont
+  « disponibles » que lorsque la source écoute vraiment (détection lancée et
+  flux reçu). Détection arrêtée, flux RTSP en erreur ou VBAN muet : elles
+  passent « indisponibles ».
+- **Collisions d'entités** : deux sources qui produiraient le même
+  entity_id (VBAN « Salon » + groupe « Télé clap » et VBAN « Salon Télé » +
+  groupe « Clap ») sont refusées à la création (409) ; une configuration
+  importée n'écrase plus l'entité d'une autre source.
+- **Événement `claptrap_clap` et webhook** : nouveaux champs `entity_key`
+  (même clé que les entity_id) et `source_name`, pour filtrer une automation
+  sans connaître l'identifiant interne.
+- **Entité Détection** : `device_class: running` et catégorie diagnostic.
+- **Broker déplacé** : les informations MQTT sont aussi relues après trois
+  échecs de connexion réseau (pas seulement après un refus d'identifiants).
+
 ## 6.37.0
 
 ### Détection audio

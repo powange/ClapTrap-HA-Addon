@@ -117,7 +117,8 @@
                 <section class="card" aria-labelledby="ha-title">
                     <h2 id="ha-title">Home Assistant</h2>
                     <p class="hint">Chaque groupe de sons crée des entités <code>binary_sensor.claptrap_…</code> (appareil « ClapTrap »),
-                       qui passent à « activé » pendant 2 s à chaque détection. L'événement <code>claptrap_clap</code> est aussi émis.</p>
+                       qui passent à « activé » pendant 2 s à chaque détection. Elles sont « indisponibles » tant que leur source n'écoute
+                       pas (détection arrêtée, source désactivée, flux absent). L'événement <code>claptrap_clap</code> est aussi émis.</p>
                     <button type="button" class="btn btn-ghost" id="ha-cleanup">Supprimer les entités orphelines</button>
                     <p class="hint">Retire les entités ClapTrap qui ne correspondent plus à aucune source.</p>
                 </section>

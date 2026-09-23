@@ -11,9 +11,14 @@ Entite globale :
 
 Disponibilite : chaque entite depend de `claptrap/availability` (LWT du
 client : passe a "offline" si l'add-on s'arrete ou plante) et de la
-disponibilite de sa source (`claptrap/<source>/availability`, "offline" quand
-la source est desactivee). Une source desactivee garde donc ses entites, et
-les personnalisations faites dans HA (zone, nom, icone) sont conservees.
+disponibilite de sa source (`claptrap/<source>/availability`), "online"
+seulement quand la source ecoute vraiment (detection lancee, flux recu). Une
+source desactivee ou arretee garde ses entites, et les personnalisations
+faites dans HA (zone, nom, icone) sont conservees.
+
+Toute publication passe par `sync_sources`, sous `_sync_lock`, a partir des
+reglages courants : deux requetes qui publiaient chacune leur copie pouvaient
+retirer de HA une entite que l'autre venait d'ajouter.
 """
 
 import os
@@ -34,8 +39,9 @@ CLAP_PULSE_SECONDS = 2  # duree de l'etat ON d'une entite clap
 
 # Etat
 _lock = threading.RLock()
+_sync_lock = threading.RLock()  # serialise les alignements sur la configuration
 _source_info = {}    # source_key -> {slug, label, groups: {g_slug: {name, clap_counts}}, available}
-_source_id_map = {}  # source_id technique (classify) -> source_key
+_listening = set()   # sources qui ecoutent reellement (detection lancee, flux recu)
 _detection = {'running': False, 'sources': []}
 _mqtt_client = None
 _mqtt_connected = threading.Event()
@@ -45,7 +51,6 @@ _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage de
 _off_timers = {}      # topic -> threading.Timer
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
 _pending_removal = set()    # object_ids a supprimer des que le broker est joignable
-_mic_configured = True      # micro present dans la configuration (sinon ses entites sont orphelines)
 _auth_failures = 0
 _warned_collisions = set()
 
@@ -145,18 +150,28 @@ def _fetch_broker_info():
     return resp.json().get('data', {})
 
 
+def _connection_failed(client, reason):
+    """Refus du broker ou echec TCP : apres 3 echecs, relire les infos du
+    broker (identifiants changes apres reinstallation de Mosquitto, hote ou
+    port differents). Elles n'etaient lues qu'une fois : echecs en boucle
+    jusqu'au redemarrage de l'add-on."""
+    global _auth_failures
+    _auth_failures += 1
+    logging.warning(f"MQTT: connexion impossible ({reason})")
+    if _auth_failures >= 3:
+        _auth_failures = 0
+        threading.Thread(target=_reconnect_fresh, args=(client,), daemon=True).start()
+
+
+def _on_connect_fail(client, userdata, *args):
+    _connection_failed(client, "broker injoignable")
+
+
 def _on_connect(client, userdata, flags, rc, *args):
     global _auth_failures
     failed = getattr(rc, 'is_failure', rc != 0)
     if failed:
-        _auth_failures += 1
-        logging.warning(f"MQTT: connexion refusée ({rc})")
-        if _auth_failures >= 3:
-            # Identifiants peut-etre changes (Mosquitto reinstalle) : ils
-            # n'etaient lus qu'une fois, d'ou des refus en boucle jusqu'au
-            # redemarrage de l'add-on. On relit les infos du broker.
-            _auth_failures = 0
-            threading.Thread(target=_reconnect_fresh, args=(client,), daemon=True).start()
+        _connection_failed(client, f"refus : {rc}")
         return
     _auth_failures = 0
     logging.info("MQTT connecté")
@@ -238,6 +253,7 @@ def _mqtt_worker():
             # LWT : si l'add-on meurt, toutes les entites passent "indisponible".
             client.will_set(AVAILABILITY_TOPIC, 'offline', retain=True)
             client.on_connect = _on_connect
+            client.on_connect_fail = _on_connect_fail
             client.on_disconnect = _on_disconnect
             client.on_message = _on_message
             client.reconnect_delay_set(min_delay=1, max_delay=60)
@@ -329,7 +345,27 @@ def _publish_source(info):
                           retain=True)
             _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
     _mqtt_publish(f'claptrap/{slug}/availability',
-                  'online' if info.get('available', True) else 'offline', retain=True)
+                  'online' if _is_available(info) else 'offline', retain=True)
+
+
+def _is_available(info):
+    return bool(info.get('available', True)) and info.get('key') in _listening
+
+
+def set_source_listening(entity_key, listening):
+    """La source ecoute (flux recu) ou non (detection arretee, erreur) : ses
+    entites sont disponibles seulement quand elles peuvent se declencher."""
+    with _lock:
+        before = entity_key in _listening
+        if listening:
+            _listening.add(entity_key)
+        else:
+            _listening.discard(entity_key)
+        info = _source_info.get(entity_key)
+        if before == bool(listening) or info is None:
+            return
+        state = 'online' if _is_available(info) else 'offline'
+    _mqtt_publish(f"claptrap/{info['slug']}/availability", state, retain=True)
 
 
 def _unpublish_object(obj):
@@ -344,6 +380,8 @@ def _publish_detection():
         'default_entity_id': 'binary_sensor.claptrap_detection',
         'state_topic': 'claptrap/detection/state',
         'availability_topic': AVAILABILITY_TOPIC,
+        'device_class': 'running',
+        'entity_category': 'diagnostic',
         'icon': 'mdi:ear-hearing',
         'payload_on': 'ON',
         'payload_off': 'OFF',
@@ -388,8 +426,7 @@ def _object_ids(info):
             for g_slug, g in info['groups'].items() for n in g['clap_counts']}
 
 
-def register_source(source_id, label=None, technical_id=None, clap_counts=None, groups=None,
-                    available=None):
+def register_source(source_id, label=None, clap_counts=None, groups=None, available=None):
     """Enregistre (ou met a jour) les entites d'une source.
 
     Republie simplement la config : HA met a jour l'entite existante (meme
@@ -401,13 +438,12 @@ def register_source(source_id, label=None, technical_id=None, clap_counts=None, 
     with _lock:
         existing = _source_info.get(source_id)
         info = {
+            'key': source_id,
             'slug': _make_slug(source_id),
             'label': label or source_id,
             'groups': norm_groups,
             'available': (existing or {}).get('available', True) if available is None else bool(available),
         }
-        if technical_id:
-            _source_id_map[technical_id] = source_id
         if existing == info:
             return
         removed = _object_ids(existing) - _object_ids(info) if existing else set()
@@ -439,9 +475,10 @@ def _configured_sources(settings):
     """(cle, libelle, groupes, disponible) de toutes les sources configurees."""
     out = []
     mic = settings.get('microphone') or {}
-    # Micro : publie s'il est actif ; un micro desactive n'est ni publie ni
-    # supprime (il garde ses entites s'il l'a deja ete).
-    if mic.get('configured', True) is not False and (mic.get('enabled', False) or MIC_KEY in _source_info):
+    # Micro : publie des qu'il est configure, comme les autres sources (un
+    # micro desactive n'etait pas publie alors que l'interface affichait deja
+    # ses entity_id, et ses groupes supprimes restaient dans HA).
+    if mic.get('configured', True) is not False:
         out.append((MIC_KEY, source_label('mic', mic),
                     mic.get('sound_groups'), bool(mic.get('enabled', False))))
     for src in settings.get('rtsp_sources', []) or []:
@@ -459,22 +496,64 @@ def _configured_sources(settings):
         seen[key] = src.get('name')
         out.append((key, source_label('vban', src),
                     src.get('sound_groups'), bool(src.get('enabled', False))))
-    return out
+    # Deux sources qui produiraient le meme object_id (VBAN « Salon » + groupe
+    # « Télé clap » et VBAN « Salon Télé » + groupe « Clap ») : la seconde
+    # ecraserait l'entite de la premiere. Elle n'est pas publiee.
+    claimed, kept = {}, []
+    for item in out:
+        key, label, groups = item[0], item[1], item[2]
+        objs = _object_ids({'slug': _make_slug(key), 'groups': _normalise_groups(groups)})
+        clash = next((claimed[o] for o in objs if o in claimed), None)
+        if clash:
+            if (key, clash) not in _warned_collisions:
+                _warned_collisions.add((key, clash))
+                logging.warning(f"Entités HA : « {label} » produirait les mêmes entités que « {clash} », "
+                                "non publiée : renommez la source ou le groupe")
+            continue
+        claimed.update({o: label for o in objs})
+        kept.append(item)
+    return kept
 
 
-def sync_sources(settings):
-    """Aligne les entites sur la configuration : toutes les sources configurees
-    sont enregistrees, une source desactivee est simplement "indisponible"."""
-    global _expected_keys, _mic_configured
-    _mic_configured = (settings.get('microphone') or {}).get('configured', True) is not False
-    configured = _configured_sources(settings)
-    for key, label, groups, available in configured:
-        register_source(key, label=label, groups=groups, available=available)
-    with _lock:
-        _expected_keys = {key for key, *_ in configured}
-        stale = [k for k in _source_info if k not in _expected_keys and k != MIC_KEY]
-    for key in stale:
-        unregister_source(key)
+def find_entity_collision(settings):
+    """Libelle de la premiere source dont les entites en ecraseraient d'autres
+    (None si aucune) : les routes refusent la modification qui la cree."""
+    claimed = {}
+    for key, label, groups, _ in _configured_sources_raw(settings):
+        objs = _object_ids({'slug': _make_slug(key), 'groups': _normalise_groups(groups)})
+        for o in objs:
+            if o in claimed and claimed[o] != key:
+                return label
+        claimed.update({o: key for o in objs})
+    return None
+
+
+def _configured_sources_raw(settings):
+    mic = settings.get('microphone') or {}
+    if mic.get('configured', True) is not False:
+        yield MIC_KEY, source_label('mic', mic), mic.get('sound_groups'), None
+    for src in settings.get('rtsp_sources', []) or []:
+        yield source_entity_key('rtsp', src), source_label('rtsp', src), src.get('sound_groups'), None
+    for src in settings.get('saved_vban_sources', []) or []:
+        yield source_entity_key('vban', src), source_label('vban', src), src.get('sound_groups'), None
+
+
+def sync_sources(settings=None):
+    """Aligne les entites sur la configuration (courante par defaut) : toutes
+    les sources configurees sont enregistrees, les autres supprimees."""
+    global _expected_keys
+    with _sync_lock:
+        if settings is None:
+            from settings_manager import load_settings
+            settings = load_settings()
+        configured = _configured_sources(settings)
+        for key, label, groups, available in configured:
+            register_source(key, label=label, groups=groups, available=available)
+        with _lock:
+            _expected_keys = {key for key, *_ in configured}
+            stale = [k for k in _source_info if k not in _expected_keys]
+        for key in stale:
+            unregister_source(key)
 
 
 def cleanup_orphans():
@@ -487,21 +566,8 @@ def cleanup_orphans():
         keep = {'detection'}
         for info in _source_info.values():
             keep |= _object_ids(info)
-        mic_prefix = f"{MIC_KEY}_"
-        orphans = []
-        for obj in _discovered:
-            if obj in keep:
-                continue
-            # Entites d'un micro desactive (non publie cette session) : garder.
-            # L'ancien format mic_<index>_... est en revanche supprime.
-            # Un micro retire (configured = false) n'est pas epargne.
-            if (_mic_configured and obj.startswith(mic_prefix) and not re.match(r'^mic_\d+_', obj)
-                    and MIC_KEY not in _source_info):
-                continue
-            orphans.append(obj)
+        orphans = [obj for obj in _discovered if obj not in keep]
         known_slugs = {info['slug'] for info in _source_info.values()}
-        if _mic_configured:
-            known_slugs.add(MIC_KEY)
         stale_availability = [slug for slug in _availability_seen if slug not in known_slugs]
     for obj in orphans:
         _unpublish_object(obj)
@@ -584,10 +650,9 @@ def _pulse(topic):
         t.start()
 
 
-def on_clap_detected(source_id, score, clap_count, group_slug='clap', group_clap_counts=None):
+def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_clap_counts=None):
     """Appele quand un clap est detecte. Route vers l'entite du bon groupe."""
     with _lock:
-        entity_key = _source_id_map.get(source_id, source_id)
         info = _source_info.get(entity_key, {})
     source_slug = info.get('slug', _make_slug(entity_key))
     group_info = (info.get('groups') or {}).get(group_slug, {})

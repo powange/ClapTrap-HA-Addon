@@ -72,13 +72,25 @@ def init_sources(socketio):
 
 
 def _sync_ha_entities():
-    """Aligne les entites HA sur la configuration (ajout, suppression,
-    source activee / desactivee), que la detection tourne ou non."""
+    """Aligne les entites HA sur la configuration courante (ajout, suppression,
+    groupes, source activee / desactivee), que la detection tourne ou non.
+    Toujours a partir des reglages relus, sous le verrou de ha_entities :
+    publier la copie d'une requete pouvait retirer ce qu'une autre venait
+    d'ajouter."""
     try:
         from ha_entities import sync_sources
-        sync_sources(load_settings())
+        sync_sources()
     except Exception as e:
         logging.warning(f"Entités HA non synchronisées: {e}")
+
+
+def _check_entity_collision(settings):
+    """Refuse une modification dont les entites HA en ecraseraient d'autres."""
+    from ha_entities import find_entity_collision
+    clash = find_entity_collision(settings)
+    if clash:
+        raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
+                       "choisissez un autre nom", 409)
 
 
 def _restart_detection_if_running():
@@ -275,7 +287,7 @@ def _update_rtsp(stream_id, data):
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('rtsp', stream_id), stream['webhook_url'])
     if 'ha_entities' in data or 'name' in data:
-        _refresh_source_entities('rtsp', stream)
+        _sync_ha_entities()
     if state.get('restart'):
         _restart_detection_if_running()
     return stream
@@ -289,11 +301,7 @@ def delete_rtsp_stream(stream_id):
         return len(settings['rtsp_sources']) != len(before)
 
     removed = modify_settings(_mut)
-    try:
-        from ha_entities import unregister_source, source_entity_key
-        unregister_source(source_entity_key('rtsp', {'id': stream_id}))
-    except Exception as e:
-        logging.warning(f"Entités HA de la source RTSP non retirées: {e}")
+    _sync_ha_entities()
     if removed:
         # Sinon ffmpeg continue sur le flux supprime jusqu'au prochain redemarrage.
         _restart_detection_if_running()
@@ -346,6 +354,7 @@ def save_vban_source():
         if any(s.get('ip') == ip and (s.get('stream_name') or s.get('name')) == new_source['stream_name'] for s in lst):
             raise ApiError('Ce flux VBAN (même IP, même nom de flux) est déjà ajouté')
         lst.append(new_source)
+        _check_entity_collision(settings)
 
     modify_settings(_mut)
     if new_source['enabled']:
@@ -367,11 +376,7 @@ def remove_vban_source():
         return dict(src)
 
     removed = modify_settings(_mut)
-    try:
-        from ha_entities import unregister_source, source_entity_key
-        unregister_source(source_entity_key('vban', removed))
-    except Exception as e:
-        logging.warning(f"Entités HA de la source VBAN non retirées: {e}")
+    _sync_ha_entities()
     _restart_detection_if_running()
     return jsonify({'success': True})
 
@@ -418,7 +423,7 @@ def _update_vban(vban_id, source):
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('vban', s['id']), s['webhook_url'])
     if 'ha_entities' in source:
-        _refresh_source_entities('vban', s)
+        _sync_ha_entities()
     if state.get('restart'):
         _restart_detection_if_running()
     return s
@@ -677,19 +682,6 @@ def update_source_sound_whitelist():
     return jsonify({'success': True, 'group_slug': target_slug})
 
 
-def _refresh_source_entities(kind, source_dict):
-    """Re-enregistre les entites HA pour la source apres modification de groupes."""
-    try:
-        from ha_entities import register_source, source_entity_key, source_label
-        if kind == 'mic' and not source_dict.get('enabled', False):
-            return  # micro desactive : pas d'entites a publier
-        register_source(source_entity_key(kind, source_dict),
-                        label=source_label(kind, source_dict),
-                        groups=source_dict.get('sound_groups'))
-    except Exception as exc:
-        logging.warning(f"Entités HA non rafraîchies ({kind}): {exc}")
-
-
 def _push_groups_to_detector(kind, source_key, groups):
     """Recharge les groupes dans le detecteur actif si la detection tourne."""
     try:
@@ -753,10 +745,11 @@ def create_source_sound_group():
             'ha_entities': to_clap_counts(data.get('ha_entities') or src.get('ha_entities') or [1, 2]),
         }
         groups.append(new_group)
+        _check_entity_collision(settings)
         return new_group, dict(src)
 
     new_group, src = modify_settings(_mut)
-    _refresh_source_entities(kind, src)
+    _sync_ha_entities()
     _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
     return jsonify({'success': True, 'group': new_group})
 
@@ -794,7 +787,7 @@ def update_source_sound_group():
     if 'name' in data or 'ha_entities' in data:
         # Seuls le nom et les nombres de claps changent les entites : ne pas
         # republier toute la configuration MQTT a chaque cran du seuil.
-        _refresh_source_entities(kind, src)
+        _sync_ha_entities()
     _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
     return jsonify({
         'success': True, 'group': target,
@@ -826,7 +819,7 @@ def delete_source_sound_group():
         return dict(src)
 
     src = modify_settings(_mut)
-    _refresh_source_entities(kind, src)
+    _sync_ha_entities()
     _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
     return jsonify({'success': True})
 
@@ -863,11 +856,7 @@ def delete_microphone():
         mic['configured'] = False
         return was_enabled
     was_enabled = modify_settings(_mut)
-    try:
-        from ha_entities import unregister_source, source_entity_key
-        unregister_source(source_entity_key('mic', {}))
-    except Exception as e:
-        logging.warning(f"Entités HA du micro non retirées: {e}")
+    _sync_ha_entities()
     if was_enabled:
         _restart_detection_if_running()
     return jsonify({'success': True})
@@ -954,7 +943,7 @@ def update_microphone_volume():
 def update_microphone_ha_entities():
     ha_entities = to_clap_counts(_json().get('ha_entities', [1, 2]))
     mic = _update_mic('ha_entities', ha_entities)
-    _refresh_source_entities('mic', mic)
+    _sync_ha_entities()
     return jsonify({'success': True, 'ha_entities': ha_entities})
 
 
@@ -1046,7 +1035,7 @@ def _update_mic_fields(data):
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), changes['webhook_url'])
     if 'ha_entities' in changes:
-        _refresh_source_entities('mic', mic)
+        _sync_ha_entities()
     if changes.get('auto_volume') is False:
         from auto_volume import auto_volume_mgr
         auto_volume_mgr.stop()

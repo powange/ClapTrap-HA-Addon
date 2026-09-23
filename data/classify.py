@@ -101,6 +101,7 @@ def build_sources_from_settings(settings):
             'webhook_url': mic.get('webhook_url', ''),
             'groups': _build_groups_for_source(mic, global_threshold),
             'label': source_label('mic', mic),
+            'name': mic.get('audio_source') if mic.get('audio_source') not in (None, '', 'default') else 'Microphone',
         })
     for src in settings.get('rtsp_sources', []):
         if src.get('enabled', False) and src.get('url'):
@@ -116,6 +117,7 @@ def build_sources_from_settings(settings):
                 'gain': float(src.get('gain', 10)),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('rtsp', src),
+                'name': src.get('name') or 'RTSP',
             })
     for src in settings.get('saved_vban_sources', []):
         if src.get('enabled', False):
@@ -132,6 +134,7 @@ def build_sources_from_settings(settings):
                 'gain': float(src.get('gain', 1)),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('vban', src),
+                'name': src.get('name') or src.get('ip', ''),
             })
     return sources
 
@@ -202,6 +205,18 @@ class DetectionSession:
         self.source_status[source_id] = status
         self._emit('source_status', {'source_id': source_id, 'status': status,
                                      **({'error': error} if error else {})})
+        if status in ('connected', 'error') and not self.stop_event.is_set():
+            src = next((s for s in self.sources if s['source_id'] == source_id), None)
+            if src:
+                self._set_listening(src, status == 'connected')
+
+    @staticmethod
+    def _set_listening(src, listening):
+        try:
+            from ha_entities import set_source_listening
+            set_source_listening(src['entity_key'], listening)
+        except Exception as e:
+            logging.warning(f"Disponibilité HA non publiée pour {src['label']}: {e}")
 
     def _emit(self, event, payload):
         if self.socketio:
@@ -230,6 +245,10 @@ class DetectionSession:
     def _on_detection(self, src, data):
         base_payload = {
             'source_id': src['source_id'],
+            # Pour filtrer dans une automation sans connaitre l'id interne :
+            # meme cle que les entity_id (binary_sensor.claptrap_<entity_key>_...)
+            'entity_key': src['entity_key'],
+            'source_name': src['name'],
             'timestamp': data['timestamp'],
             'score': data['score'],
             'clap_count': data.get('clap_count', 1),
@@ -306,12 +325,6 @@ class DetectionSession:
             self.detectors[src['source_id']] = det
             self.seen[src['source_id']] = {l for g in groups for l in (g.get('whitelist') or {})}
         self._apply_current_settings(src, det)
-        try:
-            from ha_entities import register_source
-            register_source(src['entity_key'], label=src['label'],
-                            technical_id=src['source_id'], groups=groups)
-        except Exception as e:
-            logging.warning(f"Entites HA non enregistrees pour {src['source_id']}: {e}")
         return det
 
     def _apply_current_settings(self, src, det):
@@ -443,6 +456,8 @@ class DetectionSession:
         for det in detectors:
             det.stop()
         _flush_sound_seen()
+        for src in self.sources:
+            self._set_listening(src, False)
         try:
             from auto_volume import auto_volume_mgr
             auto_volume_mgr.stop()
