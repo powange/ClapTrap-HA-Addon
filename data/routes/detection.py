@@ -58,9 +58,8 @@ def stop_detection_route():
 @detection_bp.route('/status')
 def status():
     try:
-        running = is_running()
-        source = get_current_source() if running else None
-        return jsonify({'running': running, 'source': source})
+        from classify import get_status
+        return jsonify(get_status())
     except Exception as e:
         return jsonify({'running': False, 'error': str(e)})
 

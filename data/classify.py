@@ -10,6 +10,7 @@ import collections
 import logging
 import os
 import threading
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
@@ -166,12 +167,14 @@ class DetectionSession:
         self.socketio = socketio
         self.stop_event = threading.Event()
         self.label = ' + '.join(s['label'] for s in sources)
+        self.started_at = time.time()
         self._threads = []
         self._readers = []
         self._lock = threading.Lock()
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
         self._supervisor = None
+        self._last_live = {}  # (source_id, event) -> instant du dernier envoi
 
     def _emit(self, event, payload):
         if self.socketio:
@@ -181,6 +184,21 @@ class DetectionSession:
                 logging.debug(f"socketio {event}: {e}")
 
     # --- Callbacks du detecteur ---
+
+    def _emit_live(self, source_id, event, payload, interval=0.2):
+        """Retours en direct limites a ~5/s par source (niveau, scores)."""
+        now = time.monotonic()
+        key = (source_id, event)
+        if now - self._last_live.get(key, 0) < interval:
+            return
+        self._last_live[key] = now
+        self._emit(event, {'source_id': source_id, **payload})
+
+    def _on_level(self, src, peak, gain_of=None):
+        gain = gain_of() if gain_of else 1.0
+        level = min(1.0, peak * gain)
+        db = max(-60.0, 20 * np.log10(level + 1e-10))
+        self._emit_live(src['source_id'], 'source_level', {'peak': round(level, 4), 'db': round(float(db), 1)})
 
     def _on_detection(self, src, data):
         base_payload = {
@@ -246,7 +264,9 @@ class DetectionSession:
             src['source_id'], label=src['label'],
             detection_callback=lambda d: self._on_detection(src, d),
             labels_callback=lambda labels: self._emit('labels', {'source': src['source_id'], 'detected': labels}),
-            sound_seen_callback=lambda d: self._on_sound_seen(src, d))
+            sound_seen_callback=lambda d: self._on_sound_seen(src, d),
+            scores_callback=lambda scores: self._emit_live(
+                src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}))
         det.start()
         _source_webhooks[src['source_id']] = src.get('webhook_url') or ''
         with self._lock:
@@ -315,12 +335,14 @@ class DetectionSession:
             self._readers.append(reader)
 
         def on_block(block):
+            peak = float(np.abs(block).max()) if block.size else 0.0
             if auto_volume is not None:
-                auto_volume.feed_peak(float(np.abs(block).max()) if block.size else 0.0)
+                auto_volume.feed_peak(peak)
             if gain_of is not None:
                 gain = gain_of()
                 if gain != 1.0:
                     block = np.clip(block * gain, -1.0, 1.0).astype(np.float32)
+            self._on_level(src, peak, gain_of)
             det.process_audio(block)
 
         # Lecture + relance avec backoff (micro, RTSP et VBAN : meme logique)
@@ -446,6 +468,14 @@ def is_running():
 def get_current_source():
     s = _current()
     return s.label if s else None
+
+
+def get_status():
+    s = _current()
+    if s is None:
+        return {'running': False, 'source': None}
+    return {'running': True, 'source': s.label, 'since': s.started_at,
+            'sources': [src['source_id'] for src in s.sources]}
 
 
 def get_detection_history():

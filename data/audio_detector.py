@@ -36,16 +36,20 @@ class AudioDetector:
         self._detection_callback = None
         self._labels_callback = None
         self._sound_seen_callback = None
+        self._scores_callback = None
 
     # --- Configuration ------------------------------------------------------
 
     def configure(self, source_id, label=None, detection_callback=None,
-                  labels_callback=None, sound_seen_callback=None):
+                  labels_callback=None, sound_seen_callback=None,
+                  scores_callback=None):
         self.source_id = source_id
         self.label = label or source_id
         self._detection_callback = detection_callback
         self._labels_callback = labels_callback
         self._sound_seen_callback = sound_seen_callback
+        # Retour en direct pour l'interface : meilleur score de chaque groupe.
+        self._scores_callback = scores_callback
 
     def set_groups(self, groups):
         """Groupes de sons (modifiables en direct). Le seuil d'auto-decouverte
@@ -160,6 +164,16 @@ class AudioDetector:
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
                 events = self.tracker.on_classification(categories, time.time())
+                group_scores = {
+                    g['slug']: max((s for n, s in categories
+                                    if g['whitelist'].get(n) and n not in exclusions), default=0.0)
+                    for g in self.tracker.groups
+                }
+            if self._scores_callback:
+                try:
+                    self._scores_callback(group_scores)
+                except Exception:
+                    pass
 
             # Callbacks HORS verrou (E/S : socketio, MQTT, HTTP).
             if self._sound_seen_callback:

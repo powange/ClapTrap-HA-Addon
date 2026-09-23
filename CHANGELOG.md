@@ -1,5 +1,49 @@
 # Changelog
 
+## 6.31.0
+
+### Nouvelle interface
+
+- **Barre d'etat toujours visible** : « À l'écoute » / « Arrêté », nombre de
+  sources, durée d'écoute, un seul bouton Démarrer / Arrêter et l'option
+  « Démarrer au lancement de l'add-on ». Sur mobile, elle reste en haut (le
+  bouton Démarrer se retrouvait tout en bas de la page).
+- **Une carte par source, toutes visibles** (fini la liste déroulante) :
+  statut réel (prête, connexion, connectée, flux perdu, désactivée),
+  interrupteur, menu d'actions (écouter la source, réglages, supprimer).
+- **Réglage guidé de la sensibilité** : pour chaque groupe de sons, le score
+  en direct est affiché face au seuil, avec le seuil réglable directement sur
+  la barre et une courbe des 10 dernières secondes. « Précision » devient
+  « Seuil de confiance ».
+- **VU-mètre permanent** pendant la détection (et pendant les tests), badge
+  « 2 claps » et ligne des sons reconnus sur la carte.
+- **Assistant d'ajout en 3 étapes** : type de source, paramètres (micro,
+  adresse de caméra, flux VBAN découverts ou saisis à la main), puis
+  « Tapez dans vos mains » avec le niveau en direct.
+- **Groupes de sons** dans « Réglages de la source » : sons en puces avec
+  recherche et traduction des sons courants, entités Home Assistant avec
+  bouton Copier, groupe principal protégé.
+- **Onglet Réglages** : comptage des claps (schéma + 4 réglages), sons
+  ignorés partout, Home Assistant (suppression des entités orphelines),
+  export / import, journal détaillé.
+- **Thème clair et sombre** qui suit Home Assistant, police système (plus
+  d'appel externe), français accentué et vouvoiement partout.
+- **Accessibilité** : libellés associés, interrupteurs `role="switch"`,
+  onglets au clavier, fenêtres avec Échap et focus piégé, messages
+  `aria-live`, focus visible, cibles tactiles de 44 px, mouvements réduits
+  respectés.
+- **Code** : le JavaScript inline (~2 000 lignes) est remplacé par 7 fichiers
+  (`core`, `statusbar`, `sources`, `groups`, `wizard`, `settings`, `app`),
+  feuille de style réécrite (1 570 → ~560 lignes).
+
+### Serveur
+
+- Nouveaux événements temps réel `source_level` (niveau de chaque source) et
+  `group_scores` (score de chaque groupe), limités à ~5 par seconde.
+- `PATCH /api/sources/<type>/<clé>` : une seule route pour modifier une
+  source (micro, caméra, VBAN) ; les anciennes routes restent disponibles.
+- `/status` indique aussi l'heure de démarrage et les sources actives.
+
 ## 6.30.0
 
 ### Simplification (aucun changement de reglage pour l'utilisateur)

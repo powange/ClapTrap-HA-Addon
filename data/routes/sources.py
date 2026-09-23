@@ -217,7 +217,10 @@ def add_rtsp_stream():
 
 @sources_bp.route('/api/rtsp/stream/<stream_id>', methods=['PUT'])
 def update_rtsp_stream(stream_id):
-    data = _json()
+    return jsonify({'success': True, 'stream': _update_rtsp(stream_id, _json())})
+
+
+def _update_rtsp(stream_id, data):
     state = {}
 
     def _mut(settings):
@@ -262,7 +265,7 @@ def update_rtsp_stream(stream_id):
         _refresh_source_entities('rtsp', stream)
     if state.get('restart'):
         _restart_detection_if_running()
-    return jsonify({'success': True, 'stream': stream})
+    return stream
 
 
 @sources_bp.route('/api/rtsp/stream/<stream_id>', methods=['DELETE'])
@@ -358,10 +361,15 @@ def update_vban_source():
     source = _json()
     if 'ip' not in source or 'name' not in source:
         raise ApiError('Données manquantes')
+    _update_vban(source['ip'], source['name'], source)
+    return jsonify({'success': True})
+
+
+def _update_vban(ip, name, source):
     state = {}
 
     def _mut(settings):
-        s = _find_vban(settings, source['ip'], name=source['name'])
+        s = _find_vban(settings, ip, name=name)
         restart = False
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
@@ -392,7 +400,7 @@ def update_vban_source():
         _refresh_source_entities('vban', s)
     if state.get('restart'):
         _restart_detection_if_running()
-    return jsonify({'success': True})
+    return s
 
 
 @sources_bp.route('/refresh_vban_sources')
@@ -933,3 +941,76 @@ def toggle_auto_volume():
         _update_mic('auto_volume', False)
         auto_volume_mgr.stop()
     return jsonify({'success': True, 'auto_volume': enabled})
+
+
+# --- API unifiee -------------------------------------------------------------
+
+def _update_mic_fields(data):
+    """Champs du micro modifiables via PATCH /api/sources/mic/mic."""
+    mic = load_settings().get('microphone', {})
+    if 'device' in data:
+        dev = data['device'] or {}
+        audio_source = str(dev.get('name') or 'default')
+        device_index = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
+        pulse_name = str(dev.get('pulse_name') or '')
+
+        def _mut(settings):
+            m = settings.setdefault('microphone', {})
+            changed = (m.get('audio_source'), m.get('device_index'), m.get('pulse_name')) != \
+                (audio_source, device_index, pulse_name)
+            m.update(audio_source=audio_source, device_index=device_index, pulse_name=pulse_name)
+            return changed and bool(m.get('enabled'))
+        if modify_settings(_mut):
+            _restart_detection_if_running()
+    if 'volume' in data:
+        from auto_volume import auto_volume_mgr
+        if auto_volume_mgr.running:
+            raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
+        volume = int(max(0, min(150, to_number(data['volume'], 'volume'))))
+        mic = _update_mic('volume', volume)
+        if mic.get('pulse_name'):
+            from audio_utils import set_pulse_volume
+            set_pulse_volume(mic['pulse_name'], volume)
+    if 'auto_volume' in data:
+        enabled = to_bool(data['auto_volume'], 'auto_volume')
+        from auto_volume import auto_volume_mgr
+        if enabled:
+            pulse_name = _resolve_pulse_name(load_settings())
+            if not pulse_name:
+                raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+            _update_mic('auto_volume', True)
+            auto_volume_mgr.start(pulse_name, _socketio)
+        else:
+            _update_mic('auto_volume', False)
+            auto_volume_mgr.stop()
+    if 'webhook_url' in data:
+        url = to_webhook(data['webhook_url'])
+        mic = _update_mic('webhook_url', url)
+        from classify import update_source_webhook
+        update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), url)
+    if 'ha_entities' in data:
+        mic = _update_mic('ha_entities', to_clap_counts(data['ha_entities']))
+        _refresh_source_entities('mic', mic)
+    if 'enabled' in data:
+        _update_mic('enabled', to_bool(data['enabled'], 'enabled'))
+        _restart_detection_if_running()
+    return load_settings().get('microphone', {})
+
+
+@sources_bp.route('/api/sources/<kind>/<path:key>', methods=['PATCH'])
+def patch_source(kind, key):
+    """Modifie une source, quel que soit son type (une seule route pour l'UI).
+
+    - mic  : /api/sources/mic/mic
+    - rtsp : /api/sources/rtsp/<id>
+    - vban : /api/sources/vban/<ip>/<nom>
+    """
+    data = _json()
+    if kind == 'rtsp':
+        return jsonify({'success': True, 'source': _update_rtsp(key, data)})
+    if kind == 'vban':
+        ip, _, name = key.partition('/')
+        return jsonify({'success': True, 'source': _update_vban(ip, name, data)})
+    if kind == 'mic':
+        return jsonify({'success': True, 'source': _update_mic_fields(data)})
+    raise ApiError('Type de source inconnu', 404)
