@@ -1,0 +1,93 @@
+# Construit et publie les images de l'add-on sur GHCR a chaque nouvelle
+# version (champ `version` de config.yaml) : ghcr.io/powange/{arch}-claptrap
+# et le manifeste multi-architecture ghcr.io/powange/claptrap.
+#
+# Tant que config.yaml n'a pas de cle `image:`, le Supervisor continue de
+# construire l'image chez chaque utilisateur. Pour passer aux images publiees :
+# 1. verifier qu'un premier passage de ce workflow a reussi ;
+# 2. rendre le paquet ghcr.io/powange/claptrap public (GitHub > Packages >
+#    claptrap > Package settings > Change visibility), ainsi que les paquets
+#    amd64-claptrap et aarch64-claptrap ;
+# 3. ajouter `image: "ghcr.io/powange/claptrap"` dans config.yaml.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - config.yaml
+  workflow_dispatch:
+
+env:
+  ARCHITECTURES: '["amd64", "aarch64"]'
+  IMAGE_NAME: claptrap
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    name: Initialize build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read add-on version
+        id: version
+        run: echo "version=$(yq '.version' config.yaml)" >> "$GITHUB_OUTPUT"
+
+      - name: Get build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.IMAGE_NAME }}
+
+  build:
+    name: Build ${{ matrix.arch }} image
+    needs: init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build image
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          push: "true"
+          skip-existing: ${{ needs.init.outputs.version }}
+          version: ${{ needs.init.outputs.version }}
+
+  manifest:
+    name: Publish multi-arch manifest
+    needs: [init, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Publish multi-arch manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          skip-existing: ${{ needs.init.outputs.version }}

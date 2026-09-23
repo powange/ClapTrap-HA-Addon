@@ -141,19 +141,20 @@ def cleanup():
     if _cleaned:
         return
     _cleaned = True
-    # Fermer d'abord la detection (processus ffmpeg/parecord, classifieurs,
-    # volume auto persiste), avec des delais courts : le superviseur tue le
-    # processus apres quelques secondes.
-    try:
-        from classify import stop_detection
-        stop_detection(timeout=3)
-    except Exception as e:
-        logging.debug(f"Arret de la detection: {e}")
+    # MQTT d'abord (detection OFF, entites indisponibles) : ces publications
+    # se perdaient quand l'arret de la detection consommait le delai de grace.
     try:
         from ha_entities import shutdown as ha_shutdown
         ha_shutdown()
     except Exception as e:
         logging.debug(f"Arret MQTT: {e}")
+    # Puis la detection (processus ffmpeg/parecord, classifieurs, volume auto
+    # enregistre), avec un delai court.
+    try:
+        from classify import stop_detection
+        stop_detection(timeout=2)
+    except Exception as e:
+        logging.debug(f"Arret de la detection: {e}")
     cleanup_vban_detector()
 
 

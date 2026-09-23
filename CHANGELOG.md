@@ -1,5 +1,37 @@
 # Changelog
 
+## 6.41.0
+
+### Build et déploiement
+
+- **Dépendances à jour et figées** : l'image de base « stable » est passée à
+  Debian 13 / Python 3.13, où la contrainte `numpy<2` obligeait à compiler
+  numpy depuis les sources (très long sur un Raspberry Pi, voire en échec).
+  Passage à numpy 2 et mediapipe 1.0 (roues disponibles pour amd64 et
+  aarch64) ; versions exactes et empreintes dans `data/requirements.lock`,
+  installées avec `--require-hashes` (script `scripts/lock_requirements.py`).
+  Construction vérifiée en amd64 et en aarch64, classification YAMNet
+  identique.
+- **Image de base figée** en 9.4.0 (identique à « stable » aujourd'hui) : un
+  tag flottant pouvait changer Debian ou Python sous l'add-on.
+- **Image allégée** : PortAudio, ALSA et `asound.conf` retirés (inutilisés,
+  vérifié : mediapipe n'importe pas `sounddevice`).
+- **Images publiées sur GHCR** par GitHub Actions à chaque version
+  (`.github/workflows/builder.yaml`, actions officielles Home Assistant).
+  Tant que `image:` n'est pas ajouté à `config.yaml`, le Supervisor continue
+  de construire l'image localement.
+- **Watchdog** : le Supervisor peut relancer un serveur bloqué (option
+  « Watchdog » de l'add-on).
+- **Profil AppArmor** (`apparmor.txt`), livré en mode « complain » (accès
+  journalisés, jamais bloqués) le temps de le valider sur une vraie
+  installation.
+- **Arrêt propre** : états MQTT publiés avant l'arrêt de la détection,
+  délais alignés (Gunicorn 6 s, s6 9 s, Supervisor 15 s) ; 16 fils au lieu
+  de 64.
+- `settings.json` de développement retiré du dépôt et de l'image ; labels
+  `io.hass.version` et `io.hass.arch` renseignés ; mainteneur corrigé ;
+  icône de panneau.
+
 ## 6.40.0
 
 ### Sécurité

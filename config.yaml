@@ -1,5 +1,5 @@
 name: "ClapTrap"
-version: "6.40.0"
+version: "6.41.0"
 slug: "claptrap"
 description: "Application de détection d'applaudissements en temps réel utilisant YAMNet, compatible avec les flux audio locaux et RTSP"
 url: "https://github.com/powange/ClapTrap-HA-Addon"
@@ -18,4 +18,9 @@ ingress: true
 ingress_port: 16045
 init: false
 homeassistant: "2025.10.0"
-maintainer: "lfpoulain"
+# Serveur bloque : relance par le Supervisor (option « Watchdog » de l'add-on).
+watchdog: "tcp://[HOST]:[PORT:16045]"
+# Arret propre (MQTT puis detection) avant l'arret force.
+timeout: 15
+panel_icon: "mdi:hand-clap"
+maintainer: "powange"

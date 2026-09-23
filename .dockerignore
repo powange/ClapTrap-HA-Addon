@@ -10,3 +10,7 @@ data/requirements-dev.txt
 *.md
 **/*.md
 .history/
+data/settings.json
+data/settings.json.*
+scripts/
+apparmor.txt

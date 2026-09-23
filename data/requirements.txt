@@ -1,9 +1,13 @@
-numpy>=1.26,<2
-mediapipe>=0.10
-requests>=2.31
-scipy>=1.11
-flask
-flask_socketio
+# Contraintes lisibles. Les versions installees sont figees dans
+# requirements.lock (voir scripts/lock_requirements.py).
+# numpy 2 / mediapipe 1.0 : roues disponibles pour Python 3.13 (Debian 13),
+# numpy<2 imposait une compilation de numpy depuis les sources.
+numpy>=2,<3
+mediapipe>=1.0,<2
+requests>=2.31,<3
+scipy>=1.11,<2
+flask>=3,<4
+flask_socketio>=5,<6
 paho-mqtt>=2.0,<3
 gunicorn>=22,<24
 simple-websocket>=1.0,<2

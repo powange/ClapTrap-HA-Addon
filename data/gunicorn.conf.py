@@ -24,9 +24,13 @@ _address = _bind_address()
 bind = f"{_address}:16045"
 workers = 1
 worker_class = 'gthread'
-threads = 64
+# 1 ou 2 onglets et leurs WebSocket : 16 fils suffisent, et chacun est attendu
+# a l'arret.
+threads = 16
 timeout = 60
-graceful_timeout = 5
+# Arret : MQTT (2 s max) puis detection (2 s max) dans worker_exit. s6 laisse
+# S6_KILL_GRACETIME (Dockerfile) et le Supervisor `timeout` (config.yaml).
+graceful_timeout = 6
 accesslog = None
 errorlog = '-'
 loglevel = 'warning'

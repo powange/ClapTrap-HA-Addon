@@ -1,0 +1,66 @@
+#include <tunables/global>
+
+# Profil AppArmor de ClapTrap.
+# Livre en mode "complain" (acces journalises, jamais bloques), comme le
+# recommande la documentation Home Assistant pour un nouveau profil : relever
+# les acces avec
+#   journalctl _TRANSPORT="audit" -g 'apparmor="ALLOWED"'
+# pendant une utilisation complete (micro, RTSP, VBAN, MQTT, webhook), les
+# ajouter ici si besoin, puis retirer "complain" pour les refuser.
+profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
+  #include <abstractions/base>
+
+  # Capacites
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+  capability chown,
+  capability dac_override,
+  capability fowner,
+  capability fsetid,
+  capability kill,
+  capability setgid,
+  capability setuid,
+
+  # Reseau : MQTT, API du Supervisor, flux RTSP, VBAN (UDP), webhooks,
+  # interface web (ingress), socket PulseAudio
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network inet6 dgram,
+  network unix stream,
+  network unix dgram,
+  network netlink raw,
+
+  # S6-Overlay
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+
+  # Bashio et script de demarrage
+  /usr/lib/bashio/** ix,
+  /run.sh rix,
+  /tmp/** rwk,
+
+  # Application : Python (venv), Gunicorn, ffmpeg, parecord et pactl
+  /usr/src/app/** r,
+  /usr/src/app/venv/bin/** ix,
+  /usr/lib/** mr,
+  /usr/local/** mr,
+
+  # Reglages (/data/settings.json)
+  /data/** rw,
+
+  # Audio (PulseAudio du Supervisor)
+  /run/audio/** rw,
+  /run/pulse/** rw,
+  /dev/snd/** rw,
+  /etc/pulse/** r,
+}
