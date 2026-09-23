@@ -54,6 +54,10 @@ WORKDIR /usr/src/app
 ENV VIRTUAL_ENV=/usr/src/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
+# Version de l'add-on (BUILD_VERSION est fourni par le Supervisor au build)
+ARG BUILD_VERSION
+ENV CLAPTRAP_VERSION=${BUILD_VERSION}
+
 # Copier les fichiers de l'application
 COPY data/ ./
 

@@ -21,6 +21,7 @@ from audio_detector import AudioDetector
 from settings_manager import load_settings
 from webhook import send_webhook_async
 from url_validator import mask_url_credentials
+from ha_entities import source_label
 from audio_utils import drain_stderr, terminate_process
 
 # Effets de bord d'une detection (evenement HA, MQTT, webhook) : executes hors
@@ -75,7 +76,7 @@ def build_sources_from_settings(settings):
             'source_key': str(mic.get('device_index', 0)),
             'webhook_url': mic.get('webhook_url', ''),
             'groups': _build_groups_for_source(mic, global_threshold),
-            'label': f'Micro: {mic_name}' if mic_name != 'default' else 'Microphone'
+            'label': source_label('mic', mic)
         })
     for src in settings.get('rtsp_sources', []):
         if src.get('enabled', False) and src.get('url'):
@@ -87,7 +88,7 @@ def build_sources_from_settings(settings):
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': src.get('gain', 10),
                 'groups': _build_groups_for_source(src, global_threshold),
-                'label': f'RTSP: {src.get("name") or "RTSP"}'
+                'label': source_label('rtsp', src)
             })
     for src in settings.get('saved_vban_sources', []):
         # Defaut a False comme mic/rtsp (et comme le filtre cote frontend) :
@@ -102,7 +103,7 @@ def build_sources_from_settings(settings):
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 1)),
                 'groups': _build_groups_for_source(src, global_threshold),
-                'label': f'VBAN: {src.get("name", src["ip"])}'
+                'label': source_label('vban', src)
             })
     return sources
 
@@ -453,8 +454,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                     logging.warning(f"Micro: volume non applique: {e}")
 
             source_id = f"mic_{saved_index}"
+            from ha_entities import source_entity_key
             detector = create_detector(source_id, src.get('webhook_url'),
                 groups=src.get('groups'), label=src.get('label'),
+                entity_id=source_entity_key('mic', {}),
                 kind='mic', source_key=src.get('source_key', str(saved_index)))
 
             cmd = ['parecord', '--format=float32le', '--rate=16000', '--channels=1',
@@ -588,9 +591,10 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         # --- Lancer un thread par source ---
         logging.info(f"Détection démarrée avec {len(sources)} source(s) (1 classifier par source)")
 
+        # Plus de purge/re-creation des entites HA a chaque demarrage : elles
+        # sont enregistrees au boot et tenues a jour (ha_entities.sync_sources).
         try:
-            from ha_entities import init_entities, update_detection_state
-            init_entities(settings=reload_settings())
+            from ha_entities import update_detection_state
             source_labels = [s['label'] for s in sources]
             update_detection_state(True, source_labels)
         except Exception as e:

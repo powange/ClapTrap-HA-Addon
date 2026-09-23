@@ -1,5 +1,42 @@
 # Changelog
 
+## 6.28.0
+
+### Integration Home Assistant / MQTT
+
+- **Les entites ne sont plus purgees a chaque demarrage de la detection** :
+  elles sont enregistrees une fois au demarrage de l'add-on pour TOUTES les
+  sources configurees, puis tenues a jour. Les personnalisations faites dans
+  HA (zone, nom, icone, entite desactivee) sont conservees, et la detection
+  demarre sans la centaine de requetes de nettoyage.
+- **Source desactivee = entites "indisponibles"** (au lieu d'etre supprimees) :
+  les automations ne cassent plus.
+- **Disponibilite et LWT** : si l'add-on s'arrete ou plante, toutes les
+  entites passent "indisponible" (plus de `binary_sensor.claptrap_detection`
+  bloque sur ON). Arret propre sur SIGTERM : detection OFF publiee.
+- **Connexion MQTT robuste** : retentee en arriere-plan si le broker n'est pas
+  pret au boot, reconnexion automatique, republication complete a chaque
+  reconnexion et au redemarrage de Home Assistant (message `homeassistant/status`).
+- **`default_entity_id`** remplace `object_id`, supprime depuis HA 2026.4 :
+  sans lui, les entity_id des nouvelles entites etaient derives du nom.
+- **Nettoyage des orphelines** : seules les entites retenues sur le broker qui
+  ne correspondent plus a aucune source sont supprimees (au demarrage et via
+  le bouton "Nettoyer", qui ne marquait avant que toutes les entites
+  "unavailable").
+- **Entity_id stables** :
+  - micro : `binary_sensor.claptrap_mic_...` (l'index PulseAudio changeait au
+    rebranchement). **A noter** : les anciennes entites `claptrap_mic_<n>_...`
+    sont remplacees une fois ; mettez a jour les automations qui les utilisent ;
+  - renommer un groupe ne change plus que son nom affiche, plus son entity_id.
+- **Deux claps rapproches** : l'entite passe OFF puis ON (vraie transition, les
+  automations `to: "on"` se declenchent a chaque clap) et la minuterie de
+  retour a OFF est rearmee au lieu d'eteindre le 2e clap trop tot.
+- Repli REST retire (le broker MQTT est obligatoire), code de migration
+  pre-v6 et appels a des endpoints inexistants supprimes.
+- `sw_version` de l'appareil renseigne (version de build), identifiant client
+  MQTT unique, paho-mqtt 2.x (API de callbacks v2), bloc `origin` dans la
+  discovery. Collision de noms VBAN signalee dans les logs.
+
 ## 6.27.0
 
 ### Reglages et persistance

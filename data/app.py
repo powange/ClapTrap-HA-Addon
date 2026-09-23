@@ -143,33 +143,34 @@ def _apply_saved_mic_volume():
 
 _apply_saved_mic_volume()
 
-# Enregistrer les entites HA au demarrage
+# Entites HA : connexion MQTT en arriere-plan (retentee si le broker n'est
+# pas pret) puis enregistrement de TOUTES les sources configurees.
 try:
-    from ha_entities import init_entities, register_source, source_entity_key
-    _ha_settings = load_settings()
-    init_entities(settings=_ha_settings)
-    _ha_mic = _ha_settings.get('microphone', {})
-    if _ha_mic.get('enabled', False):
-        register_source(source_entity_key('mic', _ha_mic),
-                        label=_ha_mic.get('audio_source', 'Microphone'),
-                        groups=_ha_mic.get('sound_groups'),
-                        clap_counts=_ha_mic.get('ha_entities', [1, 2]))
-    for _ha_src in _ha_settings.get('rtsp_sources', []):
-        if _ha_src.get('enabled', False):
-            register_source(source_entity_key('rtsp', _ha_src),
-                           label=f"RTSP: {_ha_src.get('name', 'RTSP')}",
-                           groups=_ha_src.get('sound_groups'),
-                           clap_counts=_ha_src.get('ha_entities', [1, 2]))
+    from ha_entities import init_entities
+    init_entities(settings=load_settings())
 except Exception as e:
     logging.warning(f"Init entites HA: {e}")
 
 # Nettoyer lors de l'arrêt
 import atexit
+import signal
+import sys
+
 
 @atexit.register
 def cleanup():
     """Nettoie les ressources lors de l'arrêt"""
+    try:
+        from ha_entities import shutdown as ha_shutdown
+        ha_shutdown()
+    except Exception as e:
+        logging.debug(f"Arret MQTT: {e}")
     cleanup_vban_detector()
+
+
+# SIGTERM (arret de l'add-on) : sans handler, Python meurt sans executer
+# atexit -> le capteur "detection" restait ON (message retenu).
+signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
 
 
 class VBANSource:

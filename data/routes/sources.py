@@ -71,8 +71,19 @@ def init_sources(socketio):
     _socketio = socketio
 
 
+def _sync_ha_entities():
+    """Aligne les entites HA sur la configuration (ajout, suppression,
+    source activee / desactivee), que la detection tourne ou non."""
+    try:
+        from ha_entities import sync_sources
+        sync_sources(load_settings())
+    except Exception as e:
+        logging.warning(f"Entités HA non synchronisées: {e}")
+
+
 def _restart_detection_if_running():
     """Redémarre la détection avec les sources mises à jour si elle tourne."""
+    _sync_ha_entities()
     with _restart_lock:
         try:
             from classify import is_running, stop_detection, start_from_settings
@@ -645,19 +656,12 @@ def update_source_sound_whitelist():
 def _refresh_source_entities(kind, source_dict):
     """Re-enregistre les entites HA pour la source apres modification de groupes."""
     try:
-        from ha_entities import register_source, source_entity_key
-        if kind == 'mic':
-            register_source(source_entity_key('mic', source_dict),
-                            label=source_dict.get('audio_source', 'Microphone'),
-                            groups=source_dict.get('sound_groups'))
-        elif kind == 'rtsp':
-            register_source(source_entity_key('rtsp', source_dict),
-                            label=f"RTSP: {source_dict.get('name', 'RTSP')}",
-                            groups=source_dict.get('sound_groups'))
-        elif kind == 'vban':
-            register_source(source_entity_key('vban', source_dict),
-                            label=f"VBAN: {source_dict.get('name', 'VBAN')}",
-                            groups=source_dict.get('sound_groups'))
+        from ha_entities import register_source, source_entity_key, source_label
+        if kind == 'mic' and not source_dict.get('enabled', False):
+            return  # micro desactive : pas d'entites a publier
+        register_source(source_entity_key(kind, source_dict),
+                        label=source_label(kind, source_dict),
+                        groups=source_dict.get('sound_groups'))
     except Exception as exc:
         logging.warning(f"Entités HA non rafraîchies ({kind}): {exc}")
 
@@ -751,16 +755,10 @@ def update_source_sound_group():
             raise ApiError('groupe introuvable', 404)
         new_slug = slug
         if 'name' in data:
-            new_name = str(data['name'] or '').strip() or target.get('name', slug)
-            target['name'] = new_name
-            # L'entity_id HA suit le nom : on regenere le slug pour TOUS les
-            # groupes (les anciennes automations HA devront etre mises a jour).
-            existing_slugs = {g.get('slug') for g in groups
-                              if isinstance(g, dict) and g.get('slug') != slug}
-            desired = _slugify_group(new_name, existing_slugs)
-            if desired != slug:
-                target['slug'] = desired
-                new_slug = desired
+            # Le slug (donc l'entity_id HA) reste STABLE : renommer un groupe
+            # ne change que le nom affiche. Avant, l'entity_id suivait le nom
+            # et les automations cassaient a chaque renommage.
+            target['name'] = str(data['name'] or '').strip() or target.get('name', slug)
         if 'threshold' in data:
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'ha_entities' in data:
@@ -897,14 +895,7 @@ def update_microphone_volume():
 def update_microphone_ha_entities():
     ha_entities = to_clap_counts(_json().get('ha_entities', [1, 2]))
     mic = _update_mic('ha_entities', ha_entities)
-    try:
-        from ha_entities import register_source, source_entity_key
-        register_source(source_entity_key('mic', mic),
-                        label=mic.get('audio_source', 'Microphone'),
-                        groups=mic.get('sound_groups'),
-                        clap_counts=ha_entities)
-    except Exception as e:
-        logging.warning(f"Entités HA du micro non rafraîchies: {e}")
+    _refresh_source_entities('mic', mic)
     return jsonify({'success': True, 'ha_entities': ha_entities})
 
 
