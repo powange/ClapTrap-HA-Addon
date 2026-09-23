@@ -135,6 +135,18 @@ def _apply_group_migrations(settings):
     return settings
 
 
+def _ensure_vban_ids(settings):
+    """Donne un id stable a chaque source VBAN (comme les cameras).
+    Retourne True si des ids ont ete ajoutes (a enregistrer une fois)."""
+    import uuid
+    added = False
+    for src in settings.get('saved_vban_sources', []) or []:
+        if isinstance(src, dict) and not src.get('id'):
+            src['id'] = str(uuid.uuid4())
+            added = True
+    return added
+
+
 class SettingsSaveError(Exception):
     """Echec d'ecriture de settings.json (disque plein, /data en lecture seule...)."""
 
@@ -224,6 +236,13 @@ def load_settings():
                 # encore les recuperer a la main.
                 logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire")
         _apply_group_migrations(merged)
+        if saved is not None and _ensure_vban_ids(merged):
+            # Enregistrer tout de suite : des ids regeneres a chaque chargement
+            # ne seraient pas stables.
+            try:
+                _write_atomic(merged)
+            except Exception as e:
+                logging.error(f"Migration des ids VBAN non enregistrée: {e}")
         _cache = merged
         _cache_time = now
         return copy.deepcopy(_cache)
@@ -462,4 +481,5 @@ def normalize_settings(data):
             else:
                 if not isinstance(src.get('ip'), str) or not src.get('ip'):
                     raise ValueError(f"{key}[{i}].ip : adresse attendue")
+                src.setdefault('id', str(__import__('uuid').uuid4()))
     return data

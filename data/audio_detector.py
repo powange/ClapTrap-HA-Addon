@@ -31,8 +31,11 @@ class AudioDetector:
         # n'est pas sur cote natif.
         self._clf_lock = threading.Lock()
         self._timestamp_ms = 0
-        self._result_count = 0
         self._pending = np.zeros(0, dtype=np.float32)
+        self._dc = 0.0            # composante continue, suivie en douceur
+        self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
+        self._cadence = []        # instants des premiers resultats (mesure de cadence)
+        self._errors_logged = 0
         self._detection_callback = None
         self._labels_callback = None
         self._sound_seen_callback = None
@@ -110,8 +113,15 @@ class AudioDetector:
 
     # --- Audio ----------------------------------------------------------------
 
-    def process_audio(self, audio_data, source_id=None):
-        """Bloc audio mono 16 kHz. Ne relance jamais un detecteur arrete."""
+    def process_audio(self, audio_data, gain=1.0):
+        """Bloc audio mono 16 kHz, AVANT gain. Ne relance jamais un detecteur
+        arrete.
+
+        Les pics sont comptes sur le signal brut ; le gain de la source et
+        l'auto-gain ne s'appliquent qu'a l'entree du classifieur. Amplifie et
+        ecrete avant le comptage (gain RTSP par defaut x10), le bruit de fond
+        d'une camera depassait 1/ratio et plus aucun pic n'etait detecte.
+        """
         if not self.running:
             return
         try:
@@ -119,16 +129,24 @@ class AudioDetector:
             if not np.isfinite(audio_data).all():
                 # Un bloc corrompu empoisonnait sinon le niveau moyen du bruit.
                 audio_data = np.nan_to_num(audio_data, nan=0.0, posinf=0.0, neginf=0.0)
-            audio_data = audio_data - np.float32(audio_data.mean())  # DC offset
+            if audio_data.size:
+                # Composante continue suivie en douceur (une soustraction par
+                # bloc creait des marches a chaque frontiere de 100 ms).
+                self._dc = 0.95 * self._dc + 0.05 * float(audio_data.mean())
+                audio_data = audio_data - np.float32(self._dc)
             raw_peak = float(np.abs(audio_data).max()) if audio_data.size else 0.0
 
             with self.lock:
                 noise_floor = self.tracker.avg_level
-                self.tracker.feed_peak(raw_peak, time.time())
-            # Amplifier doucement les signaux faibles pour le classifieur
-            # uniquement (les pics sont comptes sur le signal brut).
-            if 0.003 < raw_peak < 0.05 and raw_peak > noise_floor * 2:
-                audio_data = audio_data * np.float32(min(0.15 / raw_peak, 5.0))
+                self.tracker.feed_peak(raw_peak, time.monotonic())
+            # Gain pour le classifieur : gain de la source puis auto-gain lisse
+            # sur les signaux faibles.
+            boosted = raw_peak * gain
+            target = min(0.15 / boosted, 5.0) if 0.003 < boosted < 0.05 and raw_peak > noise_floor * 2 else 1.0
+            self._agc = 0.7 * self._agc + 0.3 * target
+            total = gain * self._agc
+            if abs(total - 1.0) > 1e-3:
+                audio_data = np.clip(audio_data * np.float32(total), -1.0, 1.0)
 
             if self._pending.size:
                 audio_data = np.concatenate((self._pending, audio_data))
@@ -148,13 +166,28 @@ class AudioDetector:
             try:
                 self.classifier.classify_async(container, self._timestamp_ms)
             except Exception as e:
-                logging.error(f"Erreur lors de la classification: {e}")
+                # Limite : une erreur persistante produisait 10 lignes/s.
+                self._errors_logged += 1
+                if self._errors_logged <= 5 or self._errors_logged % 600 == 0:
+                    logging.error(f"Erreur lors de la classification ({self._errors_logged}x): {e}")
 
     # --- Resultats (thread MediaPipe) --------------------------------------
 
+    def _log_cadence(self):
+        """Mesure une fois l'intervalle reel entre resultats YAMNet (100 ms ou
+        ~1 s selon MediaPipe) : il conditionne la protection anti-redeclenchement."""
+        if self._cadence is None:
+            return
+        self._cadence.append(time.monotonic())
+        if len(self._cadence) == 31:
+            gaps = [b - a for a, b in zip(self._cadence, self._cadence[1:])]
+            logging.info(f"[{self.label}] cadence YAMNet mesurée : un résultat toutes les "
+                         f"{1000 * sorted(gaps)[len(gaps) // 2]:.0f} ms")
+            self._cadence = None
+
     def _handle_result(self, result, timestamp):
         try:
-            self._result_count += 1
+            self._log_cadence()
             if not result or not result.classifications:
                 return
             categories = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
@@ -163,7 +196,7 @@ class AudioDetector:
                 threshold = self.score_threshold
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
-                events = self.tracker.on_classification(categories, time.time())
+                events = self.tracker.on_classification(categories, time.monotonic())
                 group_scores = {
                     g['slug']: max((s for n, s in categories
                                     if g['whitelist'].get(n) and n not in exclusions), default=0.0)
@@ -178,7 +211,7 @@ class AudioDetector:
             # Callbacks HORS verrou (E/S : socketio, MQTT, HTTP).
             if self._sound_seen_callback:
                 for name, score in categories:
-                    if score >= threshold:
+                    if score >= threshold and name not in exclusions:
                         try:
                             self._sound_seen_callback({'label': name, 'score': score})
                         except Exception as e:

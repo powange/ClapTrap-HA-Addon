@@ -34,7 +34,7 @@ def init_vban_detector():
             logging.debug("Timeout waiting for VBANDetector to initialize")
             return False
     except Exception as e:
-        logging.debug(f"Error initializing VBANDetector: {e}")
+        logging.warning(f"Écoute VBAN impossible sur le port 6980 : {e}")
         return False
 
 def get_vban_detector():

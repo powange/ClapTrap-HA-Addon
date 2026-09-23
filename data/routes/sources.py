@@ -55,7 +55,7 @@ def _source_id_for(kind, source_key):
     Doit coller EXACTEMENT a ce que classify.run_*_source construit :
     - mic  : f"mic_{device_index}"
     - rtsp : f"rtsp_{src['id']}"  (jamais l'URL : elle peut contenir des identifiants)
-    - vban : f"vban_{ip}"
+    - vban : f"vban_{id}"
     """
     if kind == 'mic':
         return f"mic_{source_key}"
@@ -90,6 +90,12 @@ def _restart_detection_if_running():
             if not is_running():
                 return
             stop_detection()  # attend la fin des threads de la session
+            # Un arret lent (plusieurs sources, Raspberry Pi) ne doit pas etre
+            # pris pour un echec : attendre que la session soit vraiment finie.
+            import time
+            deadline = time.monotonic() + 15
+            while is_running() and time.monotonic() < deadline:
+                time.sleep(0.2)
             started, sources = start_from_settings(_socketio)
             if started and _socketio:
                 source_display = ' + '.join(s['label'] for s in sources)
@@ -163,6 +169,13 @@ def _find_rtsp(settings, stream_id):
         if s.get('id') == stream_id:
             return s
     raise ApiError('Stream non trouvé', 404)
+
+
+def _find_vban_by_id(settings, vban_id):
+    for s in settings.get('saved_vban_sources', []) or []:
+        if s.get('id') == vban_id:
+            return s
+    raise ApiError('Source non trouvée', 404)
 
 
 def _find_vban(settings, ip, name=None, stream_name=None):
@@ -312,6 +325,7 @@ def save_vban_source():
     if not name or not ip:
         raise ApiError('Nom et IP requis pour la source VBAN')
     new_source = {
+        'id': str(uuid.uuid4()),
         'name': name,
         'ip': ip,
         'port': to_number(source['port'], 'port', 1, 65535, integer=True),
@@ -325,6 +339,10 @@ def save_vban_source():
         lst = settings.setdefault('saved_vban_sources', [])
         if any(s.get('ip') == ip and s.get('name') == name for s in lst):
             raise ApiError('Cette source VBAN existe déjà')
+        # Le listener route les paquets par (IP, nom du flux) : deux sources
+        # sur le meme flux se voleraient les paquets.
+        if any(s.get('ip') == ip and (s.get('stream_name') or s.get('name')) == new_source['stream_name'] for s in lst):
+            raise ApiError('Ce flux VBAN (même IP, même nom de flux) est déjà ajouté')
         lst.append(new_source)
 
     modify_settings(_mut)
@@ -361,15 +379,16 @@ def update_vban_source():
     source = _json()
     if 'ip' not in source or 'name' not in source:
         raise ApiError('Données manquantes')
-    _update_vban(source['ip'], source['name'], source)
+    s = _find_vban(load_settings(), source['ip'], name=source['name'])
+    _update_vban(s['id'], source)
     return jsonify({'success': True})
 
 
-def _update_vban(ip, name, source):
+def _update_vban(vban_id, source):
     state = {}
 
     def _mut(settings):
-        s = _find_vban(settings, ip, name=name)
+        s = _find_vban_by_id(settings, vban_id)
         restart = False
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
@@ -390,12 +409,12 @@ def _update_vban(ip, name, source):
     if 'gain' in source:
         try:
             from classify import update_vban_gain
-            update_vban_gain(s['ip'], s['gain'])
+            update_vban_gain(_source_id_for('vban', s['id']), s['gain'])
         except Exception as e:
             logging.warning(f"Gain VBAN non appliqué en direct: {e}")
     if 'webhook_url' in source:
         from classify import update_source_webhook
-        update_source_webhook(_source_id_for('vban', s['ip']), s['webhook_url'])
+        update_source_webhook(_source_id_for('vban', s['id']), s['webhook_url'])
     if 'ha_entities' in source:
         _refresh_source_entities('vban', s)
     if state.get('restart'):
@@ -470,7 +489,11 @@ def _find_source_dict(settings, kind, source_key):
                 return s
     if kind == 'vban':
         for s in settings.get('saved_vban_sources', []):
-            if s.get('ip') == source_key:
+            if s.get('id') == source_key:
+                return s
+        # Compat : anciens appels par IP
+        for s in settings.get('saved_vban_sources', []):
+            if not s.get('id') and s.get('ip') == source_key:
                 return s
     return None
 
@@ -899,9 +922,8 @@ def toggle_auto_start():
 
 @sources_bp.route('/api/microphone/volume', methods=['PUT'])
 def update_microphone_volume():
-    from auto_volume import auto_volume_mgr
-    if auto_volume_mgr.running:
-        raise ApiError('Auto-volume actif, desactivez-le pour regler manuellement')
+    if load_settings().get('microphone', {}).get('auto_volume'):
+        raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
     data = _json()
     volume = int(max(0, min(150, to_number(data.get('volume', 100), 'volume'))))
     mic = _update_mic('volume', volume)
@@ -928,19 +950,24 @@ def update_microphone_ha_entities():
 
 @sources_bp.route('/api/microphone/auto-volume', methods=['PUT'])
 def toggle_auto_volume():
-    data = _json()
-    enabled = to_bool(data.get('enabled', False), 'enabled')
-    from auto_volume import auto_volume_mgr
-    if enabled:
-        pulse_name = data.get('pulse_name') or _resolve_pulse_name(load_settings())
-        if not pulse_name:
-            raise ApiError('Aucun device PulseAudio trouve')
-        _update_mic('auto_volume', True)
-        auto_volume_mgr.start(pulse_name, _socketio)
-    else:
-        _update_mic('auto_volume', False)
-        auto_volume_mgr.stop()
+    enabled = to_bool(_json().get('enabled', False), 'enabled')
+    _set_auto_volume(enabled)
     return jsonify({'success': True, 'auto_volume': enabled})
+
+
+def _set_auto_volume(enabled):
+    """Le volume automatique vit avec la session de detection, qui lui
+    fournit le niveau du micro : on enregistre le reglage et on redemarre la
+    detection si elle tourne. Avant, il etait demarre ici sans source de niveau
+    (inactif mais bloquant le reglage manuel) puis arrete par la fin de session
+    alors que le reglage restait "active"."""
+    if enabled and not _resolve_pulse_name(load_settings()):
+        raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+    _update_mic('auto_volume', enabled)
+    if not enabled:
+        from auto_volume import auto_volume_mgr
+        auto_volume_mgr.stop()
+    _restart_detection_if_running()
 
 
 # --- API unifiee -------------------------------------------------------------
@@ -963,8 +990,7 @@ def _update_mic_fields(data):
         if modify_settings(_mut):
             _restart_detection_if_running()
     if 'volume' in data:
-        from auto_volume import auto_volume_mgr
-        if auto_volume_mgr.running:
+        if load_settings().get('microphone', {}).get('auto_volume'):
             raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
         volume = int(max(0, min(150, to_number(data['volume'], 'volume'))))
         mic = _update_mic('volume', volume)
@@ -972,17 +998,7 @@ def _update_mic_fields(data):
             from audio_utils import set_pulse_volume
             set_pulse_volume(mic['pulse_name'], volume)
     if 'auto_volume' in data:
-        enabled = to_bool(data['auto_volume'], 'auto_volume')
-        from auto_volume import auto_volume_mgr
-        if enabled:
-            pulse_name = _resolve_pulse_name(load_settings())
-            if not pulse_name:
-                raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
-            _update_mic('auto_volume', True)
-            auto_volume_mgr.start(pulse_name, _socketio)
-        else:
-            _update_mic('auto_volume', False)
-            auto_volume_mgr.stop()
+        _set_auto_volume(to_bool(data['auto_volume'], 'auto_volume'))
     if 'webhook_url' in data:
         url = to_webhook(data['webhook_url'])
         mic = _update_mic('webhook_url', url)
@@ -1003,14 +1019,16 @@ def patch_source(kind, key):
 
     - mic  : /api/sources/mic/mic
     - rtsp : /api/sources/rtsp/<id>
-    - vban : /api/sources/vban/<ip>/<nom>
+    - vban : /api/sources/vban/<id>
     """
     data = _json()
     if kind == 'rtsp':
         return jsonify({'success': True, 'source': _update_rtsp(key, data)})
     if kind == 'vban':
-        ip, _, name = key.partition('/')
-        return jsonify({'success': True, 'source': _update_vban(ip, name, data)})
+        if '/' in key:  # compat : ancienne cle <ip>/<nom>
+            ip, _, name = key.partition('/')
+            key = _find_vban(load_settings(), ip, name=name)['id']
+        return jsonify({'success': True, 'source': _update_vban(key, data)})
     if kind == 'mic':
         return jsonify({'success': True, 'source': _update_mic_fields(data)})
     raise ApiError('Type de source inconnu', 404)

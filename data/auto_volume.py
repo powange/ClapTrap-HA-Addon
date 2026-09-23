@@ -1,29 +1,36 @@
 """Auto-volume (AGC) pour le microphone PulseAudio.
 
-Ajuste automatiquement le volume de la source PulseAudio pour maintenir
-un niveau de signal optimal pour la detection de claps.
+Ajuste le volume de la source PulseAudio pendant la detection :
+- baisse si le son sature (pic >= CLIP_LEVEL dans les 2 dernieres secondes) ;
+- monte doucement si le fond est tres faible ET qu'aucun son fort n'a ete
+  entendu depuis 30 s ;
+- sinon ne touche a rien.
 
-Usage:
-    from auto_volume import auto_volume_mgr
+L'ancien algorithme travaillait sur la MOYENNE des pics : dans une piece calme
+il montait jusqu'a 150 % et ne redescendait jamais (un clap bref ne fait pas
+monter une moyenne sur 1 s au-dela de 0,3), d'ou des claps ecretes.
+
+Usage (par la session de detection) :
     auto_volume_mgr.start(pulse_name, socketio)
-    auto_volume_mgr.feed_peak(0.05)   # appele depuis la boucle parecord
+    auto_volume_mgr.feed_peak(0.05)   # pic brut de chaque bloc de 100 ms
     auto_volume_mgr.stop()
 """
 
-import subprocess
+import collections
 import threading
 import time
 import logging
-from settings_manager import load_settings, save_settings
+from settings_manager import load_settings
 
-# Seuils de peak brut (avant amplification x50)
-PEAK_TOO_LOW = 0.005
-PEAK_TOO_HIGH = 0.3
+CLIP_LEVEL = 0.9        # pic considere comme sature
+QUIET_FLOOR = 0.002     # fond (mediane des pics) sous lequel on peut monter
+LOUD_LEVEL = 0.3        # un son a ce niveau dans les 30 s : ne pas monter
 VOLUME_MIN = 10
 VOLUME_MAX = 150
-ADJUST_INTERVAL = 1.0  # secondes entre ajustements
-STEP_UP = 5            # % d'augmentation
-STEP_DOWN = 10         # % de diminution
+ADJUST_INTERVAL = 2.0   # secondes entre ajustements
+LONG_WINDOW = 30.0      # memoire des sons forts
+STEP_UP = 5             # % d'augmentation
+STEP_DOWN = 10          # % de diminution
 
 
 class AutoVolume:
@@ -32,7 +39,7 @@ class AutoVolume:
         self._pulse_name = ''
         self._socketio = None
         self._current_volume = 100
-        self._peaks = []
+        self._peaks = collections.deque()
         self._lock = threading.Lock()
         self._thread = None
         self._last_save_time = 0
@@ -48,7 +55,7 @@ class AutoVolume:
         self._pulse_name = pulse_name
         self._socketio = socketio
         self._running = True
-        self._peaks = []
+        self._peaks = collections.deque()
 
         # Lire le volume actuel depuis les settings
         settings = load_settings()
@@ -73,11 +80,24 @@ class AutoVolume:
         logging.info("Auto-volume arrete")
 
     def feed_peak(self, peak):
-        """Appele depuis la boucle parecord avec chaque peak brut."""
+        """Pic brut de chaque bloc de 100 ms du micro."""
         if not self._running:
             return
         with self._lock:
-            self._peaks.append(peak)
+            self._peaks.append((time.monotonic(), peak))
+
+    @staticmethod
+    def decide(volume, recent, long_max):
+        """Nouveau volume a partir des pics des 2 dernieres secondes et du pic
+        maximal des 30 dernieres secondes."""
+        if not recent:
+            return volume
+        if max(recent) >= CLIP_LEVEL:
+            return max(volume - STEP_DOWN, VOLUME_MIN)
+        floor = sorted(recent)[len(recent) // 2]
+        if floor < QUIET_FLOOR and long_max < LOUD_LEVEL:
+            return min(volume + STEP_UP, VOLUME_MAX)
+        return volume
 
     def _adjust_loop(self):
         while self._running:
@@ -85,18 +105,14 @@ class AutoVolume:
             if not self._running:
                 break
 
+            now = time.monotonic()
             with self._lock:
-                if not self._peaks:
-                    continue
-                avg_peak = sum(self._peaks) / len(self._peaks)
-                self._peaks.clear()
+                while self._peaks and now - self._peaks[0][0] > LONG_WINDOW:
+                    self._peaks.popleft()
+                recent = [p for t, p in self._peaks if now - t <= ADJUST_INTERVAL]
+                long_max = max((p for _, p in self._peaks), default=0.0)
 
-            new_volume = self._current_volume
-
-            if avg_peak < PEAK_TOO_LOW and self._current_volume < VOLUME_MAX:
-                new_volume = min(self._current_volume + STEP_UP, VOLUME_MAX)
-            elif avg_peak > PEAK_TOO_HIGH and self._current_volume > VOLUME_MIN:
-                new_volume = max(self._current_volume - STEP_DOWN, VOLUME_MIN)
+            new_volume = self.decide(self._current_volume, recent, long_max)
 
             if new_volume != self._current_volume:
                 self._current_volume = new_volume

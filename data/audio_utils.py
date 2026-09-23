@@ -22,7 +22,7 @@ def set_pulse_volume(pulse_name, volume_percent):
         logging.warning(f"pactl set-source-volume: {e}")
 
 
-def drain_stderr(proc, name, sanitize=None):
+def drain_stderr(proc, name, sanitize=None, on_line=None):
     """Lit stderr ligne par ligne et le jette (log DEBUG).
 
     Un `proc.stderr.read()` accumulait TOUT stderr en memoire jusqu'a l'EOF
@@ -31,11 +31,12 @@ def drain_stderr(proc, name, sanitize=None):
     def _drain():
         try:
             for raw in iter(proc.stderr.readline, b''):
-                if logging.getLogger().isEnabledFor(logging.DEBUG):
-                    line = raw.decode('utf-8', errors='replace').rstrip()
-                    if sanitize:
-                        line = sanitize(line)
-                    logging.debug(f"{name}: {line}")
+                line = raw.decode('utf-8', errors='replace').rstrip()
+                if sanitize:
+                    line = sanitize(line)
+                if on_line and line:
+                    on_line(line)
+                logging.debug(f"{name}: {line}")
         except Exception:
             pass
     threading.Thread(target=_drain, daemon=True).start()

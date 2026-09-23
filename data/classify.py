@@ -41,7 +41,8 @@ _history_lock = threading.Lock()
 # Reglages modifiables en direct (lus a chaque bloc / clap), conserves entre
 # les sessions pour que le test RTSP et les routes puissent les lire.
 _rtsp_gains = {}       # {rtsp_url: gain}
-_vban_gains = {}       # {vban_ip: gain}
+_vban_gains = {}       # {source_id VBAN: gain}
+_whitelist_lock = threading.Lock()  # mises a jour en direct des listes de sons
 _source_webhooks = {}  # {source_id: url}
 
 
@@ -109,8 +110,10 @@ def build_sources_from_settings(settings):
         if src.get('enabled', False):
             sources.append({
                 'type': 'vban', 'kind': 'vban',
-                'source_id': f"vban_{src.get('ip', '')}",
-                'source_key': src.get('ip', ''),
+                # Id propre a chaque flux : deux flux d'une meme IP (Voicemeeter)
+                # partageaient source_id, detecteur, gain et webhook.
+                'source_id': f"vban_{src.get('id') or src.get('ip', '')}",
+                'source_key': src.get('id') or src.get('ip', ''),
                 'entity_key': source_entity_key('vban', src),
                 'ip': src.get('ip', ''),
                 'stream_name': src.get('stream_name') or src.get('name', ''),
@@ -174,6 +177,10 @@ class DetectionSession:
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
         self._supervisor = None
+        try:
+            self.exclusions = set(load_settings().get('global', {}).get('sound_exclusions') or [])
+        except Exception:
+            self.exclusions = set()
         self._last_live = {}  # (source_id, event) -> instant du dernier envoi
 
     def _emit(self, event, payload):
@@ -231,16 +238,14 @@ class DetectionSession:
             seen = self.seen.get(source_id)
             if not label or seen is None or label in seen:
                 return  # chemin chaud : deja vu, aucun acces disque
-        try:
-            if label in (load_settings().get('global', {}).get('sound_exclusions') or []):
-                return
-        except Exception:
-            pass
         with self._lock:
-            if label in self.seen[source_id]:
+            # Exclusions gardees en memoire : un son exclu relisait les reglages
+            # (copie profonde) a chaque resultat.
+            if label in self.exclusions or label in self.seen[source_id]:
                 return
             self.seen[source_id].add(label)
-        _persist_sound_seen(src['kind'], src['source_key'], label)
+        # Ecriture disque hors du thread de resultats MediaPipe.
+        _side_effects.submit(_persist_sound_seen, src['kind'], src['source_key'], label)
         self._emit('sound_seen', {'source_id': source_id, 'kind': src['kind'],
                                   'source_key': src['source_key'], 'label': label,
                                   'score': float(data.get('score', 0.0))})
@@ -251,15 +256,14 @@ class DetectionSession:
             'name': 'Clap', 'slug': 'clap', 'whitelist': dict(DEFAULT_SOUND_WHITELIST),
             'threshold': p['score_threshold'], 'clap_counts': [1, 2]}]
         det = AudioDetector(MODEL_PATH)
-        det.initialize(max_results=10,
+        # 30 labels : un son de groupe classe 11e mais au-dessus de son seuil
+        # etait invisible avec 10.
+        det.initialize(max_results=30,
                        score_threshold=min(g.get('threshold', p['score_threshold']) for g in groups),
                        clap_window=p['delay'], peak_cooldown=p['peak_cooldown'],
                        peak_ratio=p['peak_ratio'], peak_reset=p['peak_reset'])
         det.set_groups(groups)
-        try:
-            det.set_exclusions(load_settings().get('global', {}).get('sound_exclusions') or [])
-        except Exception as e:
-            logging.warning(f"Exclusions non appliquees a {src['source_id']}: {e}")
+        det.set_exclusions(self.exclusions)
         det.configure(
             src['source_id'], label=src['label'],
             detection_callback=lambda d: self._on_detection(src, d),
@@ -270,6 +274,12 @@ class DetectionSession:
         det.start()
         _source_webhooks[src['source_id']] = src.get('webhook_url') or ''
         with self._lock:
+            # L'initialisation de YAMNet peut durer plus que l'attente de
+            # l'arret : si l'arret a ete demande entre-temps, fermer ce
+            # detecteur ici (sinon il n'etait jamais ferme).
+            if self.stop_event.is_set():
+                det.stop()
+                return None
             self.detectors[src['source_id']] = det
             self.seen[src['source_id']] = {l for g in groups for l in (g.get('whitelist') or {})}
         try:
@@ -301,7 +311,7 @@ class DetectionSession:
                 set_pulse_volume(pulse_name, mic.get('volume', 100))
             except Exception as e:
                 logging.warning(f"Micro: volume non appliqué: {e}")
-            if mic.get('auto_volume', False):
+            if mic.get('auto_volume', False) and not self.stop_event.is_set():
                 from auto_volume import auto_volume_mgr
                 auto_volume_mgr.start(pulse_name, self.socketio)
                 auto_volume = auto_volume_mgr
@@ -309,6 +319,8 @@ class DetectionSession:
 
     def _run_one(self, src):
         det = self._create_detector(src)
+        if det is None:
+            return  # arret demande pendant l'initialisation
         kind = src['type']
         gain_of = on_status = auto_volume = None
         if kind == 'mic':
@@ -327,10 +339,10 @@ class DetectionSession:
             if listener is None:
                 logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
                 return
-            ip = src['ip']
-            _vban_gains[ip] = src.get('gain', 1.0)
-            reader = VbanSource(listener, ip, src['stream_name'])
-            gain_of = lambda: _vban_gains.get(ip, 1.0)
+            sid = src['source_id']
+            _vban_gains[sid] = src.get('gain', 1.0)
+            reader = VbanSource(listener, src['ip'], src['stream_name'])
+            gain_of = lambda: _vban_gains.get(sid, 1.0)
         with self._lock:
             self._readers.append(reader)
 
@@ -338,12 +350,10 @@ class DetectionSession:
             peak = float(np.abs(block).max()) if block.size else 0.0
             if auto_volume is not None:
                 auto_volume.feed_peak(peak)
-            if gain_of is not None:
-                gain = gain_of()
-                if gain != 1.0:
-                    block = np.clip(block * gain, -1.0, 1.0).astype(np.float32)
             self._on_level(src, peak, gain_of)
-            det.process_audio(block)
+            # Bloc brut + gain : le detecteur compte les pics avant le gain et
+            # n'amplifie que ce qu'il donne au classifieur.
+            det.process_audio(block, gain=gain_of() if gain_of else 1.0)
 
         # Lecture + relance avec backoff (micro, RTSP et VBAN : meme logique)
         run_source(reader, on_block, self.stop_event, on_status=on_status)
@@ -499,9 +509,9 @@ def update_rtsp_gain(rtsp_url, gain):
     logging.info(f"Volume RTSP mis à jour: {mask_url_credentials(rtsp_url)} -> {gain}x")
 
 
-def update_vban_gain(ip, gain):
-    _vban_gains[ip] = float(gain)
-    logging.info(f"Volume VBAN mis à jour: {ip} -> {gain}x")
+def update_vban_gain(source_id, gain):
+    _vban_gains[source_id] = float(gain)
+    logging.info(f"Volume VBAN mis à jour: {source_id} -> {gain}x")
 
 
 def get_detector(source_id):
@@ -526,6 +536,11 @@ def set_seen_labels(source_id, labels):
 
 def update_source_whitelist(source_id, label, enabled, group_slug=None):
     """Active/desactive un label sur le detecteur en cours (sans redemarrage)."""
+    with _whitelist_lock:  # deux requetes simultanees perdaient une modification
+        return _update_source_whitelist(source_id, label, enabled, group_slug)
+
+
+def _update_source_whitelist(source_id, label, enabled, group_slug):
     det = get_detector(source_id)
     if det is None:
         return False
@@ -544,10 +559,11 @@ def update_source_whitelist(source_id, label, enabled, group_slug=None):
 def remove_source_whitelist_entry(source_id, label):
     det = get_detector(source_id)
     if det is not None:
-        groups = det.groups
-        for g in groups:
-            g['whitelist'].pop(label, None)
-        det.set_groups(groups)
+        with _whitelist_lock:
+            groups = det.groups
+            for g in groups:
+                g['whitelist'].pop(label, None)
+            det.set_groups(groups)
     s = _current()
     if s is not None:
         with s._lock:
@@ -557,7 +573,11 @@ def remove_source_whitelist_entry(source_id, label):
 
 def update_global_exclusions(labels):
     s = _current()
-    for det in (list(s.detectors.values()) if s else []):
+    if s is None:
+        return
+    with s._lock:
+        s.exclusions = set(labels or [])
+    for det in list(s.detectors.values()):
         det.set_exclusions(labels)
 
 
@@ -604,8 +624,9 @@ def _persist_sound_seen(kind, source_key, label):
                 target = settings.setdefault('microphone', {})
             else:
                 key = 'rtsp_sources' if kind == 'rtsp' else 'saved_vban_sources'
-                field = 'id' if kind == 'rtsp' else 'ip'
-                target = next((s for s in settings.get(key, []) if s.get(field) == source_key), None)
+                target = next((s for s in settings.get(key, [])
+                               if s.get('id') == source_key or (kind == 'vban' and not s.get('id')
+                                                                and s.get('ip') == source_key)), None)
             return settings if target is not None and _ensure_label_in_groups(target, label) else NO_CHANGE
 
         atomic_update(_mutate)

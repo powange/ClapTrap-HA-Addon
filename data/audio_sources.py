@@ -31,6 +31,9 @@ class ProcessSource:
         self.sanitize = sanitize or (lambda s: s)
         self._proc = None
         self._lock = threading.Lock()
+        # Derniere ligne d'erreur du process (ex. "401 Unauthorized") : sans
+        # elle, un mot de passe faux n'apparaissait que comme "flux interrompu".
+        self.last_error = ''
 
     def describe(self):
         return self.sanitize(' '.join(self.cmd))
@@ -41,7 +44,11 @@ class ProcessSource:
         proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         with self._lock:
             self._proc = proc
-        drain_stderr(proc, self.name, sanitize=self.sanitize)
+        self.last_error = ''
+
+        def _on_line(line):
+            self.last_error = line[-200:]
+        drain_stderr(proc, self.name, sanitize=self.sanitize, on_line=_on_line)
         last_data = [time.monotonic()]
         done = threading.Event()
 
@@ -113,9 +120,9 @@ class VbanSource:
         self.ip = ip
         self.stream_name = stream_name
         self.name = f"VBAN {ip}/{stream_name}"
-        # ~5 s de tampon : au-dela, les blocs les plus anciens sont jetes plutot
-        # que de bloquer le thread UDP.
-        self._queue = queue.Queue(maxsize=50)
+        # ~1 s de tampon : au-dela, les blocs les plus anciens sont jetes (avant :
+        # 5 s, soit jusqu'a 5 s de retard de detection si l'inference traine).
+        self._queue = queue.Queue(maxsize=10)
 
     def describe(self):
         return self.name
@@ -145,20 +152,26 @@ class VbanSource:
         pass
 
 
-def run_source(source, on_block, stop_event, on_status=None, max_backoff=30):
+def run_source(source, on_block, stop_event, on_status=None, max_backoff=30, stable_after=10):
     """Lit `source` jusqu'a stop_event ; la relance avec backoff si elle
     s'arrete (process mort, flux coupe). on_status(status, error=None) recoit
-    connecting / connected / reconnecting / error."""
+    connecting / connected / reconnecting / error.
+
+    Le delai de relance n'est remis a zero qu'apres `stable_after` s de flux :
+    un process qui livre un peu de son puis meurt n'est plus relance chaque
+    seconde indefiniment.
+    """
     delay = 1
     while not stop_event.is_set():
         if on_status:
             on_status('connecting')
         got_data = False
+        started = None
         try:
             for block in source.iter_blocks(stop_event):
                 if not got_data:
                     got_data = True
-                    delay = 1
+                    started = time.monotonic()
                     if on_status:
                         on_status('connected')
                 on_block(block)
@@ -171,8 +184,16 @@ def run_source(source, on_block, stop_event, on_status=None, max_backoff=30):
                 on_status('error', msg)
         if stop_event.is_set():
             break
+        if started is not None and time.monotonic() - started >= stable_after:
+            delay = 1
+        detail = getattr(source, 'last_error', '')
+        if detail:
+            logging.warning(f"{source.name}: {detail}")
         logging.warning(f"{source.name}: flux interrompu, nouvelle tentative dans {delay}s")
         if on_status:
-            on_status('reconnecting')
+            if detail and not got_data:
+                on_status('error', detail)
+            else:
+                on_status('reconnecting')
         stop_event.wait(delay)
         delay = min(delay * 2, max_backoff)

@@ -16,8 +16,14 @@ class ClapTracker:
     # comme un pic.
     PEAK_FLOOR = 0.01
     # Un pic n'est rattache a une detection que s'il date de moins de
-    # PEAK_LOOKBACK s : fenetre d'analyse de YAMNet (~0.975 s) + marge.
-    PEAK_LOOKBACK = 1.2
+    # PEAK_LOOKBACK s, la fenetre d'analyse de YAMNet (~0.975 s) : au-dela,
+    # ce n'est pas le son que YAMNet est en train de reconnaitre (choix assume :
+    # un bruit sans rapport dans cette seconde peut encore etre compte).
+    PEAK_LOOKBACK = 1.0
+    # Blocs (100 ms) servant a mesurer le bruit de fond au demarrage : aucun
+    # pic n'est compte pendant ce temps. Sans cela, le niveau partait de 0.001
+    # et chaque bloc d'une piece bruyante etait un "pic" pendant ~40 s.
+    WARMUP_BLOCKS = 10
     # Apres un declenchement, le score YAMNet reste haut ~1 s sur le meme son :
     # un groupe ne se re-arme qu'avec un nouveau pic ou apres ce delai.
     RETRIGGER_GUARD = 1.0
@@ -30,7 +36,11 @@ class ClapTracker:
         self.groups = []         # [{slug, name, whitelist, threshold, clap_counts}]
         self.exclusions = set()
         self.avg_level = 0.001   # niveau moyen du bruit de fond (signal brut)
+        self._warmup = []
         self._above = False
+        self._held_peak = 0.0    # pic maximal du son en cours
+        self._need_dip = False   # son tenu : attendre un creux avant un nouveau pic
+        self._dip_level = 0.0
         self._last_peak_time = 0.0
         self.peak_times = []
         self._consumed_until = 0.0
@@ -70,26 +80,46 @@ class ClapTracker:
     # --- Pics -------------------------------------------------------------
 
     def feed_peak(self, raw_peak, now):
-        """Pic brut (avant auto-gain) d'un bloc audio."""
-        # Moyenne glissante lente du bruit de fond, hors pics.
-        if not self._above:
-            self.avg_level = self.avg_level * 0.995 + raw_peak * 0.005
+        """Pic brut (avant gain et auto-gain) d'un bloc audio."""
+        if len(self._warmup) < self.WARMUP_BLOCKS:
+            self._warmup.append(raw_peak)
+            if len(self._warmup) == self.WARMUP_BLOCKS:
+                self.avg_level = max(0.001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
+            return max(self.PEAK_FLOOR, self.avg_level * self.peak_ratio)
+
+        # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
+        # pendant un son : un bruit qui s'installe finit par etre absorbe.
+        rate = 0.001 if self._above else 0.005
+        self.avg_level = self.avg_level * (1 - rate) + raw_peak * rate
         threshold = max(self.PEAK_FLOOR, self.avg_level * self.peak_ratio)
 
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
 
+        if self._need_dip and raw_peak < self._dip_level:
+            self._need_dip = False
+
         if raw_peak > threshold and not self._above:
+            if self._need_dip:
+                return threshold  # meme son qui continue, pas un nouveau clap
             # Front montant : nouveau pic
             if (now - self._last_peak_time) > self.peak_cooldown:
                 self._last_peak_time = now
                 self.peak_times.append(now)
             self._above = True
+            self._held_peak = raw_peak
         elif raw_peak < threshold * 0.6:
             self._above = False
-        elif self._above and (now - self._last_peak_time) > self.peak_reset:
-            # Un son qui dure : on le considere fini pour compter les suivants.
-            self._above = False
+            self._need_dip = False
+        elif self._above:
+            self._held_peak = max(self._held_peak, raw_peak)
+            if (now - self._last_peak_time) > self.peak_reset:
+                # Son qui dure (reverberation, claps rapides) : on le considere
+                # fini, mais le pic suivant n'est compte qu'apres un creux net.
+                # Sans ce creux, un son tenu produisait un "pic" toutes les 0,4 s.
+                self._above = False
+                self._need_dip = True
+                self._dip_level = self._held_peak * 0.6
         return threshold
 
     # --- Classification -----------------------------------------------------

@@ -151,11 +151,14 @@ class VBANDetector:
                 self._mcast_by_name.pop(stream_name, None)
         logging.info(f"VBAN: callback audio retire pour {ip}/{stream_name}")
 
-    def set_test_tap(self, ip, callback):
+    def set_test_tap(self, ip, callback, stream_name=''):
         """Configure un tap pour le VU-metre : appelle callback(peak) pour
-        chaque paquet dont l'IP source correspond. ip=None / callback=None
-        pour desactiver."""
+        chaque paquet du flux. Pour un groupe multicast, les paquets arrivent
+        avec l'IP de l'emetteur : on reconnait alors le flux par son nom.
+        ip=None / callback=None pour desactiver."""
+        self._test_tap_callback = None
         self._test_tap_ip = ip
+        self._test_tap_name = stream_name if ip and self._is_multicast(ip) else ''
         self._test_tap_callback = callback
 
     # --- Multicast -----------------------------------------------------------
@@ -226,7 +229,14 @@ class VBANDetector:
         except Exception:
             pass
         logging.info(f"Démarrage de l'écoute VBAN sur le port {self.port}")
-        self._socket.bind(('0.0.0.0', self.port))
+        try:
+            self._socket.bind(('0.0.0.0', self.port))
+        except OSError:
+            # Port occupe : ne pas laisser le socket ouvert jusqu'au GC.
+            self._socket.close()
+            self._socket = None
+            self.running = False
+            raise
 
         self._sync_multicast_groups()
         self._last_mcast_sync = time.time()
@@ -290,7 +300,10 @@ class VBANDetector:
         if len(data) < 28 or data[0:4] != b'VBAN':
             logging.debug(f"VBAN: paquet non VBAN ou trop court ({len(data)} octets) de {ip}")
             return None
-        name = self.clean_vban_name(data[8:28])
+        # Nom du flux : 16 octets (8-23). Les octets 24-27 sont le compteur de
+        # trame : les inclure collait un caractere variable aux noms de 16
+        # caracteres (paquets jetes, sources fantomes dans la decouverte).
+        name = self.clean_vban_name(data[8:24])
         if (data[4] & 0xE0) != VBAN_PROTOCOL_AUDIO:
             return None  # VBAN-TEXT, serial, service : pas de l'audio
         sample_rate = VBAN_SAMPLE_RATES.get(data[4] & 0x1F)
@@ -327,8 +340,20 @@ class VBANDetector:
             if stream is None:
                 mkey = self._mcast_by_name.get(hdr.name)
                 stream = self._streams.get(mkey) if mkey else None
+                if stream is not None:
+                    # Flux multicast : on s'attache au premier emetteur vu. Un
+                    # autre emetteur du meme nom (unicast par exemple) melangeait
+                    # son audio et recreait le reechantillonneur a chaque paquet.
+                    sender = stream.setdefault('sender', ip)
+                    if sender != ip:
+                        if (mkey, ip) not in self._warned:
+                            self._warned.add((mkey, ip))
+                            logging.warning(f"VBAN: flux « {hdr.name} » reçu aussi de {ip}, ignoré "
+                                            f"(émetteur retenu : {sender})")
+                        stream = None
 
-        tap = self._test_tap_callback if self._test_tap_ip == ip else None
+        tap_name = getattr(self, '_test_tap_name', '')
+        tap = self._test_tap_callback if (self._test_tap_ip == ip or (tap_name and hdr.name == tap_name)) else None
         # Rien d'abonne a ce flux : ne pas decoder ni reechantillonner.
         if stream is None and tap is None:
             return

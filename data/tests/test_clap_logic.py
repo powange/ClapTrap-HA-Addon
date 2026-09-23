@@ -100,3 +100,59 @@ def test_peak_ratio_relative_to_noise_floor():
     s.tracker.avg_level = 0.02   # environnement bruyant
     s.tracker.feed_peak(0.03, s.t)  # 1,5x le bruit : pas un pic (ratio 3)
     assert s.tracker.peak_times == []
+
+
+def test_noisy_room_start_no_false_peaks():
+    """Piece bruyante des le demarrage : aucun pic sur le bruit de fond."""
+    t = ClapTracker()
+    t.set_groups(GROUPS)
+    now = 1000.0
+    for i in range(100):  # 10 s de bruit a 0.05 +/- 20 %
+        t.feed_peak(0.05 * (0.8 + 0.4 * ((i * 7) % 10) / 10), now)
+        now += 0.1
+    assert t.peak_times == []
+
+
+def test_sustained_sound_counts_once():
+    """Son tenu 1,5 s (applaudissements, aspirateur) : un seul pic."""
+    t = ClapTracker()
+    t.set_groups(GROUPS)
+    now = 1000.0
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    for i in range(15):
+        t.feed_peak(0.3 + 0.03 * (i % 3), now); now += 0.1
+    assert len(t.peak_times) == 1
+
+
+def test_rapid_claps_with_reverb_still_counted():
+    """Claps rapides dont la reverberation ne redescend pas sous le seuil."""
+    t = ClapTracker()
+    t.set_groups(GROUPS)
+    now = 1000.0
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    for _ in range(3):  # clap, 3 blocs de reverberation a 30 %, creux
+        t.feed_peak(0.5, now); now += 0.1
+        for _ in range(3):
+            t.feed_peak(0.15, now); now += 0.1
+    assert len(t.peak_times) == 3
+
+
+def test_one_result_per_second_cadence():
+    """Si MediaPipe ne rend qu'un resultat par ~0,975 s : 2 claps comptes une fois."""
+    t = ClapTracker(window=1.5)
+    t.set_groups(GROUPS)
+    now, events = 1000.0, []
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    t.feed_peak(0.4, now); now += 0.1
+    for _ in range(3):
+        t.feed_peak(0.002, now); now += 0.1
+    t.feed_peak(0.4, now); now += 0.1
+    for step in range(40):
+        t.feed_peak(0.002, now)
+        if step % 10 == 0:  # un resultat par seconde
+            events += t.on_classification([('Clapping', 0.9 if step < 20 else 0.05)], now)
+        now += 0.1
+    assert [(e['clap_count'], e['ignored']) for e in events] == [(2, False)]

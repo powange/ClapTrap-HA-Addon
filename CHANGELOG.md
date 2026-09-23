@@ -1,5 +1,55 @@
 # Changelog
 
+## 6.32.0
+
+### Détection audio
+
+- **Multi-clap sur les caméras** : les pics sont comptés sur le signal avant
+  gain ; le gain de la source et l'auto-gain ne s'appliquent plus qu'au son
+  donné à YAMNet. Avec le gain RTSP par défaut (×10), le bruit de fond d'une
+  caméra faisait disparaître tous les pics : chaque détection valait « 1 clap ».
+- **Démarrage et sons tenus** : le bruit de fond est mesuré sur la première
+  seconde (plus de faux pics pendant ~40 s dans une pièce bruyante) et suivi
+  même pendant un son ; un son tenu (applaudissements, aspirateur) ne produit
+  plus un « pic » toutes les 0,4 s : après un son long, un nouveau pic exige un
+  creux net. Les claps rapides avec réverbération restent comptés.
+- **Deux flux VBAN d'un même PC** : chaque source VBAN a désormais un id stable
+  (ajouté automatiquement aux sources existantes), utilisé pour la détection,
+  les gains, les webhooks, les réglages et l'interface. Ils ne se mélangent plus,
+  et un classifieur ne fuit plus à chaque redémarrage. Deux sources sur le même
+  flux (même IP, même nom de flux) sont refusées.
+- **En-tête VBAN** : le nom du flux est lu sur 16 octets (le compteur de trame
+  était collé aux noms de 16 caractères : paquets perdus, sources fantômes).
+  Un flux multicast s'attache à son premier émetteur ; socket fermé si le port
+  6980 est occupé.
+- **Arrêt pendant l'initialisation** : un détecteur dont l'initialisation se
+  termine après l'arrêt est fermé au lieu de fuir.
+- **Horloge monotone** pour le comptage (un recalage NTP ne bloque plus la
+  détection).
+- **Volume automatique** : il vit avec la détection (l'activer pendant l'écoute
+  redémarre la détection au lieu de lancer un ajustement sans source de
+  niveau) ; nouvel algorithme : il baisse quand le son sature, monte seulement
+  si le fond est très faible et qu'aucun son fort n'a été entendu depuis 30 s
+  (il montait avant jusqu'à 150 % et n'en redescendait pas).
+- **Tests « Écouter cette source »** : un seul test à la fois côté serveur, qui
+  remplace proprement le précédent (plus de « Déjà en cours » sur la mauvaise
+  caméra), chien de garde, arrêt automatique après 2 minutes (onglet fermé),
+  ~10 niveaux par seconde (le test VBAN en envoyait ~190 et relisait les
+  réglages à chaque paquet), jeton d'annulation côté interface.
+- **Erreurs de flux visibles** : la dernière erreur de ffmpeg/parecord (ex.
+  « 401 Unauthorized ») est journalisée et remontée à l'interface ; un flux qui
+  meurt aussitôt n'est plus relancé chaque seconde.
+- Plus petit : sons exclus gardés en mémoire (plus de relecture des réglages à
+  chaque résultat), sons découverts enregistrés hors du thread MediaPipe,
+  30 labels examinés au lieu de 10, fenêtre de rattachement des pics ramenée à
+  1 s, composante continue et auto-gain lissés d'un bloc à l'autre, mises à jour
+  simultanées de la liste de sons protégées, latence VBAN limitée à 1 s,
+  redémarrage lent plus pris pour un échec, un seul « détection arrêtée ».
+- La cadence réelle des résultats YAMNet est mesurée et écrite dans le journal
+  au démarrage (« cadence YAMNet mesurée »), pour caler la protection
+  anti-redéclenchement. 4 nouveaux tests unitaires (démarrage bruyant, son tenu,
+  claps rapides, un résultat par seconde).
+
 ## 6.31.0
 
 ### Nouvelle interface

@@ -153,7 +153,7 @@
     // ---- Sources (modele commun a toutes les vues) ------------------------------
     // kind : mic | rtsp | vban
     // key  : cle de l'API unifiee (/api/sources/<kind>/<key>)
-    // apiKey : cle des routes de groupes (device_index | id | ip)
+    // apiKey : cle des routes de groupes (device_index | id)
     // sourceId : identifiant emis par le serveur pendant la detection
     CT.sourceList = function () {
         var s = CT.state.settings || {};
@@ -170,8 +170,10 @@
                       domId: 'src-rtsp-' + CT.slug(r.id), name: r.name || 'Caméra', enabled: !!r.enabled, data: r});
         });
         (s.saved_vban_sources || []).forEach(function (v) {
-            out.push({kind: 'vban', key: v.ip + '/' + v.name, apiKey: v.ip, sourceId: 'vban_' + v.ip,
-                      domId: 'src-vban-' + CT.slug(v.ip + '_' + v.name), name: v.name || v.ip,
+            // Id propre a chaque flux (deux flux d'une meme IP etaient confondus).
+            var vid = v.id || v.ip;
+            out.push({kind: 'vban', key: vid, apiKey: vid, sourceId: 'vban_' + vid,
+                      domId: 'src-vban-' + CT.slug(vid), name: v.name || v.ip,
                       enabled: !!v.enabled, data: v});
         });
         return out;
@@ -226,19 +228,32 @@
     })();
 
     // ---- Tests (VU-metre) : un seul a la fois, comme cote serveur -------------
+    // Le serveur remplace lui-meme le test en cours : pas de "stop" a envoyer
+    // avant un "start" (l'ancien couple stop/start non attendu se croisait).
     CT.stopTest = function (message) {
         var t = CT.state.testing;
         if (!t) return;
         CT.state.testing = null;
-        CT.api('POST', t.stopUrl).catch(function () {});
+        CT.api('POST', t.stopUrl, {token: t.token || null}).catch(function () {});
         if (CT.onTestChange) CT.onTestChange(t, false);
         if (message) CT.error(message);
     };
     CT.startTest = function (test) {
-        CT.stopTest();
-        return CT.api('POST', test.startUrl, test.body || {}).then(function () {
-            CT.state.testing = test;
+        var previous = CT.state.testing;
+        if (previous && CT.onTestChange) CT.onTestChange(previous, false);
+        CT.state.testing = test;  // enregistre AVANT la reponse : annulable
+        return CT.api('POST', test.startUrl, test.body || {}).then(function (d) {
+            test.token = d.token;
+            if (CT.state.testing !== test) {
+                // Annule pendant la requete (fenetre fermee, autre test) :
+                // arreter ce test cote serveur plutot que de le laisser tourner.
+                CT.api('POST', test.stopUrl, {token: d.token}).catch(function () {});
+                return;
+            }
             if (CT.onTestChange) CT.onTestChange(test, true);
+        }, function (err) {
+            if (CT.state.testing === test) CT.state.testing = null;
+            throw err;
         });
     };
     CT.testFor = function (src, url, gain) {
@@ -252,11 +267,12 @@
                     body: {id: src.key, url: url || src.data.url, gain: gain || src.data.gain || 10}};
         }
         return {key: 'vban_' + src.data.ip, domId: src.domId, startUrl: '/api/vban/test/start', stopUrl: '/api/vban/test/stop',
-                body: {ip: src.data.ip}};
+                body: {ip: src.data.ip, id: src.data.id || null}};
     };
     function onTestLevel(key, data) {
         var t = CT.state.testing;
         if (!t || t.key !== key) return;
+        if (t.token && data.token && data.token !== t.token) return;  // ancien test
         if (data.error) { CT.stopTest('Test interrompu : ' + data.error); return; }
         if (CT.onTestLevel) CT.onTestLevel(t, data);
     }

@@ -45,8 +45,8 @@ def stop_detection_route():
     try:
         # Arrêter la détection
         if stop_detection():
-            # Émettre un événement de statut avant d'arrter
-            _socketio.emit('detection_status', {'status': 'stopped'})
+            # detection_status 'stopped' est emis par la session a sa fin
+            # (l'emettre aussi ici le doublait).
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Impossible d\'arrêter la détection'}), 400

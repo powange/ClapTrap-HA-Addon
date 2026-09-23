@@ -156,7 +156,7 @@
         CT.api('POST', '/api/vban/save', src)
             .then(function (d) { return CT.reloadSettings().then(function () { return d.source; }); })
             .then(function (saved) {
-                created = CT.findSource(function (s) { return s.kind === 'vban' && s.data.ip === saved.ip && s.data.name === saved.name; });
+                created = CT.findSource(function (s) { return s.kind === 'vban' && s.data.id === saved.id; });
                 stepCheck();
             })
             .catch(function (err) { CT.error('Ajout impossible : ' + err.message); });
