@@ -1,5 +1,46 @@
 # Changelog
 
+## 6.37.0
+
+### Détection audio
+
+- **Un clap réverbéré ne compte plus pour deux** : un nouveau pic exige
+  désormais une vraie attaque (son nettement plus fort que le bloc précédent).
+  La décroissance d'un clap dans une pièce qui résonne était comptée comme un
+  2e clap et allumait l'entité « 2 claps ». Le réglage « Fin d'un pic »,
+  devenu inutile, est retiré.
+- **Plus de « 1 clap » sans clap** : un groupe qui publie des entités ne se
+  déclenche plus sans pic réel (des applaudissements à la télé allumaient
+  « 1 clap » toutes les 2,5 s). Un groupe sans entité (événement et webhook
+  seulement) se déclenche toujours, avec `clap_count: 0` s'il n'y a eu aucun pic.
+- **Claps publiés sans attendre** : les sons nouvellement entendus sont
+  enregistrés par lots sur leur propre fil (une écriture toutes les 2 s au
+  lieu d'une par son) ; le pulse MQTT part avant l'événement REST, lequel
+  réutilise sa connexion.
+- **Auto-gain** : baisse immédiate sur un son fort (le début des claps
+  n'est plus écrêté), remontée lente et progressive.
+- **Réglages modifiés pendant le démarrage** (son coché, réglage avancé,
+  exclusion) : pris en compte dès que le détecteur est prêt, au lieu d'être
+  ignorés jusqu'au redémarrage suivant.
+- **Fenêtre de rattachement des pics** portée à 1,2 s (1,5 s si YAMNet ne
+  rend qu'un résultat par seconde) : un double clap n'est plus compté 1 quand
+  l'inférence est lente.
+- **URL RTSP en majuscules** (`RTSP://…`) : ne devient plus `rtsp://RTSP://…`.
+- **« Tester le micro »** ne remet plus le volume enregistré quand
+  l'auto-volume tourne.
+
+### VBAN
+
+- **Source muette signalée** : sans paquet pendant 10 s, la carte affiche
+  « Aucun paquet reçu » et le journal l'explique ; un flux reçu de la bonne IP
+  sous un autre nom est signalé une fois.
+- **Nom de flux** nettoyé comme les en-têtes reçus : un nom saisi avec une
+  ponctuation finale (« Mic (L) ») correspond enfin.
+- **VU-mètre de test** : filtre sur l'IP et le nom, deux flux d'un même PC ne
+  se mélangent plus.
+- Statut de connexion affiché pour toutes les sources (événement
+  `source_status`, qui remplace `rtsp_status`).
+
 ## 6.36.0
 
 ### Interface

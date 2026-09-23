@@ -156,3 +156,72 @@ def test_one_result_per_second_cadence():
             events += t.on_classification([('Clapping', 0.9 if step < 20 else 0.05)], now)
         now += 0.1
     assert [(e['clap_count'], e['ignored']) for e in events] == [(2, False)]
+
+
+def _quiet_tracker(**kw):
+    t = ClapTracker(**kw)
+    t.set_groups(GROUPS)
+    now = 1000.0
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    return t, now
+
+
+def _decay(t, now, start, factor):
+    level = start
+    while level > 0.002:
+        t.feed_peak(level, now); now += 0.1
+        level *= factor
+    return now
+
+
+def test_reverberant_clap_counts_once():
+    """Clap dont la reverberation decroit lentement (40 a 75 % par bloc) : un pic.
+    Avant 6.37, le bloc qui passait sous le creux attendu etait recompte."""
+    for factor in (0.25, 0.4, 0.5, 0.6, 0.75):
+        t, now = _quiet_tracker()
+        _decay(t, now, 0.8, factor)
+        assert len(t.peak_times) == 1, factor
+
+
+def test_double_clap_in_reverberant_room():
+    t, now = _quiet_tracker()
+    level = 0.8                 # 1er clap, 0,5 s de reverberation a 60 %/bloc
+    for _ in range(5):
+        t.feed_peak(level, now); now += 0.1; level *= 0.6
+    _decay(t, now, 0.8, 0.6)
+    assert len(t.peak_times) == 2
+
+
+def test_clap_straddling_two_blocks_counts_once():
+    t, now = _quiet_tracker()
+    t.feed_peak(0.3, now); now += 0.1   # debut du clap en fin de bloc
+    t.feed_peak(0.8, now); now += 0.1   # le pic dans le bloc suivant
+    _decay(t, now, 0.3, 0.3)
+    assert len(t.peak_times) == 1
+
+
+def test_recognised_sound_without_peak_does_not_trigger_clap_entities():
+    """Applaudissements continus a la tele, sans transitoire : aucun evenement
+    pour un groupe qui publie des entites (avant : « 1 clap » toutes les 2,5 s)."""
+    t, now = _quiet_tracker()
+    events = []
+    for _ in range(100):
+        t.feed_peak(0.002, now)
+        events += t.on_classification([('Clapping', 0.9)], now)
+        now += 0.1
+    assert events == []
+
+
+def test_group_without_entities_triggers_without_peak_with_zero_count():
+    t = ClapTracker()
+    t.set_groups([{'slug': 'dog', 'name': 'Chien', 'whitelist': {'Bark': True},
+                   'threshold': 0.4, 'clap_counts': []}])
+    now, events = 1000.0, []
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    for i in range(20):
+        t.feed_peak(0.002, now)
+        events += t.on_classification([('Bark', 0.9 if i < 5 else 0.05)], now)
+        now += 0.1
+    assert [(e['group']['slug'], e['clap_count']) for e in events] == [('dog', 0)]

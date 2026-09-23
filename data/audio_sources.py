@@ -113,13 +113,19 @@ def rtsp_source(url):
 
 
 class VbanSource:
-    """Flux VBAN (ip, nom) : abonne une file au listener UDP partage."""
+    """Flux VBAN (ip, nom) : abonne une file au listener UDP partage.
 
-    def __init__(self, listener, ip, stream_name):
+    UDP ne signale pas un emetteur arrete : sans paquet pendant IDLE_TIMEOUT s,
+    on_idle(True, message) est appele (puis on_idle(False) au retour du flux).
+    """
+    IDLE_TIMEOUT = 10
+
+    def __init__(self, listener, ip, stream_name, on_idle=None):
         self.listener = listener
         self.ip = ip
         self.stream_name = stream_name
         self.name = f"VBAN {ip}/{stream_name}"
+        self._on_idle = on_idle
         # ~1 s de tampon : au-dela, les blocs les plus anciens sont jetes (avant :
         # 5 s, soit jusqu'a 5 s de retard de detection si l'inference traine).
         self._queue = queue.Queue(maxsize=10)
@@ -139,12 +145,28 @@ class VbanSource:
 
     def iter_blocks(self, stop_event):
         self.listener.add_source_callback(self.ip, self._on_chunk, stream_name=self.stream_name)
+        last = time.monotonic()
+        idle = False
         try:
             while not stop_event.is_set():
                 try:
-                    yield self._queue.get(timeout=0.5)
+                    block = self._queue.get(timeout=0.5)
                 except queue.Empty:
+                    if not idle and time.monotonic() - last >= self.IDLE_TIMEOUT:
+                        idle = True
+                        msg = (f"aucun paquet reçu depuis {self.IDLE_TIMEOUT} s "
+                               "(émetteur arrêté, IP ou nom de flux différent ?)")
+                        logging.warning(f"{self.name}: {msg}")
+                        if self._on_idle:
+                            self._on_idle(True, msg)
                     continue
+                last = time.monotonic()
+                if idle:
+                    idle = False
+                    logging.info(f"{self.name}: flux de nouveau reçu")
+                    if self._on_idle:
+                        self._on_idle(False, '')
+                yield block
         finally:
             self.listener.remove_source_callback(self.ip, self._on_chunk, stream_name=self.stream_name)
 

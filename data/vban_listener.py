@@ -116,6 +116,7 @@ class VBANDetector:
         self._warned = set()  # avertissements deja emis (un par flux et par cause)
         # Tap pour le VU-metre de test (une seule IP surveillee a la fois)
         self._test_tap_ip = None
+        self._test_tap_name = ''
         self._test_tap_callback = None
 
     # --- Abonnements -------------------------------------------------------
@@ -123,7 +124,10 @@ class VBANDetector:
     def add_source_callback(self, ip, callback, stream_name=''):
         """Enregistre un callback audio (blocs de 1600 echantillons a 16 kHz)
         pour le flux (ip, stream_name)."""
-        key = (ip, stream_name or '')
+        # Meme nettoyage que les en-tetes recus : un nom saisi a la main avec
+        # une ponctuation finale (« Mic (L) ») ne correspondait jamais.
+        stream_name = self.clean_vban_name(stream_name or '')
+        key = (ip, stream_name)
         with self._lock:
             self._streams[key] = {
                 'callback': callback,
@@ -141,7 +145,8 @@ class VBANDetector:
         enregistre. Evite qu'un ancien thread (lors d'un redemarrage) supprime
         le callback qu'un nouveau thread vient de reenregistrer.
         """
-        key = (ip, stream_name or '')
+        stream_name = self.clean_vban_name(stream_name or '')
+        key = (ip, stream_name)
         with self._lock:
             entry = self._streams.get(key)
             if entry is None or (callback is not None and entry.get('callback') is not callback):
@@ -158,7 +163,7 @@ class VBANDetector:
         ip=None / callback=None pour desactiver."""
         self._test_tap_callback = None
         self._test_tap_ip = ip
-        self._test_tap_name = stream_name if ip and self._is_multicast(ip) else ''
+        self._test_tap_name = self.clean_vban_name(stream_name or '') if ip else ''
         self._test_tap_callback = callback
 
     # --- Multicast -----------------------------------------------------------
@@ -351,9 +356,18 @@ class VBANDetector:
                             logging.warning(f"VBAN: flux « {hdr.name} » reçu aussi de {ip}, ignoré "
                                             f"(émetteur retenu : {sender})")
                         stream = None
+            if stream is None and any(k[0] == ip for k in self._streams):
+                self._warn_once((ip, hdr.name, 'name'),
+                                f"VBAN: flux « {hdr.name} » reçu de {ip} mais aucune source ne porte ce nom "
+                                f"(sources de cette IP : {', '.join(k[1] for k in self._streams if k[0] == ip)})")
 
-        tap_name = getattr(self, '_test_tap_name', '')
-        tap = self._test_tap_callback if (self._test_tap_ip == ip or (tap_name and hdr.name == tap_name)) else None
+        tap_ip, tap_name = self._test_tap_ip, self._test_tap_name
+        if tap_ip and self._is_multicast(tap_ip):
+            match = bool(tap_name) and hdr.name == tap_name
+        else:
+            # Unicast : IP et nom, deux flux d'un meme PC ne se melangent plus.
+            match = tap_ip == ip and (not tap_name or hdr.name == tap_name)
+        tap = self._test_tap_callback if match else None
         # Rien d'abonne a ce flux : ne pas decoder ni reechantillonner.
         if stream is None and tap is None:
             return

@@ -51,8 +51,7 @@ def toggle_debug():
     return jsonify({'success': True, 'debug': enabled})
 
 
-_ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2),
-                    'peak_ratio': (1, 50), 'peak_reset': (0, 5)}
+_ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50)}
 
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
@@ -72,7 +71,6 @@ def update_advanced_settings():
             peak_cooldown=values.get('peak_cooldown'),
             peak_ratio=values.get('peak_ratio'),
             delay=values.get('delay'),
-            peak_reset=values.get('peak_reset'),
         )
     except Exception as e:
         logging.warning(f"Réglages avancés non appliqués en direct: {e}")

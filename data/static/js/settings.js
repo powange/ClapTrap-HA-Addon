@@ -2,8 +2,8 @@
 (function () {
     'use strict';
     var CT = window.CT;
-    var DEFAULTS = {delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3.0, peak_reset: 0.3};
-    var FIELDS = {delay: 'adv-delay', peak_cooldown: 'adv-cooldown', peak_ratio: 'adv-ratio', peak_reset: 'adv-reset'};
+    var DEFAULTS = {delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3.0};
+    var FIELDS = {delay: 'adv-delay', peak_cooldown: 'adv-cooldown', peak_ratio: 'adv-ratio'};
 
     function fillAdvanced() {
         var g = CT.state.settings.global || {};

@@ -34,6 +34,7 @@ class AudioDetector:
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
+        self._last_total = 1.0    # gain total applique au bloc precedent
         self._cadence = []        # instants des premiers resultats (mesure de cadence)
         self._errors_logged = 0
         self._detection_callback = None
@@ -76,11 +77,11 @@ class AudioDetector:
             self.tracker.set_params(**params)
 
     def initialize(self, max_results=10, score_threshold=0.3, clap_window=1.5,
-                   peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
+                   peak_cooldown=0.08, peak_ratio=3.0):
         """Cree le classifieur YAMNet en mode flux."""
         self.score_threshold = score_threshold
         self.tracker.set_params(window=clap_window, peak_cooldown=peak_cooldown,
-                                peak_ratio=peak_ratio, peak_reset=peak_reset)
+                                peak_ratio=peak_ratio)
         # Pas de category_allowlist : les labels hors groupes sont remontes
         # pour l'auto-decouverte dans l'UI.
         options = audio.AudioClassifierOptions(
@@ -143,10 +144,17 @@ class AudioDetector:
             # sur les signaux faibles.
             boosted = raw_peak * gain
             target = min(0.15 / boosted, 5.0) if 0.003 < boosted < 0.05 and raw_peak > noise_floor * 2 else 1.0
-            self._agc = 0.7 * self._agc + 0.3 * target
+            # Baisse immediate (un clap n'est plus ecrete par le gain du bruit
+            # qui le precede), remontee lente.
+            self._agc = target if target < self._agc else 0.9 * self._agc + 0.1 * target
             total = gain * self._agc
-            if abs(total - 1.0) > 1e-3:
+            if total > self._last_total + 1e-3 and audio_data.size:
+                # Remontee en rampe sur le bloc : pas de marche toutes les 100 ms.
+                ramp = np.linspace(self._last_total, total, audio_data.size, dtype=np.float32)
+                audio_data = np.clip(audio_data * ramp, -1.0, 1.0)
+            elif abs(total - 1.0) > 1e-3:
                 audio_data = np.clip(audio_data * np.float32(total), -1.0, 1.0)
+            self._last_total = total
 
             if self._pending.size:
                 audio_data = np.concatenate((self._pending, audio_data))
@@ -181,8 +189,14 @@ class AudioDetector:
         self._cadence.append(time.monotonic())
         if len(self._cadence) == 31:
             gaps = [b - a for a, b in zip(self._cadence, self._cadence[1:])]
+            cadence = sorted(gaps)[len(gaps) // 2]
             logging.info(f"[{self.label}] cadence YAMNet mesurée : un résultat toutes les "
-                         f"{1000 * sorted(gaps)[len(gaps) // 2]:.0f} ms")
+                         f"{1000 * cadence:.0f} ms")
+            if cadence > 0.5:
+                # Un resultat par ~seconde : le pic d'un clap peut preceder de
+                # plus d'1 s le resultat qui le reconnait.
+                with self.lock:
+                    self.tracker.peak_lookback = 1.5
             self._cadence = None
 
     def _handle_result(self, result, timestamp):

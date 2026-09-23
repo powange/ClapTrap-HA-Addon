@@ -23,7 +23,6 @@ DEFAULT_SETTINGS = {
         "debug": False,
         "peak_cooldown": 0.08,
         "peak_ratio": 3.0,
-        "peak_reset": 0.3,
         "sound_exclusions": []
     },
     "microphone": {
@@ -307,6 +306,7 @@ def load_settings():
                 # encore les recuperer a la main.
                 logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire")
         _apply_group_migrations(merged)
+        merged.get('global', {}).pop('peak_reset', None)  # reglage retire en 6.37
         if saved is not None and (_ensure_vban_ids(merged) or mic_migrated):
             # Enregistrer tout de suite : des ids regeneres a chaque chargement
             # ne seraient pas stables.
@@ -549,7 +549,9 @@ def normalize_settings(data):
         if not isinstance(g, dict):
             raise ValueError("global : objet attendu")
         limits = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2),
-                  'peak_ratio': (1, 50), 'peak_reset': (0, 5)}
+                  'peak_ratio': (1, 50)}
+        # « Fin d'un pic » (6.36 et avant) : remplace par la detection d'attaque.
+        g.pop('peak_reset', None)
         for key, (lo, hi) in limits.items():
             if key in g:
                 g[key] = to_number(g[key], f"global.{key}", lo, hi)

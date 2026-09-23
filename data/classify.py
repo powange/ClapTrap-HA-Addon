@@ -33,6 +33,15 @@ DEFAULT_SOUND_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
 # Effets de bord d'une detection (evenement HA, MQTT, webhook) : executes hors
 # du thread d'inference. 1 worker : conserve l'ordre des evenements.
 _side_effects = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clap-effects")
+# Connexion HTTP reutilisee vers le Supervisor (une par clap sinon).
+_http = requests.Session()
+# Sons nouvellement entendus, enregistres par lots (une ecriture toutes les
+# SEEN_FLUSH_DELAY s) sur leur propre fil : chaque son reecrivait tout
+# settings.json sur le fil des claps, qui attendaient derriere sur carte SD.
+SEEN_FLUSH_DELAY = 2.0
+_seen_pending = {}     # (kind, source_key) -> {labels}
+_seen_lock = threading.Lock()
+_seen_timer = None
 
 _session = None
 _session_lock = threading.Lock()
@@ -95,7 +104,7 @@ def build_sources_from_settings(settings):
         })
     for src in settings.get('rtsp_sources', []):
         if src.get('enabled', False) and src.get('url'):
-            url = src['url'] if src['url'].startswith('rtsp') else f"rtsp://{src['url']}"
+            url = src['url'] if src['url'].lower().startswith('rtsp') else f"rtsp://{src['url']}"
             sources.append({
                 'type': 'rtsp', 'kind': 'rtsp',
                 # jamais l'URL dans l'id : elle peut contenir des identifiants
@@ -136,7 +145,6 @@ def detection_params_from_settings(settings):
         'delay': float(g.get('delay', 1.5)),
         'peak_cooldown': float(g.get('peak_cooldown', 0.08)),
         'peak_ratio': float(g.get('peak_ratio', 3.0)),
-        'peak_reset': float(g.get('peak_reset', 0.3)),
     }
 
 
@@ -144,21 +152,25 @@ def detection_params_from_settings(settings):
 
 def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, group_slug,
                       group_clap_counts, webhook_url):
-    """Evenement HA + entite MQTT + webhook d'une detection (worker dedie)."""
-    token = os.environ.get('SUPERVISOR_TOKEN')
-    if token:
-        try:
-            requests.post('http://supervisor/core/api/events/claptrap_clap',
-                          headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                          json=base_payload, timeout=3)
-        except Exception as e:
-            logging.warning(f"Evenement HA claptrap_clap non envoye: {e}")
+    """Entite MQTT + evenement HA + webhook d'une detection (worker dedie).
+
+    Le pulse MQTT passe en premier : il ne doit pas attendre l'API REST (Core
+    qui redemarre, Supervisor lent).
+    """
     try:
         from ha_entities import on_clap_detected
         on_clap_detected(entity_key, score, clap_count,
                          group_slug=group_slug, group_clap_counts=group_clap_counts)
     except Exception as e:
         logging.warning(f"Entite HA non mise a jour pour {source_id}: {e}")
+    token = os.environ.get('SUPERVISOR_TOKEN')
+    if token:
+        try:
+            _http.post('http://supervisor/core/api/events/claptrap_clap',
+                       headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                       json=base_payload, timeout=3)
+        except Exception as e:
+            logging.warning(f"Evenement HA claptrap_clap non envoye: {e}")
     if webhook_url:
         send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
 
@@ -184,6 +196,12 @@ class DetectionSession:
         except Exception:
             self.exclusions = set()
         self._last_live = {}  # (source_id, event) -> instant du dernier envoi
+        self.source_status = {}  # source_id -> connecting|connected|reconnecting|error
+
+    def _set_status(self, source_id, status, error=None):
+        self.source_status[source_id] = status
+        self._emit('source_status', {'source_id': source_id, 'status': status,
+                                     **({'error': error} if error else {})})
 
     def _emit(self, event, payload):
         if self.socketio:
@@ -246,8 +264,8 @@ class DetectionSession:
             if label in self.exclusions or label in self.seen[source_id]:
                 return
             self.seen[source_id].add(label)
-        # Ecriture disque hors du thread de resultats MediaPipe.
-        _side_effects.submit(_persist_sound_seen, src['kind'], src['source_key'], label)
+        # Ecriture disque groupee, hors du thread de resultats MediaPipe.
+        _queue_sound_seen(src['kind'], src['source_key'], label)
         self._emit('sound_seen', {'source_id': source_id, 'kind': src['kind'],
                                   'source_key': src['source_key'], 'label': label,
                                   'score': float(data.get('score', 0.0))})
@@ -263,7 +281,7 @@ class DetectionSession:
         det.initialize(max_results=30,
                        score_threshold=min(g.get('threshold', p['score_threshold']) for g in groups),
                        clap_window=p['delay'], peak_cooldown=p['peak_cooldown'],
-                       peak_ratio=p['peak_ratio'], peak_reset=p['peak_reset'])
+                       peak_ratio=p['peak_ratio'])
         det.set_groups(groups)
         det.set_exclusions(self.exclusions)
         det.configure(
@@ -287,6 +305,7 @@ class DetectionSession:
                 return None
             self.detectors[src['source_id']] = det
             self.seen[src['source_id']] = {l for g in groups for l in (g.get('whitelist') or {})}
+        self._apply_current_settings(src, det)
         try:
             from ha_entities import register_source
             register_source(src['entity_key'], label=src['label'],
@@ -294,6 +313,27 @@ class DetectionSession:
         except Exception as e:
             logging.warning(f"Entites HA non enregistrees pour {src['source_id']}: {e}")
         return det
+
+    def _apply_current_settings(self, src, det):
+        """Relit les reglages une fois le detecteur enregistre : un son coche
+        ou un reglage avance modifie pendant l'initialisation de YAMNet
+        (plusieurs secondes sur Pi) n'atteignait aucun detecteur et etait
+        ignore jusqu'au redemarrage suivant. Les routes enregistrent AVANT
+        d'appliquer en direct : ce qui n'a pas trouve le detecteur est ici."""
+        try:
+            settings = load_settings()
+            current = next((s for s in build_sources_from_settings(settings)
+                            if s['source_id'] == src['source_id']), None)
+            if current and current['groups']:
+                det.set_groups(current['groups'])
+            p = detection_params_from_settings(settings)
+            det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
+            exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
+            with self._lock:
+                self.exclusions = exclusions
+            det.set_exclusions(exclusions)
+        except Exception as e:
+            logging.warning(f"Réglages non relus pour {src['label']}: {e}")
 
     # --- Sources ---
 
@@ -327,7 +367,9 @@ class DetectionSession:
         if det is None:
             return  # arret demande pendant l'initialisation
         kind = src['type']
-        gain_of = on_status = auto_volume = None
+        sid = src['source_id']
+        gain_of = auto_volume = None
+        on_status = lambda status, error=None: self._set_status(sid, status, error)
         if kind == 'mic':
             reader, auto_volume = self._prepare_mic()
         elif kind == 'rtsp':
@@ -335,18 +377,15 @@ class DetectionSession:
             _rtsp_gains[url] = src.get('gain', 10.0)
             reader = rtsp_source(url)
             gain_of = lambda: _rtsp_gains.get(url, 10.0)
-            stream_id = src['source_key']
-            on_status = lambda status, error=None: self._emit(
-                'rtsp_status', {'id': stream_id, 'status': status, **({'error': error} if error else {})})
             logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={_rtsp_gains[url]}x)")
         else:
             listener = get_vban_detector()
             if listener is None:
                 logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
                 return
-            sid = src['source_id']
             _vban_gains[sid] = src.get('gain', 1.0)
-            reader = VbanSource(listener, src['ip'], src['stream_name'])
+            reader = VbanSource(listener, src['ip'], src['stream_name'],
+                                on_idle=lambda idle, msg: on_status('error', msg) if idle else on_status('connected'))
             gain_of = lambda: _vban_gains.get(sid, 1.0)
         with self._lock:
             self._readers.append(reader)
@@ -403,6 +442,7 @@ class DetectionSession:
             detectors = list(self.detectors.values())
         for det in detectors:
             det.stop()
+        _flush_sound_seen()
         try:
             from auto_volume import auto_volume_mgr
             auto_volume_mgr.stop()
@@ -436,7 +476,7 @@ class DetectionSession:
 # --- API de module ---------------------------------------------------------
 
 def start_detection(sources, socketio, score_threshold=0.5, delay=1.5,
-                    peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
+                    peak_cooldown=0.08, peak_ratio=3.0):
     global _session
     if not 0 <= score_threshold <= 1:
         raise ValueError("Score threshold must be between 0 and 1.")
@@ -445,7 +485,7 @@ def start_detection(sources, socketio, score_threshold=0.5, delay=1.5,
             return False
         _session = DetectionSession(sources, {
             'score_threshold': score_threshold, 'delay': delay,
-            'peak_cooldown': peak_cooldown, 'peak_ratio': peak_ratio, 'peak_reset': peak_reset,
+            'peak_cooldown': peak_cooldown, 'peak_ratio': peak_ratio,
         }, socketio)
         session = _session
     session.start()
@@ -490,7 +530,8 @@ def get_status():
     if s is None:
         return {'running': False, 'source': None}
     return {'running': True, 'source': s.label, 'since': s.started_at,
-            'sources': [src['source_id'] for src in s.sources]}
+            'sources': [src['source_id'] for src in s.sources],
+            'source_status': dict(s.source_status)}
 
 
 def get_detection_history():
@@ -586,12 +627,11 @@ def update_global_exclusions(labels):
         det.set_exclusions(labels)
 
 
-def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None, peak_reset=None):
+def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
     s = _current()
     detectors = list(s.detectors.values()) if s else []
     for det in detectors:
-        det.set_params(window=delay, peak_cooldown=peak_cooldown,
-                       peak_ratio=peak_ratio, peak_reset=peak_reset)
+        det.set_params(window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
     logging.info(f"Paramètres avancés mis à jour sur {len(detectors)} détecteur(s)")
 
 
@@ -619,24 +659,51 @@ def _ensure_label_in_groups(source_dict, label):
     return changed
 
 
-def _persist_sound_seen(kind, source_key, label):
-    """Enregistre un label nouvellement entendu (ecriture atomique)."""
+def _queue_sound_seen(kind, source_key, label):
+    """Programme l'enregistrement d'un son nouvellement entendu (par lots)."""
+    global _seen_timer
+    with _seen_lock:
+        _seen_pending.setdefault((kind, source_key), set()).add(label)
+        if _seen_timer is None:
+            _seen_timer = threading.Timer(SEEN_FLUSH_DELAY, _flush_sound_seen)
+            _seen_timer.daemon = True
+            _seen_timer.name = "sound-seen"
+            _seen_timer.start()
+
+
+def _flush_sound_seen():
+    """Enregistre en une ecriture atomique tous les sons en attente."""
+    global _seen_timer
+    with _seen_lock:
+        if _seen_timer is not None:
+            _seen_timer.cancel()
+            _seen_timer = None
+        pending = {k: set(v) for k, v in _seen_pending.items()}
+        _seen_pending.clear()
+    if not pending:
+        return
     try:
         from settings_manager import atomic_update, NO_CHANGE
 
         def _mutate(settings):
-            if kind == 'mic':
-                target = settings.setdefault('microphone', {})
-            else:
-                key = 'rtsp_sources' if kind == 'rtsp' else 'saved_vban_sources'
-                target = next((s for s in settings.get(key, [])
-                               if s.get('id') == source_key or (kind == 'vban' and not s.get('id')
-                                                                and s.get('ip') == source_key)), None)
-            return settings if target is not None and _ensure_label_in_groups(target, label) else NO_CHANGE
+            changed = False
+            for (kind, source_key), labels in pending.items():
+                if kind == 'mic':
+                    target = settings.setdefault('microphone', {})
+                else:
+                    key = 'rtsp_sources' if kind == 'rtsp' else 'saved_vban_sources'
+                    target = next((s for s in settings.get(key, [])
+                                   if s.get('id') == source_key or (kind == 'vban' and not s.get('id')
+                                                                    and s.get('ip') == source_key)), None)
+                if target is None:
+                    continue
+                for label in sorted(labels):
+                    changed = _ensure_label_in_groups(target, label) or changed
+            return settings if changed else NO_CHANGE
 
         atomic_update(_mutate)
     except Exception as exc:
-        logging.debug(f"_persist_sound_seen({kind},{source_key},{label}) a echoue: {exc}")
+        logging.warning(f"Sons entendus non enregistrés: {exc}")
 
 
 def get_all_known_labels():

@@ -11,7 +11,7 @@
         settings: window.initialSettings || {},
         devices: window.initialDevices || [],
         status: {running: false, source: null, since: null, sources: []},
-        rtspStatus: {},     // id -> connecting|connected|reconnecting|error
+        sourceStatus: {},   // sourceId -> connecting|connected|reconnecting|error
         live: {},           // sourceId -> {scores: {slug: [[t, score]...]}}
         testing: null,      // {key, stopUrl, domId}
         openPanels: {},     // ids des <details> ouverts (conserves entre rendus)

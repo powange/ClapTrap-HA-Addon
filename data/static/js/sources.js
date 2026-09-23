@@ -18,13 +18,10 @@
             if (src.kind === 'rtsp' && !src.data.url) return {text: 'URL à renseigner', cls: 'warn'};
             return {text: 'Prête', cls: 'idle'};
         }
-        if (src.kind === 'rtsp') {
-            var r = CT.state.rtspStatus[src.key];
-            if (r === 'connected') return {text: 'Connectée', cls: 'ok'};
-            if (r === 'reconnecting') return {text: 'Flux perdu, reconnexion…', cls: 'warn'};
-            if (r === 'error') return {text: 'Erreur de flux', cls: 'err'};
-            return {text: 'Connexion…', cls: 'warn'};
-        }
+        var r = CT.state.sourceStatus[src.sourceId] || (st.source_status || {})[src.sourceId];
+        if (r === 'reconnecting') return {text: 'Flux perdu, reconnexion…', cls: 'warn'};
+        if (r === 'error') return {text: src.kind === 'vban' ? 'Aucun paquet reçu' : src.kind === 'mic' ? 'Erreur du micro' : 'Erreur de flux', cls: 'err'};
+        if (src.kind === 'rtsp') return r === 'connected' ? {text: 'Connectée', cls: 'ok'} : {text: 'Connexion…', cls: 'warn'};
         return {text: "À l'écoute", cls: 'ok'};
     }
 
@@ -429,6 +426,7 @@
     // Detection arretee : les dernieres valeurs ne sont plus d'actualite.
     CT.resetLive = function () {
         CT.state.live = {};
+        CT.state.sourceStatus = {};
         CT.$$('.source-card').forEach(function (card) {
             CT.$$('.group-live', card).forEach(function (row) {
                 setScore(row, 0, 1);
@@ -498,9 +496,9 @@
         }
     });
 
-    CT.on('rtsp_status', function (d) {
-        if (!d || !d.id) return;
-        CT.state.rtspStatus[d.id] = d.status;
+    CT.on('source_status', function (d) {
+        if (!d || !d.source_id) return;
+        CT.state.sourceStatus[d.source_id] = d.status;
         CT.renderSourceStatuses();
     });
 

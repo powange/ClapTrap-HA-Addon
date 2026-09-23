@@ -19,7 +19,9 @@ class ClapTracker:
     # PEAK_LOOKBACK s, la fenetre d'analyse de YAMNet (~0.975 s) : au-dela,
     # ce n'est pas le son que YAMNet est en train de reconnaitre (choix assume :
     # un bruit sans rapport dans cette seconde peut encore etre compte).
-    PEAK_LOOKBACK = 1.0
+    # Marge de 0,2 s pour la duree d'inference ; portee a 1,5 s si MediaPipe
+    # ne rend qu'un resultat par seconde (cadence mesuree par le detecteur).
+    PEAK_LOOKBACK = 1.2
     # Blocs (100 ms) servant a mesurer le bruit de fond au demarrage : aucun
     # pic n'est compte pendant ce temps. Sans cela, le niveau partait de 0.001
     # et chaque bloc d'une piece bruyante etait un "pic" pendant ~40 s.
@@ -27,20 +29,25 @@ class ClapTracker:
     # Apres un declenchement, le score YAMNet reste haut ~1 s sur le meme son :
     # un groupe ne se re-arme qu'avec un nouveau pic ou apres ce delai.
     RETRIGGER_GUARD = 1.0
+    # Un nouveau pic pendant un son deja au-dessus du seuil exige une vraie
+    # attaque : bloc ATTACK_RATIO fois plus fort que le precedent, et au moins
+    # REATTACK_GAP s apres le dernier pic (un clap a cheval sur deux blocs ne
+    # compte qu'une fois). La decroissance d'un son (reverberation) ne remonte
+    # jamais : elle ne peut plus etre comptee comme un 2e clap.
+    ATTACK_RATIO = 1.5
+    REATTACK_GAP = 0.15
 
-    def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0, peak_reset=0.3):
+    def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0):
         self.window = window
         self.peak_cooldown = peak_cooldown
         self.peak_ratio = peak_ratio
-        self.peak_reset = peak_reset
+        self.peak_lookback = self.PEAK_LOOKBACK
         self.groups = []         # [{slug, name, whitelist, threshold, clap_counts}]
         self.exclusions = set()
         self.avg_level = 0.001   # niveau moyen du bruit de fond (signal brut)
         self._warmup = []
         self._above = False
-        self._held_peak = 0.0    # pic maximal du son en cours
-        self._need_dip = False   # son tenu : attendre un creux avant un nouveau pic
-        self._dip_level = 0.0
+        self._prev_peak = 0.0    # pic du bloc precedent (detection d'attaque)
         self._last_peak_time = 0.0
         self.peak_times = []
         self._consumed_until = 0.0
@@ -49,15 +56,13 @@ class ClapTracker:
 
     # --- Configuration ----------------------------------------------------
 
-    def set_params(self, window=None, peak_cooldown=None, peak_ratio=None, peak_reset=None):
+    def set_params(self, window=None, peak_cooldown=None, peak_ratio=None):
         if window is not None:
             self.window = float(window)
         if peak_cooldown is not None:
             self.peak_cooldown = float(peak_cooldown)
         if peak_ratio is not None:
             self.peak_ratio = float(peak_ratio)
-        if peak_reset is not None:
-            self.peak_reset = float(peak_reset)
 
     def set_groups(self, groups, default_threshold=0.3):
         normalised = []
@@ -97,30 +102,18 @@ class ClapTracker:
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
 
-        if self._need_dip and raw_peak < self._dip_level:
-            self._need_dip = False
-
-        if raw_peak > threshold and not self._above:
-            if self._need_dip:
-                return threshold  # meme son qui continue, pas un nouveau clap
-            # Front montant : nouveau pic
+        attack = (not self._above
+                  or (raw_peak > self._prev_peak * self.ATTACK_RATIO
+                      and (now - self._last_peak_time) > self.REATTACK_GAP))
+        if raw_peak > threshold and attack:
+            # Front montant ou nouvelle attaque : nouveau pic
             if (now - self._last_peak_time) > self.peak_cooldown:
                 self._last_peak_time = now
                 self.peak_times.append(now)
             self._above = True
-            self._held_peak = raw_peak
         elif raw_peak < threshold * 0.6:
             self._above = False
-            self._need_dip = False
-        elif self._above:
-            self._held_peak = max(self._held_peak, raw_peak)
-            if (now - self._last_peak_time) > self.peak_reset:
-                # Son qui dure (reverberation, claps rapides) : on le considere
-                # fini, mais le pic suivant n'est compte qu'apres un creux net.
-                # Sans ce creux, un son tenu produisait un "pic" toutes les 0,4 s.
-                self._above = False
-                self._need_dip = True
-                self._dip_level = self._held_peak * 0.6
+        self._prev_peak = raw_peak
         return threshold
 
     # --- Classification -----------------------------------------------------
@@ -129,8 +122,11 @@ class ClapTracker:
         """`categories` : [(label, score)]. Retourne la liste des evenements a
         declencher : dicts {group, clap_count, score, labels, ignored}."""
         fresh = [t for t in self.peak_times
-                 if t > self._consumed_until and t >= now - self.PEAK_LOOKBACK]
-        can_arm = bool(fresh) or (now - self._last_trigger) >= self.RETRIGGER_GUARD
+                 if t > self._consumed_until and t >= now - self.peak_lookback]
+        # Sans pic, seul un groupe sans entites (evenement et webhook seulement)
+        # peut s'armer : une tele qui diffuse des applaudissements declenchait
+        # sinon « 1 clap » toutes les 2,5 s.
+        can_arm_without_peak = (now - self._last_trigger) >= self.RETRIGGER_GUARD
 
         any_expired = False
         for group in self.groups:
@@ -141,7 +137,7 @@ class ClapTracker:
 
             if best >= group['threshold']:
                 if not state['armed_at']:
-                    if can_arm:
+                    if fresh or (can_arm_without_peak and not group['clap_counts']):
                         state['armed_at'] = fresh[0] if fresh else now
                         state['score'] = best
                         state['labels'] = {}
@@ -169,7 +165,8 @@ class ClapTracker:
                       if state['armed_at'] <= t <= now and t > self._consumed_until]
             candidates.append({
                 'group': group,
-                'clap_count': max(1, len(recent)),
+                # 0 : son reconnu sans aucun pic (groupe sans entites)
+                'clap_count': len(recent),
                 'score': float(state['score']),
                 'labels': sorted(({'label': n, 'score': s} for n, s in state['labels'].items()),
                                  key=lambda x: x['score'], reverse=True),

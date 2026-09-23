@@ -140,7 +140,10 @@ def start_mic_test():
     body = request.get_json(silent=True) or {}
     settings = load_settings()
     pulse_name = body.get('pulse_name') or _resolve_pulse_name(settings)
-    if pulse_name:
+    from auto_volume import auto_volume_mgr
+    if pulse_name and not auto_volume_mgr.running:
+        # Auto-volume actif : son volume courant n'est enregistre que toutes les
+        # 30 s, reappliquer la valeur enregistree le faisait sauter.
         from audio_utils import set_pulse_volume
         set_pulse_volume(pulse_name, settings.get('microphone', {}).get('volume', 100))
     test = _Test('mic', 'mic_level', {})
