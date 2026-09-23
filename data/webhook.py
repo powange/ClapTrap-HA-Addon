@@ -5,7 +5,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from url_validator import is_valid_url
+from url_validator import is_valid_url, mask_webhook_url
 
 
 def validate_webhook_url(url):
@@ -36,17 +36,20 @@ class WebhookManager:
         self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy))
         self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy))
 
-    def send_webhook(self, url, data):
+    def send_webhook(self, url, data, follow_redirects=True):
         """Envoie une requête webhook et retourne la réponse"""
         if not validate_webhook_url(url):
-            raise ValueError(f"URL webhook invalide: {url}")
+            raise ValueError("URL de webhook invalide (http:// ou https:// attendu)")
         try:
             # timeout = (connect, read) : fast-fail si l'hote ne repond pas.
-            response = self.session.post(url, json=data, timeout=(3, 5))
+            response = self.session.post(url, json=data, timeout=(3, 5), allow_redirects=follow_redirects)
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            logging.error(f"Webhook failed: {str(e)}")
+            # Le message de requests contient l'URL complete (donc le secret).
+            status = getattr(getattr(e, 'response', None), 'status_code', None)
+            logging.error(f"Webhook vers {mask_webhook_url(url)} en échec"
+                          + (f" (HTTP {status})" if status else f" ({type(e).__name__})"))
             raise
 
 
@@ -64,13 +67,13 @@ def send_webhook_async(url, payload):
     if not url:
         return
     if not validate_webhook_url(url):
-        logging.warning(f"URL webhook invalide, ignoree: {url}")
+        logging.warning(f"URL webhook invalide, ignorée : {mask_webhook_url(url)}")
         return
 
     def _send():
         try:
             _shared_manager.send_webhook(url, payload)
         except Exception as exc:
-            logging.debug(f"Webhook async vers {url} a echoue: {exc}")
+            logging.debug(f"Webhook vers {mask_webhook_url(url)} en échec : {type(exc).__name__}")
 
     _shared_executor.submit(_send)

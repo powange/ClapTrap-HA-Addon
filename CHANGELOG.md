@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.35.0
+
+### Sécurité
+
+- **Serveur de production** : l'add-on tourne désormais sous Gunicorn (worker
+  `gthread` + `simple-websocket`, la configuration recommandée par
+  Flask-SocketIO) au lieu du serveur de développement Werkzeug. Le temps réel
+  passe réellement en WebSocket (`simple-websocket` manquait : repli sur le
+  long polling).
+- **Port 16045 fermé au réseau local** : le serveur écoute uniquement sur
+  l'interface interne de Home Assistant (172.30.32.1) quand elle existe. Seul
+  l'ingress (172.30.32.2) est accepté ; la boucle locale ne l'est plus (avec
+  `host_network`, c'est celle de l'hôte, accessible aux autres add-ons).
+  `host_network` reste nécessaire pour VBAN (multicast).
+- **Test de webhook** : même payload que les vrais claps (plus `test: true`),
+  pas de redirection suivie, la réponse du serveur distant n'est plus renvoyée
+  au navigateur, erreur 400 pour une URL invalide.
+- **Identifiants de webhook masqués** dans les journaux (le chemin d'un webhook
+  Home Assistant est un secret).
+- Arrêt propre sous Gunicorn (hook `worker_exit`) ; démarrage automatique de la
+  détection au chargement de l'application.
+
 ## 6.34.0
 
 ### API et réglages

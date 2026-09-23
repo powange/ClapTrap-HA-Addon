@@ -38,3 +38,21 @@ def mask_url_credentials(url):
     if not url:
         return url
     return re.sub(r'(?<=://)[^/@\s]+@', '***@', str(url))
+
+
+def mask_webhook_url(url):
+    """URL de webhook pour les journaux : schema, hote et port seulement.
+
+    Le chemin d'un webhook Home Assistant (/api/webhook/<id>) EST le secret :
+    quiconque le connait peut declencher l'automation.
+    """
+    if not url:
+        return url
+    try:
+        parts = urlsplit(str(url))
+        if parts.scheme and parts.netloc:
+            host = parts.netloc.rsplit('@', 1)[-1]
+            return f"{parts.scheme}://{host}/…"
+    except ValueError:
+        pass
+    return '(URL masquée)'

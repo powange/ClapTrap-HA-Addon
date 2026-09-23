@@ -54,11 +54,12 @@ class IngressOnlyMiddleware:
 
     L'add-on tourne en host_network : sans ce filtre, le port 16045 (UI, API,
     Socket.IO) est joignable sans authentification depuis tout le LAN. Le
-    Supervisor proxifie l'ingress depuis 172.30.32.2 ; on autorise aussi la
-    boucle locale. Hors Home Assistant (dev local, pas de SUPERVISOR_TOKEN),
-    le filtre est desactive.
+    Supervisor proxifie l'ingress depuis 172.30.32.2 : c'est la seule adresse
+    acceptee (la boucle locale est celle de l'hote en host_network, donc
+    accessible aux autres add-ons). Hors Home Assistant (dev local, pas de
+    SUPERVISOR_TOKEN), le filtre est desactive.
     """
-    ALLOWED = {'172.30.32.2', '127.0.0.1', '::1'}
+    ALLOWED = {'172.30.32.2'}
 
     def __init__(self, app):
         self.app = app
@@ -123,9 +124,17 @@ except Exception as e:
     logging.warning(f"Init entites HA: {e}")
 
 
+_cleaned = False
+
+
 @atexit.register
 def cleanup():
-    """Nettoie les ressources lors de l'arrêt"""
+    """Nettoie les ressources lors de l'arrêt (appele par atexit, par le
+    handler SIGTERM en dev et par le hook worker_exit de Gunicorn)."""
+    global _cleaned
+    if _cleaned:
+        return
+    _cleaned = True
     # Fermer d'abord la detection (processus ffmpeg/parecord, classifieurs,
     # volume auto persiste), avec des delais courts : le superviseur tue le
     # processus apres quelques secondes.
@@ -142,9 +151,6 @@ def cleanup():
     cleanup_vban_detector()
 
 
-# SIGTERM (arret de l'add-on) : sans handler, Python meurt sans executer
-# atexit -> le capteur "detection" restait ON (message retenu).
-signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
 
 
 @app.route('/')
@@ -220,34 +226,43 @@ init_sources(socketio)
 init_testing(socketio)
 
 
+def _auto_start_if_configured():
+    """Demarre la detection au lancement si l'option est activee."""
+    if not load_settings().get('microphone', {}).get('auto_start', False):
+        return
+
+    def _delayed_auto_start():
+        time.sleep(3)
+        try:
+            logging.info("Auto-start: démarrage automatique de la détection...")
+            from classify import start_from_settings
+            started, sources = start_from_settings(socketio)
+            if started:
+                source_display = ' + '.join(s['label'] for s in sources)
+                logging.info(f"Auto-start: détection démarrée ({source_display})")
+                socketio.emit('detection_status', {'status': 'running', 'source': source_display})
+            elif not sources:
+                logging.warning("Auto-start: aucune source activée")
+            else:
+                logging.warning("Auto-start: la détection n'a pas pu démarrer")
+        except Exception as e:
+            logging.error(f"Auto-start: erreur - {e}")
+
+    threading.Thread(target=_delayed_auto_start, daemon=True).start()
+
+
+# En production, Gunicorn (worker gthread + simple-websocket, cf.
+# gunicorn.conf.py) importe ce module dans son unique worker.
+_auto_start_if_configured()
+
+
 if __name__ == '__main__':
-    # Auto-start detection si configuré
-    settings = load_settings()
-    if settings.get('microphone', {}).get('auto_start', False):
-        def _delayed_auto_start():
-            time.sleep(3)
-            try:
-                logging.info("Auto-start: démarrage automatique de la détection...")
-                from classify import start_from_settings
-                started, sources = start_from_settings(socketio)
-                if started:
-                    source_display = ' + '.join(s['label'] for s in sources)
-                    logging.info(f"Auto-start: détection démarrée ({source_display})")
-                    socketio.emit('detection_status', {'status': 'running', 'source': source_display})
-                elif not sources:
-                    logging.warning("Auto-start: aucune source activée")
-                else:
-                    logging.warning("Auto-start: la détection n'a pas pu démarrer")
-            except Exception as e:
-                logging.error(f"Auto-start: erreur - {e}")
-
-        threading.Thread(target=_delayed_auto_start, daemon=True).start()
-
+    # Developpement local uniquement : serveur Werkzeug.
+    # SIGTERM : sans handler, Python meurt sans executer atexit.
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     try:
-        # Désactiver le mode debug
         socketio.run(app, host='0.0.0.0', port=16045, debug=False, allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
-        cleanup_vban_detector()
-    except Exception as e:
-        logging.error(f"Erreur lors du démarrage du serveur: {e}")
-        cleanup_vban_detector()
+        pass
+    finally:
+        cleanup()

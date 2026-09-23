@@ -35,4 +35,5 @@ fi
 
 cd /usr/src/app || exit 1
 source /usr/src/app/venv/bin/activate
-exec python app.py
+# Serveur de production (Gunicorn, cf. gunicorn.conf.py)
+exec gunicorn -c gunicorn.conf.py app:app

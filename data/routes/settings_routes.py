@@ -144,31 +144,39 @@ def import_settings():
 
 @settings_bp.route('/api/webhook/test', methods=['POST'])
 def test_webhook():
+    """Envoie un webhook de test.
+
+    Meme payload que les vrais claps (plus test: true), pour qu'un test
+    reussi garantisse que l'automation fonctionnera. Pas de redirection, et la
+    reponse du serveur distant n'est jamais renvoyee au navigateur (la route
+    pouvait servir a lire des services internes).
+    """
+    from url_validator import is_valid_url
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url') or '').strip()
+    if not url:
+        return jsonify({'error': 'URL manquante'}), 400
+    if not is_valid_url(url):
+        return jsonify({'error': 'URL invalide : http:// ou https:// attendu'}), 400
+    payload = {
+        'event': 'clap',
+        'test': True,
+        'source_id': str(data.get('source') or 'test'),
+        'timestamp': datetime.now().timestamp(),
+        'score': 0.9,
+        'clap_count': 1,
+        'labels': [{'label': 'Clapping', 'score': 0.9}],
+        'group_slug': 'clap',
+        'group_name': 'Clap',
+        'ignored': False,
+    }
     try:
-        data = request.get_json()
-        if not data or 'url' not in data:
-            return jsonify({'error': 'URL manquante'}), 400
-
-        url = data['url']
-        source = data.get('source', 'test')
-
-        # Créer les données de test
-        test_data = {
-            'event': 'test',
-            'source': source,
-            'timestamp': datetime.now().isoformat(),
-            'test': True
-        }
-
-        try:
-            response = _webhook_manager.send_webhook(url, test_data)
-            return jsonify({'success': True, 'message': 'Test réussi'})
-
-        except requests.exceptions.RequestException as e:
-            error_message = str(e)
-            if hasattr(e.response, 'text'):
-                error_message = f"{error_message}: {e.response.text}"
-            return jsonify({'error': f'Échec du test: {error_message}'}), 500
-
-    except Exception as e:
-        return jsonify({'error': f'Erreur: {str(e)}'}), 500
+        response = _webhook_manager.send_webhook(url, payload, follow_redirects=False)
+    except requests.exceptions.HTTPError as e:
+        status = getattr(e.response, 'status_code', '?')
+        return jsonify({'error': f'Le serveur a répondu HTTP {status}'}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Serveur injoignable ({type(e).__name__})'}), 502
+    if 300 <= response.status_code < 400:
+        return jsonify({'error': f'Redirection refusée (HTTP {response.status_code})'}), 502
+    return jsonify({'success': True, 'message': 'Test réussi'})

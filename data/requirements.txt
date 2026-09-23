@@ -5,3 +5,5 @@ scipy>=1.11
 flask
 flask_socketio
 paho-mqtt>=2.0,<3
+gunicorn>=22,<24
+simple-websocket>=1.0,<2
