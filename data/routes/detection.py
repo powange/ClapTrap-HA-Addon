@@ -68,3 +68,10 @@ def status():
 @detection_bp.route('/api/detections/history', methods=['GET'])
 def detection_history():
     return jsonify(get_detection_history())
+
+
+@detection_bp.route('/api/detections/history', methods=['DELETE'])
+def clear_detection_history_route():
+    from classify import clear_detection_history
+    clear_detection_history()
+    return jsonify({'success': True})

@@ -237,9 +237,6 @@
     </main>
 
     <footer>
-        {% if debug %}
-        <a href="#" onclick="runTests(); return false;">Tests</a> |
-        {% endif %}
         <a href="https://korben.info">Korben</a> & <a href="https://lesfrerespoulain.fr/">Les Freres Poulain</a>
     </footer>
 
@@ -257,7 +254,128 @@
     <!-- Fallback inline -->
     <script type="text/javascript">
     (function() {
-        var testing = false;
+        // ===== Outils partages =====================================================
+        var basePath = window.basePath || '';
+
+        // Une seule connexion Socket.IO pour toute la page (il y en avait 3, avec
+        // des politiques de reconnexion differentes). Reconnexion illimitee.
+        if (!window.claptrapSocket && typeof io === 'function') {
+            window.claptrapSocket = io({path: basePath + '/socket.io'});
+        }
+
+        function _notify(id, msg, ms) {
+            var box = document.getElementById(id);
+            if (!box) { console.log(msg); return; }
+            box.textContent = msg;
+            box.style.display = 'block';
+            clearTimeout(box._timer);
+            box._timer = setTimeout(function() { box.style.display = 'none'; }, ms);
+        }
+        function showUiError(msg) { _notify('error', msg, 6000); }
+        function showUiSuccess(msg) { _notify('success', msg, 2500); }
+        window.showUiError = showUiError;
+        window.showUiSuccess = showUiSuccess;
+
+        // Verifie r.ok + data.success, sinon rejette avec le message du serveur.
+        function _checkJson(r) {
+            return r.json().catch(function() { return {}; }).then(function(d) {
+                if (!r.ok || (d && d.success === false)) {
+                    throw new Error((d && d.error) || ('HTTP ' + r.status));
+                }
+                return d;
+            });
+        }
+        function apiSend(method, url, body) {
+            var opts = {method: method, headers: {'Content-Type': 'application/json'}};
+            if (body !== undefined) opts.body = JSON.stringify(body);
+            return fetch(basePath + url, opts).then(_checkJson);
+        }
+        window.apiSend = apiSend;
+
+        // Echappement pour les selecteurs CSS (un guigemet dans un label levait
+        // une exception).
+        function cssq(s) {
+            s = String(s == null ? '' : s);
+            return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/["\\\]\[]/g, '\\$&');
+        }
+
+        // Boites de dialogue dans la page : alert/confirm/prompt sont bloques ou
+        // peu fiables dans l'iframe d'ingress et l'app compagnon HA.
+        function uiDialog(message, opts) {
+            opts = opts || {};
+            return new Promise(function(resolve) {
+                var back = document.createElement('div');
+                back.className = 'ui-dialog-backdrop';
+                var box = document.createElement('div');
+                box.className = 'ui-dialog';
+                box.setAttribute('role', 'dialog');
+                box.setAttribute('aria-modal', 'true');
+                var p = document.createElement('p');
+                p.textContent = message;
+                box.appendChild(p);
+                var input = null;
+                if (opts.prompt) {
+                    input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = opts.value || '';
+                    input.setAttribute('aria-label', message);
+                    box.appendChild(input);
+                }
+                var actions = document.createElement('div');
+                actions.className = 'ui-dialog-actions';
+                var cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'btn btn-secondary btn-sm';
+                cancel.textContent = 'Annuler';
+                var ok = document.createElement('button');
+                ok.type = 'button';
+                ok.className = 'btn btn-sm ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+                ok.textContent = opts.okLabel || 'OK';
+                actions.appendChild(cancel);
+                actions.appendChild(ok);
+                box.appendChild(actions);
+                back.appendChild(box);
+                document.body.appendChild(back);
+                var previous = document.activeElement;
+                function close(value) {
+                    document.removeEventListener('keydown', onKey, true);
+                    back.remove();
+                    if (previous && previous.focus) previous.focus();
+                    resolve(value);
+                }
+                function onKey(e) {
+                    if (e.key === 'Escape') { e.preventDefault(); close(opts.prompt ? null : false); }
+                    else if (e.key === 'Enter' && (!input || document.activeElement === input)) {
+                        e.preventDefault(); close(opts.prompt ? input.value : true);
+                    }
+                }
+                document.addEventListener('keydown', onKey, true);
+                cancel.addEventListener('click', function() { close(opts.prompt ? null : false); });
+                ok.addEventListener('click', function() { close(opts.prompt ? input.value : true); });
+                back.addEventListener('click', function(e) { if (e.target === back) close(opts.prompt ? null : false); });
+                (input || ok).focus();
+            });
+        }
+        function uiConfirm(message, okLabel) { return uiDialog(message, {okLabel: okLabel || 'Supprimer', danger: true}); }
+        function uiPrompt(message, value) { return uiDialog(message, {prompt: true, value: value, okLabel: 'Créer'}); }
+        window.uiConfirm = uiConfirm;
+        window.uiPrompt = uiPrompt;
+
+        // Test des webhooks (les boutons "Tester" ne faisaient plus rien depuis
+        // que webhooks.js n'est plus importe).
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest && e.target.closest('.test-webhook');
+            if (!btn) return;
+            var group = btn.closest('.webhook-input-with-test');
+            var input = group ? group.querySelector('input[type="url"]') : null;
+            var url = input ? input.value.trim() : '';
+            if (!url) { showUiError('Saisissez d\'abord l\'URL du webhook.'); return; }
+            btn.disabled = true;
+            apiSend('POST', '/api/webhook/test', {url: url, source: btn.getAttribute('data-source') || 'test'})
+                .then(function() { showUiSuccess('Webhook reçu par ' + url); })
+                .catch(function(err) { showUiError('Test du webhook échoué : ' + err.message); })
+                .finally(function() { btn.disabled = false; });
+        });
 
         // Reconstruit le source_id emis par le backend pour une source, afin de
         // router les evenements socket (labels/clap) vers la bonne carte.
@@ -281,8 +399,48 @@
             return '';
         }
 
+        // Cle stable d'une source VBAN (IP + nom) : l'index dans la liste se
+        // decalait des qu'un autre onglet ajoutait ou supprimait une source.
+        function vbanKey(s) { return _makeSlug((s.ip || '') + '_' + (s.name || '')); }
+        function findVban(ip, name) {
+            return ((window.settings || {}).saved_vban_sources || []).filter(function(v) {
+                return v.ip === ip && v.name === name;
+            })[0] || null;
+        }
+        function micVisible(settings) {
+            return !!(settings.microphone && settings.microphone.configured !== false);
+        }
+
+        // ===== Tests (VU-metres) : un seul a la fois, comme cote serveur =====
+        window._sourceTesting = window._sourceTesting || {};
+        function _resetTestUi(t) {
+            if (!t) return;
+            if (t.btn) { t.btn.innerHTML = t.labelStart; t.btn.classList.remove('active'); }
+            if (t.vu) t.vu.style.display = 'none';
+        }
+        function stopAllTests() {
+            var running = window._sourceTesting;
+            window._sourceTesting = {};
+            Object.keys(running).forEach(function(k) {
+                var t = running[k];
+                apiSend('POST', t.stopUrl).catch(function() {});
+                _resetTestUi(t);
+            });
+        }
+        function stopTest(key, message) {
+            var t = window._sourceTesting[key];
+            if (!t) return;
+            delete window._sourceTesting[key];
+            apiSend('POST', t.stopUrl).catch(function() {});
+            _resetTestUi(t);
+            if (message) showUiError(message);
+        }
+        window.stopAllTests = stopAllTests;
+
         // ===== Tab System =====
         function buildTabs() {
+            // Les boutons de test sont recrees : arreter les tests en cours.
+            stopAllTests();
             // Garder la table sources synchronisee avec les onglets.
             try { if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable(); } catch (e) {}
             var tabs = document.getElementById('source-tabs');
@@ -295,7 +453,7 @@
             var settings = window.settings || {};
 
             // Micro
-            if (settings.microphone) {
+            if (micVisible(settings)) {
                 sources.push({type: 'mic', id: 'mic', name: settings.microphone.audio_source || 'Microphone', data: settings.microphone});
             }
 
@@ -305,8 +463,8 @@
             });
 
             // VBAN
-            (settings.saved_vban_sources || []).forEach(function(s, i) {
-                sources.push({type: 'vban', id: 'vban_' + i, name: s.name || 'VBAN', data: s});
+            (settings.saved_vban_sources || []).forEach(function(s) {
+                sources.push({type: 'vban', id: 'vban_' + vbanKey(s), name: s.name || 'VBAN', data: s});
             });
 
             // Selecteur de source sous forme de dropdown : evite le
@@ -364,9 +522,24 @@
                     }
                 }
             } catch (_e) {}
+            if (typeof updateStartButton === 'function') updateStartButton();
         }
 
+        function activeTabId() {
+            var select = document.getElementById('source-select');
+            return select ? select.value : null;
+        }
+        // Reconstruit les onglets en restant sur l'onglet courant.
+        function rebuildTabsKeepActive() {
+            var active = activeTabId();
+            buildTabs();
+            if (active && document.getElementById('panel-' + active)) switchTab(active);
+            if (typeof refreshHaEntities === 'function') refreshHaEntities();
+        }
+        window.rebuildTabsKeepActive = rebuildTabsKeepActive;
+
         function switchTab(tabId) {
+            stopAllTests();
             document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
             var panel = document.getElementById('panel-' + tabId);
             if (panel) panel.classList.add('active');
@@ -386,12 +559,21 @@
         function buildMicTab(src) {
             var d = src.data;
             var devices = window.devices || [];
-            var deviceOptions = '';
-            devices.forEach(function(dev) {
-                var val = dev.index + '|' + dev.name + '|' + (dev.pulse_name || '');
-                var sel = (dev.name === d.audio_source) ? ' selected' : '';
-                deviceOptions += '<option value="' + escAttr(val) + '"' + sel + '>' + esc(dev.name) + '</option>';
+            // Valeur = position dans window.devices (un nom contenant "|" cassait
+            // l'ancien format "index|nom|pulse"). Le micro reellement utilise est
+            // toujours selectionne, meme "default" ou un micro debranche.
+            var current = d.audio_source || 'default';
+            var found = devices.some(function(dev) { return dev.name === current; });
+            var deviceOptions = '<option value="default"' + (current === 'default' ? ' selected' : '') + '>Micro par défaut du système</option>';
+            if (!found && current !== 'default') {
+                deviceOptions += '<option value="current" selected>' + esc(current) + ' (non détecté)</option>';
+            }
+            devices.forEach(function(dev, i) {
+                var sel = (dev.name === current) ? ' selected' : '';
+                deviceOptions += '<option value="dev:' + i + '"' + sel + '>' + esc(dev.name) + '</option>';
             });
+            var noDeviceHint = devices.length ? '' :
+                '<span class="setting-hint">Aucun micro détecté par Home Assistant (Paramètres &gt; Système &gt; Matériel).</span>';
             var enabled = d.enabled ? ' checked' : '';
             var autoVol = d.auto_volume ? ' checked' : '';
             var volDisabled = d.auto_volume ? ' disabled' : '';
@@ -410,6 +592,7 @@
                 '<div class="source-selector">' +
                     '<label for="micro_source">Source :</label>' +
                     '<select name="micro_source" id="micro_source">' + deviceOptions + '</select>' +
+                    noDeviceHint +
                 '</div>' +
                 '<div class="mic-volume-section">' +
                     '<div class="mic-volume-header">' +
@@ -455,7 +638,7 @@
                     '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="rtsp-enabled-toggle" data-id="' + escAttr(streamId) + '"' + enabled + '><span class="slider round"></span></label>' +
                     '<span class="source-type-icon">&#x1F4F9;</span>' +
                     '<input type="text" class="rtsp-name-input" data-id="' + escAttr(streamId) + '" value="' + escAttr(name) + '">' +
-                    '<span class="rtsp-status-dot status-connecting" data-id="' + escAttr(streamId) + '" title="Connexion..."></span>' +
+                    '<span class="rtsp-status-dot status-idle" data-id="' + escAttr(streamId) + '" title="Détection arrêtée"></span>' +
                 '</div>' +
                 '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="rtsp" data-id="' + escAttr(streamId) + '">&#x274C; Supprimer</button>' +
             '</div>' +
@@ -517,8 +700,8 @@
             if (allGroups.length === 0) {
                 html += '<div class="sound-groups-empty">Aucun groupe configure.</div>';
             } else {
-                allGroups.forEach(function(g) {
-                    html += renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName);
+                allGroups.forEach(function(g, idx) {
+                    html += renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName, idx === 0);
                 });
             }
             html += '</div></div>';
@@ -534,7 +717,7 @@
         }
 
         function _buildSourceSlug(kind, sourceKey, sourceName) {
-            if (kind === 'mic') return _makeSlug('mic_' + sourceKey);
+            if (kind === 'mic') return 'mic';  // cle stable (cf. ha_entities.source_entity_key)
             if (kind === 'rtsp') return _makeSlug('rtsp_' + String(sourceKey).substring(0, 8));
             if (kind === 'vban') {
                 // VBAN : privilegier le nom (plus parlant dans HA),
@@ -554,15 +737,15 @@
             });
         }
 
-        function renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName) {
+        function renderGroupCard(kind, sourceKey, g, enabledByGroup, sourceName, isDefault) {
             var slug = g.slug;
             var name = g.name || slug;
             var threshold = g.threshold !== undefined ? g.threshold : 0.5;
             var ha = g.ha_entities || [1, 2];
             var wl = g.sound_whitelist || {};
-            // Le groupe par defaut "clap" ne peut pas etre supprime
+            // Le groupe par defaut (le premier) ne peut pas etre supprime
             // (cf. route DELETE /api/source/sound_groups). On masque le bouton.
-            var deleteBtn = (slug === 'clap')
+            var deleteBtn = isDefault
                 ? ''
                 : '<button type="button" class="btn btn-danger btn-sm sound-group-delete" title="Supprimer ce groupe">&#x1F5D1;</button>';
             var entities = _buildGroupEntities(kind, sourceKey, slug, ha, sourceName);
@@ -636,11 +819,11 @@
 
             return '<div class="source-header">' +
                 '<div style="display:flex;align-items:center;gap:0.5rem;">' +
-                    '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="vban-enabled-toggle" data-index="' + src.id.replace('vban_', '') + '"' + enabledAttr + '><span class="slider round"></span></label>' +
+                    '<label class="switch" title="Activer/Desactiver"><input type="checkbox" class="vban-enabled-toggle" data-ip="' + escAttr(ip) + '" data-name="' + escAttr(name) + '"' + enabledAttr + '><span class="slider round"></span></label>' +
                     '<strong><span class="source-type-icon icon-vban"></span> ' + esc(name) + '</strong>' +
                     castBadge +
                 '</div>' +
-                '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + src.id.replace('vban_', '') + '">&#x274C; Supprimer</button>' +
+                '<button type="button" class="btn btn-danger btn-sm delete-source-btn" data-type="vban" data-id="' + escAttr(src.id) + '">&#x274C; Supprimer</button>' +
             '</div>' +
             '<div class="source-config">' +
                 '<div class="setting-item vban-info-line">' +
@@ -649,7 +832,7 @@
                 '</div>' +
                 '<div class="setting-item">' +
                     '<label>Volume : <span class="vban-gain-value">' + gain + 'x</span></label>' +
-                    '<input type="range" class="vban-gain" data-index="' + src.id.replace('vban_', '') + '" min="1" max="20" step="1" value="' + gain + '">' +
+                    '<input type="range" class="vban-gain" data-ip="' + escAttr(ip) + '" data-name="' + escAttr(name) + '" min="1" max="20" step="1" value="' + gain + '">' +
                 '</div>' +
                 '<div class="mic-test-section">' +
                     '<button type="button" class="btn-mic-test vban-test-btn" data-ip="' + escAttr(ip) + '"><span class="source-type-icon icon-vban"></span> Tester le flux</button>' +
@@ -661,8 +844,8 @@
                 '<div class="webhook-input-group">' +
                     '<label class="form-label">Webhook</label>' +
                     '<div class="webhook-input-with-test">' +
-                        '<input type="url" class="vban-webhook-url webhook-url" data-index="' + src.id.replace('vban_', '') + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
-                        '<button type="button" class="test-webhook" data-source="vban_' + src.id.replace('vban_', '') + '">&#x1F514; Tester</button>' +
+                        '<input type="url" class="vban-webhook-url webhook-url" data-ip="' + escAttr(ip) + '" data-name="' + escAttr(name) + '" value="' + escAttr(webhookUrl) + '" placeholder="https://votre-serveur.com/webhook">' +
+                        '<button type="button" class="test-webhook" data-source="vban_' + escAttr(ip) + '">&#x1F514; Tester</button>' +
                     '</div>' +
                 '</div>' +
                 '<div class="ha-entities-info" data-source="' + src.id + '"></div>' +
@@ -711,29 +894,25 @@
             var basePath = window.basePath || '';
             var settings = window.settings || {};
             if (type === 'mic') {
-                if (settings.microphone) {
-                    alert('Un microphone est deja configure.');
+                if (micVisible(settings)) {
+                    switchTab('mic');
+                    showUiError('Un seul microphone peut être configuré : il est déjà dans la liste.');
                     return;
                 }
-                settings.microphone = {enabled: true, audio_source: '', webhook_url: '', volume: 100, auto_volume: false, threshold: 0.5, auto_start: false};
-                window.settings = settings;
-                buildTabs();
-                switchTab('mic');
+                apiSend('POST', '/api/microphone').then(function(data) {
+                    window.settings.microphone = data.microphone;
+                    buildTabs();
+                    switchTab('mic');
+                }).catch(function(err) { showUiError('Ajout du micro impossible : ' + err.message); });
             } else if (type === 'rtsp') {
-                fetch(basePath + '/api/rtsp/stream', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name: 'Nouveau RTSP', url: '', enabled: false, gain: 10, threshold: 0.5})
-                }).then(function(r) { return r.json(); })
+                apiSend('POST', '/api/rtsp/stream', {name: 'Nouveau RTSP', url: '', enabled: false, gain: 10, threshold: 0.5})
                   .then(function(data) {
-                      if (data.success && data.stream) {
-                          if (!window.settings.rtsp_sources) window.settings.rtsp_sources = [];
-                          window.settings.rtsp_sources.push(data.stream);
-                          buildTabs();
-                          switchTab('rtsp_' + data.stream.id);
-                      }
+                      if (!window.settings.rtsp_sources) window.settings.rtsp_sources = [];
+                      window.settings.rtsp_sources.push(data.stream);
+                      buildTabs();
+                      switchTab('rtsp_' + data.stream.id);
                   })
-                  .catch(function(err) { console.error('Add RTSP error:', err); });
+                  .catch(function(err) { showUiError('Ajout de la caméra impossible : ' + err.message); });
             } else if (type === 'vban') {
                 openVbanPickerModal();
             }
@@ -760,27 +939,6 @@
                 }).catch(function() {});
             }
 
-            // Affiche une erreur transitoire dans la banniere #error.
-            function showUiError(msg) {
-                var box = document.getElementById('error');
-                if (!box) { console.error(msg); return; }
-                box.textContent = msg;
-                box.style.display = 'block';
-                clearTimeout(window._uiErrTimer);
-                window._uiErrTimer = setTimeout(function() { box.style.display = 'none'; }, 5000);
-            }
-            // Expose pour les fonctions hors de ce scope (ex: deleteSource).
-            window.showUiError = showUiError;
-
-            // Verifie r.ok + data.success, sinon rejette avec un message.
-            function _checkJson(r) {
-                return r.json().catch(function() { return {}; }).then(function(d) {
-                    if (!r.ok || (d && d.success === false)) {
-                        throw new Error((d && d.error) || ('HTTP ' + r.status));
-                    }
-                    return d;
-                });
-            }
 
             // opts: { putUrl(toggle), putBody(toggle), onLocalChange?(toggle) }
             function bindEnabledToggle(toggle, opts) {
@@ -864,31 +1022,28 @@
             //   startUrl, startBody?(btn)=>object, stopUrl,
             //   vuSelector?: string
             // }
-            if (!window._sourceTesting) window._sourceTesting = {};
             function bindTestButton(btn, opts) {
                 var key = opts.key(btn);
                 btn.addEventListener('click', function() {
                     var panel = btn.closest('.tab-panel');
                     var vu = panel && opts.vuSelector ? panel.querySelector(opts.vuSelector) : null;
                     if (window._sourceTesting[key]) {
-                        fetch(basePath + opts.stopUrl, {method: 'POST'});
-                        window._sourceTesting[key] = false;
-                        btn.textContent = opts.labelStart;
-                        btn.classList.remove('active');
-                        if (vu) vu.style.display = 'none';
-                    } else {
-                        fetch(basePath + opts.startUrl, {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: opts.startBody ? JSON.stringify(opts.startBody(btn)) : null
-                        }).then(function(r) { return r.json(); }).then(function(data) {
-                            if (data.success) {
-                                window._sourceTesting[key] = true;
-                                btn.textContent = opts.labelStop;
-                                btn.classList.add('active');
-                                if (vu) vu.style.display = 'flex';
-                            }
-                        }).catch(function(err) { console.error('Test error:', err); });
+                        stopTest(key);
+                        return;
                     }
+                    // Le serveur ne gere qu'un test a la fois : arreter les autres.
+                    stopAllTests();
+                    btn.disabled = true;
+                    apiSend('POST', opts.startUrl, opts.startBody ? opts.startBody(btn) : {})
+                        .then(function() {
+                            window._sourceTesting[key] = {stopUrl: opts.stopUrl, btn: btn,
+                                                          labelStart: opts.labelStart, vu: vu};
+                            btn.innerHTML = opts.labelStop;
+                            btn.classList.add('active');
+                            if (vu) vu.style.display = 'flex';
+                        })
+                        .catch(function(err) { showUiError('Test impossible : ' + err.message); })
+                        .finally(function() { btn.disabled = false; });
                 });
             }
             // -----------------------------------------------------------------
@@ -918,34 +1073,26 @@
                 });
             }
 
-            // Mic source selector auto-save (via dedicated fields, not full settings)
+            // Changement de micro : route dediee qui n'ecrit que le device.
             var micSource = document.getElementById('micro_source');
             if (micSource) {
                 micSource.addEventListener('change', function() {
-                    var parts = micSource.value.split('|');
-                    if (window.settings && window.settings.microphone) {
-                        window.settings.microphone.device_index = parts[0] || '0';
-                        window.settings.microphone.audio_source = parts[1] || 'default';
-                        window.settings.microphone.pulse_name = parts[2] || '';
-                    }
-                    // Route dediee : n'ecrit QUE les champs du device (l'ancien
-                    // POST de toute la section microphone ecrasait auto-start,
-                    // webhook et groupes avec leur valeur du chargement).
-                    fetch(basePath + '/api/microphone/device', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            device_index: parts[0] || '0',
-                            audio_source: parts[1] || 'default',
-                            pulse_name: parts[2] || ''
-                        })
-                    }).then(function(r) {
-                        if (!r.ok) return r.json().catch(function(){return {};}).then(function(d) {
-                            throw new Error(d.error || ('HTTP ' + r.status));
-                        });
+                    var dev = selectedMicDevice();
+                    if (!dev) return;
+                    var previous = micSource.getAttribute('data-prev') || '';
+                    apiSend('PUT', '/api/microphone/device', {
+                        device_index: dev.index, audio_source: dev.name, pulse_name: dev.pulse_name
+                    }).then(function() {
+                        var mic = window.settings && window.settings.microphone;
+                        if (mic) { mic.device_index = dev.index; mic.audio_source = dev.name; mic.pulse_name = dev.pulse_name; }
+                        micSource.setAttribute('data-prev', micSource.value);
+                        refreshAfterSourceChange();
                     }).catch(function(err) {
-                        if (window.showUiError) window.showUiError('Micro non enregistré : ' + err.message);
+                        if (previous) micSource.value = previous;
+                        showUiError('Micro non enregistré : ' + err.message);
                     });
                 });
+                micSource.setAttribute('data-prev', micSource.value);
             }
 
             // Mic webhook auto-save
@@ -960,9 +1107,7 @@
             // Helpers locaux pour RTSP / VBAN
             function rtspByIdUrl(slider) { return '/api/rtsp/stream/' + slider.getAttribute('data-id'); }
             function vbanSrcByIndex(el) {
-                var idx = parseInt(el.getAttribute('data-index'), 10);
-                return window.settings && window.settings.saved_vban_sources &&
-                    window.settings.saved_vban_sources[idx];
+                return findVban(el.getAttribute('data-ip'), el.getAttribute('data-name'));
             }
             function vbanPutBody(el, extra) {
                 var s = vbanSrcByIndex(el);
@@ -1015,14 +1160,15 @@
             document.querySelectorAll('.rtsp-test-btn').forEach(function(btn) {
                 bindTestButton(btn, {
                     key: function(b) { return 'rtsp_' + b.getAttribute('data-id'); },
-                    labelStart: '📹 Tester le flux',
-                    labelStop: '⏹ Arreter le test',
+                    labelStart: '&#x1F4F9; Tester le flux',
+                    labelStop: '&#x23F9; Arrêter le test',
                     startUrl: '/api/rtsp/test/start',
                     startBody: function(b) {
                         var panel = b.closest('.tab-panel');
                         var urlInput = panel ? panel.querySelector('.rtsp-url-input') : null;
                         var volSlider = panel ? panel.querySelector('.rtsp-volume') : null;
                         return {
+                            id: b.getAttribute('data-id'),
                             url: urlInput ? urlInput.value : '',
                             gain: volSlider ? parseInt(volSlider.value) : 10
                         };
@@ -1104,35 +1250,58 @@
 
             // ---- Sound groups : creer / supprimer / renommer / threshold / ha_entities / sons ----
             function _groupSection(el) { return el.closest('.sound-groups-section'); }
+            function _groupOf(section, card) {
+                var s = window.settings || {};
+                var kind = section.getAttribute('data-kind');
+                var key = section.getAttribute('data-source-key');
+                var src = kind === 'mic' ? s.microphone
+                    : kind === 'rtsp' ? (s.rtsp_sources || []).filter(function(x) { return String(x.id) === key; })[0]
+                    : (s.saved_vban_sources || []).filter(function(x) { return String(x.ip) === key; })[0];
+                var slug = card.getAttribute('data-group-slug');
+                return src && (src.sound_groups || []).filter(function(g) { return g.slug === slug; })[0];
+            }
+            function _syncGroupField(section, card, field, value) {
+                var g = _groupOf(section, card);
+                if (g) g[field] = value;
+            }
+            function _syncGroupWhitelist(section, card, label, on) {
+                var g = _groupOf(section, card);
+                if (g) { g.sound_whitelist = g.sound_whitelist || {}; g.sound_whitelist[label] = on; }
+            }
             function _groupCard(el) { return el.closest('.sound-group-card'); }
-            function _refreshSourcesAfterChange() {
-                // Memoriser l'onglet actif avant le reload pour eviter de
-                // remettre l'utilisateur sur le premier onglet.
-                try {
-                    var select = document.getElementById('source-select');
-                    if (select && select.value) {
-                        sessionStorage.setItem('claptrap_active_tab', select.value);
-                    }
-                } catch (_e) {}
-                location.reload();
+            // Recharge les groupes d'une source depuis le serveur puis re-rend les
+            // onglets (au lieu d'un location.reload() qui perdait l'historique,
+            // les tests en cours et le scroll).
+            function _refreshSourcesAfterChange(section) {
+                var kind = section.getAttribute('data-kind');
+                var key = section.getAttribute('data-source-key');
+                return fetch(basePath + '/api/source/sound_groups?kind=' + encodeURIComponent(kind) +
+                             '&source_key=' + encodeURIComponent(key))
+                    .then(_checkJson)
+                    .then(function(data) {
+                        var s = window.settings || {};
+                        var src = kind === 'mic' ? s.microphone
+                            : kind === 'rtsp' ? (s.rtsp_sources || []).filter(function(x) { return String(x.id) === key; })[0]
+                            : (s.saved_vban_sources || []).filter(function(x) { return String(x.ip) === key; })[0];
+                        if (src) src.sound_groups = data.groups || [];
+                        rebuildTabsKeepActive();
+                    })
+                    .catch(function(err) { showUiError('Rechargement des groupes impossible : ' + err.message); });
             }
 
             document.querySelectorAll('.sound-group-add').forEach(function(btn) {
                 btn.addEventListener('click', function() {
                     var section = _groupSection(btn);
                     if (!section) return;
-                    var name = (window.prompt('Nom du nouveau groupe (ex: "Toc table") :') || '').trim();
-                    if (!name) return;
-                    fetch(basePath + '/api/source/sound_groups', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
+                    uiPrompt('Nom du nouveau groupe (ex : « Toc table ») :').then(function(name) {
+                        name = (name || '').trim();
+                        if (!name) return;
+                        apiSend('POST', '/api/source/sound_groups', {
                             kind: section.getAttribute('data-kind'),
                             source_key: section.getAttribute('data-source-key'),
                             name: name
-                        })
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.success) _refreshSourcesAfterChange();
-                        else alert(data.error || 'Erreur creation groupe');
+                        }).then(function() { return _refreshSourcesAfterChange(section); })
+                          .catch(function(err) { showUiError('Création du groupe impossible : ' + err.message); });
                     });
                 });
             });
@@ -1147,24 +1316,17 @@
                         source_key: section.getAttribute('data-source-key'),
                         group_slug: card.getAttribute('data-group-slug')
                     };
-                    fetch(basePath + '/api/source/sound_whitelist/cleanup', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.success) {
-                            // Retirer visuellement les items non coches du groupe
-                            card.querySelectorAll('.sound-whitelist-item').forEach(function(item) {
-                                var cb = item.querySelector('.sound-group-whitelist-toggle');
-                                if (cb && !cb.checked) item.remove();
-                            });
-                            var list = card.querySelector('.sound-whitelist-list');
-                            if (list && list.children.length === 0) {
-                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son dans ce groupe.</div>';
-                            }
-                        } else {
-                            alert(data.error || 'Erreur nettoyage');
+                    apiSend('POST', '/api/source/sound_whitelist/cleanup', body).then(function() {
+                        // Retirer visuellement les items non coches du groupe
+                        card.querySelectorAll('.sound-whitelist-item').forEach(function(item) {
+                            var cb = item.querySelector('.sound-group-whitelist-toggle');
+                            if (cb && !cb.checked) item.remove();
+                        });
+                        var list = card.querySelector('.sound-whitelist-list');
+                        if (list && list.children.length === 0) {
+                            list.innerHTML = '<div class="sound-whitelist-empty">Aucun son dans ce groupe.</div>';
                         }
-                    });
+                    }).catch(function(err) { showUiError('Nettoyage impossible : ' + err.message); });
                 });
             });
 
@@ -1173,17 +1335,14 @@
                     var section = _groupSection(btn);
                     var card = _groupCard(btn);
                     if (!section || !card) return;
-                    if (!window.confirm('Supprimer ce groupe ?')) return;
-                    fetch(basePath + '/api/source/sound_groups', {
-                        method: 'DELETE', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
+                    uiConfirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function(ok) {
+                        if (!ok) return;
+                        apiSend('DELETE', '/api/source/sound_groups', {
                             kind: section.getAttribute('data-kind'),
                             source_key: section.getAttribute('data-source-key'),
                             group_slug: card.getAttribute('data-group-slug')
-                        })
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.success) _refreshSourcesAfterChange();
-                        else alert(data.error || 'Erreur suppression');
+                        }).then(function() { return _refreshSourcesAfterChange(section); })
+                          .catch(function(err) { showUiError('Suppression impossible : ' + err.message); });
                     });
                 });
             });
@@ -1192,41 +1351,50 @@
                 payload.kind = section.getAttribute('data-kind');
                 payload.source_key = section.getAttribute('data-source-key');
                 payload.group_slug = card.getAttribute('data-group-slug');
-                return fetch(basePath + '/api/source/sound_groups', {
-                    method: 'PUT', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
+                return apiSend('PUT', '/api/source/sound_groups', payload);
             }
 
             document.querySelectorAll('.sound-group-name').forEach(function(input) {
-                // Sur 'change' (blur ou Enter) plutot que 'input' debounced :
-                // le renommage entraine la regeneration du slug (et donc des
-                // entity_id HA), il vaut mieux ne le faire qu'une fois quand
-                // l'utilisateur a fini de taper.
+                // Le slug (et donc l'entity_id HA) ne change plus au renommage :
+                // seul le nom affiche est mis a jour, sans rechargement.
+                input.setAttribute('data-prev', input.value);
                 input.addEventListener('change', function() {
                     var section = _groupSection(input); var card = _groupCard(input);
                     if (!section || !card) return;
-                    _putGroup(section, card, { name: input.value.trim() })
-                        .then(function(r) { return r.ok ? r.json() : null; })
+                    var name = input.value.trim();
+                    if (!name) { input.value = input.getAttribute('data-prev'); return; }
+                    _putGroup(section, card, { name: name })
                         .then(function(data) {
-                            // Si le slug a change, le card data-group-slug est
-                            // perime et toutes les entites HA sont renommees :
-                            // recharger pour refleter le nouvel etat.
-                            if (data && data.old_slug && data.old_slug !== data.group_slug) {
-                                _refreshSourcesAfterChange();
-                            }
+                            input.setAttribute('data-prev', name);
+                            _syncGroupField(section, card, 'name', name);
+                        })
+                        .catch(function(err) {
+                            input.value = input.getAttribute('data-prev');
+                            showUiError('Renommage impossible : ' + err.message);
                         });
                 });
             });
 
             document.querySelectorAll('.sound-group-threshold').forEach(function(slider) {
                 var label = slider.parentElement.querySelector('.sound-group-threshold-value');
+                slider.setAttribute('data-prev', slider.value);
                 slider.addEventListener('input', function() {
                     if (label) label.textContent = slider.value;
                 });
                 slider.addEventListener('change', function() {
                     var section = _groupSection(slider); var card = _groupCard(slider);
-                    if (section && card) _putGroup(section, card, { threshold: parseFloat(slider.value) });
+                    if (!section || !card) return;
+                    var value = parseFloat(slider.value);
+                    _putGroup(section, card, { threshold: value })
+                        .then(function() {
+                            slider.setAttribute('data-prev', slider.value);
+                            _syncGroupField(section, card, 'threshold', value);
+                        })
+                        .catch(function(err) {
+                            slider.value = slider.getAttribute('data-prev');
+                            if (label) label.textContent = slider.value;
+                            showUiError('Seuil non enregistré : ' + err.message);
+                        });
                 });
             });
 
@@ -1238,7 +1406,18 @@
                     card.querySelectorAll('.sound-group-ha-toggle').forEach(function(c) {
                         if (c.checked) ha.push(parseInt(c.getAttribute('data-clap'), 10));
                     });
-                    _putGroup(section, card, { ha_entities: ha });
+                    _putGroup(section, card, { ha_entities: ha }).catch(function(err) {
+                        cb.checked = !cb.checked;
+                        showUiError('Entités HA non enregistrées : ' + err.message);
+                        var back = [];
+                        card.querySelectorAll('.sound-group-ha-toggle').forEach(function(c) {
+                            if (c.checked) back.push(parseInt(c.getAttribute('data-clap'), 10));
+                        });
+                        _syncGroupHaEntities(section.getAttribute('data-kind'),
+                            section.getAttribute('data-source-key'),
+                            card.getAttribute('data-group-slug'), back);
+                        refreshHaEntities();
+                    });
                     // Synchro window.settings + rafraichir la boite source-level.
                     _syncGroupHaEntities(section.getAttribute('data-kind'),
                         section.getAttribute('data-source-key'),
@@ -1278,29 +1457,22 @@
                         label: cb.getAttribute('data-label'),
                         enabled: cb.checked
                     };
-                    fetch(basePath + '/api/source/sound_whitelist', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    }).then(function(r) {
-                        if (r.status === 409) {
-                            return r.json().then(function(d) {
-                                cb.checked = !cb.checked;
-                                alert(d.error || 'Ce son est deja actif dans un autre groupe');
-                            });
-                        }
-                        if (r.ok) {
+                    apiSend('PUT', '/api/source/sound_whitelist', body).then(function() {
+                            _syncGroupWhitelist(section, card, cb.getAttribute('data-label'), cb.checked);
                             // Mettre a jour l'etat des autres checkboxes du meme label dans la source
                             var allCards = section.querySelectorAll('.sound-group-card');
                             allCards.forEach(function(other) {
                                 if (other === card) return;
-                                var otherCb = other.querySelector('.sound-group-whitelist-toggle[data-label="' + cb.getAttribute('data-label') + '"]');
+                                var otherCb = other.querySelector('.sound-group-whitelist-toggle[data-label="' + cssq(cb.getAttribute('data-label')) + '"]');
                                 if (otherCb) {
                                     otherCb.disabled = cb.checked;
                                     var item = otherCb.closest('.sound-whitelist-item');
                                     if (item) item.classList.toggle('disabled', cb.checked);
                                 }
                             });
-                        }
+                    }).catch(function(err) {
+                        cb.checked = !cb.checked;
+                        showUiError(err.message);
                     });
                 });
             });
@@ -1332,8 +1504,8 @@
             document.querySelectorAll('.vban-test-btn').forEach(function(btn) {
                 bindTestButton(btn, {
                     key: function(b) { return 'vban_' + b.getAttribute('data-ip'); },
-                    labelStart: '🎵 Tester le flux',
-                    labelStop: '⏹ Arreter le test',
+                    labelStart: '<span class="source-type-icon icon-vban"></span> Tester le flux',
+                    labelStop: '&#x23F9; Arrêter le test',
                     startUrl: '/api/vban/test/start',
                     startBody: function(b) { return {ip: b.getAttribute('data-ip')}; },
                     stopUrl: '/api/vban/test/stop',
@@ -1358,97 +1530,75 @@
                 btn.addEventListener('click', function() {
                     var type = btn.getAttribute('data-type');
                     var id = btn.getAttribute('data-id');
-                    if (!confirm('Supprimer cette source ?')) return;
-                    deleteSource(type, id);
+                    uiConfirm('Supprimer cette source ? Ses entités Home Assistant seront retirées.').then(function(ok) {
+                        if (ok) deleteSource(type, id);
+                    });
                 });
             });
         }
 
         function deleteSource(type, id) {
-            var basePath = window.basePath || '';
             var settings = window.settings || {};
+            var req;
             if (type === 'mic') {
-                settings.microphone = null;
-                window.settings = settings;
-                buildTabs();
+                req = apiSend('DELETE', '/api/microphone').then(function() {
+                    if (settings.microphone) { settings.microphone.enabled = false; settings.microphone.configured = false; }
+                });
             } else if (type === 'rtsp') {
-                fetch(basePath + '/api/rtsp/stream/' + id, {method: 'DELETE'})
-                    .then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok||d.success===false) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
-                    .then(function(data) {
-                        settings.rtsp_sources = (settings.rtsp_sources || []).filter(function(s) { return s.id !== id; });
-                        window.settings = settings;
-                        buildTabs();
-                    })
-                    .catch(function(err) {
-                        console.error('Delete RTSP error:', err);
-                        if (window.showUiError) window.showUiError('Suppression impossible : ' + err.message);
-                    });
+                req = apiSend('DELETE', '/api/rtsp/stream/' + encodeURIComponent(id)).then(function() {
+                    settings.rtsp_sources = (settings.rtsp_sources || []).filter(function(s) { return s.id !== id; });
+                });
             } else if (type === 'vban') {
-                var idx = parseInt(id);
-                var vbanSrc = settings.saved_vban_sources && settings.saved_vban_sources[idx];
-                if (vbanSrc) {
-                    fetch(basePath + '/api/vban/remove', {
-                        method: 'DELETE',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(vbanSrc)
-                    }).then(function(r) { return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok||d.success===false) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
-                      .then(function(data) {
-                          // Ne retirer de l'UI qu'apres confirmation du backend.
-                          settings.saved_vban_sources.splice(idx, 1);
-                          window.settings = settings;
-                          buildTabs();
-                      })
-                      .catch(function(err) {
-                          console.error('Delete VBAN error:', err);
-                          if (window.showUiError) window.showUiError('Suppression impossible : ' + err.message);
-                      });
-                }
+                var vbanSrc = (settings.saved_vban_sources || []).filter(function(v) { return 'vban_' + vbanKey(v) === id; })[0];
+                if (!vbanSrc) return;
+                req = apiSend('DELETE', '/api/vban/remove', {
+                    ip: vbanSrc.ip, name: vbanSrc.name, stream_name: vbanSrc.stream_name || vbanSrc.name
+                }).then(function() {
+                    settings.saved_vban_sources = settings.saved_vban_sources.filter(function(v) { return v !== vbanSrc; });
+                });
             }
+            if (!req) return;
+            req.then(function() { window.settings = settings; buildTabs(); showUiSuccess('Source supprimée'); })
+               .catch(function(err) { showUiError('Suppression impossible : ' + err.message); });
         }
 
-        // ===== Mic test (inline fallback) =====
+        // ===== Test du micro (seul handler : micTest.js envoyait un 2e POST) =====
         document.addEventListener('click', function(e) {
             var btn = e.target.closest && e.target.closest('#mic-test-btn');
             if (!btn) return;
-
-            var basePath = window.basePath || '';
-            if (testing) {
-                fetch(basePath + '/api/mic/test/stop', {method: 'POST'});
-                testing = false;
-                btn.innerHTML = '&#x1F3A4; Tester le micro';
-                btn.classList.remove('active');
+            if (window._sourceTesting.mic) { stopTest('mic'); return; }
+            stopAllTests();
+            var dev = selectedMicDevice();
+            var body = dev ? {pulse_name: dev.pulse_name, audio_source: dev.name} : {};
+            btn.disabled = true;
+            apiSend('POST', '/api/mic/test/start', body).then(function() {
                 var vu = document.getElementById('mic-test-vu');
-                if (vu) vu.style.display = 'none';
-            } else {
-                // Envoyer le device actuellement selectionne dans le dropdown
-                var micSelect = document.getElementById('micro_source');
-                var body = {};
-                if (micSelect && micSelect.value) {
-                    var parts = micSelect.value.split('|');
-                    body = {pulse_name: parts[2] || '', audio_source: parts[1] || ''};
-                }
-                fetch(basePath + '/api/mic/test/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data.success) {
-                            testing = true;
-                            btn.innerHTML = '&#x23F9; Arreter le test';
-                            btn.classList.add('active');
-                            var vu = document.getElementById('mic-test-vu');
-                            if (vu) vu.style.display = 'flex';
-                        }
-                    })
-                    .catch(function(err) { console.error('Mic test error:', err); });
-            }
+                window._sourceTesting.mic = {stopUrl: '/api/mic/test/stop', btn: btn,
+                                             labelStart: '&#x1F3A4; Tester le micro', vu: vu};
+                btn.innerHTML = '&#x23F9; Arrêter le test';
+                btn.classList.add('active');
+                if (vu) vu.style.display = 'flex';
+            }).catch(function(err) { showUiError('Test du micro impossible : ' + err.message); })
+              .finally(function() { btn.disabled = false; });
         });
+
+        // Micro selectionne dans la liste : {index, name, pulse_name}
+        function selectedMicDevice() {
+            var sel = document.getElementById('micro_source');
+            if (!sel) return null;
+            var mic = (window.settings || {}).microphone || {};
+            if (sel.value === 'default') return {index: 0, name: 'default', pulse_name: ''};
+            if (sel.value === 'current') {
+                return {index: mic.device_index || 0, name: mic.audio_source || 'default', pulse_name: mic.pulse_name || ''};
+            }
+            var dev = (window.devices || [])[parseInt(String(sel.value).replace('dev:', ''), 10)];
+            return dev ? {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''} : null;
+        }
 
         // Helper : lire le pulse_name du device selectionne
         function getSelectedPulseName() {
-            var sel = document.getElementById('micro_source');
-            if (sel && sel.value) {
-                return sel.value.split('|')[2] || '';
-            }
-            return '';
+            var dev = selectedMicDevice();
+            return dev ? dev.pulse_name : '';
         }
 
         // Volume slider
@@ -1465,15 +1615,8 @@
                     window.settings.microphone.volume = volume;
                 }
                 var basePath = window.basePath || '';
-                fetch(basePath + '/api/microphone/volume', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({volume: volume, pulse_name: getSelectedPulseName()})
-                }).then(function(r) { return r.json(); })
-                  .then(function(data) {
-                      if (data.success) console.log('Volume mis a jour:', volume + '%');
-                  })
-                  .catch(function(err) { console.error('Erreur volume:', err); });
+                apiSend('PUT', '/api/microphone/volume', {volume: volume, pulse_name: getSelectedPulseName()})
+                  .catch(function(err) { showUiError('Volume non enregistré : ' + err.message); });
             }
         });
 
@@ -1482,24 +1625,16 @@
             if (e.target.id === 'mic-auto-volume') {
                 var enabled = e.target.checked;
                 var basePath = window.basePath || '';
-                fetch(basePath + '/api/microphone/auto-volume', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: enabled, pulse_name: getSelectedPulseName()})
-                }).then(function(r) { return r.json(); })
-                  .then(function(data) {
-                      if (data.success) {
-                          var slider = document.getElementById('mic-volume');
-                          if (slider) slider.disabled = enabled;
-                          console.log('Auto-volume:', enabled ? 'active' : 'desactive');
-                      } else {
-                          e.target.checked = !enabled;
-                          console.error('Auto-volume erreur:', data.error);
-                      }
+                var avToggle = e.target;
+                apiSend('PUT', '/api/microphone/auto-volume', {enabled: enabled, pulse_name: getSelectedPulseName()})
+                  .then(function() {
+                      var slider = document.getElementById('mic-volume');
+                      if (slider) slider.disabled = enabled;
+                      if (window.settings && window.settings.microphone) window.settings.microphone.auto_volume = enabled;
                   })
                   .catch(function(err) {
-                      e.target.checked = !enabled;
-                      console.error('Auto-volume erreur:', err);
+                      avToggle.checked = !enabled;
+                      showUiError('Volume automatique : ' + err.message);
                   });
             }
         });
@@ -1521,16 +1656,12 @@
                 formData.append('file', file);
                 var basePath = window.basePath || '';
                 fetch(basePath + '/api/settings/import', {method: 'POST', body: formData})
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data.success) {
-                            alert('Configuration importee. La page va se recharger.');
-                            window.location.reload();
-                        } else {
-                            alert('Erreur: ' + (data.error || 'Import echoue'));
-                        }
+                    .then(_checkJson)
+                    .then(function() {
+                        showUiSuccess('Configuration importée, rechargement...');
+                        setTimeout(function() { window.location.reload(); }, 800);
                     })
-                    .catch(function(err) { alert('Erreur import: ' + err); });
+                    .catch(function(err) { showUiError('Import refusé : ' + err.message); });
                 importInput.value = '';
             });
         }
@@ -1588,8 +1719,7 @@
                           // Rafraichir les entites HA apres un delai
                           setTimeout(refreshHaEntities, 3000);
                       } else {
-                          if (window.showUiError) window.showUiError('Erreur: ' + (data.error || 'Impossible de demarrer'));
-                          else alert('Erreur: ' + (data.error || 'Impossible de demarrer'));
+                          showUiError('Erreur : ' + (data.error || 'Impossible de démarrer'));
                       }
                   })
                   .catch(function(err) {
@@ -1621,8 +1751,10 @@
         // Clear history
         document.addEventListener('click', function(e) {
             if (e.target.id === 'clearHistoryBtn' || e.target.closest('#clearHistoryBtn')) {
-                var container = document.getElementById('detected_labels');
-                if (container) container.innerHTML = '';
+                apiSend('DELETE', '/api/detections/history').then(function() {
+                    var container = document.getElementById('detected_labels');
+                    if (container) container.innerHTML = '';
+                }).catch(function(err) { showUiError('Historique non effacé : ' + err.message); });
             }
         });
 
@@ -1690,18 +1822,12 @@
             }
 
             function toggle(label, excluded) {
-                fetch(basePath + '/api/sound_exclusions', {
-                    method: 'PUT', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({label: label, excluded: excluded})
-                }).then(function(r) { return r.json(); }).then(function() { load(); });
+                apiSend('PUT', '/api/sound_exclusions', {label: label, excluded: excluded})
+                    .catch(function(err) { showUiError('Exclusion non enregistrée : ' + err.message); })
+                    .then(function() { load(); });
             }
 
             window.loadSoundExclusions = load;
-            // Recharger quand un nouveau son apparait (auto-decouverte source)
-            document.addEventListener('DOMContentLoaded', function() {
-                // Le socket listener sound_seen deja en place declenche load via
-                // window.loadSoundExclusions (ajoute plus loin).
-            });
         })();
 
         // Advanced settings: reset to defaults
@@ -1715,19 +1841,9 @@
                 document.getElementById('adv-ratio').value = defaults.peak_ratio;
                 document.getElementById('adv-reset').value = defaults.peak_reset;
                 var basePath = window.basePath || '';
-                fetch(basePath + '/api/settings/advanced', {
-                    method: 'PUT', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(defaults)
-                }).then(function(r) {
-                    if (r.ok) {
-                        var n = document.getElementById('success');
-                        if (n) {
-                            n.textContent = 'Reglages de detection reinitialises';
-                            n.style.display = 'block';
-                            setTimeout(function() { n.style.display = 'none'; }, 1500);
-                        }
-                    }
-                });
+                apiSend('PUT', '/api/settings/advanced', defaults)
+                    .then(function() { showUiSuccess('Réglages de détection réinitialisés'); })
+                    .catch(function(err) { showUiError('Réinitialisation impossible : ' + err.message); });
             });
         })();
 
@@ -1744,21 +1860,18 @@
             if (cooldownEl) payload.peak_cooldown = parseFloat(cooldownEl.value);
             if (ratioEl) payload.peak_ratio = parseFloat(ratioEl.value);
             if (resetEl) payload.peak_reset = parseFloat(resetEl.value);
-            fetch(basePath + '/api/settings/advanced', {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
+            apiSend('PUT', '/api/settings/advanced', payload)
+                .catch(function(err) { showUiError('Réglage refusé : ' + err.message); });
         });
 
         // Debug toggle
         document.addEventListener('change', function(e) {
             if (e.target.id === 'debug-toggle') {
                 var basePath = window.basePath || '';
-                fetch(basePath + '/api/settings/debug', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: e.target.checked})
+                var dbg = e.target;
+                apiSend('PUT', '/api/settings/debug', {enabled: dbg.checked}).catch(function(err) {
+                    dbg.checked = !dbg.checked;
+                    showUiError('Mode debug : ' + err.message);
                 });
             }
         });
@@ -1767,24 +1880,24 @@
         document.addEventListener('change', function(e) {
             if (e.target.id === 'auto-start') {
                 var basePath = window.basePath || '';
-                fetch(basePath + '/api/microphone/auto-start', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled: e.target.checked})
+                var as = e.target;
+                apiSend('PUT', '/api/microphone/auto-start', {enabled: as.checked}).catch(function(err) {
+                    as.checked = !as.checked;
+                    showUiError('Démarrage automatique : ' + err.message);
                 });
             }
         });
 
-        // Socket.io mic levels
-        var checkSocket = setInterval(function() {
-            if (typeof io !== 'undefined') {
-                clearInterval(checkSocket);
-                var basePath = window.basePath || '';
-                var sock = io({path: basePath + '/socket.io'});
+        // Evenements Socket.IO (connexion partagee window.claptrapSocket)
+        (function() {
+            var sock = window.claptrapSocket;
+            if (!sock) { showUiError('Connexion temps réel indisponible (Socket.IO non chargé).'); return; }
+            {
                 sock.on('mic_level', function(data) {
+                    if (data && data.error) { stopTest('mic', 'Test du micro interrompu : ' + data.error); return; }
                     var bar = document.getElementById('mic-test-bar');
                     var label = document.getElementById('mic-test-db');
-                    if (!bar || !label || data.error) return;
+                    if (!bar || !label) return;
                     var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
                     bar.style.width = pct + '%';
                     label.textContent = data.db + ' dB';
@@ -1799,23 +1912,18 @@
                     }
                 });
 
-                // RTSP test VU-metre
+                // RTSP test VU-metre : uniquement la carte de la camera testee
                 sock.on('rtsp_level', function(data) {
-                    var bars = document.querySelectorAll('.rtsp-test-bar');
-                    var labels = document.querySelectorAll('.rtsp-test-db');
-                    bars.forEach(function(bar) {
-                        if (!data.error) {
-                            var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
-                            bar.style.width = pct + '%';
-                        }
-                    });
-                    labels.forEach(function(label) {
-                        if (data.error) {
-                            label.textContent = 'Erreur';
-                        } else {
-                            label.textContent = data.db + ' dB';
-                        }
-                    });
+                    if (!data) return;
+                    var key = 'rtsp_' + (data.id || '');
+                    if (data.error) { stopTest(key, 'Test du flux interrompu : ' + data.error); return; }
+                    var t = window._sourceTesting[key];
+                    if (!t || !t.vu) return;
+                    var bar = t.vu.querySelector('.rtsp-test-bar');
+                    var label = t.vu.querySelector('.rtsp-test-db');
+                    var pct = Math.max(0, Math.min(100, ((data.db + 60) / 60) * 100));
+                    if (bar) bar.style.width = pct + '%';
+                    if (label) label.textContent = data.db + ' dB';
                 });
 
                 // Sound auto-discovery: append new label rows in the right panel.
@@ -1828,7 +1936,7 @@
                         var list = section.querySelector('.sound-whitelist-list');
                         if (!list) return;
                         // Already present?
-                        var already = list.querySelector('input[data-label="' + data.label.replace(/"/g, '\\"') + '"]');
+                        var already = list.querySelector('input[data-label="' + cssq(data.label) + '"]');
                         if (already) return;
                         var empty = list.querySelector('.sound-whitelist-empty');
                         if (empty) empty.remove();
@@ -1870,7 +1978,7 @@
                             var list = card.querySelector('.sound-whitelist-list');
                             if (!list) return;
                             var labelAttr = data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                            var already = list.querySelector('.sound-group-whitelist-toggle[data-label="' + labelAttr + '"]');
+                            var already = list.querySelector('.sound-group-whitelist-toggle[data-label="' + cssq(data.label) + '"]');
                             if (already) return;
                             var empty = list.querySelector('.sound-whitelist-empty');
                             if (empty) empty.remove();
@@ -1890,16 +1998,9 @@
                                     label: data.label,
                                     enabled: cb.checked
                                 };
-                                fetch((window.basePath || '') + '/api/source/sound_whitelist', {
-                                    method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify(body)
-                                }).then(function(r) {
-                                    if (r.status === 409) {
-                                        return r.json().then(function(d) {
-                                            cb.checked = !cb.checked;
-                                            alert(d.error || 'Ce son est deja actif dans un autre groupe');
-                                        });
-                                    }
+                                apiSend('PUT', '/api/source/sound_whitelist', body).catch(function(err) {
+                                    cb.checked = !cb.checked;
+                                    showUiError(err.message);
                                 });
                             });
                             list.appendChild(item);
@@ -1917,7 +2018,7 @@
                 // VBAN test VU-metre
                 sock.on('vban_level', function(data) {
                     if (!data || !data.ip) return;
-                    var vus = document.querySelectorAll('.vban-test-vu[data-ip="' + data.ip + '"]');
+                    var vus = document.querySelectorAll('.vban-test-vu[data-ip="' + cssq(data.ip) + '"]');
                     vus.forEach(function(vu) {
                         var bar = vu.querySelector('.vban-test-bar');
                         var label = vu.querySelector('.vban-test-db');
@@ -1950,34 +2051,69 @@
 
                 // Ecouter les changements d'etat de detection (auto-start, stop)
                 sock.on('detection_status', function(data) {
-                    var startBtn = document.getElementById('startButton');
-                    var stopBtn = document.getElementById('stopButton');
-                    if (!startBtn || !stopBtn) return;
-                    if (data.status === 'running') {
-                        startBtn.style.display = 'none';
-                        stopBtn.style.display = 'block';
-                        updateSourceDisplay(data.source || null);
-                    } else {
-                        startBtn.style.display = 'block';
-                        stopBtn.style.display = 'none';
-                        updateSourceDisplay(null);
-                    }
+                    applyDetectionStatus(data.status === 'running', data.source || null);
+                });
+
+                // Apres une reconnexion (redemarrage de l'add-on...), l'etat a pu
+                // changer sans que la page recoive les evenements : resynchroniser.
+                var connectedOnce = false;
+                sock.on('connect', function() {
+                    if (connectedOnce) resyncFromServer();
+                    connectedOnce = true;
                 });
             }
-        }, 200);
+        })();
 
-        // Afficher/masquer les sources actives (en liste)
+        // Etat des boutons Demarrer / Arreter et des points RTSP.
+        function applyDetectionStatus(running, source) {
+            var startBtn = document.getElementById('startButton');
+            var stopBtn = document.getElementById('stopButton');
+            if (startBtn) startBtn.style.display = running ? 'none' : 'block';
+            if (stopBtn) stopBtn.style.display = running ? 'block' : 'none';
+            updateSourceDisplay(running ? source : null);
+            if (!running) {
+                // Detection arretee : les cameras ne sont plus "en connexion".
+                document.querySelectorAll('.rtsp-status-dot').forEach(function(dot) {
+                    dot.className = 'rtsp-status-dot status-idle';
+                    dot.title = 'Détection arrêtée';
+                });
+            }
+        }
+
+        // Relit l'etat et les reglages du serveur (reconnexion, autre onglet).
+        var _resyncBusy = false;
+        function resyncFromServer() {
+            if (_resyncBusy) return;
+            _resyncBusy = true;
+            Promise.all([
+                fetch(basePath + '/status').then(function(r) { return r.json(); }),
+                fetch(basePath + '/api/settings').then(_checkJson)
+            ]).then(function(res) {
+                window.settings = res[1];
+                // Ne pas reconstruire pendant une saisie : on perdrait le texte.
+                var active = document.activeElement;
+                var editing = active && active.closest && active.closest('#source-tab-content') &&
+                    /INPUT|SELECT|TEXTAREA/.test(active.tagName);
+                if (!editing) rebuildTabsKeepActive();
+                applyDetectionStatus(!!res[0].running, res[0].source);
+            }).catch(function() {}).finally(function() { _resyncBusy = false; });
+        }
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') resyncFromServer();
+        });
+
+        // Afficher/masquer les sources actives (en liste). textContent : les
+        // noms de source sont saisis par l'utilisateur ou recus du reseau (VBAN).
         function updateSourceDisplay(source) {
             var el = document.getElementById('active-sources');
             if (!el) return;
-            if (source) {
-                var sources = source.split(' + ');
-                el.innerHTML = sources.map(function(s) {
-                    return '<span class="source-badge">' + s.trim() + '</span>';
-                }).join('');
-            } else {
-                el.innerHTML = '';
-            }
+            el.textContent = '';
+            (source ? source.split(' + ') : []).forEach(function(s) {
+                var badge = document.createElement('span');
+                badge.className = 'source-badge';
+                badge.textContent = s.trim();
+                el.appendChild(badge);
+            });
         }
 
         // Verifier l'etat de detection au chargement
@@ -1986,13 +2122,7 @@
             fetch(basePath + '/status')
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.running) {
-                        var startBtn = document.getElementById('startButton');
-                        var stopBtn = document.getElementById('stopButton');
-                        if (startBtn) startBtn.style.display = 'none';
-                        if (stopBtn) stopBtn.style.display = 'block';
-                        updateSourceDisplay(data.source);
-                    }
+                    applyDetectionStatus(!!data.running, data.source);
                 })
                 .catch(function() {});
         })();
@@ -2004,9 +2134,7 @@
             var s = window.settings || {};
             if (sourceId === 'mic') {
                 var mic = s.microphone || {};
-                return { kind: 'mic',
-                         key: (mic.device_index != null ? mic.device_index : 0),
-                         name: mic.audio_source, groups: mic.sound_groups };
+                return { kind: 'mic', key: 'mic', name: mic.audio_source, groups: mic.sound_groups };
             }
             if (sourceId.indexOf('rtsp_') === 0) {
                 var sid = sourceId.slice(5);
@@ -2014,7 +2142,7 @@
                 return r ? { kind: 'rtsp', key: r.id, name: r.name, groups: r.sound_groups } : null;
             }
             if (sourceId.indexOf('vban_') === 0) {
-                var v = (s.saved_vban_sources || [])[parseInt(sourceId.slice(5), 10)];
+                var v = (s.saved_vban_sources || []).filter(function(x) { return 'vban_' + vbanKey(x) === sourceId; })[0];
                 return v ? { kind: 'vban', key: v.ip, name: v.name, groups: v.sound_groups } : null;
             }
             return null;
@@ -2178,7 +2306,7 @@
                 return;
             }
             var top = labels[0];
-            cell.innerHTML = '<span class="det-label">' + top.label +
+            cell.innerHTML = '<span class="det-label">' + esc(top.label) +
                 '<span class="det-score">' + Math.round((top.score || 0) * 100) + '%</span></span>';
             clearTimeout(_detLabelTimers[sourceId]);
             _detLabelTimers[sourceId] = setTimeout(function() {
@@ -2217,9 +2345,8 @@
         // Brancher socket.io (en + des handlers existants).
         (function() {
             function attach() {
-                if (typeof io !== 'function') { return setTimeout(attach, 200); }
-                var basePath = window.basePath || '';
-                var sock = io({path: basePath + '/socket.io'});
+                var sock = window.claptrapSocket;
+                if (!sock) return;
                 sock.on('clap', function(data) {
                     onSourceClap(data && data.source_id, data && data.clap_count, data && data.score);
                 });
@@ -2282,6 +2409,9 @@
             document.getElementById('vbanManualAdd').addEventListener('click', addManual);
             backdrop.addEventListener('click', function(e) {
                 if (e.target === backdrop) closeModal();
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && backdrop.style.display !== 'none') closeModal();
             });
         }
         if (document.readyState === 'loading') {
@@ -2346,21 +2476,32 @@
             fetch(basePath + '/api/vban/save', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(src)
-            }).then(function(r) { return r.json(); })
+            }).then(function(r) { return r.json().catch(function() { return {}; }).then(function(d) {
+                  if (!r.ok || !d.success) throw new Error(d.error || ('HTTP ' + r.status));
+                  return d;
+              }); })
               .then(function(result) {
-                  if (result.success) {
-                      if (!window.settings.saved_vban_sources) window.settings.saved_vban_sources = [];
-                      window.settings.saved_vban_sources.push(src);
-                      closeModal();
+                  // Objet renvoye par le serveur (enabled, stream_name, groupes) et
+                  // non l'objet de decouverte, incomplet (Demarrer grise, suppression
+                  // refusee, "aucun groupe").
+                  var saved = result.source;
+                  if (!window.settings.saved_vban_sources) window.settings.saved_vban_sources = [];
+                  window.settings.saved_vban_sources.push(saved);
+                  closeModal();
+                  // Recharger depuis le serveur pour recuperer les groupes crees par
+                  // la migration, puis afficher la nouvelle source.
+                  fetch(basePath + '/api/settings').then(function(r) { return r.json(); }).then(function(all) {
+                      window.settings = all;
+                  }).catch(function() {}).finally(function() {
                       if (typeof buildTabs === 'function') buildTabs();
                       if (typeof switchTab === 'function') {
-                          switchTab('vban_' + (window.settings.saved_vban_sources.length - 1));
+                          var key = String((saved.ip || '') + '_' + (saved.name || '')).toLowerCase()
+                              .replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+                          switchTab('vban_' + key);
                       }
-                  } else {
-                      status.textContent = 'Erreur: ' + (result.error || 'inconnue');
-                  }
+                  });
               })
-              .catch(function(err) { status.textContent = 'Erreur: ' + err; });
+              .catch(function(err) { status.textContent = 'Erreur : ' + err.message; });
         }
 
         function addManual() {

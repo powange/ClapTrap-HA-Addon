@@ -1,5 +1,4 @@
 import { initializeSocketIO } from './modules/socketHandlers.js';
-import { initMicTest } from './modules/micTest.js';
 
 window.showClap = function(sourceId) {
     const detectionDisplay = document.getElementById('detection_display');
@@ -25,6 +24,6 @@ window.showClap = function(sourceId) {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    const socket = initializeSocketIO();
-    initMicTest(socket);
+    // Le test micro est gere par la page (micTest.js envoyait un 2e POST).
+    initializeSocketIO();
 });

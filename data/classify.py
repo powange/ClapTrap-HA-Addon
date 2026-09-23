@@ -725,6 +725,11 @@ def get_detection_history():
     with _history_lock:
         return list(_detection_history)
 
+
+def clear_detection_history():
+    with _history_lock:
+        _detection_history.clear()
+
 def update_source_webhook(source_id, url):
     """Change le webhook d'une source en cours de detection (pris en compte
     au prochain clap, sans redemarrage)."""

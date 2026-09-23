@@ -38,15 +38,10 @@ function formatSourceId(sourceId) {
         return name && name !== 'default' ? name : 'Micro';
     }
     if (sourceId.startsWith('rtsp_')) {
-        // Chercher le nom du flux RTSP par URL
-        const rtspUrl = sourceId.replace('rtsp_', '');
-        const sources = settings.rtsp_sources || [];
-        for (const s of sources) {
-            if (rtspUrl.includes(s.url) || s.url?.includes(rtspUrl.substring(0, 30))) {
-                return s.name || 'RTSP';
-            }
-        }
-        return 'RTSP';
+        // source_id = rtsp_<id de la source> depuis la 6.25.0
+        const id = sourceId.replace('rtsp_', '');
+        const s = (settings.rtsp_sources || []).find(x => String(x.id) === id);
+        return (s && s.name) || 'RTSP';
     }
     if (sourceId.startsWith('vban_')) {
         const vbanSources = settings.saved_vban_sources || [];
@@ -63,24 +58,46 @@ function formatSourceId(sourceId) {
 export function initializeSocketIO() {
     console.log('🔌 Initializing Socket.IO...');
     const basePath = window.basePath || '';
-    const socket = io({
-        path: basePath + '/socket.io',
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5
-    });
+    // Connexion partagee creee par la page (une seule par onglet, reconnexion
+    // illimitee : avec reconnectionAttempts: 5 l'historique ne se mettait plus
+    // a jour apres un redemarrage de l'add-on de plus de ~20 s).
+    const socket = window.claptrapSocket || io({ path: basePath + '/socket.io' });
+    window.claptrapSocket = socket;
     
     socket.on('connect', () => {
         console.log('🟢 Socket.IO Connected with ID:', socket.id);
     });
     
+    // Historique : recharge depuis le serveur (il etait perdu a chaque
+    // rechargement de page alors que le serveur le conserve).
+    fetch(basePath + '/api/detections/history')
+        .then(r => r.ok ? r.json() : [])
+        .then(events => {
+            const container = document.getElementById('detected_labels');
+            if (!container || !Array.isArray(events)) return;
+            container.innerHTML = '';
+            // Le serveur renvoie du plus recent au plus ancien.
+            events.slice(0, 10).reverse().forEach(renderHistoryEvent);
+        })
+        .catch(() => {});
+
     // Gestionnaire pour les claps
     socket.on('clap', (data) => {
-        console.log('Clap event received:', data);
         if (!data.ignored && typeof window.showClap === 'function') {
             window.showClap(data.source_id);
         }
+        renderHistoryEvent(data);
+        // Feedback live sur la carte de la source : flash + dernier clap.
+        _setSourceLive(
+            data.source_id,
+            (data.clap_count > 1 ? `${data.clap_count} claps` : '1 clap')
+                + (data.group_name ? ` · ${data.group_name}` : '')
+                + ` (${Math.round((data.score || 0) * 100)}%)`,
+            !data.ignored
+        );
+    });
+
+    function renderHistoryEvent(data) {
         // Afficher la source et le nombre de claps
         const container = document.getElementById('detected_labels');
         if (container) {
@@ -106,15 +123,7 @@ export function initializeSocketIO() {
                 container.removeChild(container.lastChild);
             }
         }
-        // Feedback live sur la carte de la source : flash + dernier clap.
-        _setSourceLive(
-            data.source_id,
-            (data.clap_count > 1 ? `${data.clap_count} claps` : '1 clap')
-                + (data.group_name ? ` · ${data.group_name}` : '')
-                + ` (${Math.round((data.score || 0) * 100)}%)`,
-            !data.ignored
-        );
-    });
+    }
 
     // Gestionnaire pour les labels (detection en cours → barre de controle)
     socket.on('labels', (data) => {

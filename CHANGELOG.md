@@ -1,5 +1,44 @@
 # Changelog
 
+## 6.29.0
+
+### Interface : corrections
+
+- **Boutons "Tester" des webhooks fonctionnels** (debranches depuis la 6.5.5).
+- **Une seule connexion temps reel** par onglet (il y en avait 3, dont une qui
+  abandonnait apres 5 essais) ; apres une reconnexion ou au retour sur
+  l'onglet, l'etat de la detection et les reglages sont relus depuis le serveur.
+- **Micro** :
+  - "Supprimer" et "Ajouter" sont enregistres cote serveur (le micro
+    reapparaissait au rechargement) ;
+  - le micro reellement utilise est toujours selectionne dans la liste (y
+    compris "par defaut" ou un micro debranche), message si aucun micro n'est
+    detecte, noms contenant "|" geres ;
+  - le test du micro n'envoie plus deux requetes.
+- **VBAN ajoutee depuis la decouverte** : l'objet renvoye par le serveur est
+  utilise (Demarrer n'est plus grise, la suppression fonctionne, les groupes
+  s'affichent). Les sources VBAN sont identifiees par IP + nom et non plus par
+  leur position dans la liste.
+- **Tests (VU-metres)** : un seul a la fois comme cote serveur, le VU-metre
+  RTSP ne s'affiche que sur la camera testee, changer d'onglet ou supprimer
+  une source arrete le test, erreur affichee si le flux s'interrompt.
+- **Erreurs visibles et retour arriere** : seuils, sons coches, entites HA,
+  micro, reglages avances, debug, demarrage automatique, exclusions, volume :
+  en cas d'echec, la valeur affichee revient a l'etat enregistre et un
+  message explique pourquoi.
+- **Groupes de sons** : creation, suppression et renommage sans recharger la
+  page (plus de perte de l'historique ou des tests en cours). Le groupe par
+  defaut est le premier, meme renomme.
+- **Boites de dialogue dans la page** a la place de `alert()`, `confirm()` et
+  `prompt()` (peu fiables dans l'app compagnon HA) ; Echap ferme la fenetre VBAN.
+- **Historique** recharge au demarrage et "Effacer" vide aussi celui du serveur.
+- Point d'etat RTSP gris quand la detection est arretee (il restait orange
+  "Connexion..."), Demarrer mis a jour apres ajout / suppression d'une source,
+  badge "clap" qui ne saute plus, noms de sons echappes dans les selecteurs et
+  l'affichage, lien "Tests" mort retire.
+- Serveur : `GET /api/settings`, `POST`/`DELETE /api/microphone`,
+  `DELETE /api/detections/history`, identifiant de camera dans `rtsp_level`.
+
 ## 6.28.0
 
 ### Integration Home Assistant / MQTT

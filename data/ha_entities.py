@@ -398,7 +398,7 @@ def _configured_sources(settings):
     mic = settings.get('microphone') or {}
     # Micro : publie s'il est actif ; un micro desactive n'est ni publie ni
     # supprime (il garde ses entites s'il l'a deja ete).
-    if mic.get('enabled', False) or MIC_KEY in _source_info:
+    if mic.get('configured', True) is not False and (mic.get('enabled', False) or MIC_KEY in _source_info):
         out.append((MIC_KEY, source_label('mic', mic),
                     mic.get('sound_groups'), bool(mic.get('enabled', False))))
     for src in settings.get('rtsp_sources', []) or []:

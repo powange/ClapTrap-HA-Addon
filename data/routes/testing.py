@@ -120,6 +120,7 @@ def start_rtsp_test():
 
     data = request.get_json(silent=True) or {}
     rtsp_url = data.get('url', '')
+    test_id = str(data.get('id', ''))  # renvoye dans rtsp_level : l'UI met a jour la bonne carte
     initial_gain = float(data.get('gain', 10))
     if not rtsp_url:
         return jsonify({'error': 'URL RTSP requise'}), 400
@@ -135,6 +136,7 @@ def start_rtsp_test():
     # slider) mais jamais ecrit ici : ce dict est partage avec la detection
     # active, un test changeait sinon le gain de la vraie detection.
     from classify import _rtsp_gains
+    from url_validator import mask_url_credentials
 
     _rtsp_test_running = True
 
@@ -153,7 +155,6 @@ def start_rtsp_test():
                 '-loglevel', 'error',
                 'pipe:1'
             ]
-            from url_validator import mask_url_credentials
             logging.info(f"Test RTSP: ffmpeg {mask_url_credentials(rtsp_url)} (volume={initial_gain}x)")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
@@ -167,7 +168,7 @@ def start_rtsp_test():
             while _rtsp_test_running:
                 raw = proc.stdout.read(bytes_per_block)
                 if not raw:
-                    _socketio.emit('rtsp_level', {'error': 'Flux RTSP interrompu ou URL invalide'})
+                    _socketio.emit('rtsp_level', {'id': test_id, 'error': 'Flux RTSP interrompu ou URL invalide'})
                     break
 
                 samples = np.frombuffer(raw, dtype=np.float32)
@@ -180,11 +181,11 @@ def start_rtsp_test():
 
                 peak_amplified = min(1.0, peak)
                 db = max(-60, 20 * np.log10(peak_amplified + 1e-10))
-                _socketio.emit('rtsp_level', {'peak': peak_amplified, 'db': round(db, 1), 'url': rtsp_url})
+                _socketio.emit('rtsp_level', {'id': test_id, 'peak': peak_amplified, 'db': round(db, 1)})
 
         except Exception as e:
             logging.error(f"Erreur test RTSP: {e}")
-            _socketio.emit('rtsp_level', {'error': str(e)})
+            _socketio.emit('rtsp_level', {'id': test_id, 'error': mask_url_credentials(str(e))})
         finally:
             _rtsp_test_running = False
             if proc:

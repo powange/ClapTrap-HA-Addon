@@ -401,7 +401,7 @@ def _norm_groups(src, path):
 def _norm_source(src, path):
     if not isinstance(src, dict):
         raise ValueError(f"{path} : objet attendu")
-    for key in ('enabled', 'auto_start', 'auto_volume'):
+    for key in ('enabled', 'auto_start', 'auto_volume', 'configured'):
         if key in src:
             src[key] = to_bool(src[key], f"{path}.{key}")
     if 'threshold' in src:

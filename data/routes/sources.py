@@ -813,6 +813,38 @@ def _update_mic(field, value):
     return modify_settings(_mut)
 
 
+@sources_bp.route('/api/microphone', methods=['POST'])
+def add_microphone():
+    """Affiche a nouveau la source micro (bouton "Ajouter > Microphone")."""
+    def _mut(settings):
+        mic = settings.setdefault('microphone', {})
+        mic['configured'] = True
+        return dict(mic)
+    return jsonify({'success': True, 'microphone': modify_settings(_mut)})
+
+
+@sources_bp.route('/api/microphone', methods=['DELETE'])
+def delete_microphone():
+    """Retire la source micro : desactivee et masquee, ses entites HA sont
+    supprimees. Avant, "Supprimer" ne touchait que l'etat de la page et le
+    micro reapparaissait au rechargement."""
+    def _mut(settings):
+        mic = settings.setdefault('microphone', {})
+        was_enabled = bool(mic.get('enabled'))
+        mic['enabled'] = False
+        mic['configured'] = False
+        return was_enabled
+    was_enabled = modify_settings(_mut)
+    try:
+        from ha_entities import unregister_source, source_entity_key
+        unregister_source(source_entity_key('mic', {}))
+    except Exception as e:
+        logging.warning(f"Entités HA du micro non retirées: {e}")
+    if was_enabled:
+        _restart_detection_if_running()
+    return jsonify({'success': True})
+
+
 @sources_bp.route('/api/microphone/device', methods=['PUT'])
 def update_microphone_device():
     """Change le micro utilise. N'ecrit QUE les champs du device : avant,

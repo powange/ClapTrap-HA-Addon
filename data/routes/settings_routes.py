@@ -17,6 +17,13 @@ settings_bp.register_error_handler(Exception, api_error_response)
 _webhook_manager = WebhookManager()
 
 
+@settings_bp.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Reglages enregistres : l'UI se resynchronise apres une reconnexion
+    ou quand un autre onglet a modifie la configuration."""
+    return jsonify(load_settings())
+
+
 @settings_bp.route('/api/settings/save', methods=['POST'])
 def save_settings_api():
     settings = request.get_json(silent=True)
