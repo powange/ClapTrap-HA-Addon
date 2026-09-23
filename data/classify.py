@@ -523,7 +523,6 @@ def stop_detection(timeout=10):
     session = _current()
     if session is not None:
         session.stop(timeout=timeout)
-    return True
 
 
 def _current():

@@ -37,20 +37,15 @@ DEFAULT_SETTINGS = {
         # l'a pas ajoute (sinon l'accueil « Ajoutez votre premiere source »
         # ne s'affichait jamais).
         "configured": False,
-        "threshold": 0.5,
-        "ha_entities": [1, 2],
-        "sound_whitelist": {"Clapping": True, "Hands": True, "Applause": True}
     },
     "rtsp_sources": [],
     "saved_vban_sources": [],
-    "vban": {
-        "stream_name": "",
-        "ip": "0.0.0.0",
-        "port": 6980,
-        "webhook_url": "",
-        "enabled": False
-    }
 }
+
+# Champs de source remplaces par les groupes de sons : convertis en groupe
+# « Clap » par _ensure_source_groups puis retires (double source de verite :
+# acceptes et enregistres, ils n'avaient plus aucun effet).
+LEGACY_SOURCE_FIELDS = ('threshold', 'ha_entities', 'sound_whitelist')
 
 # RLock (reentrant) : permet a atomic_update() de tenir le verrou pendant tout
 # le cycle load -> mutate -> save, alors que load_settings/save_settings
@@ -146,6 +141,36 @@ def clap_counts_of(group, fallback=(1, 2)):
             return [n for n in group[key] if isinstance(n, int) and 1 <= n <= 4]
     return list(fallback)
 _VALID_SLUG = __import__('re').compile(r'^[a-z0-9_]+$')
+
+
+def _strip_legacy_fields(settings):
+    """Retire les champs de source remplaces par les groupes. True si change."""
+    changed = False
+    sources = [settings.get('microphone')] + list(settings.get('rtsp_sources', []) or []) + \
+        list(settings.get('saved_vban_sources', []) or [])
+    for src in sources:
+        if isinstance(src, dict) and src.get('sound_groups'):
+            for key in LEGACY_SOURCE_FIELDS:
+                if key in src:
+                    del src[key]
+                    changed = True
+    if 'vban' in settings:  # ancienne section, sans effet depuis longtemps
+        del settings['vban']
+        changed = True
+    if isinstance(settings.get('global'), dict) and 'peak_reset' in settings['global']:
+        del settings['global']['peak_reset']  # reglage retire en 6.37
+        changed = True
+    return changed
+
+
+def _migrate_mic_configured(mic):
+    """Installations d'avant 6.36 : le micro reste affiche s'il a ete utilise
+    ou personnalise. True si la cle a ete ajoutee."""
+    if not isinstance(mic, dict) or 'configured' in mic:
+        return False
+    mic['configured'] = bool(mic.get('enabled') or mic.get('sound_groups') or
+                             mic.get('audio_source', 'default') not in ('', 'default'))
+    return True
 
 
 def _apply_group_migrations(settings):
@@ -283,13 +308,7 @@ def load_settings():
         saved, any_file = _read_saved()
         mic_migrated = False
         if saved is not None:
-            mic = saved.get('microphone')
-            if isinstance(mic, dict) and 'configured' not in mic:
-                # Installations existantes : le micro reste affiche s'il a ete
-                # utilise ou personnalise.
-                mic['configured'] = bool(mic.get('enabled') or mic.get('sound_groups') or
-                                         mic.get('audio_source', 'default') not in ('', 'default'))
-                mic_migrated = True
+            mic_migrated = _migrate_mic_configured(saved.get('microphone'))
             merged = _deep_merge(DEFAULT_SETTINGS, saved)
         elif _cache is not None:
             # Fichiers illisibles : garder la derniere version valide en memoire.
@@ -306,53 +325,50 @@ def load_settings():
                 # encore les recuperer a la main.
                 logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire")
         _apply_group_migrations(merged)
-        merged.get('global', {}).pop('peak_reset', None)  # reglage retire en 6.37
-        if saved is not None and (_ensure_vban_ids(merged) or mic_migrated):
+        migrated = _ensure_vban_ids(merged)
+        migrated = _strip_legacy_fields(merged) or migrated
+        if saved is not None and (migrated or mic_migrated):
             # Enregistrer tout de suite : des ids regeneres a chaque chargement
             # ne seraient pas stables.
             try:
                 _write_atomic(merged)
             except Exception as e:
-                logging.error(f"Migration des ids VBAN non enregistrée: {e}")
+                logging.error(f"Migration des réglages non enregistrée: {e}")
         _cache = merged
         _cache_time = now
         return copy.deepcopy(_cache)
 
 
+def _commit(settings):
+    """Ecrit `settings` tel quel (sous _lock) et met le cache a jour."""
+    global _cache, _cache_time
+    _write_atomic(settings)
+    _cache = copy.deepcopy(settings)
+    _cache_time = time.time()
+
+
 def save_settings(new_settings):
-    """Sauvegarde les paramètres de manière atomique avec invalidation du cache.
+    """Import : chaque section presente dans `new_settings` REMPLACE la
+    section enregistree ; les sections absentes sont conservees (un fichier
+    partiel, par exemple seulement `global`, n'efface pas les sources).
+    Avant, les sections etaient fusionnees : des cles absentes du fichier
+    importe restaient.
 
     Retourne (succes, message).
     """
-    global _cache, _cache_time
-
     with _lock:
         try:
             current = load_settings()
-            new_settings = dict(new_settings)
-
-            # Préserver les sources RTSP et VBAN uniquement si la clé est ABSENTE
-            # du payload (ex: sauvegarde de réglages globaux qui ne gère pas les
-            # sources). Une liste vide EXPLICITE (`[]`) est honorée : c'est ce qui
-            # permet de supprimer la dernière source.
-            for key in ['rtsp_sources', 'saved_vban_sources']:
-                if key not in new_settings:
-                    new_settings[key] = current.get(key, [])
-
-            # Deep merge pour préserver les sous-clés (ex: microphone.pulse_name)
+            new_settings = copy.deepcopy(dict(new_settings))
+            _migrate_mic_configured(new_settings.get('microphone'))
             for key, value in new_settings.items():
-                if isinstance(value, dict) and isinstance(current.get(key), dict):
-                    current[key] = {**current[key], **value}
-                else:
-                    current[key] = value
-
-            _write_atomic(current)
-
-            _cache = copy.deepcopy(current)
-            _cache_time = time.time()
-
+                current[key] = value
+            merged = _deep_merge(DEFAULT_SETTINGS, current)
+            _apply_group_migrations(merged)
+            _ensure_vban_ids(merged)
+            _strip_legacy_fields(merged)
+            _commit(merged)
             return True, "Paramètres sauvegardés avec succès"
-
         except Exception as e:
             logging.error(f"Sauvegarde des paramètres impossible: {e}")
             return False, f"Erreur lors de la sauvegarde des paramètres: {str(e)}"
@@ -365,13 +381,18 @@ def modify_settings(mutator):
     route veut renvoyer. S'il leve une exception, rien n'est ecrit et
     l'exception remonte (la route la transforme en 400/404). Leve
     SettingsSaveError si l'ecriture echoue.
+
+    Le dict modifie est ecrit tel quel : avant, il etait refusionne avec les
+    reglages relus, et une cle supprimee par le mutateur reapparaissait.
     """
     with _lock:
         settings = load_settings()
         result = mutator(settings)
-        ok, message = save_settings(settings)
-        if not ok:
-            raise SettingsSaveError(message)
+        try:
+            _commit(settings)
+        except Exception as e:
+            logging.error(f"Sauvegarde des paramètres impossible: {e}")
+            raise SettingsSaveError(f"Erreur lors de la sauvegarde des paramètres: {e}")
         return result
 
 
@@ -380,26 +401,22 @@ NO_CHANGE = object()
 
 
 def atomic_update(mutator):
-    """Applique une modification de settings de facon ATOMIQUE.
+    """Applique une modification de settings de facon ATOMIQUE (threads
+    d'arriere-plan : sons entendus, volume auto).
 
-    `mutator(settings)` recoit les settings courants (deja charges), les mute
-    en place (ou retourne un nouveau dict), et le tout — lecture puis
-    ecriture — est realise sous un seul verrou. Evite les pertes d'ecriture
-    quand plusieurs threads (routes UI + threads d'arriere-plan "son vu" /
-    volume auto) font un read-modify-write concurrent sur settings.json.
-
-    Le mutator peut retourner `NO_CHANGE` pour eviter une reecriture inutile.
-    Retourne le tuple (success, message) de save_settings.
+    `mutator(settings)` mute les settings courants en place (ou retourne un
+    nouveau dict) ; lecture et ecriture sont faites sous un seul verrou. Il
+    peut retourner `NO_CHANGE` pour eviter une reecriture inutile.
+    Retourne (success, message).
     """
-    with _lock:  # RLock : load_settings/save_settings reacquierent sans blocage
+    with _lock:
         try:
             settings = load_settings()
             result = mutator(settings)
             if result is NO_CHANGE:
                 return True, "Aucun changement"
-            if result is None:
-                result = settings
-            return save_settings(result)
+            _commit(settings if result is None else result)
+            return True, "Paramètres sauvegardés avec succès"
         except Exception as e:
             logging.error(f"atomic_update a echoue: {e}")
             return False, str(e)
@@ -467,6 +484,32 @@ def to_webhook(value, path='webhook_url'):
     return value
 
 
+def normalize_rtsp_url(url, path='URL RTSP'):
+    """URL RTSP stockee : texte, prefixe rtsp:// ajoute si absent, aucun autre
+    protocole accepte (ffmpeg ouvrirait sinon file://, http://...)."""
+    if not isinstance(url, str):
+        raise ValueError(f"{path} : texte attendu")
+    url = url.strip()
+    if not url:
+        return ''
+    if '://' in url:
+        if not url.lower().startswith(('rtsp://', 'rtsps://')):
+            raise ValueError(f"{path} : seul le protocole rtsp:// est autorisé")
+        return url
+    return 'rtsp://' + url
+
+
+def to_ip(value, path='ip'):
+    """Adresse IPv4/IPv6 (source VBAN)."""
+    import ipaddress
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{path} : adresse attendue")
+    try:
+        return str(ipaddress.ip_address(value.strip()))
+    except ValueError:
+        raise ValueError(f"{path} : adresse IP invalide")
+
+
 def _norm_groups(src, path):
     groups = src.get('sound_groups')
     if groups is None:
@@ -497,6 +540,10 @@ def _norm_groups(src, path):
         g['slug'] = slug
         if 'threshold' in g:
             g['threshold'] = to_number(g['threshold'], f"{gp}.threshold", 0, 1)
+        if 'clap_counts' in g:
+            # Lu en priorite par clap_counts_of : non valide, un import avec
+            # "clap_counts": 3 faisait planter la detection a chaque demarrage.
+            g['ha_entities'] = to_clap_counts(g.pop('clap_counts'), f"{gp}.clap_counts")
         if 'ha_entities' in g:
             g['ha_entities'] = to_clap_counts(g['ha_entities'], f"{gp}.ha_entities")
         wl = g.get('sound_whitelist')
@@ -571,20 +618,28 @@ def normalize_settings(data):
         if not isinstance(legacy, dict):
             raise ValueError("vban : objet attendu")
         data.pop('vban')
+    import uuid
     for key in ('rtsp_sources', 'saved_vban_sources'):
         lst = data.get(key)
         if lst is None:
             continue
         if not isinstance(lst, list):
             raise ValueError(f"{key} : liste attendue")
+        ids, entity_keys = set(), set()
         for i, src in enumerate(lst):
             _norm_source(src, f"{key}[{i}]")
             if key == 'rtsp_sources':
-                if not isinstance(src.get('url', ''), str):
-                    raise ValueError(f"{key}[{i}].url : texte attendu")
-                src.setdefault('id', str(__import__('uuid').uuid4()))
+                # Meme controle que l'API : « http://… » devenait « rtsp://http://… »
+                src['url'] = normalize_rtsp_url(src.get('url', ''), f"{key}[{i}].url")
             else:
-                if not isinstance(src.get('ip'), str) or not src.get('ip'):
-                    raise ValueError(f"{key}[{i}].ip : adresse attendue")
-                src.setdefault('id', str(__import__('uuid').uuid4()))
+                src['ip'] = to_ip(src.get('ip'), f"{key}[{i}].ip")
+                # Cle d'entite en double : recalculee au chargement.
+                if src.get('entity_key') in entity_keys:
+                    src.pop('entity_key')
+                entity_keys.add(src.get('entity_key'))
+            # Id absent ou en double (les routes prenaient la premiere source
+            # trouvee) : nouvel id.
+            if not isinstance(src.get('id'), str) or not src['id'] or src['id'] in ids:
+                src['id'] = str(uuid.uuid4())
+            ids.add(src['id'])
     return data

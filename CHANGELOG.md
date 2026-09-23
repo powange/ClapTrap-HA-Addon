@@ -1,5 +1,36 @@
 # Changelog
 
+## 6.39.0
+
+### API et réglages
+
+- **Champs de source obsolètes retirés** : le seuil, les entités et la liste
+  de sons se règlent par groupe. Les champs équivalents au niveau de la
+  source (`threshold`, `ha_entities`, `sound_whitelist`) étaient acceptés et
+  enregistrés sans aucun effet ; ils sont refusés par l'API et retirés des
+  réglages existants (après conversion en groupe « Clap » si besoin),
+  ainsi que l'ancienne section `vban`.
+- **Écriture des réglages** : le dict modifié est écrit tel quel. Il était
+  refusionné avec les réglages relus, et une clé supprimée réapparaissait.
+- **Import** : chaque section du fichier remplace la section enregistrée
+  (les sections absentes sont conservées) ; avant, c'était une fusion et
+  des clés absentes du fichier restaient.
+- **Validation de l'import** : `clap_counts` vérifié (une valeur mal formée
+  bloquait la détection à chaque démarrage), URL RTSP soumise au même
+  contrôle que l'API (`http://…` refusé), IP VBAN vérifiée, ids et clés
+  d'entité en double régénérés.
+- **Groupe sans entité** : créer un groupe avec `ha_entities: []` donne bien
+  un groupe sans entité (il retombait sur 1 et 2 claps).
+- **Caméra en double** refusée (même URL) ; supprimer une caméra inconnue
+  répond 404 ; IP VBAN vérifiée à l'ajout.
+- `PUT /api/settings/debug` exige `enabled` (un corps vide désactivait le
+  journal) ; `PUT /api/settings/advanced` refuse les champs inconnus.
+- **Réponses d'erreur homogènes** : toujours `{success: false, error}` avec
+  le bon code HTTP, y compris pour le démarrage et l'arrêt de la détection
+  (409 si elle tourne déjà).
+- **Webhook** : un seul nouvel essai, uniquement si la connexion a échoué.
+  Rejouer un POST sur 502/503/504 pouvait déclencher l'automation deux fois.
+
 ## 6.38.0
 
 ### Home Assistant / MQTT

@@ -162,18 +162,8 @@ def _resolve_pulse_name(settings):
 
 
 def _normalize_rtsp_url(url):
-    """URL RTSP stockee : texte, prefixe rtsp:// ajoute si absent, aucun autre
-    protocole accepte (ffmpeg ouvrirait sinon file://, http://...)."""
-    if not isinstance(url, str):
-        raise ApiError("URL RTSP : texte attendu")
-    url = url.strip()
-    if not url:
-        return ''
-    if '://' in url:
-        if not url.lower().startswith(('rtsp://', 'rtsps://')):
-            raise ApiError('Seul le protocole rtsp:// est autorisé')
-        return url
-    return 'rtsp://' + url
+    from settings_manager import normalize_rtsp_url
+    return normalize_rtsp_url(url)
 
 
 def _find_rtsp(settings, stream_id):
@@ -227,10 +217,13 @@ def add_rtsp_stream():
         'webhook_url': to_webhook(data.get('webhook_url', '')),
         'enabled': to_bool(data.get('enabled', True), 'enabled'),
         'gain': to_number(data.get('gain', 10), 'gain', 0, 100, integer=True),
-        'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
     }
 
     def _mut(settings):
+        # Doublon : un assistant ferme pendant l'ajout faisait recommencer
+        # l'utilisateur, et la camera existait deux fois.
+        if new_stream['url'] and any(s.get('url') == new_stream['url'] for s in settings.get('rtsp_sources', [])):
+            raise ApiError('Cette caméra (même URL) est déjà ajoutée', 409)
         settings.setdefault('rtsp_sources', []).append(new_stream)
 
     modify_settings(_mut)
@@ -263,12 +256,8 @@ def _update_rtsp(stream_id, data):
             new_enabled = to_bool(data['enabled'], 'enabled')
             enabled_changed = new_enabled != stream.get('enabled')
             stream['enabled'] = new_enabled
-        if 'threshold' in data:
-            stream['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'gain' in data:
             stream['gain'] = to_number(data['gain'], 'gain', 0, 100, integer=True)
-        if 'ha_entities' in data:
-            stream['ha_entities'] = to_clap_counts(data['ha_entities'])
         # Redemarrage si la source est (des)activee, ou si l'URL d'une source
         # active change (ffmpeg doit se reconnecter a la nouvelle URL).
         state['restart'] = enabled_changed or (url_changed and stream.get('enabled', False))
@@ -286,7 +275,7 @@ def _update_rtsp(stream_id, data):
     if 'webhook_url' in data:
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('rtsp', stream_id), stream['webhook_url'])
-    if 'ha_entities' in data or 'name' in data:
+    if 'name' in data:
         _sync_ha_entities()
     if state.get('restart'):
         _restart_detection_if_running()
@@ -298,7 +287,9 @@ def delete_rtsp_stream(stream_id):
     def _mut(settings):
         before = settings.get('rtsp_sources', [])
         settings['rtsp_sources'] = [s for s in before if s.get('id') != stream_id]
-        return len(settings['rtsp_sources']) != len(before)
+        if len(settings['rtsp_sources']) == len(before):
+            raise ApiError('Stream non trouvé', 404)
+        return True
 
     removed = modify_settings(_mut)
     _sync_ha_entities()
@@ -314,7 +305,7 @@ def delete_rtsp_stream(stream_id):
 def get_vban_sources():
     detector = get_vban_detector()
     if not detector:
-        return jsonify({'error': 'Impossible d\'initialiser la découverte VBAN'}), 500
+        return jsonify({'success': False, 'error': 'Impossible d\'initialiser la découverte VBAN'}), 500
     return jsonify(detector.get_sources(timeout=1.0))
 
 
@@ -329,9 +320,10 @@ def save_vban_source():
     if not all(field in source for field in ('name', 'ip', 'port')):
         raise ApiError('Données manquantes pour la source VBAN')
     name = str(source['name']).strip()
-    ip = str(source['ip']).strip()
-    if not name or not ip:
-        raise ApiError('Nom et IP requis pour la source VBAN')
+    if not name:
+        raise ApiError('Nom requis pour la source VBAN')
+    from settings_manager import to_ip
+    ip = to_ip(str(source['ip']))
     new_source = {
         'id': str(uuid.uuid4()),
         'name': name,
@@ -403,12 +395,8 @@ def _update_vban(vban_id, source):
             new_enabled = to_bool(source['enabled'], 'enabled')
             restart = new_enabled != s.get('enabled')
             s['enabled'] = new_enabled
-        if 'threshold' in source:
-            s['threshold'] = to_number(source['threshold'], 'threshold', 0, 1)
         if 'gain' in source:
             s['gain'] = to_number(source['gain'], 'gain', 0, 100)
-        if 'ha_entities' in source:
-            s['ha_entities'] = to_clap_counts(source['ha_entities'])
         state['restart'] = restart
         return dict(s)
 
@@ -422,8 +410,6 @@ def _update_vban(vban_id, source):
     if 'webhook_url' in source:
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('vban', s['id']), s['webhook_url'])
-    if 'ha_entities' in source:
-        _sync_ha_entities()
     if state.get('restart'):
         _restart_detection_if_running()
     return s
@@ -564,20 +550,14 @@ def cleanup_source_sound_whitelist():
             kept = {k: v for k, v in wl.items() if v}
             removed = len(wl) - len(kept)
             target_group['sound_whitelist'] = kept
-            if target_group is _default_group(groups):
-                legacy = target.get('sound_whitelist') or {}
-                target['sound_whitelist'] = {k: v for k, v in legacy.items() if v}
         else:
-            # Compat retro : nettoyer tous les groupes + legacy
-            wl = target.get('sound_whitelist') or {}
-            kept = {k: v for k, v in wl.items() if v}
-            removed = len(wl) - len(kept)
-            target['sound_whitelist'] = kept
+            removed = 0
             for g in groups:
                 if isinstance(g, dict):
                     g_wl = g.get('sound_whitelist') or {}
                     g['sound_whitelist'] = {k: v for k, v in g_wl.items() if v}
-        remaining = set((target.get('sound_whitelist') or {}).keys())
+                    removed += len(g_wl) - len(g['sound_whitelist'])
+        remaining = set()
         for g in groups:
             if isinstance(g, dict):
                 remaining.update((g.get('sound_whitelist') or {}).keys())
@@ -611,7 +591,6 @@ def delete_source_sound_whitelist_entry():
 
     def _mut(settings):
         source_dict = _require_source(settings, kind, source_key)
-        source_dict.setdefault('sound_whitelist', {}).pop(label, None)
         for g in source_dict.get('sound_groups', []) or []:
             if isinstance(g, dict):
                 (g.get('sound_whitelist') or {}).pop(label, None)
@@ -666,9 +645,6 @@ def update_source_sound_whitelist():
                         f'Le son "{label}" est deja active dans le groupe "{g.get("name", g.get("slug"))}"',
                         409, conflict_group=g.get('slug'))
         target_group.setdefault('sound_whitelist', {})[label] = enabled
-        # Synchroniser le legacy (compat UI ancien) pour le groupe par defaut
-        if target_group is default:
-            source_dict.setdefault('sound_whitelist', {})[label] = enabled
         return target_slug
 
     target_slug = modify_settings(_mut)
@@ -734,15 +710,16 @@ def create_source_sound_group():
         # Le nouveau groupe propose tous les sons deja entendus sur la source
         # (non coches) : sinon il restait vide, un son deja "vu" ailleurs n'y
         # etant jamais ajoute.
-        known = set((src.get('sound_whitelist') or {}).keys())
+        known = set()
         for g in groups:
             if isinstance(g, dict):
                 known.update((g.get('sound_whitelist') or {}).keys())
         new_group = {
             'slug': _slugify_group(name, existing_slugs), 'name': name,
             'sound_whitelist': {label: False for label in sorted(known)},
-            'threshold': to_number(data.get('threshold', src.get('threshold', 0.5)), 'threshold', 0, 1),
-            'ha_entities': to_clap_counts(data.get('ha_entities') or src.get('ha_entities') or [1, 2]),
+            'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
+            # [] = aucune entite (un `or` le remplacait par 1 et 2 claps)
+            'ha_entities': to_clap_counts(data['ha_entities'] if data.get('ha_entities') is not None else [1, 2]),
         }
         groups.append(new_group)
         _check_entity_collision(settings)
@@ -972,9 +949,11 @@ def _set_auto_volume(enabled):
 # --- API unifiee -------------------------------------------------------------
 
 _PATCH_FIELDS = {
-    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'ha_entities', 'enabled'},
-    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'threshold', 'gain', 'ha_entities'},
-    'vban': {'webhook_url', 'enabled', 'threshold', 'gain', 'ha_entities'},
+    # Seuil et entites se reglent par groupe (/api/source/sound_groups) : les
+    # champs de source equivalents etaient acceptes sans aucun effet.
+    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled'},
+    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain'},
+    'vban': {'webhook_url', 'enabled', 'gain'},
 }
 
 
@@ -1007,8 +986,6 @@ def _update_mic_fields(data):
         changes['auto_volume'] = to_bool(data['auto_volume'], 'auto_volume')
     if 'webhook_url' in data:
         changes['webhook_url'] = to_webhook(data['webhook_url'])
-    if 'ha_entities' in data:
-        changes['ha_entities'] = to_clap_counts(data['ha_entities'])
     if 'enabled' in data:
         changes['enabled'] = to_bool(data['enabled'], 'enabled')
 
@@ -1034,8 +1011,8 @@ def _update_mic_fields(data):
     if 'webhook_url' in changes:
         from classify import update_source_webhook
         update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), changes['webhook_url'])
-    if 'ha_entities' in changes:
-        _sync_ha_entities()
+    if 'enabled' in changes:
+        _sync_ha_entities()  # disponibilite des entites du micro
     if changes.get('auto_volume') is False:
         from auto_volume import auto_volume_mgr
         auto_volume_mgr.stop()

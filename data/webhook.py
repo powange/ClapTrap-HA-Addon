@@ -22,13 +22,11 @@ def validate_webhook_url(url):
 class WebhookManager:
     def __init__(self):
         self.session = requests.Session()
-        # Retry/backoff volontairement LEGERS : un webhook de clap est temps
-        # reel. Avec total=3/backoff=1 + timeout=5, un endpoint lent bloquait un
-        # worker ~20 s -> le pool (4) se saturait et les claps suivants etaient
-        # retardes/perdus. Ici : au plus 1 retry rapide.
-        # allowed_methods : par defaut urllib3 ne rejoue pas un POST sur
-        # status_forcelist (methode non idempotente) -> le retry ne servait a rien.
-        retry_kwargs = dict(total=1, backoff_factor=0.3, status_forcelist=[502, 503, 504])
+        # Au plus 1 nouvel essai rapide, et seulement si la connexion a echoue
+        # (la requete n'est alors jamais partie). Rejouer un POST sur 502/503/504
+        # pouvait declencher l'automation deux fois : un proxy renvoie 502
+        # apres avoir deja transmis la requete.
+        retry_kwargs = dict(total=1, connect=1, read=0, status=0, other=0, backoff_factor=0.3)
         try:
             retry_strategy = Retry(allowed_methods=frozenset({'POST'}), **retry_kwargs)
         except TypeError:  # urllib3 < 1.26

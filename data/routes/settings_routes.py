@@ -28,7 +28,7 @@ def get_settings():
 def save_settings_api():
     settings = request.get_json(silent=True)
     if not settings:
-        return jsonify({'error': 'Aucun paramètre fourni'}), 400
+        return jsonify({'success': False, 'error': 'Aucun paramètre fourni'}), 400
     normalize_settings(settings)  # ValueError -> 400 avec le champ fautif
     success, message = save_settings(settings)
     if not success:
@@ -39,7 +39,9 @@ def save_settings_api():
 @settings_bp.route('/api/settings/debug', methods=['PUT'])
 def toggle_debug():
     data = request.get_json(silent=True) or {}
-    enabled = to_bool(data.get('enabled', False), 'enabled')
+    if 'enabled' not in data:
+        raise ValueError("enabled : booléen attendu")  # {} desactivait le journal
+    enabled = to_bool(data['enabled'], 'enabled')
 
     def _mut(settings):
         settings.setdefault('global', {})['debug'] = enabled
@@ -57,6 +59,9 @@ _ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
     data = request.get_json(silent=True) or {}
+    unknown = sorted(set(data) - set(_ADVANCED_LIMITS))
+    if unknown:
+        raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
     values = {key: to_number(data[key], key, lo, hi)
               for key, (lo, hi) in _ADVANCED_LIMITS.items() if key in data}
 
@@ -109,7 +114,7 @@ def get_ha_entities():
         from ha_entities import get_entities_info
         return jsonify(get_entities_info())
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @settings_bp.route('/api/settings/export', methods=['GET'])
@@ -126,7 +131,7 @@ def import_settings():
         else:
             imported = request.get_json(silent=True)
     except (ValueError, UnicodeDecodeError) as e:
-        return jsonify({'error': f'Fichier JSON illisible : {e}'}), 400
+        return jsonify({'success': False, 'error': f'Fichier JSON illisible : {e}'}), 400
     # Validation AVANT ecriture : un seuil "abc" faisait planter float() au
     # demarrage suivant (auto-start en echec silencieux).
     normalize_settings(imported)
@@ -153,9 +158,9 @@ def test_webhook():
     data = request.get_json(silent=True) or {}
     url = str(data.get('url') or '').strip()
     if not url:
-        return jsonify({'error': 'URL manquante'}), 400
+        return jsonify({'success': False, 'error': 'URL manquante'}), 400
     if not is_valid_url(url):
-        return jsonify({'error': 'URL invalide : http:// ou https:// attendu'}), 400
+        return jsonify({'success': False, 'error': 'URL invalide : http:// ou https:// attendu'}), 400
     payload = {
         'event': 'clap',
         'test': True,
@@ -172,9 +177,9 @@ def test_webhook():
         response = _webhook_manager.send_webhook(url, payload, follow_redirects=False)
     except requests.exceptions.HTTPError as e:
         status = getattr(e.response, 'status_code', '?')
-        return jsonify({'error': f'Le serveur a répondu HTTP {status}'}), 502
+        return jsonify({'success': False, 'error': f'Le serveur a répondu HTTP {status}'}), 502
     except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'Serveur injoignable ({type(e).__name__})'}), 502
+        return jsonify({'success': False, 'error': f'Serveur injoignable ({type(e).__name__})'}), 502
     if 300 <= response.status_code < 400:
-        return jsonify({'error': f'Redirection refusée (HTTP {response.status_code})'}), 502
+        return jsonify({'success': False, 'error': f'Redirection refusée (HTTP {response.status_code})'}), 502
     return jsonify({'success': True, 'message': 'Test réussi'})
