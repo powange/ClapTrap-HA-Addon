@@ -35,7 +35,7 @@
             '<span class="clap-badge" hidden></span>' +
             '<span class="group-live-score" aria-label="Score actuel">0,00</span></div>' +
             '<div class="scorebar"><div class="scorebar-fill"></div><div class="scorebar-mark" style="left:' + (t * 100) + '%"></div>' +
-            '<input type="range" class="threshold" min="0" max="1" step="0.05" value="' + t + '" ' +
+            '<input type="range" class="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
             '<canvas class="spark" width="320" height="40" aria-hidden="true"></canvas>' +
             '<div class="group-live-foot"><span>Seuil de confiance <strong class="threshold-value">' + CT.fmt(t) + '</strong></span>' +
@@ -113,7 +113,7 @@
             '</header>' +
             '<p class="source-status" data-role="status"><span class="dot"></span><span class="status-text"></span></p>' +
             '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
-            '<p class="live-line" data-role="live" aria-live="polite">' + (src.enabled ? 'En attente de sons…' : 'Source désactivée') + '</p>' +
+            '<p class="live-line" data-role="live">' + (src.enabled ? 'En attente de sons…' : 'Source désactivée') + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
             '<details class="source-settings" data-role="settings"' + open + '><summary>Réglages de la source</summary>' +
             '<div class="settings-body">' + settingsHtml(src) + '</div></details>' +
@@ -139,9 +139,17 @@
             if (CT.renderGroupsManage) CT.renderGroupsManage(card, src);
         });
         CT.$('#add-source').addEventListener('click', function () { if (CT.openWizard) CT.openWizard(); });
-        // Ligne de seuil visible des l'affichage (avant les premiers scores).
-        CT.$$('.group-live', grid).forEach(function (row) {
-            drawSpark(row.querySelector('canvas'), [], parseFloat(row.querySelector('.threshold').value), Date.now() / 1000);
+        // Scores et courbes conserves d'un rendu a l'autre (ils repartaient a
+        // zero a chaque action), ligne de seuil visible des l'affichage.
+        var now = Date.now() / 1000;
+        sources.forEach(function (src) {
+            var live = (CT.state.live[src.sourceId] || {scores: {}}).scores;
+            CT.$$('.group-live', document.getElementById(src.domId)).forEach(function (row) {
+                var series = live[row.getAttribute('data-slug')] || [];
+                var threshold = parseFloat(row.querySelector('.threshold').value);
+                if (series.length) setScore(row, series[series.length - 1][1], threshold);
+                drawSpark(row.querySelector('canvas'), series, threshold, now);
+            });
         });
         CT.renderSourceStatuses();
         if (CT.state.testing) CT.onTestChange(CT.state.testing, true);
@@ -183,7 +191,16 @@
             menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
             if (open) menu.querySelector('button').focus();
         });
-        menu.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeMenu(); menuBtn.focus(); } });
+        menu.addEventListener('keydown', function (e) {
+            var items = CT.$$('[role="menuitem"]', menu);
+            var i = items.indexOf(document.activeElement);
+            if (e.key === 'Escape') { e.preventDefault(); closeMenu(); menuBtn.focus(); }
+            else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+            else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+            else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+            else if (e.key === 'Tab') { closeMenu(); }
+        });
 
         card.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-action]');
@@ -219,7 +236,14 @@
                 var live = (CT.state.live[src.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
                 drawSpark(row.querySelector('canvas'), live, parseFloat(slider.value), Date.now() / 1000);
             });
+            var saveTimer = null;
             slider.addEventListener('change', function () {
+                // Enregistrement apres une courte pause : au clavier, chaque
+                // fleche declenchait une requete.
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(save, 600);
+            });
+            function save() {
                 var slug = row.getAttribute('data-slug');
                 CT.api('PUT', '/api/source/sound_groups', {kind: src.kind, source_key: src.apiKey, group_slug: slug,
                                                            threshold: parseFloat(slider.value)})
@@ -233,7 +257,7 @@
                         slider.dispatchEvent(new Event('input'));
                         CT.error('Seuil non enregistré : ' + err.message);
                     });
-            });
+            }
         });
 
         // Reglages de la source : enregistres a la validation du champ
@@ -283,6 +307,13 @@
 
         card.querySelector('details').addEventListener('toggle', function (e) {
             CT.state.openPanels[card.id] = e.target.open;
+            if (e.target.open && src.kind === 'mic') {
+                // Un micro branche apres l'ouverture de la page apparait.
+                var before = JSON.stringify(CT.state.devices);
+                CT.reloadDevices().then(function () {
+                    if (JSON.stringify(CT.state.devices) !== before && !CT.isEditing()) CT.render();
+                });
+            }
         });
     }
 
@@ -382,17 +413,30 @@
             series.push([now, score]);
             var row = c.card.querySelector('.group-live[data-slug="' + CT.cssEscape(slug) + '"]');
             if (!row) return;
-            row.querySelector('.group-live-score').textContent = CT.fmt(score);
-            var fill = row.querySelector('.scorebar-fill');
-            fill.style.width = Math.min(100, score * 100) + '%';
             var threshold = parseFloat(row.querySelector('.threshold').value);
-            fill.classList.toggle('is-over', score >= threshold);
+            setScore(row, score, threshold);
             drawSpark(row.querySelector('canvas'), series, threshold, now);
         });
     });
 
-    CT.cssEscape = function (s) {
-        return (window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s).replace(/["\\\]\[]/g, '\\$&');
+    function setScore(row, score, threshold) {
+        row.querySelector('.group-live-score').textContent = CT.fmt(score);
+        var fill = row.querySelector('.scorebar-fill');
+        fill.style.width = Math.min(100, score * 100) + '%';
+        fill.classList.toggle('is-over', score >= threshold);
+    }
+
+    // Detection arretee : les dernieres valeurs ne sont plus d'actualite.
+    CT.resetLive = function () {
+        CT.state.live = {};
+        CT.$$('.source-card').forEach(function (card) {
+            CT.$$('.group-live', card).forEach(function (row) {
+                setScore(row, 0, 1);
+                drawSpark(row.querySelector('canvas'), [], parseFloat(row.querySelector('.threshold').value), Date.now() / 1000);
+            });
+            var line = card.querySelector('[data-role="live"]');
+            if (line) line.textContent = card.classList.contains('is-disabled') ? 'Source désactivée' : 'En attente de sons…';
+        });
     };
 
     function drawSpark(canvas, series, threshold, now) {
@@ -400,7 +444,7 @@
         if (!ctx) return;
         var w = canvas.width, h = canvas.height, css = getComputedStyle(canvas);
         var accent = css.getPropertyValue('--accent').trim() || '#0d7c6b';
-        var line = css.getPropertyValue('--line').trim() || '#ccc';
+        var line = css.getPropertyValue('--ink-3').trim() || '#888';
         ctx.clearRect(0, 0, w, h);
         var ty = h - threshold * (h - 4) - 2;
         ctx.strokeStyle = line;
@@ -441,6 +485,7 @@
             var line = c.card.querySelector('[data-role="live"]');
             line.textContent = '👏 ' + text + ' · ' + (d.group_name || d.group_slug) + ' (' + CT.pct(d.score) + ')';
             line.dataset.clapUntil = String(Date.now() + 2500);
+            CT.announce(text + ' détecté' + (n > 1 ? 's' : '') + ' sur ' + c.src.name);
             c.card.classList.remove('flash'); void c.card.offsetWidth; c.card.classList.add('flash');
         }
         var row = c.card.querySelector('.group-live[data-slug="' + CT.cssEscape(d.group_slug) + '"]');

@@ -15,7 +15,8 @@
         live: {},           // sourceId -> {scores: {slug: [[t, score]...]}}
         testing: null,      // {key, stopUrl, domId}
         openPanels: {},     // ids des <details> ouverts (conserves entre rendus)
-        entityIds: {}       // entity_id calcules par le serveur ("mic", "rtsp:<id>", "vban:<id>")
+        entityIds: {},      // entity_id calcules par le serveur ("mic", "rtsp:<id>", "vban:<id>")
+        search: {}          // recherche en cours par groupe (conservee entre rendus)
     };
 
     // ---- Outils --------------------------------------------------------------
@@ -35,6 +36,9 @@
     CT.setMeterFill = function (fill, pct) {
         fill.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
         fill.dataset.pct = String(Math.round(pct));
+    };
+    CT.cssEscape = function (s) {
+        return (window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s).replace(/["\\\]\[]/g, '\\$&');
     };
     CT.$ = function (sel, root) { return (root || document).querySelector(sel); };
     CT.$$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
@@ -63,35 +67,71 @@
         var el = document.createElement('div');
         el.className = 'toast toast-' + (kind || 'info');
         el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-        el.textContent = message;
+        var text = document.createElement('span');
+        text.textContent = message;
+        el.appendChild(text);
+        var remove = function () { el.classList.add('toast-out'); setTimeout(function () { el.remove(); }, 300); };
+        if (kind === 'error') {
+            // Les erreurs restent jusqu'a ce qu'on les ferme (ou 15 s).
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'toast-close';
+            close.setAttribute('aria-label', 'Fermer ce message');
+            close.textContent = '×';
+            close.addEventListener('click', remove);
+            el.appendChild(close);
+            setTimeout(remove, 15000);
+        } else {
+            setTimeout(remove, 2500);
+        }
         box.appendChild(el);
-        setTimeout(function () { el.classList.add('toast-out'); }, kind === 'error' ? 6000 : 2500);
-        setTimeout(function () { el.remove(); }, kind === 'error' ? 6400 : 2900);
+    };
+    // Annonces pour lecteurs d'ecran : seulement les evenements importants
+    // (claps), au plus une toutes les 2 s.
+    var lastAnnounce = 0;
+    CT.announce = function (text) {
+        var now = Date.now();
+        var box = document.getElementById('announcer');
+        if (!box || now - lastAnnounce < 2000) return;
+        lastAnnounce = now;
+        box.textContent = text;
     };
     CT.error = function (message) { CT.toast(message, 'error'); };
     CT.success = function (message) { CT.toast(message, 'success'); };
 
     // ---- Dialogues dans la page (focus piege, Echap) --------------------------
-    CT.trapFocus = function (container, onClose) {
+    CT.focusables = function (container) {
+        return CT.$$('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])', container)
+            .filter(function (el) { return !el.disabled && !el.closest('[hidden]'); });
+    };
+    // Piege de focus sur le document entier (et non sur la fenetre) : quand
+    // le bouton qui avait le focus disparait, Echap et Tab restent geres. Le
+    // reste de la page est rendu inerte.
+    CT.trapFocus = function (container, onClose, returnFocus) {
         var previous = document.activeElement;
-        function focusables() {
-            return CT.$$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', container)
-                .filter(function (el) { return !el.disabled && el.offsetParent !== null; });
-        }
+        var outside = CT.$$('body > header, body > main, body > .skip-link');
+        outside.forEach(function (el) { el.inert = true; el.setAttribute('aria-hidden', 'true'); });
         function onKey(e) {
             if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
             if (e.key !== 'Tab') return;
-            var f = focusables();
-            if (!f.length) return;
+            var f = CT.focusables(container);
+            if (!f.length) { e.preventDefault(); return; }
             var first = f[0], last = f[f.length - 1];
-            if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+            if (!container.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+            else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
             else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
-        container.addEventListener('keydown', onKey);
+        document.addEventListener('keydown', onKey, true);
         return function release() {
-            container.removeEventListener('keydown', onKey);
-            if (previous && previous.focus) previous.focus();
+            document.removeEventListener('keydown', onKey, true);
+            outside.forEach(function (el) { el.inert = false; el.removeAttribute('aria-hidden'); });
+            var target = typeof returnFocus === 'function' ? returnFocus() : previous;
+            if (target && target.isConnected && target.focus) target.focus();
         };
+    };
+    CT.focusFirst = function (container) {
+        var f = CT.focusables(container);
+        if (f.length) f[0].focus();
     };
     CT.dialog = function (message, opts) {
         opts = opts || {};
@@ -197,6 +237,11 @@
         return Promise.all([CT.api('GET', '/api/settings'), CT.reloadEntityIds()])
             .then(function (r) { CT.state.settings = r[0]; return r[0]; });
     };
+    CT.reloadDevices = function () {
+        return CT.api('GET', '/api/audio-sources').then(function (d) {
+            if (Array.isArray(d)) CT.state.devices = d;
+        }).catch(function () {});
+    };
     CT.reloadStatus = function () {
         return fetch(basePath + '/status').then(function (r) { return r.json(); }).then(function (st) {
             CT.state.status = st;
@@ -209,9 +254,45 @@
         return !!(a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.type !== 'range' && a.type !== 'checkbox' &&
                   !a.closest('.modal'));
     };
+    // Rendu avec restauration du focus : chaque action reconstruisait la
+    // grille et renvoyait l'utilisateur clavier en haut de la page.
+    CT.focusDescriptor = function () {
+        var a = document.activeElement;
+        if (!a || a === document.body) return null;
+        var card = a.closest && a.closest('[id]');
+        if (!card) return null;
+        var sel = null;
+        ['data-field', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
+            if (a.hasAttribute(attr)) { sel = '[' + attr + '="' + CT.cssEscape(a.getAttribute(attr)) + '"]'; return true; }
+            return false;
+        });
+        if (!sel) sel = a.className ? '.' + String(a.className).trim().split(/\s+/)[0] : a.tagName.toLowerCase();
+        var group = a.closest('[data-slug]');
+        return {card: card.id, group: group ? group.getAttribute('data-slug') : null, sel: sel,
+                caret: typeof a.selectionStart === 'number' ? a.selectionStart : null};
+    };
+    CT.restoreFocus = function (d) {
+        if (!d) return;
+        var card = document.getElementById(d.card);
+        if (!card) return;
+        var scope = d.group ? card.querySelector('[data-slug="' + CT.cssEscape(d.group) + '"]') || card : card;
+        var el = scope.querySelector(d.sel);
+        if (!el) return;
+        el.focus({preventScroll: true});
+        if (d.caret != null && typeof el.setSelectionRange === 'function') {
+            try { el.setSelectionRange(d.caret, d.caret); } catch (e) { /* type sans selection */ }
+        }
+    };
+    CT.withFocus = function (fn) {
+        var d = CT.focusDescriptor();
+        fn();
+        CT.restoreFocus(d);
+    };
     CT.render = function () {
-        if (CT.renderStatus) CT.renderStatus();
-        if (CT.renderSources) CT.renderSources();
+        CT.withFocus(function () {
+            if (CT.renderStatus) CT.renderStatus();
+            if (CT.renderSources) CT.renderSources();
+        });
     };
     CT.resync = function () {
         return Promise.all([CT.reloadSettings(), CT.reloadStatus()]).then(function () {

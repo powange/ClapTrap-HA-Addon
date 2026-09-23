@@ -40,17 +40,22 @@
             var on = !!wl[label];
             var other = activeElsewhere[label];
             var disabled = !on && other;
-            return '<label class="chip' + (on ? ' is-on' : '') + (disabled ? ' is-disabled' : '') + '" title="' +
-                esc(disabled ? 'Déjà actif dans le groupe « ' + other + ' »' : label) + '">' +
+            var excluded = (CT.state.settings.global || {}).sound_exclusions || [];
+            var isExcluded = excluded.indexOf(label) !== -1;
+            return '<label class="chip' + (on ? ' is-on' : '') + (disabled ? ' is-disabled' : '') + (isExcluded ? ' is-excluded' : '') + '" title="' + esc(label) + '">' +
                 '<input type="checkbox" data-label="' + esc(label) + '"' + (on ? ' checked' : '') + (disabled ? ' disabled' : '') + '>' +
-                '<span>' + esc(CT.soundLabel(label)) + '</span></label>';
+                '<span>' + esc(CT.soundLabel(label)) + '</span>' +
+                // Conflit et exclusion lisibles (l'infobulle seule est invisible
+                // au toucher et aux lecteurs d'ecran).
+                (disabled ? '<span class="chip-note">· dans « ' + esc(other) + ' »</span>' : '') +
+                (isExcluded ? '<span class="chip-note">· ignoré partout</span>' : '') + '</label>';
         }).join('');
         var claps = [1, 2, 3, 4].map(function (n) {
             return '<label class="check"><input type="checkbox" data-clap="' + n + '"' +
                 ((Array.isArray(g.ha_entities) ? g.ha_entities : [1, 2]).indexOf(n) !== -1 ? ' checked' : '') + '> ' + n + ' clap' + (n > 1 ? 's' : '') + '</label>';
         }).join('');
         var entities = entitiesOf(src, g).map(function (e) {
-            return '<li><code>' + esc(e) + '</code><button type="button" class="btn-link" data-copy="' + esc(e) + '">Copier</button></li>';
+            return '<li><code>' + esc(e) + '</code><button type="button" class="btn-link" data-copy="' + esc(e) + '" aria-label="Copier ' + esc(e) + '">Copier</button></li>';
         }).join('');
         return '<section class="group-card" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-head">' +
@@ -63,12 +68,16 @@
             '</fieldset>' +
             '<div class="field"><div class="field-row"><span class="field-label">Sons qui déclenchent ce groupe</span>' +
                 '<button type="button" class="btn-link" data-group-action="cleanup">Retirer les sons non cochés</button></div>' +
-                (labels.length > 8 ? '<input type="search" class="input sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son">' : '') +
+                (labels.length > 8 ? '<input type="search" class="input sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
+                    esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
                 '<div class="chips">' + (chips || '<p class="hint">Les sons entendus pendant la détection apparaîtront ici.</p>') + '</div>' +
             '</div></section>';
     }
 
     CT.renderGroupsManage = function (card, src) {
+        CT.withFocus(function () { renderGroupsManage(card, src); });
+    };
+    function renderGroupsManage(card, src) {
         var box = card.querySelector('[data-role="groups"]');
         if (!box) return;
         var groups = (src.data.sound_groups || []).filter(function (g) { return g && g.slug; });
@@ -81,7 +90,17 @@
             return groupHtml(src, g, idx === 0, elsewhere);
         }).join('') || '<p class="hint">Aucun groupe.</p>';
         bindGroups(box, src, groups);
-    };
+        // Reappliquer la recherche en cours (cocher un son l'effacait).
+        CT.$$('.sound-search', box).forEach(function (input) { if (input.value) filterChips(input); });
+    }
+
+    function filterChips(search) {
+        var q = search.value.trim().toLowerCase();
+        CT.$$('.chip', search.closest('.group-card')).forEach(function (chip) {
+            var label = chip.querySelector('input').getAttribute('data-label');
+            chip.hidden = !!q && (label + ' ' + CT.soundLabel(label)).toLowerCase().indexOf(q) === -1;
+        });
+    }
 
     function putGroup(src, slug, body) {
         return CT.api('PUT', '/api/source/sound_groups', Object.assign({kind: src.kind, source_key: src.apiKey, group_slug: slug}, body));
@@ -103,7 +122,7 @@
     }
 
     function onBoxClick(e, src) {
-        if (true) {
+        {
             var copy = e.target.closest('[data-copy]');
             if (copy) { CT.copy(copy.getAttribute('data-copy')); return; }
             var btn = e.target.closest('[data-group-action]');
@@ -131,6 +150,9 @@
             var slug = cardEl.getAttribute('data-slug');
             var group = groups.filter(function (g) { return g.slug === slug; })[0];
             var nameInput = cardEl.querySelector('.group-name');
+            nameInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }  // valider avec Entree
+            });
             nameInput.addEventListener('change', function () {
                 var name = nameInput.value.trim();
                 if (!name) { nameInput.value = group.name; return; }
@@ -166,11 +188,8 @@
             var search = cardEl.querySelector('.sound-search');
             if (search) {
                 search.addEventListener('input', function () {
-                    var q = search.value.trim().toLowerCase();
-                    CT.$$('.chip', cardEl).forEach(function (chip) {
-                        var label = chip.querySelector('input').getAttribute('data-label');
-                        chip.hidden = !!q && (label + ' ' + CT.soundLabel(label)).toLowerCase().indexOf(q) === -1;
-                    });
+                    CT.state.search[src.domId + '|' + slug] = search.value;
+                    filterChips(search);
                 });
             }
         });

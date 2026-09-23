@@ -34,6 +34,10 @@ DEFAULT_SETTINGS = {
         "volume": 100,
         "auto_volume": False,
         "auto_start": False,
+        # Installation neuve : pas de carte micro tant que l'utilisateur ne
+        # l'a pas ajoute (sinon l'accueil « Ajoutez votre premiere source »
+        # ne s'affichait jamais).
+        "configured": False,
         "threshold": 0.5,
         "ha_entities": [1, 2],
         "sound_whitelist": {"Clapping": True, "Hands": True, "Applause": True}
@@ -278,7 +282,15 @@ def load_settings():
             return copy.deepcopy(_cache)
 
         saved, any_file = _read_saved()
+        mic_migrated = False
         if saved is not None:
+            mic = saved.get('microphone')
+            if isinstance(mic, dict) and 'configured' not in mic:
+                # Installations existantes : le micro reste affiche s'il a ete
+                # utilise ou personnalise.
+                mic['configured'] = bool(mic.get('enabled') or mic.get('sound_groups') or
+                                         mic.get('audio_source', 'default') not in ('', 'default'))
+                mic_migrated = True
             merged = _deep_merge(DEFAULT_SETTINGS, saved)
         elif _cache is not None:
             # Fichiers illisibles : garder la derniere version valide en memoire.
@@ -295,7 +307,7 @@ def load_settings():
                 # encore les recuperer a la main.
                 logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire")
         _apply_group_migrations(merged)
-        if saved is not None and _ensure_vban_ids(merged):
+        if saved is not None and (_ensure_vban_ids(merged) or mic_migrated):
             # Enregistrer tout de suite : des ids regeneres a chaque chargement
             # ne seraient pas stables.
             try:

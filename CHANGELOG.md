@@ -1,5 +1,44 @@
 # Changelog
 
+## 6.36.0
+
+### Interface
+
+- **Nouveau groupe de sons** : il propose tous les sons déjà entendus sur la
+  source (non cochés). Il restait vide, ce qui rendait les groupes
+  supplémentaires inutilisables.
+- **Installation neuve** : plus de carte « Micro par défaut » d'office ;
+  l'accueil « Ajoutez votre première source » s'affiche. Les installations
+  existantes gardent leur micro s'il a été utilisé ou personnalisé.
+- **Focus clavier conservé** : après chaque action (activer une source,
+  renommer, cocher un son…), le focus revient sur le même élément au lieu de
+  repartir en haut de la page ; scores et courbes ne sont plus remis à zéro,
+  et la recherche de sons n'est plus effacée à chaque son coché.
+- **Assistant accessible** : focus sur le premier champ de chaque étape,
+  Échap et Tab toujours gérés, reste de la page inerte, focus rendu au bouton
+  « Ajouter une source » ; liste des micros rafraîchie ; flux VBAN déjà
+  ajoutés grisés ; plus de double envoi au double clic.
+- **Lecteurs d'écran** : seuls les claps sont annoncés (au plus un toutes les
+  2 s) ; la ligne des sons en direct et la barre d'état ne sont plus lues en
+  boucle ; événements `labels` limités à 2 par seconde côté serveur.
+- **Seuil sur mobile** : poignée visible, seule zone sensible au toucher
+  (faire défiler la page ne déplace plus le seuil), enregistrement après une
+  courte pause ; la configuration MQTT n'est plus republiée à chaque cran.
+- **Contraste AA** en thème clair (textes d'aide, avertissements, étiquettes,
+  pastilles, messages) ; ligne de seuil des courbes visible.
+- **Barre d'état compacte sur mobile** (deux lignes, libellé court « Au
+  lancement ») et non collante sur les écrans très bas.
+- **Micros branchés après l'ouverture** de la page : visibles à l'ouverture des
+  réglages du micro et dans l'assistant.
+- Plus petit : interrupteur « au lancement » non réécrit pendant sa requête,
+  valeurs en direct remises à zéro à l'arrêt, « Démarrer » depuis un onglet
+  périmé sans fausse erreur, seuil au centième, bornes des réglages alignées sur
+  le serveur, menu « ⋯ » au clavier (flèches, Début/Fin, Tab), onglets avec
+  Début/Fin, boutons « Copier » explicites, conflits et sons exclus indiqués en
+  clair sur les pastilles, titre de page `h1`, messages d'erreur fermables,
+  nom de groupe validé avec Entrée, bouton « Afficher » pour copier la
+  configuration quand le téléchargement est bloqué (app Companion).
+
 ## 6.35.0
 
 ### Sécurité

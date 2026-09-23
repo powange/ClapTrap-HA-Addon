@@ -269,7 +269,10 @@ class DetectionSession:
         det.configure(
             src['source_id'], label=src['label'],
             detection_callback=lambda d: self._on_detection(src, d),
-            labels_callback=lambda labels: self._emit('labels', {'source': src['source_id'], 'detected': labels}),
+            # Limite a 2/s : un evenement par resultat et par source inondait
+            # l'interface (et les lecteurs d'ecran) pendant la detection.
+            labels_callback=lambda labels: self._emit_live(
+                src['source_id'], 'labels', {'source': src['source_id'], 'detected': labels}, interval=0.5),
             sound_seen_callback=lambda d: self._on_sound_seen(src, d),
             scores_callback=lambda scores: self._emit_live(
                 src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}))

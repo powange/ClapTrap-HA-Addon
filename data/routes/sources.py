@@ -739,9 +739,16 @@ def create_source_sound_group():
         src = _require_source(settings, kind, source_key)
         groups = src.setdefault('sound_groups', [])
         existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)}
+        # Le nouveau groupe propose tous les sons deja entendus sur la source
+        # (non coches) : sinon il restait vide, un son deja "vu" ailleurs n'y
+        # etant jamais ajoute.
+        known = set((src.get('sound_whitelist') or {}).keys())
+        for g in groups:
+            if isinstance(g, dict):
+                known.update((g.get('sound_whitelist') or {}).keys())
         new_group = {
             'slug': _slugify_group(name, existing_slugs), 'name': name,
-            'sound_whitelist': {},
+            'sound_whitelist': {label: False for label in sorted(known)},
             'threshold': to_number(data.get('threshold', src.get('threshold', 0.5)), 'threshold', 0, 1),
             'ha_entities': to_clap_counts(data.get('ha_entities') or src.get('ha_entities') or [1, 2]),
         }
@@ -784,7 +791,10 @@ def update_source_sound_group():
         return dict(target), new_slug, dict(src)
 
     target, new_slug, src = modify_settings(_mut)
-    _refresh_source_entities(kind, src)
+    if 'name' in data or 'ha_entities' in data:
+        # Seuls le nom et les nombres de claps changent les entites : ne pas
+        # republier toute la configuration MQTT a chaque cran du seuil.
+        _refresh_source_entities(kind, src)
     _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
     return jsonify({
         'success': True, 'group': target,

@@ -18,6 +18,7 @@
         Object.keys(FIELDS).forEach(function (k) {
             var el = document.getElementById(FIELDS[k]);
             el.addEventListener('change', function () {
+                if (!el.reportValidity()) return;  // bornes identiques a celles du serveur
                 var body = {};
                 body[k] = parseFloat(el.value);
                 CT.api('PUT', '/api/settings/advanced', body)
@@ -79,6 +80,13 @@
         CT.$('#export-config').addEventListener('click', function () {
             window.location.href = CT.basePath + '/api/settings/export';
         });
+        // Le telechargement peut etre bloque dans l'app Companion : afficher
+        // la configuration pour la copier.
+        CT.$('#show-config').addEventListener('click', function () {
+            CT.api('GET', '/api/settings').then(function (s) {
+                showText('Configuration ClapTrap', JSON.stringify(s, null, 2));
+            }).catch(function (err) { CT.error('Configuration indisponible : ' + err.message); });
+        });
         var input = CT.$('#import-config');
         input.addEventListener('change', function () {
             var file = input.files[0];
@@ -97,6 +105,28 @@
                 .then(function () { (CT.state.settings.global = CT.state.settings.global || {}).debug = v; })
                 .catch(function (err) { dbg.checked = !v; CT.error('Journal détaillé : ' + err.message); });
         });
+    }
+
+    function showText(title, text) {
+        var back = document.createElement('div');
+        back.className = 'modal-backdrop';
+        back.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="txt-title">' +
+            '<div class="modal-head"><h2 id="txt-title"></h2></div>' +
+            '<textarea class="input textarea" readonly aria-labelledby="txt-title"></textarea>' +
+            '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-r="copy">Copier</button>' +
+            '<button type="button" class="btn btn-primary" data-r="close">Fermer</button></div></div>';
+        back.querySelector('#txt-title').textContent = title;
+        var ta = back.querySelector('textarea');
+        ta.value = text;
+        document.body.appendChild(back);
+        var release = CT.trapFocus(back.querySelector('.modal'), close);
+        function close() { release(); back.remove(); }
+        back.addEventListener('click', function (e) {
+            var r = e.target.getAttribute && e.target.getAttribute('data-r');
+            if (e.target === back || r === 'close') close();
+            if (r === 'copy') { ta.select(); CT.copy(text); }
+        });
+        back.querySelector('[data-r="copy"]').focus();
     }
 
     CT.onSettingsOpen = function () {

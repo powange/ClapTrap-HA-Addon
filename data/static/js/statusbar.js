@@ -12,6 +12,13 @@
         return 'depuis ' + h + ' h ' + String(min % 60).padStart(2, '0');
     }
 
+    function setText(el, text) {
+        // N'ecrire que si le texte change : la zone est annoncee par les
+        // lecteurs d'ecran (role=status).
+        if (el.textContent !== text) el.textContent = text;
+    }
+    var wasRunning = null;
+
     CT.renderStatus = function () {
         var st = CT.state.status;
         var bar = document.getElementById('statusbar');
@@ -19,12 +26,14 @@
         var enabled = CT.sourceList().filter(function (s) { return s.enabled; });
         var running = !!st.running;
         bar.classList.toggle('is-running', running);
-        CT.$('#status-title').textContent = running ? "À l'écoute" : 'Arrêté';
+        setText(CT.$('#status-title'), running ? "À l'écoute" : 'Arrêté');
         var n = running ? (st.sources || []).length : enabled.length;
-        CT.$('#status-detail').textContent = running
+        setText(CT.$('#status-detail'), running
             ? n + ' source' + (n > 1 ? 's' : '') + ' · ' + sinceText(st.since)
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
-                              : 'Aucune source activée');
+                              : 'Activez une source pour pouvoir démarrer'));
+        if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
+        wasRunning = running;
         var btn = CT.$('#toggle-detection');
         btn.textContent = running ? 'Arrêter' : "Démarrer l'écoute";
         btn.classList.toggle('btn-danger', running);
@@ -32,7 +41,7 @@
         btn.disabled = !running && enabled.length === 0;
         btn.title = btn.disabled ? 'Activez au moins une source pour démarrer' : '';
         var auto = CT.$('#auto-start');
-        auto.checked = !!((CT.state.settings.microphone || {}).auto_start);
+        if (!auto.dataset.busy) auto.checked = !!((CT.state.settings.microphone || {}).auto_start);
         if (CT.renderSourceStatuses) CT.renderSourceStatuses();
     };
     setInterval(function () { if (CT.state.status.running) CT.renderStatus(); }, 30000);
@@ -48,15 +57,24 @@
             CT.api('POST', running ? '/api/detection/stop' : '/api/detection/start', {})
                 .then(function () { return CT.reloadStatus(); })
                 .then(function () { CT.renderStatus(); })
-                .catch(function (err) { CT.error((running ? 'Arrêt' : 'Démarrage') + ' impossible : ' + err.message); })
+                .catch(function (err) {
+                    // Onglet perime (demarree ou arretee ailleurs) : resynchroniser
+                    // au lieu d'afficher une erreur si l'etat voulu est atteint.
+                    return CT.reloadStatus().then(function (st) {
+                        if (!!st.running === !running) { CT.renderStatus(); return; }
+                        CT.error((running ? 'Arrêt' : 'Démarrage') + ' impossible : ' + err.message);
+                    });
+                })
                 .finally(function () { delete btn.dataset.busy; CT.renderStatus(); });
         });
         var auto = CT.$('#auto-start');
         auto.addEventListener('change', function () {
             var value = auto.checked;
+            auto.dataset.busy = '1';
             CT.api('PUT', '/api/microphone/auto-start', {enabled: value})
                 .then(function () { (CT.state.settings.microphone = CT.state.settings.microphone || {}).auto_start = value; })
-                .catch(function (err) { auto.checked = !value; CT.error('Démarrage automatique : ' + err.message); });
+                .catch(function (err) { auto.checked = !value; CT.error('Démarrage automatique : ' + err.message); })
+                .finally(function () { delete auto.dataset.busy; });
         });
         CT.on('detection_status', function () {
             CT.reloadStatus().then(CT.renderStatus).catch(function () {});
@@ -79,8 +97,11 @@
         tabs.forEach(function (t, i) {
             t.addEventListener('click', function () { select(t); });
             t.addEventListener('keydown', function (e) {
-                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-                var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+                var next = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length]
+                    : e.key === 'ArrowLeft' ? tabs[(i + tabs.length - 1) % tabs.length]
+                    : e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1] : null;
+                if (!next) return;
+                e.preventDefault();
                 select(next);
                 next.focus();
             });

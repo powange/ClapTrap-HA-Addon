@@ -11,7 +11,7 @@
         body = back.querySelector('[data-role="wizard-body"]');
         back.hidden = false;
         created = null;
-        release = CT.trapFocus(modal, close);
+        release = CT.trapFocus(modal, close, function () { return document.getElementById('add-source'); });
         stepType();
     }
     function close() {
@@ -19,8 +19,11 @@
         var back = document.getElementById('wizard');
         if (back.hidden) return;
         back.hidden = true;
-        if (release) release();
-        if (created) CT.reloadSettings().then(CT.render);
+        var rel = release;
+        release = null;
+        var done = created ? CT.reloadSettings().then(CT.render).catch(function () {}) : Promise.resolve();
+        // Rendre le focus au bouton "Ajouter" une fois la grille reconstruite.
+        done.then(function () { if (rel) rel(); });
     }
     function setStep(n, title) {
         CT.$('#wizard-title').textContent = title;
@@ -55,7 +58,7 @@
             '<span class="tag tag-' + kind + '">' + CT.kindLabel[kind] + '</span><strong>' + title + '</strong>' +
             '<span class="muted">' + text + '</span></button>';
     }
-    function actions(backFn, okLabel) {
+    function actions(okLabel) {
         return '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-w="back">Retour</button>' +
             '<button type="button" class="btn btn-primary" data-w="ok">' + okLabel + '</button></div>';
     }
@@ -76,7 +79,16 @@
             '<select class="input" id="wz-device"><option value="default">Micro par défaut du système</option>' +
             devices.map(function (d, i) { return '<option value="' + i + '">' + esc(d.name) + '</option>'; }).join('') + '</select>' +
             (devices.length ? '' : '<p class="hint">Aucun micro détecté par Home Assistant : le micro par défaut sera utilisé.</p>') +
-            '</div>' + actions(stepType, 'Ajouter le micro');
+            '</div>' + actions('Ajouter le micro');
+        CT.focusFirst(body);
+        // Un micro branche depuis l'ouverture de la page apparait.
+        CT.reloadDevices().then(function () {
+            var sel = CT.$('#wz-device');
+            if (!sel || (CT.state.devices || []).length === devices.length) return;
+            devices = CT.state.devices;
+            sel.innerHTML = '<option value="default">Micro par défaut du système</option>' +
+                devices.map(function (d, i) { return '<option value="' + i + '">' + esc(d.name) + '</option>'; }).join('');
+        });
         wire(stepType, function () {
             var v = CT.$('#wz-device').value;
             var dev = v === 'default' ? {index: 0, name: 'default', pulse_name: ''} : devices[parseInt(v, 10)];
@@ -95,7 +107,7 @@
             '<div class="field"><label class="field-label" for="wz-url">Adresse du flux</label>' +
             '<input class="input" id="wz-url" type="url" placeholder="rtsp://utilisateur:motdepasse@192.168.1.20:554/stream" spellcheck="false">' +
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
-            actions(stepType, 'Ajouter la caméra');
+            actions('Ajouter la caméra');
         CT.$('#wz-url').focus();
         wire(stepType, function () {
             var url = CT.$('#wz-url').value.trim();
@@ -121,6 +133,7 @@
             '</div><button type="button" class="btn btn-ghost" id="wz-v-add">Ajouter ce flux</button></details>' +
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-w="back">Retour</button></div>';
         body.querySelector('[data-w="back"]').addEventListener('click', stepType);
+        CT.focusFirst(body);
         CT.$('#wz-refresh').addEventListener('click', refreshVban);
         CT.$('#wz-v-add').addEventListener('click', function () {
             var name = CT.$('#wz-v-name').value.trim(), ip = CT.$('#wz-v-ip').value.trim();
@@ -139,8 +152,11 @@
                 list.innerHTML = '<p class="hint">Aucun flux VBAN détecté. Vérifiez que l\'émetteur diffuse vers l\'adresse de Home Assistant (port 6980), ou ajoutez-le à la main.</p>';
                 return;
             }
+            var saved = CT.state.settings.saved_vban_sources || [];
             list.innerHTML = sources.map(function (s, i) {
-                return '<button type="button" class="vban-item" data-i="' + i + '"><strong>' + esc(s.name || '(sans nom)') + '</strong>' +
+                var added = saved.some(function (v) { return v.ip === s.ip && (v.stream_name || v.name) === s.name; });
+                return '<button type="button" class="vban-item" data-i="' + i + '"' + (added ? ' disabled data-added="1"' : '') + '><strong>' +
+                    esc(s.name || '(sans nom)') + (added ? ' <span class="pill">déjà ajouté</span>' : '') + '</strong>' +
                     '<span class="muted">' + esc(s.ip) + (s.sample_rate ? ' · ' + esc(s.sample_rate) + ' Hz' : '') +
                     (s.channels ? ' · ' + esc(s.channels) + ' canal' + (s.channels > 1 ? 'x' : '') : '') + '</span></button>';
             }).join('');
@@ -152,14 +168,22 @@
             });
         }).catch(function () { list.innerHTML = '<p class="hint">Recherche impossible.</p>'; });
     }
+    var savingVban = false;
     function saveVban(src) {
+        if (savingVban) return;  // double clic : le 2e envoi repondait « existe deja »
+        savingVban = true;
+        CT.$$('.vban-item, #wz-v-add', body).forEach(function (b) { b.disabled = true; });
         CT.api('POST', '/api/vban/save', src)
             .then(function (d) { return CT.reloadSettings().then(function () { return d.source; }); })
             .then(function (saved) {
                 created = CT.findSource(function (s) { return s.kind === 'vban' && s.data.id === saved.id; });
                 stepCheck();
             })
-            .catch(function (err) { CT.error('Ajout impossible : ' + err.message); });
+            .catch(function (err) {
+                CT.error('Ajout impossible : ' + err.message);
+                CT.$$('.vban-item:not([data-added]), #wz-v-add', body).forEach(function (b) { b.disabled = false; });
+            })
+            .finally(function () { savingVban = false; });
     }
 
     // ---- Etape 3 : verification ---------------------------------------------------
