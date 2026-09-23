@@ -1,4 +1,4 @@
-from vban_detector_new import VBANDetector
+from vban_listener import VBANDetector
 import time
 import logging
 import threading

@@ -1,9 +1,7 @@
 numpy>=1.26,<2
-sounddevice>=0.4
 mediapipe>=0.10
 requests>=2.31
 scipy>=1.11
 flask
 flask_socketio
-ffmpeg-python
 paho-mqtt>=2.0,<3

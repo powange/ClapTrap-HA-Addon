@@ -1,22 +1,19 @@
-from flask import Flask, jsonify, request, render_template, send_from_directory
-from flask_socketio import SocketIO
-from classify import start_detection, stop_detection, is_running, get_current_source
-import sounddevice as sd
-import numpy as np
-import json
-import requests
-from vban_manager import init_vban_detector as init_vban, cleanup_vban_detector, get_vban_detector
+import atexit
+import logging
+import os
+import re
+import secrets
+import signal
+import sys
 import threading
 import time
-import os
-from datetime import datetime
-import socket
-import uuid
-from threading import Lock
-import logging
-import secrets
-from webhook import WebhookManager
-from settings_manager import load_settings, save_settings, SETTINGS_FILE
+
+from flask import Flask, request, render_template
+from flask_socketio import SocketIO
+
+from settings_manager import load_settings
+from vban_manager import init_vban_detector, cleanup_vban_detector
+from audio_utils import get_audio_input_devices
 
 # Configuration du logging
 logging.basicConfig(
@@ -26,43 +23,19 @@ logging.basicConfig(
 
 # Appliquer le niveau de log depuis les settings
 try:
-    _init_settings = load_settings()
-    if _init_settings.get('global', {}).get('debug', False):
+    if load_settings().get('global', {}).get('debug', False):
         logging.getLogger().setLevel(logging.DEBUG)
         logging.info("Mode debug active depuis les settings")
-except Exception:
-    pass
+except Exception as e:
+    logging.warning(f"Lecture des settings au demarrage: {e}")
 
-# Vérifier la configuration PulseAudio
-pulse_server = os.environ.get('PULSE_SERVER', '')
-if not pulse_server:
-    for pulse_path in ['/run/audio/pulse.sock', '/run/pulse/native', '/run/pulse/pulseaudio.socket', '/var/run/pulse/native']:
-        if os.path.exists(pulse_path):
-            os.environ['PULSE_SERVER'] = f'unix:{pulse_path}'
-            pulse_server = os.environ['PULSE_SERVER']
-            break
-    else:
-        # Fallback : extraire depuis pactl info
-        try:
-            import subprocess
-            result = subprocess.run(['pactl', 'info'], capture_output=True, text=True, timeout=5)
-            for line in result.stdout.splitlines():
-                if 'Server String:' in line:
-                    server_str = line.split(':', 1)[1].strip()
-                    if server_str:
-                        os.environ['PULSE_SERVER'] = server_str
-                        pulse_server = server_str
-                    break
-        except Exception:
-            pass
+# PULSE_SERVER est detecte par run.sh (unique endroit).
 logging.info(f"PulseAudio PULSE_SERVER={os.environ.get('PULSE_SERVER', 'NON DEFINI')}")
 
 # Réduire le niveau de log des modules trop verbeux
-logging.getLogger('werkzeug').setLevel(logging.WARNING)
-logging.getLogger('engineio').setLevel(logging.WARNING)
-logging.getLogger('socketio').setLevel(logging.WARNING)
-logging.getLogger('engineio.server').setLevel(logging.WARNING)
-logging.getLogger('socketio.server').setLevel(logging.WARNING)
+for _name in ('werkzeug', 'engineio', 'socketio', 'engineio.server', 'socketio.server'):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 
 class IngressMiddleware:
     """Middleware WSGI pour gérer le préfixe de chemin ingress de Home Assistant."""
@@ -104,7 +77,6 @@ class IngressOnlyMiddleware:
             return [b"ClapTrap n'est accessible que depuis Home Assistant (ingress)."]
         return self.app(environ, start_response)
 
-# Configurer Flask pour qu'il soit moins verbeux
 app = Flask(__name__)
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 app.logger.setLevel(logging.WARNING)
@@ -121,11 +93,8 @@ socketio = SocketIO(app,
 # Enveloppe externe (apres SocketIO) : le filtre couvre aussi /socket.io.
 app.wsgi_app = IngressOnlyMiddleware(app.wsgi_app)
 
-
-from audio_utils import get_audio_input_devices
-
 # Initialiser le détecteur VBAN au démarrage (singleton)
-init_vban()
+init_vban_detector()
 
 # Appliquer le volume micro sauvegardé au démarrage
 def _apply_saved_mic_volume():
@@ -151,11 +120,6 @@ try:
 except Exception as e:
     logging.warning(f"Init entites HA: {e}")
 
-# Nettoyer lors de l'arrêt
-import atexit
-import signal
-import sys
-
 
 @atexit.register
 def cleanup():
@@ -173,142 +137,15 @@ def cleanup():
 signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
 
 
-class VBANSource:
-    def __init__(self, name, ip, port, stream_name, webhook_url, enabled=True):
-        self.name = name
-        self.ip = ip
-        self.port = port
-        self.stream_name = stream_name
-        self.webhook_url = webhook_url
-        self.enabled = enabled
-
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "ip": self.ip,
-            "port": self.port,
-            "stream_name": self.stream_name,
-            "webhook_url": self.webhook_url,
-            "enabled": self.enabled
-        }
-
-    @staticmethod
-    def from_dict(data):
-        return VBANSource(
-            name=data.get("name", ""),
-            ip=data.get("ip", ""),
-            port=data.get("port", 6980),
-            stream_name=data.get("stream_name", ""),
-            webhook_url=data.get("webhook_url", ""),
-            enabled=data.get("enabled", True)
-        )
-
-
-_flux_cache = None
-_flux_cache_time = 0
-
-def load_flux():
-    global _flux_cache, _flux_cache_time
-    now = time.time()
-    if _flux_cache is not None and (now - _flux_cache_time) < 60:
-        return _flux_cache
-    try:
-        with open('flux.json', 'r') as f:
-            _flux_cache = json.load(f)
-            _flux_cache_time = now
-            return _flux_cache
-    except FileNotFoundError:
-        return {"audio_streams": []}
-
 @app.route('/')
 def index():
-    settings = load_settings()  # Charge les paramètres depuis le fichier JSON
-    input_devices = get_audio_input_devices()  # Obtient la liste des périphériques audio d'entrée
-    flux = load_flux()
-
     return render_template('index.html',
-                         settings=settings,
-                         devices=input_devices,
-                         flux=flux['audio_streams'],
-                         debug=app.debug,
-                         ingress_path=request.script_root,
-                         cache_bust=int(time.time()))
+                           settings=load_settings(),
+                           devices=get_audio_input_devices(),
+                           debug=app.debug,
+                           ingress_path=request.script_root,
+                           cache_bust=int(time.time()))
 
-def verify_settings_saved(new_settings, saved_settings):
-    """Vérifie que les paramètres ont été correctement sauvegardés"""
-    try:
-        # Vérifier les paramètres globaux
-        if 'global' in new_settings:
-            for field in ['threshold', 'delay', 'chunk_duration', 'buffer_duration']:
-                if new_settings['global'].get(field) != saved_settings['global'].get(field):
-                    logging.debug(f"Différence détectée pour global.{field}:")
-                    logging.debug(f"  Attendu: {new_settings['global'].get(field)}")
-                    logging.debug(f"  Sauvegardé: {saved_settings['global'].get(field)}")
-                    return False
-
-        # Vérifier les paramètres du microphone
-        if 'microphone' in new_settings:
-            for field in ['device_index', 'audio_source', 'webhook_url']:
-                if new_settings['microphone'].get(field) != saved_settings['microphone'].get(field):
-                    logging.debug(f"Différence détectée pour microphone.{field}:")
-                    logging.debug(f"  Attendu: {new_settings['microphone'].get(field)}")
-                    logging.debug(f"  Sauvegardé: {saved_settings['microphone'].get(field)}")
-                    return False
-
-        # Vérifier les sources RTSP si présentes
-        if 'rtsp_sources' in new_settings:
-            if len(new_settings['rtsp_sources']) != len(saved_settings.get('rtsp_sources', [])):
-                logging.debug("Différence dans le nombre de sources RTSP")
-                return False
-            for i, (new_source, saved_source) in enumerate(zip(new_settings['rtsp_sources'], saved_settings['rtsp_sources'])):
-                for field in ['name', 'url', 'webhook_url']:
-                    if new_source.get(field) != saved_source.get(field):
-                        logging.debug(f"Différence détectée pour rtsp_sources[{i}].{field}:")
-                        logging.debug(f"  Attendu: {new_source.get(field)}")
-                        logging.debug(f"  Sauvegardé: {saved_source.get(field)}")
-                        return False
-
-        # Ne pas vérifier les champs à la racine car ils sont maintenant dans les sections appropriées
-        logging.debug("Tous les paramètres ont été correctement sauvegardés")
-        return True
-
-    except Exception as e:
-        logging.error(f"Erreur lors de la vérification des paramètres: {str(e)}")
-        return False
-
-def validate_settings(settings):
-    """Valide les paramètres avant la sauvegarde"""
-    required_fields = ['threshold', 'delay', 'audio_source']
-
-    # Vérifier les champs requis
-    if not all(field in settings for field in required_fields):
-        return False
-
-    # Valider les valeurs
-    try:
-        threshold = float(settings['threshold'])
-        delay = float(settings['delay'])
-
-        if not (0 <= threshold <= 1):
-            return False
-        if delay < 0:
-            return False
-
-        # Valider l'URL du webhook si présente
-        if settings.get('microphone', {}).get('webhook_url'):
-            url = settings['microphone']['webhook_url']
-            if not url.startswith(('http://', 'https://')):
-                return False
-
-    except (ValueError, TypeError):
-        return False
-
-    return True
-
-import re as _re
-
-# Version pour le cache bust des modules JS (change à chaque restart)
-_js_version = str(int(time.time()))
 
 @app.route('/css/<version>/<path:filename>')
 def serve_versioned_css(version, filename):
@@ -341,12 +178,12 @@ def serve_versioned_js(version, filename):
 
     # Réécrire les imports relatifs : ./modules/foo.js ou ./foo.js -> chemin versionné absolu
     base = request.script_root + f'/js/{version}'
-    content = _re.sub(
+    content = re.sub(
         r"""from\s+['"]\.\/modules\/([^'"]+)['"]""",
         lambda m: f"from '{base}/{m.group(1)}'",
         content
     )
-    content = _re.sub(
+    content = re.sub(
         r"""from\s+['"]\.\/([^'"]+)['"]""",
         lambda m: f"from '{base}/{m.group(1)}'",
         content
@@ -372,26 +209,13 @@ init_detection(socketio)
 init_sources(socketio)
 init_testing(socketio)
 
-@socketio.on('connect')
-def handle_connect():
-    logging.debug("🔌 Client connecté")
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    logging.debug("🔌 Client déconnecté")
-
-@socketio.on('test_connection')
-def handle_test():
-    logging.debug("🔔 Test de connexion reçu")
-    socketio.emit('debug', {'message': 'Test serveur'})
 
 if __name__ == '__main__':
     # Auto-start detection si configuré
     settings = load_settings()
     if settings.get('microphone', {}).get('auto_start', False):
         def _delayed_auto_start():
-            import time as _time
-            _time.sleep(3)
+            time.sleep(3)
             try:
                 logging.info("Auto-start: démarrage automatique de la détection...")
                 from classify import start_from_settings

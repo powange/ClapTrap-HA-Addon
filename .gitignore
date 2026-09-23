@@ -1,3 +1,4 @@
 .history/
 data/routes/__pycache__/
 .claude/
+**/__pycache__/

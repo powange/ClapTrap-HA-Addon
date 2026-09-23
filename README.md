@@ -48,9 +48,9 @@
 
 ## 🤝 Contribution
 
-Vous souhaitez contribuer ? 🛠️ Consultez le fichier `DEV_BOOK.md` 📘 pour en savoir plus sur la structure du projet et les étapes de développement.
+Vous souhaitez contribuer ? 🛠️ Ouvrez une issue ou une pull request sur le dépôt GitHub ; l'historique des changements est dans `CHANGELOG.md` 📘.
 Big thanks to @korben qui a entierement developpé le systeme de reconnaisance en Python.
 
 ## 🆘 Support
 
-Si vous rencontrez des problèmes, consultez la documentation complète dans `DOCUMENTATION.md` 📖 ou ouvrez une issue sur le dépôt GitHub 🐙.
+Si vous rencontrez des problèmes, consultez la documentation de l'add-on (`DOCS.md`, onglet Documentation dans Home Assistant) 📖 ou ouvrez une issue sur le dépôt GitHub 🐙.

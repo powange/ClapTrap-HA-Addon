@@ -59,8 +59,8 @@ def start_mic_test():
             logging.info(f"Test micro: lancement de {' '.join(cmd)}")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE, bufsize=0)
 
-            import threading as _thr
-            _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+            from audio_utils import drain_stderr
+            drain_stderr(proc, 'parecord')
 
             block_size = 800  # 50ms à 16kHz (plus réactif)
             bytes_per_block = block_size * 4
@@ -69,9 +69,8 @@ def start_mic_test():
             while _mic_test_running:
                 data = proc.stdout.read(bytes_per_block)
                 if not data:
-                    stderr = proc.stderr.read(4096).decode(errors='replace')
-                    logging.error(f"Test micro: parecord a cessé de produire des données. stderr: {stderr}")
-                    _socketio.emit('mic_level', {'error': f'parecord: {stderr[:200]}'})
+                    logging.error("Test micro: parecord a cessé de produire des données (voir les logs en mode debug)")
+                    _socketio.emit('mic_level', {'error': 'le micro ne renvoie plus de son (vérifiez le périphérique)'})
                     break
 
                 samples = np.frombuffer(data, dtype=np.float32)
@@ -158,8 +157,8 @@ def start_rtsp_test():
             logging.info(f"Test RTSP: ffmpeg {mask_url_credentials(rtsp_url)} (volume={initial_gain}x)")
             proc = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
 
-            import threading as _thr
-            _thr.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+            from audio_utils import drain_stderr
+            drain_stderr(proc, 'ffmpeg', sanitize=mask_url_credentials)
 
             block_size = 1600
             bytes_per_block = block_size * 4

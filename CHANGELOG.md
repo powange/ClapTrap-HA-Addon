@@ -1,5 +1,38 @@
 # Changelog
 
+## 6.30.0
+
+### Simplification (aucun changement de reglage pour l'utilisateur)
+
+- **Fichiers morts supprimes** : binaire MediaMTX pour macOS (29 Mo, jamais
+  lance : ffmpeg lit le RTSP directement), `play.py`, `vban_discovery.py`,
+  `circular_buffer.py`, `config_validator.py` (remplace par la validation de la
+  6.27.0), `vbantest.old`, `commands`, fichiers `.pyc` suivis, docs de
+  l'application d'origine (`DEV_BOOK.md`, `DOCUMENTATION.md`).
+- **Nouvelle architecture de la detection** :
+  - `DetectionSession` : un objet par demarrage porte l'evenement d'arret, les
+    threads et les detecteurs ; l'arreter joint les threads puis ferme les
+    classifieurs. Fin du jeton de generation et des registres globaux ;
+  - `audio_sources.py` : micro, RTSP et VBAN produisent des blocs de 100 ms
+    via la meme abstraction, avec une seule boucle de relance (backoff) et un
+    chien de garde pour les sous-processus. VBAN passe par une file :
+    l'inference ne tourne plus sur le thread UDP partage ;
+  - `clap_logic.py` : la logique de comptage (pics, fenetre, arbitrage) est une
+    classe pure, couverte par des tests unitaires (`data/tests/test_clap_logic.py`) ;
+  - `audio_detector.py` ne garde que le pretraitement et le classifieur
+    (1 detecteur = 1 source, machinerie multi-source retiree).
+- `app.py` : routes, handlers et classes morts retires, detection PulseAudio
+  laissee a `run.sh` (410 -> 243 lignes).
+- `vban_detector_new.py` renomme `vban_listener.py`.
+- **Interface** : 12 modules JS jamais importes supprimes (~800 lignes), code
+  inline mort retire (ancien curseur de seuil, anciennes listes de sons,
+  `#active-sources`), ~55 regles CSS mortes supprimees (-340 lignes), styles des
+  nouvelles boites de dialogue ajoutes.
+- **Dependances** : `ffmpeg-python` et `sounddevice` retires (le repli de liste
+  des micros utilise `pactl`), `python3-venv` retire de l'image finale.
+- Logs : la reponse de l'API audio du Supervisor passe en DEBUG (elle etait
+  ecrite en INFO toutes les 60 s).
+
 ## 6.29.0
 
 ### Interface : corrections

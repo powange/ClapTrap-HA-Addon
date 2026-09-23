@@ -33,7 +33,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    python3-venv \
     libportaudio2 \
     libportaudiocpp0 \
     ffmpeg \

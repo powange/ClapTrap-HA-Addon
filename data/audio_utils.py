@@ -11,7 +11,6 @@ import threading
 import time
 
 import requests
-import sounddevice as sd
 
 
 def set_pulse_volume(pulse_name, volume_percent):
@@ -42,13 +41,6 @@ def drain_stderr(proc, name, sanitize=None):
     threading.Thread(target=_drain, daemon=True).start()
 
 
-def start_process_with_stderr_drain(cmd):
-    """Lance un subprocess avec drain de stderr en background."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    drain_stderr(proc, cmd[0])
-    return proc
-
-
 def terminate_process(proc, timeout=2):
     """Termine un subprocess proprement (et le reap pour eviter un zombie)."""
     try:
@@ -66,7 +58,7 @@ _audio_devices_cache_time = 0
 
 
 def get_audio_input_devices():
-    """Recupere les peripheriques audio d'entree via l'API Supervisor HA, avec fallback sur sounddevice. Cache 60s."""
+    """Recupere les peripheriques audio d'entree via l'API Supervisor HA, avec repli sur `pactl`. Cache 60s."""
     global _audio_devices_cache, _audio_devices_cache_time
     now = time.time()
     if _audio_devices_cache is not None and (now - _audio_devices_cache_time) < 60:
@@ -83,7 +75,7 @@ def get_audio_input_devices():
             )
             if resp.ok:
                 data = resp.json()
-                logging.info(f"Reponse API audio: {json.dumps(data, indent=2)[:500]}")
+                logging.debug(f"Reponse API audio: {json.dumps(data, indent=2)[:500]}")
                 # L'API retourne {"result": "ok", "data": {"audio": {"input": [...]}}}
                 audio_data = data.get('data', data)
                 sources = audio_data.get('audio', {}).get('input', [])
@@ -96,7 +88,7 @@ def get_audio_input_devices():
                         }
                         for idx, source in enumerate(sources)
                     ]
-                    logging.info(f"Peripheriques audio detectes via Supervisor: {devices}")
+                    logging.debug(f"Peripheriques audio detectes via Supervisor: {devices}")
                     _audio_devices_cache = devices
                     _audio_devices_cache_time = now
                     return devices
@@ -107,14 +99,17 @@ def get_audio_input_devices():
         except Exception as e:
             logging.warning(f"Impossible de recuperer les sources audio via l'API Supervisor: {e}")
 
-    # Fallback sur sounddevice
+    # Repli : sources PulseAudio via pactl (hors Supervisor, dev local).
+    # Remplace sounddevice/PortAudio, qui n'etait utilise que pour ce repli.
     try:
-        all_devices = sd.query_devices()
-        result = [
-            {'index': idx, 'name': device['name']}
-            for idx, device in enumerate(all_devices)
-            if device['max_input_channels'] > 0
-        ]
+        out = subprocess.run(['pactl', 'list', 'sources', 'short'],
+                             capture_output=True, text=True, timeout=5).stdout
+        result = []
+        for line in out.splitlines():
+            cols = line.split('\t')
+            if len(cols) >= 2 and not cols[1].endswith('.monitor'):
+                result.append({'index': int(cols[0]) if cols[0].isdigit() else len(result),
+                               'name': cols[1], 'pulse_name': cols[1]})
         _audio_devices_cache = result
         _audio_devices_cache_time = now
         return result

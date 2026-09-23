@@ -1,5 +1,3 @@
-import { showNotification, showSuccess, showError } from './notifications.js';
-
 // Echappe le HTML : les noms de source / groupe sont saisis par l'utilisateur
 // et les noms de flux VBAN peuvent venir d'un tiers sur le reseau -> injectes
 // dans innerHTML ci-dessous, ils permettraient un XSS.
@@ -56,17 +54,12 @@ function formatSourceId(sourceId) {
 }
 
 export function initializeSocketIO() {
-    console.log('🔌 Initializing Socket.IO...');
     const basePath = window.basePath || '';
     // Connexion partagee creee par la page (une seule par onglet, reconnexion
     // illimitee : avec reconnectionAttempts: 5 l'historique ne se mettait plus
     // a jour apres un redemarrage de l'add-on de plus de ~20 s).
     const socket = window.claptrapSocket || io({ path: basePath + '/socket.io' });
     window.claptrapSocket = socket;
-    
-    socket.on('connect', () => {
-        console.log('🟢 Socket.IO Connected with ID:', socket.id);
-    });
     
     // Historique : recharge depuis le serveur (il etait perdu a chaque
     // rechargement de page alors que le serveur le conserve).
@@ -83,9 +76,6 @@ export function initializeSocketIO() {
 
     // Gestionnaire pour les claps
     socket.on('clap', (data) => {
-        if (!data.ignored && typeof window.showClap === 'function') {
-            window.showClap(data.source_id);
-        }
         renderHistoryEvent(data);
         // Feedback live sur la carte de la source : flash + dernier clap.
         _setSourceLive(
@@ -125,42 +115,12 @@ export function initializeSocketIO() {
         }
     }
 
-    // Gestionnaire pour les labels (detection en cours → barre de controle)
+    // Labels detectes en cours de detection : feedback live par carte source.
     socket.on('labels', (data) => {
-        // Feedback live par carte (independant de #current_detection, qui peut
-        // ne pas exister dans le layout actuel).
         if (data && Array.isArray(data.detected) && data.detected.length && data.source) {
             const top = data.detected.slice(0, 3)
                 .map(l => `${l.label} ${Math.round((l.score || 0) * 100)}%`).join(' · ');
             _setSourceLive(data.source, top, false);
-        }
-
-        const container = document.getElementById('current_detection');
-        if (!container) return;
-
-        container.innerHTML = '';
-        if (data.detected && Array.isArray(data.detected)) {
-            const sourceTag = data.source ? formatSourceId(data.source) : '';
-            data.detected.forEach(label => {
-                const labelElement = document.createElement('span');
-                labelElement.className = 'label';
-                labelElement.innerHTML = `
-                    ${escHtml(label.label)}
-                    <span class="label-score">${Math.round(label.score * 100)}%</span>
-                    ${sourceTag ? `<span class="source-tag">${escHtml(sourceTag)}</span>` : ''}
-                `;
-                container.appendChild(labelElement);
-            });
-        }
-
-        // Afficher le score max à côté du seuil
-        if (data.detected && data.detected.length > 0) {
-            var maxScore = Math.max(...data.detected.map(function(l) { return l.score; }));
-            var thresholdLabel = document.getElementById('threshold-value');
-            if (thresholdLabel) {
-                var threshold = parseFloat(document.getElementById('threshold')?.value || 0.5);
-                thresholdLabel.textContent = threshold.toFixed(1) + ' (score: ' + maxScore.toFixed(2) + ')';
-            }
         }
     });
 

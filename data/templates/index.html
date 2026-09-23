@@ -578,7 +578,6 @@
             var autoVol = d.auto_volume ? ' checked' : '';
             var volDisabled = d.auto_volume ? ' disabled' : '';
             var volume = d.volume !== undefined ? d.volume : 100;
-            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
             var webhookUrl = d.webhook_url || '';
 
             return '<div class="source-header">' +
@@ -627,7 +626,6 @@
             var d = src.data;
             var enabled = d.enabled ? ' checked' : '';
             var volume = d.gain !== undefined ? d.gain : 10;
-            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
             var webhookUrl = d.webhook_url || '';
             var name = d.name || 'RTSP';
             var url = d.url || '';
@@ -805,7 +803,6 @@
             var d = src.data;
             var enabled = d.enabled !== undefined ? d.enabled : true;
             var enabledAttr = enabled ? ' checked' : '';
-            var threshold = d.threshold !== undefined ? d.threshold : 0.5;
             var gain = d.gain !== undefined ? d.gain : 1;
             var webhookUrl = d.webhook_url || '';
             var name = d.name || 'VBAN';
@@ -928,13 +925,11 @@
                 if (typeof rebuildSourcesTable === 'function') rebuildSourcesTable();
                 fetch(basePath + '/status').then(function(r) { return r.json(); }).then(function(data) {
                     if (data.running) {
-                        if (typeof updateSourceDisplay === 'function') updateSourceDisplay(data.source);
                     } else {
                         var sb = document.getElementById('startButton');
                         var xb = document.getElementById('stopButton');
                         if (sb) sb.style.display = 'block';
                         if (xb) xb.style.display = 'none';
-                        if (typeof updateSourceDisplay === 'function') updateSourceDisplay(null);
                     }
                 }).catch(function() {});
             }
@@ -1047,17 +1042,6 @@
                 });
             }
             // -----------------------------------------------------------------
-
-            // Mic threshold slider
-            var thresholdSlider = document.getElementById('threshold');
-            var thresholdValue = document.getElementById('threshold-value');
-            if (thresholdSlider && thresholdValue) {
-                bindLiveSlider(thresholdSlider, {
-                    label: thresholdValue,
-                    putUrl: function() { return '/api/microphone/threshold'; },
-                    putBody: function(s) { return {threshold: parseFloat(s.value)}; }
-                });
-            }
 
             // Mic enabled toggle
             var micEnabled = document.getElementById('webhook-mic-enabled');
@@ -1175,76 +1159,6 @@
                     },
                     stopUrl: '/api/rtsp/test/stop',
                     vuSelector: '.rtsp-test-vu'
-                });
-            });
-
-            // ---- Sound whitelist cleanup (supprime les non-coches) ----------
-            document.querySelectorAll('.sound-whitelist-cleanup').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    var section = btn.closest('.sound-whitelist-section');
-                    if (!section) return;
-                    var body = {
-                        kind: section.getAttribute('data-kind'),
-                        source_key: section.getAttribute('data-source-key')
-                    };
-                    fetch(basePath + '/api/source/sound_whitelist/cleanup', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.success) {
-                            // Retirer visuellement les items non coches
-                            section.querySelectorAll('.sound-whitelist-item').forEach(function(item) {
-                                var cb = item.querySelector('.sound-whitelist-toggle');
-                                if (cb && !cb.checked) item.remove();
-                            });
-                            var list = section.querySelector('.sound-whitelist-list');
-                            if (list && list.children.length === 0) {
-                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
-                            }
-                        }
-                    });
-                });
-            });
-
-            // ---- Sound whitelist (partage mic / rtsp / vban) ---------------
-            document.querySelectorAll('.sound-whitelist-toggle').forEach(function(cb) {
-                cb.addEventListener('change', function() {
-                    var section = cb.closest('.sound-whitelist-section');
-                    if (!section) return;
-                    var body = {
-                        kind: section.getAttribute('data-kind'),
-                        source_key: section.getAttribute('data-source-key'),
-                        label: cb.getAttribute('data-label'),
-                        enabled: cb.checked
-                    };
-                    fetch(basePath + '/api/source/sound_whitelist', {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    });
-                });
-            });
-            document.querySelectorAll('.sound-whitelist-remove').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                    var section = btn.closest('.sound-whitelist-section');
-                    var item = btn.closest('.sound-whitelist-item');
-                    if (!section || !item) return;
-                    var body = {
-                        kind: section.getAttribute('data-kind'),
-                        source_key: section.getAttribute('data-source-key'),
-                        label: btn.getAttribute('data-label')
-                    };
-                    fetch(basePath + '/api/source/sound_whitelist', {
-                        method: 'DELETE', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    }).then(function(r) {
-                        if (r.ok) {
-                            item.remove();
-                            var list = section.querySelector('.sound-whitelist-list');
-                            if (list && list.children.length === 0) {
-                                list.innerHTML = '<div class="sound-whitelist-empty">Aucun son encore detecte.</div>';
-                            }
-                        }
-                    });
                 });
             });
 
@@ -1715,7 +1629,6 @@
                       if (data.success) {
                           document.getElementById('startButton').style.display = 'none';
                           document.getElementById('stopButton').style.display = 'block';
-                          updateSourceDisplay(data.source || null);
                           // Rafraichir les entites HA apres un delai
                           setTimeout(refreshHaEntities, 3000);
                       } else {
@@ -1737,7 +1650,6 @@
                         if (data.success) {
                             document.getElementById('startButton').style.display = 'block';
                             document.getElementById('stopButton').style.display = 'none';
-                            updateSourceDisplay(null);
                         }
                     })
                     .catch(function(err) {
@@ -1929,44 +1841,6 @@
                 // Sound auto-discovery: append new label rows in the right panel.
                 sock.on('sound_seen', function(data) {
                     if (!data || !data.label) return;
-                    var sections = document.querySelectorAll('.sound-whitelist-section');
-                    sections.forEach(function(section) {
-                        if (section.getAttribute('data-kind') !== data.kind) return;
-                        if (String(section.getAttribute('data-source-key')) !== String(data.source_key)) return;
-                        var list = section.querySelector('.sound-whitelist-list');
-                        if (!list) return;
-                        // Already present?
-                        var already = list.querySelector('input[data-label="' + cssq(data.label) + '"]');
-                        if (already) return;
-                        var empty = list.querySelector('.sound-whitelist-empty');
-                        if (empty) empty.remove();
-                        var labelEsc = data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                        var labelAttr = labelEsc.replace(/"/g, '&quot;');
-                        var row = document.createElement('span');
-                        row.className = 'sound-whitelist-item new';
-                        row.innerHTML =
-                            '<label><input type="checkbox" class="sound-whitelist-toggle" data-label="' + labelAttr + '"> <span>' + labelEsc + '</span></label>' +
-                            '<button type="button" class="sound-whitelist-remove" data-label="' + labelAttr + '" title="Retirer de la liste">&#x00D7;</button>';
-                        row.querySelector('.sound-whitelist-toggle').addEventListener('change', function(e) {
-                            fetch((window.basePath || '') + '/api/source/sound_whitelist', {
-                                method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({
-                                    kind: data.kind, source_key: data.source_key,
-                                    label: data.label, enabled: e.target.checked
-                                })
-                            });
-                        });
-                        row.querySelector('.sound-whitelist-remove').addEventListener('click', function() {
-                            fetch((window.basePath || '') + '/api/source/sound_whitelist', {
-                                method: 'DELETE', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({
-                                    kind: data.kind, source_key: data.source_key, label: data.label
-                                })
-                            }).then(function(r) { if (r.ok) row.remove(); });
-                        });
-                        list.appendChild(row);
-                    });
-
                     // Ajouter aussi le nouveau label dans chaque groupe additionnel
                     // de la meme source (decoche). L'exclusivite UI est calculee
                     // a partir des cases existantes de la source.
@@ -2070,7 +1944,6 @@
             var stopBtn = document.getElementById('stopButton');
             if (startBtn) startBtn.style.display = running ? 'none' : 'block';
             if (stopBtn) stopBtn.style.display = running ? 'block' : 'none';
-            updateSourceDisplay(running ? source : null);
             if (!running) {
                 // Detection arretee : les cameras ne sont plus "en connexion".
                 document.querySelectorAll('.rtsp-status-dot').forEach(function(dot) {
@@ -2101,20 +1974,6 @@
         document.addEventListener('visibilitychange', function() {
             if (document.visibilityState === 'visible') resyncFromServer();
         });
-
-        // Afficher/masquer les sources actives (en liste). textContent : les
-        // noms de source sont saisis par l'utilisateur ou recus du reseau (VBAN).
-        function updateSourceDisplay(source) {
-            var el = document.getElementById('active-sources');
-            if (!el) return;
-            el.textContent = '';
-            (source ? source.split(' + ') : []).forEach(function(s) {
-                var badge = document.createElement('span');
-                badge.className = 'source-badge';
-                badge.textContent = s.trim();
-                el.appendChild(badge);
-            });
-        }
 
         // Verifier l'etat de detection au chargement
         (function() {

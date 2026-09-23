@@ -89,9 +89,7 @@ def _restart_detection_if_running():
             from classify import is_running, stop_detection, start_from_settings
             if not is_running():
                 return
-            stop_detection()
-            import time
-            time.sleep(0.5)  # Laisser les threads se terminer
+            stop_detection()  # attend la fin des threads de la session
             started, sources = start_from_settings(_socketio)
             if started and _socketio:
                 source_display = ' + '.join(s['label'] for s in sources)
@@ -553,16 +551,9 @@ def cleanup_source_sound_whitelist():
     source_id = _source_id_for(kind, source_key)
     if source_id:
         try:
-            from classify import _active_detectors_lock, _seen_labels_by_source, _detectors_by_source_id
-            with _active_detectors_lock:
-                seen = _seen_labels_by_source.get(source_id)
-                if seen is not None:
-                    seen.clear()
-                    seen.update(remaining_labels)
-                det = _detectors_by_source_id.get(source_id)
-                payload = _groups_payload(groups)
-                if det is not None and payload:
-                    det.set_groups(payload)
+            from classify import set_seen_labels, push_groups
+            set_seen_labels(source_id, remaining_labels)
+            push_groups(source_id, _groups_payload(groups))
         except Exception as e:
             logging.warning(f"Nettoyage non appliqué au détecteur actif: {e}")
 
@@ -672,12 +663,8 @@ def _push_groups_to_detector(kind, source_key, groups):
         source_id = _source_id_for(kind, source_key)
         if not source_id:
             return
-        from classify import _active_detectors_lock, _detectors_by_source_id
-        with _active_detectors_lock:
-            det = _detectors_by_source_id.get(source_id)
-            payload = _groups_payload(groups)
-            if det is not None and payload:
-                det.set_groups(payload)
+        from classify import push_groups
+        push_groups(source_id, _groups_payload(groups))
     except Exception as exc:
         logging.warning(f"Groupes non appliqués au détecteur actif: {exc}")
 
