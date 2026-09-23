@@ -41,31 +41,21 @@ def _restart_detection_if_running():
     """Redémarre la détection avec les sources mises à jour si elle tourne."""
     with _restart_lock:
         try:
-            from classify import is_running, stop_detection, start_detection, build_sources_from_settings
+            from classify import is_running, stop_detection, start_from_settings
             if not is_running():
                 return
             stop_detection()
             import time
             time.sleep(0.5)  # Laisser les threads se terminer
-            settings = load_settings()
-            sources = build_sources_from_settings(settings)
-            if sources and _socketio:
-                global_s = settings.get('global', {})
-                start_detection(
-                    model="yamnet.tflite", max_results=10,
-                    score_threshold=float(global_s.get('threshold', 0.5)),
-                    overlapping_factor=0.8, socketio=_socketio,
-                    delay=float(global_s.get('delay', 1.5)), sources=sources,
-                    peak_cooldown=float(global_s.get('peak_cooldown', 0.08)),
-                    peak_ratio=float(global_s.get('peak_ratio', 3.0)),
-                    peak_reset=float(global_s.get('peak_reset', 0.3))
-                )
+            started, sources = start_from_settings(_socketio)
+            if started and _socketio:
                 source_display = ' + '.join(s['label'] for s in sources)
                 _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
                 logging.info(f"Détection redémarrée avec: {source_display}")
-            else:
+            elif _socketio:
                 _socketio.emit('detection_status', {'status': 'stopped'})
-                logging.info("Détection arrêtée: aucune source active")
+                logging.info("Détection arrêtée: aucune source active" if not sources
+                             else "Détection arrêtée: redémarrage impossible")
         except Exception as e:
             logging.error(f"Erreur redémarrage détection: {e}")
 

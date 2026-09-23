@@ -59,11 +59,16 @@ class AutoVolume:
         logging.info(f"Auto-volume demarre (volume initial: {self._current_volume}%)")
 
     def stop(self):
+        # stop() est appele a chaque arret de la detection, auto-volume actif ou
+        # non : ne persister que si la boucle a reellement tourne, sinon on
+        # ecrasait le volume choisi par l'utilisateur avec la valeur par defaut.
+        was_running = self._thread is not None
         self._running = False
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
-        # Persister le volume final avant l'arret
+        if not was_running:
+            return
         self._persist_volume(self._current_volume)
         logging.info("Auto-volume arrete")
 

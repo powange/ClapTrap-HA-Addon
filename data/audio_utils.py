@@ -23,20 +23,43 @@ def set_pulse_volume(pulse_name, volume_percent):
         logging.warning(f"pactl set-source-volume: {e}")
 
 
+def drain_stderr(proc, name, sanitize=None):
+    """Lit stderr ligne par ligne et le jette (log DEBUG).
+
+    Un `proc.stderr.read()` accumulait TOUT stderr en memoire jusqu'a l'EOF
+    (fuite sur un process qui tourne des semaines).
+    """
+    def _drain():
+        try:
+            for raw in iter(proc.stderr.readline, b''):
+                if logging.getLogger().isEnabledFor(logging.DEBUG):
+                    line = raw.decode('utf-8', errors='replace').rstrip()
+                    if sanitize:
+                        line = sanitize(line)
+                    logging.debug(f"{name}: {line}")
+        except Exception:
+            pass
+    threading.Thread(target=_drain, daemon=True).start()
+
+
 def start_process_with_stderr_drain(cmd):
     """Lance un subprocess avec drain de stderr en background."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    threading.Thread(target=lambda: proc.stderr.read(), daemon=True).start()
+    drain_stderr(proc, cmd[0])
     return proc
 
 
 def terminate_process(proc, timeout=2):
-    """Termine un subprocess proprement."""
-    proc.terminate()
+    """Termine un subprocess proprement (et le reap pour eviter un zombie)."""
     try:
+        proc.terminate()
         proc.wait(timeout=timeout)
     except Exception:
-        proc.kill()
+        try:
+            proc.kill()
+            proc.wait(timeout=timeout)
+        except Exception:
+            pass
 
 _audio_devices_cache = None
 _audio_devices_cache_time = 0

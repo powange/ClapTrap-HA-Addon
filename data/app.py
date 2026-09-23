@@ -393,22 +393,16 @@ if __name__ == '__main__':
             _time.sleep(3)
             try:
                 logging.info("Auto-start: démarrage automatique de la détection...")
-                from classify import start_detection, build_sources_from_settings
-                s = load_settings()
-                global_s = s.get('global', {})
-                sources = build_sources_from_settings(s)
-                if sources:
-                    start_detection(
-                        model="yamnet.tflite", max_results=10,
-                        score_threshold=float(global_s.get('threshold', 0.5)),
-                        overlapping_factor=0.8, socketio=socketio,
-                        delay=float(global_s.get('delay', 1.0)), sources=sources
-                    )
+                from classify import start_from_settings
+                started, sources = start_from_settings(socketio)
+                if started:
                     source_display = ' + '.join(s['label'] for s in sources)
                     logging.info(f"Auto-start: détection démarrée ({source_display})")
                     socketio.emit('detection_status', {'status': 'running', 'source': source_display})
-                else:
+                elif not sources:
                     logging.warning("Auto-start: aucune source activée")
+                else:
+                    logging.warning("Auto-start: la détection n'a pas pu démarrer")
             except Exception as e:
                 logging.error(f"Auto-start: erreur - {e}")
 

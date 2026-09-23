@@ -1,16 +1,23 @@
 import numpy as np
 import threading
-import math
-from scipy.signal import resample_poly
 from mediapipe.tasks import python
 from mediapipe.tasks.python import audio
 from mediapipe.tasks.python.components import containers
-from mediapipe.tasks.python.audio import audio_classifier
-import mediapipe as mp
 import time
 import logging
 
 class AudioDetector:
+    # Plancher absolu (signal brut, avant auto-gain) pour qu'un front compte
+    # comme un pic. Correspond au plancher effectif de l'ancien calcul (0.05 sur
+    # un signal amplifie x5).
+    PEAK_FLOOR = 0.01
+    # Un pic n'est rattache a une detection que s'il date de moins de
+    # PEAK_LOOKBACK s : c'est la fenetre d'analyse de YAMNet (~0.975 s) + marge.
+    PEAK_LOOKBACK = 1.2
+    # Apres un declenchement, le score YAMNet reste haut ~1 s sur le meme son :
+    # on ne re-arme un groupe que s'il y a un nouveau pic ou apres ce delai.
+    RETRIGGER_GUARD = 1.0
+
     def __init__(self, model_path, sample_rate=16000, buffer_duration=1.0):
         self.model_path = model_path
         self.sample_rate = sample_rate
@@ -21,6 +28,9 @@ class AudioDetector:
         self.classifier = None
         self.running = False
         self.lock = threading.Lock()
+        # Serialise classify_async et close() : close() pendant un classify_async
+        # (thread source encore actif lors d'un stop) n'est pas sur cote natif.
+        self._clf_lock = threading.Lock()
         self.last_detection_time = {}  # Dict pour stocker le dernier temps de détection par source
         self.last_timestamp_ms = {}  # Dict pour stocker le dernier timestamp par source
         self._global_timestamp_ms = 0  # Timestamp global monotone pour classify_async
@@ -38,6 +48,15 @@ class AudioDetector:
         self._groups = []  # liste de groupes : [{slug, name, whitelist, threshold, clap_counts}]
         self._exclusions = set()  # labels exclus globalement (prioritaire sur whitelist)
         self._sound_seen_callback = None  # callable({label, score}) pour l'auto-decouverte
+
+    @staticmethod
+    def _new_energy_state():
+        return {
+            'above': False, 'last_peak_time': 0, 'peak_times': [],
+            'avg_level': 0.001,  # niveau moyen du bruit de fond (signal brut)
+            'consumed_until': 0.0,  # pics <= ce temps deja comptes dans une detection
+            'last_trigger': 0.0,
+        }
 
     def set_groups(self, groups):
         """Met a jour les groupes de sons (appele en direct sans restart).
@@ -208,17 +227,22 @@ class AudioDetector:
 
             # Detection per-group
             current_time = time.time()
+            events = []
             with self.lock:
-                es = self._energy_state.get(source_id, {})
-                peak_times = es.get('peak_times', [])
+                es = self._energy_state.setdefault(source_id, self._new_energy_state())
+                peak_times = es['peak_times']
                 es_groups = es.setdefault('groups', {})
+                consumed_until = es.get('consumed_until', 0.0)
 
-                # Candidats prets a se declencher dans ce cycle : un meme evenement
-                # sonore (clap) peut matcher plusieurs groupes (ex. "clap" et "snap").
-                # On collecte tous les groupes dont la fenetre vient d'expirer, puis on
-                # ne declenche que le gagnant (meilleur score). Exclusivite par source.
-                ready_candidates = []
+                # Pics pas encore attribues a une detection, et assez recents pour
+                # etre le son que YAMNet est en train de reconnaitre. Un vieux bruit
+                # (porte, pas) ne doit ni ancrer la fenetre ni etre compte.
+                fresh_peaks = [t for t in peak_times
+                               if t > consumed_until and t >= current_time - self.PEAK_LOOKBACK]
+                can_arm = bool(fresh_peaks) or \
+                    (current_time - es.get('last_trigger', 0.0)) >= self.RETRIGGER_GUARD
 
+                any_expired = False
                 for group in groups:
                     g_slug = group['slug']
                     g_whitelist = group['whitelist']
@@ -237,88 +261,99 @@ class AudioDetector:
 
                     if g_max_score >= g_threshold:
                         if g_state['clap_detected_at'] == 0:
-                            first_peak = peak_times[0] if peak_times else current_time
-                            g_state['clap_detected_at'] = first_peak
-                            g_state['clap_score'] = g_max_score
-                            g_state['clap_labels'] = {}
+                            if can_arm:
+                                g_state['clap_detected_at'] = fresh_peaks[0] if fresh_peaks else current_time
+                                g_state['clap_score'] = g_max_score
+                                g_state['clap_labels'] = {}
                         elif g_max_score > g_state.get('clap_score', 0):
                             g_state['clap_score'] = g_max_score
-                        contributing = g_state.setdefault('clap_labels', {})
-                        for cat in g_clap_categories:
-                            if cat.score >= g_threshold:
-                                existing = contributing.get(cat.category_name, 0)
-                                if cat.score > existing:
-                                    contributing[cat.category_name] = float(cat.score)
+                        if g_state['clap_detected_at']:
+                            contributing = g_state.setdefault('clap_labels', {})
+                            for cat in g_clap_categories:
+                                if cat.score >= g_threshold:
+                                    existing = contributing.get(cat.category_name, 0)
+                                    if cat.score > existing:
+                                        contributing[cat.category_name] = float(cat.score)
 
-                    clap_detected_at = g_state.get('clap_detected_at', 0)
-                    if clap_detected_at > 0 and (current_time - clap_detected_at) >= self._clap_window_duration:
-                        recent_peaks = [t for t in peak_times if t >= clap_detected_at]
-                        clap_count = max(1, len(recent_peaks))
-                        clap_score = g_state.get('clap_score', g_max_score)
-                        clap_labels = sorted(
-                            ({'label': name, 'score': score}
-                             for name, score in g_state.get('clap_labels', {}).items()),
-                            key=lambda x: x['score'],
-                            reverse=True
-                        )
+                    armed_at = g_state.get('clap_detected_at', 0)
+                    if armed_at > 0 and (current_time - armed_at) >= self._clap_window_duration:
+                        any_expired = True
 
-                        ready_candidates.append({
+                # Des qu'une fenetre expire, TOUS les groupes armes de la source
+                # entrent en arbitrage (meme ceux armes a un cycle different) : un
+                # seul gagnant par evenement sonore, les autres sont "ignored".
+                if any_expired:
+                    candidates = []
+                    for group in groups:
+                        g_state = es_groups.get(group['slug'])
+                        armed_at = g_state.get('clap_detected_at', 0) if g_state else 0
+                        if not armed_at:
+                            continue
+                        recent_peaks = [t for t in peak_times
+                                        if armed_at <= t <= current_time and t > consumed_until]
+                        candidates.append({
                             'group': group,
-                            'g_slug': g_slug,
                             'g_state': g_state,
-                            'clap_count': clap_count,
-                            'clap_score': clap_score,
-                            'clap_labels': clap_labels,
+                            'clap_count': max(1, len(recent_peaks)),
+                            'clap_score': g_state.get('clap_score', 0),
+                            'clap_labels': sorted(
+                                ({'label': name, 'score': score}
+                                 for name, score in g_state.get('clap_labels', {}).items()),
+                                key=lambda x: x['score'],
+                                reverse=True
+                            ),
                         })
 
-                # Arbitrage : un seul groupe gagnant par source, celui au meilleur score.
-                # Les perdants voient leur etat reinitialise sans declenchement.
-                if ready_candidates:
-                    winner = max(ready_candidates, key=lambda c: c['clap_score'])
-
-                    if len(ready_candidates) > 1:
+                    winner = max(candidates, key=lambda c: c['clap_score'])
+                    if len(candidates) > 1:
                         losers = ", ".join(
                             f"{c['group']['name']}({c['clap_score']:.2f})"
-                            for c in ready_candidates if c is not winner
+                            for c in candidates if c is not winner
                         )
                         logging.info(
                             f"[{self._source_label}] Exclusivite groupe: gagnant="
                             f"{winner['group']['name']}({winner['clap_score']:.2f}), ignore={losers}"
                         )
 
-                    for c in ready_candidates:
-                        g_state = c['g_state']
-                        g_state['clap_detected_at'] = 0
-                        g_state['clap_score'] = 0
-                        g_state['clap_labels'] = {}
+                    for c in candidates:
+                        c['g_state']['clap_detected_at'] = 0
+                        c['g_state']['clap_score'] = 0
+                        c['g_state']['clap_labels'] = {}
+                    # Les pics comptes ici ne serviront plus a une autre detection.
+                    es['consumed_until'] = current_time
+                    es['last_trigger'] = current_time
 
-                    self.last_detection_time[source_id] = current_time
                     logging.info(
                         f"[{self._source_label}] CLAP groupe={winner['group']['name']}: "
                         f"{winner['clap_count']} pic(s), score={winner['clap_score']:.2f}, "
                         f"fenetre={self._clap_window_duration}s"
                     )
 
-                    # On declenche le gagnant normalement et les perdants en mode
-                    # "ignored" : ils s'affichent dans l'historique (en rouge cote UI)
-                    # mais ne declenchent ni webhook ni entites Home Assistant.
-                    if detection_callback:
-                        for c in ready_candidates:
-                            group = c['group']
-                            try:
-                                detection_callback({
-                                    'timestamp': current_time,
-                                    'score': float(c['clap_score']),
-                                    'source_id': source_id,
-                                    'clap_count': c['clap_count'],
-                                    'labels': c['clap_labels'],
-                                    'group_slug': c['g_slug'],
-                                    'group_name': group['name'],
-                                    'group_clap_counts': list(group.get('clap_counts', [1, 2])),
-                                    'ignored': c is not winner,
-                                })
-                            except Exception as e:
-                                logging.error(f"Erreur callback détection {self._source_label}: {e}")
+                    # Gagnant declenche normalement, perdants en mode "ignored" :
+                    # affiches dans l'historique (en rouge cote UI) sans webhook ni
+                    # entite Home Assistant.
+                    for c in candidates:
+                        group = c['group']
+                        events.append({
+                            'timestamp': current_time,
+                            'score': float(c['clap_score']),
+                            'source_id': source_id,
+                            'clap_count': c['clap_count'],
+                            'labels': c['clap_labels'],
+                            'group_slug': group['slug'],
+                            'group_name': group['name'],
+                            'group_clap_counts': list(group.get('clap_counts', [1, 2])),
+                            'ignored': c is not winner,
+                        })
+
+            # Callbacks HORS verrou : ils font des E/S (socketio, MQTT, HTTP) et
+            # process_audio attend ce meme verrou sur le thread audio.
+            if detection_callback:
+                for ev in events:
+                    try:
+                        detection_callback(ev)
+                    except Exception as e:
+                        logging.error(f"Erreur callback détection {self._source_label}: {e}")
 
         except Exception as e:
             logging.error(f"Erreur dans le traitement du résultat: {str(e)}")
@@ -333,17 +368,10 @@ class AudioDetector:
                 logging.warning(f"Source inconnue: {source_id}")
                 return
 
-            # Vérifier si le classificateur est actif
+            # Detecteur arrete : ne jamais le relancer d'ici. Un thread source
+            # encore actif pendant le stop recreait sinon un classifier jamais ferme.
             if not self.running:
-                logging.warning("Le classificateur n'est pas actif, démarrage...")
-                self.start()
-                if not self.running:
-                    logging.error("Impossible de démarrer le classificateur")
-                    return
-
-            # Rééchantillonnage anti-aliasé si nécessaire
-            if len(audio_data) > self.buffer_size:
-                audio_data = resample_poly(audio_data, 1, 3).astype(np.float32)
+                return
 
             # S'assurer que les données sont 1D float32
             if audio_data.ndim > 1:
@@ -363,10 +391,9 @@ class AudioDetector:
             # Normalisation adaptative : n'amplifie que les blocs avec un vrai signal
             # (peak significativement au-dessus du bruit de fond moyen)
             raw_peak = float(np.max(np.abs(audio_data)))
-            if source_id not in self._energy_state:
-                self._energy_state[source_id] = {'above': False, 'last_peak_time': 0, 'peak_times': [], 'avg_level': 0.001}
-            es = self._energy_state[source_id]
-            noise_floor = es.get('avg_level', 0.001)
+            with self.lock:
+                es = self._energy_state.setdefault(source_id, self._new_energy_state())
+                noise_floor = es['avg_level']
             # Amplifier doucement les signaux faibles (eviter le clipping)
             if raw_peak > noise_floor * 2 and raw_peak < 0.05 and raw_peak > 0.003:
                 auto_gain = min(0.15 / raw_peak, 5.0)  # max 5x, cible 0.15
@@ -376,14 +403,11 @@ class AudioDetector:
             if logging.getLogger().isEnabledFor(logging.DEBUG) and len(audio_data) > 0:
                 logging.debug(f"Audio stats ({self._source_label}) - min: {np.min(audio_data):.4f}, max: {np.max(audio_data):.4f}, mean: {np.mean(audio_data):.4f}, std: {np.std(audio_data):.4f}")
 
-            # Compter les pics d'énergie (pour le multi-clap)
-            peak = float(np.max(np.abs(audio_data)))
+            # Compter les pics d'énergie (pour le multi-clap) sur le signal BRUT :
+            # le seuil depend de avg_level, lui-meme mesure sur le brut. Tester le
+            # pic amplifie par l'auto-gain faisait compter des bruits faibles.
+            peak = raw_peak
             with self.lock:
-                if source_id not in self._energy_state:
-                    self._energy_state[source_id] = {
-                        'above': False, 'last_peak_time': 0, 'peak_times': [],
-                        'avg_level': 0.001  # niveau moyen du bruit de fond
-                    }
                 es = self._energy_state[source_id]
                 current_time = time.time()
 
@@ -392,8 +416,8 @@ class AudioDetector:
                 if not es.get('above', False):
                     es['avg_level'] = es['avg_level'] * 0.995 + raw_peak * 0.005
 
-                # Seuil dynamique : pic doit être 3x le niveau moyen (minimum 0.05)
-                dynamic_threshold = max(0.05, es['avg_level'] * self._peak_ratio)
+                # Seuil dynamique : pic doit être peak_ratio x le niveau moyen
+                dynamic_threshold = max(self.PEAK_FLOOR, es['avg_level'] * self._peak_ratio)
 
                 # Nettoyer les pics anciens (garder fenêtre + marge)
                 max_age = max(2.0, self._clap_window_duration + 1.0)
@@ -449,7 +473,10 @@ class AudioDetector:
                     # Classifier le bloc
                     try:
                         audio_data_container = containers.AudioData.create_from_array(block, self.sample_rate)
-                        self.classifier.classify_async(audio_data_container, next_timestamp)
+                        with self._clf_lock:
+                            if not self.running or not self.classifier:
+                                return
+                            self.classifier.classify_async(audio_data_container, next_timestamp)
                     except Exception as e:
                         logging.error(f"Erreur lors de la classification: {str(e)}")
 
@@ -498,10 +525,11 @@ class AudioDetector:
     def stop(self):
         """Arrête le classificateur"""
         self.running = False
-        if self.classifier:
+        with self._clf_lock:
+            classifier, self.classifier = self.classifier, None
+        if classifier:
             try:
-                self.classifier.close()
-                self.classifier = None
+                classifier.close()
                 logging.info("Classificateur audio arrêté")
             except Exception as e:
                 logging.error(f"Erreur lors de l'arrêt du classificateur: {e}")

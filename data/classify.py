@@ -1,6 +1,7 @@
 import time
 import requests
-import ffmpeg
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import numpy as np
 import sounddevice as sd
@@ -20,6 +21,12 @@ from audio_detector import AudioDetector
 from settings_manager import load_settings
 from webhook import send_webhook_async
 from url_validator import mask_url_credentials
+from audio_utils import drain_stderr, terminate_process
+
+# Effets de bord d'une detection (evenement HA, MQTT, webhook) : executes hors
+# du thread d'inference. Un POST vers le Supervisor (timeout 3 s) bloquait sinon
+# le flux audio a chaque clap. 1 worker : conserve l'ordre des evenements.
+_side_effects = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clap-effects")
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 
@@ -76,7 +83,7 @@ def build_sources_from_settings(settings):
             sources.append({
                 'type': 'rtsp', 'stream_id': src.get('id', ''),
                 'source_key': src.get('id', ''),
-                'audio_source': url, 'rtsp_url': src['url'],
+                'audio_source': url, 'rtsp_url': url,
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': src.get('gain', 10),
                 'groups': _build_groups_for_source(src, global_threshold),
@@ -90,6 +97,7 @@ def build_sources_from_settings(settings):
                 'type': 'vban', 'audio_source': f"vban://{src['ip']}",
                 'source_key': src.get('ip', ''),
                 'name': src.get('name', ''),
+                'stream_name': src.get('stream_name') or src.get('name', ''),
                 'ip': src.get('ip', ''),
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 1)),
@@ -133,37 +141,119 @@ def reload_settings():
     return load_settings()
 
 
-def read_audio_from_rtsp(rtsp_url, buffer_size):
-    """Lit un flux RTSP audio en continu via ffmpeg."""
-    process = None
-    try:
-        process = (
-            ffmpeg
-            # protocol_whitelist : empeche ffmpeg d'ouvrir file://, http://, etc.
-            .input(rtsp_url, protocol_whitelist='rtsp,rtp,udp,tcp,tls')
-            .output('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar='16000', buffer_size='64k')
-            .run_async(pipe_stdout=True, pipe_stderr=True)
-        )
-        # Drainer stderr pour éviter le blocage
-        import threading
-        threading.Thread(target=lambda: process.stderr.read(), daemon=True).start()
+RTSP_STALL_TIMEOUT = 15  # s sans donnees avant de tuer ffmpeg et reconnecter
 
+
+def read_audio_from_rtsp(rtsp_url, buffer_size, stall_timeout=RTSP_STALL_TIMEOUT):
+    """Lit un flux RTSP audio en continu via ffmpeg.
+
+    Un chien de garde tue ffmpeg si aucune donnee n'arrive pendant
+    `stall_timeout` s : une camera qui cesse d'emettre sans fermer la connexion
+    bloquait sinon `read()` indefiniment (thread fige, ffmpeg orphelin).
+    """
+    cmd = [
+        'ffmpeg', '-nostdin', '-nostats', '-loglevel', 'error',
+        # protocol_whitelist : empeche ffmpeg d'ouvrir file://, http://, etc.
+        '-protocol_whitelist', 'rtsp,rtp,udp,tcp,tls',
+        '-i', rtsp_url,
+        '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ac', '1', '-ar', '16000',
+        'pipe:1',
+    ]
+    process = None
+    done = threading.Event()
+    try:
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        drain_stderr(process, 'ffmpeg', sanitize=mask_url_credentials)
+        last_data = [time.monotonic()]
+
+        def _watchdog():
+            while not done.wait(1.0):
+                if time.monotonic() - last_data[0] > stall_timeout:
+                    logging.warning(f"RTSP: aucune donnee depuis {stall_timeout}s, arret de ffmpeg")
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                    return
+        threading.Thread(target=_watchdog, daemon=True).start()
+
+        nbytes = buffer_size * 4
         while True:
-            in_bytes = process.stdout.read(buffer_size * 4)
+            in_bytes = process.stdout.read(nbytes)
             if not in_bytes:
                 break
-            audio_chunk = np.frombuffer(in_bytes, np.float32)
-            if len(audio_chunk) > 0:
-                yield audio_chunk
+            last_data[0] = time.monotonic()
+            usable = len(in_bytes) - (len(in_bytes) % 4)
+            if usable:
+                yield np.frombuffer(in_bytes[:usable], np.float32)
     except Exception as e:
         logging.error(f"Erreur lecture RTSP: {mask_url_credentials(str(e))}")
         yield None
     finally:
+        done.set()
         if process:
-            try:
-                process.kill()
-            except Exception:
-                pass
+            terminate_process(process)
+
+
+def detection_params_from_settings(settings):
+    """Parametres de start_detection derives de la section `global` des settings.
+
+    Point unique : l'auto-start, le bouton Demarrer et les redemarrages
+    automatiques appliquent ainsi les memes valeurs (dont les reglages
+    avances de pics), avec les memes defauts que DEFAULT_SETTINGS.
+    """
+    g = settings.get('global') or {}
+    return {
+        'model': "yamnet.tflite",
+        'max_results': 10,
+        'score_threshold': float(g.get('threshold', 0.5)),
+        'overlapping_factor': 0.8,
+        'delay': float(g.get('delay', 1.5)),
+        'peak_cooldown': float(g.get('peak_cooldown', 0.08)),
+        'peak_ratio': float(g.get('peak_ratio', 3.0)),
+        'peak_reset': float(g.get('peak_reset', 0.3)),
+    }
+
+
+def start_from_settings(socketio, settings=None):
+    """Demarre la detection a partir des settings (disque par defaut).
+
+    Retourne (demarre, sources). Leve ValueError/TypeError si un reglage
+    numerique est invalide.
+    """
+    if settings is None:
+        settings = load_settings()
+    sources = build_sources_from_settings(settings)
+    if not sources:
+        return False, []
+    started = start_detection(socketio=socketio, sources=sources,
+                              **detection_params_from_settings(settings))
+    return started, sources
+
+
+def _run_side_effects(source_name, base_payload, score, clap_count, group_slug,
+                      group_clap_counts, webhook_url):
+    """Evenement HA + entite MQTT + webhook d'une detection (worker dedie)."""
+    supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
+    if supervisor_token:
+        try:
+            requests.post(
+                'http://supervisor/core/api/events/claptrap_clap',
+                headers={'Authorization': f'Bearer {supervisor_token}', 'Content-Type': 'application/json'},
+                json=base_payload,
+                timeout=3
+            )
+        except Exception as e:
+            logging.warning(f"Evenement HA claptrap_clap non envoye: {e}")
+    # Mettre à jour les entités HA (route vers la bonne entite via group_slug)
+    try:
+        from ha_entities import on_clap_detected
+        on_clap_detected(source_name, score, clap_count,
+                         group_slug=group_slug, group_clap_counts=group_clap_counts)
+    except Exception as e:
+        logging.warning(f"Entite HA non mise a jour pour {source_name}: {e}")
+    if webhook_url:
+        send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
 
 
 def start_detection(model, max_results, score_threshold, overlapping_factor,
@@ -219,7 +309,15 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         # courante. Un ancien run (redemarrage) voit _detection_gen changer et
         # s'arrete, meme si detection_running est repasse a True pour le nouveau.
         return detection_running and _detection_gen == generation
+
+    def _sleep_while_current(seconds):
+        # Attente interruptible : un stop ne doit pas attendre la fin d'un backoff.
+        end = time.monotonic() + seconds
+        while _still_current() and time.monotonic() < end:
+            time.sleep(0.2)
+
     detectors = []  # Pour cleanup
+    run_source_ids = []  # source_id enregistres par CE run (nettoyage des registres)
 
     try:
         def create_detection_callback(source_name, webhook_url=None):
@@ -260,26 +358,9 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         })
                     if ignored:
                         return
-                    supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
-                    if supervisor_token:
-                        try:
-                            requests.post(
-                                'http://supervisor/core/api/events/claptrap_clap',
-                                headers={'Authorization': f'Bearer {supervisor_token}', 'Content-Type': 'application/json'},
-                                json=base_payload,
-                                timeout=3
-                            )
-                        except Exception:
-                            pass
-                    # Mettre à jour les entités HA (route vers la bonne entite via group_slug)
-                    try:
-                        from ha_entities import on_clap_detected
-                        on_clap_detected(source_name, detection_data['score'], clap_count,
-                                         group_slug=group_slug, group_clap_counts=group_clap_counts)
-                    except Exception:
-                        pass
-                    if webhook_url:
-                        send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
+                    score = detection_data['score']
+                    _side_effects.submit(_run_side_effects, source_name, base_payload, score,
+                                         clap_count, group_slug, group_clap_counts, webhook_url)
                 except Exception as e:
                     logging.error(f"Erreur callback clap {source_name}: {e}")
             return handle_detection
@@ -311,8 +392,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 current_settings = load_settings()
                 exclusions = current_settings.get('global', {}).get('sound_exclusions', []) or []
                 det.set_exclusions(exclusions)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Exclusions non appliquees a {source_id}: {e}")
             det.set_sound_seen_callback(_build_sound_seen_handler(source_id))
             det.add_source(source_id=source_id,
                 detection_callback=create_detection_callback(source_id, webhook_url),
@@ -323,6 +404,7 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             seen = set()
             for g in groups:
                 seen.update((g.get('whitelist') or {}).keys())
+            run_source_ids.append(source_id)
             with _active_detectors_lock:
                 _active_detectors.append(det)
                 _detectors_by_source_id[source_id] = det
@@ -334,8 +416,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 from ha_entities import register_source
                 register_source(entity_id or source_id, label=label,
                                 technical_id=source_id, groups=groups)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Entites HA non enregistrees pour {source_id}: {e}")
             return det
 
         # --- Runners par type de source (chacun avec son propre detector) ---
@@ -355,16 +437,16 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         if dev.get('name') == device_name and dev.get('pulse_name'):
                             pulse_name = dev['pulse_name']
                             break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning(f"Micro: nom PulseAudio introuvable pour {device_name}: {e}")
 
             if pulse_name:
                 try:
                     from audio_utils import set_pulse_volume
                     mic_volume = settings.get('microphone', {}).get('volume', 100)
                     set_pulse_volume(pulse_name, mic_volume)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning(f"Micro: volume non applique: {e}")
 
             source_id = f"mic_{saved_index}"
             detector = create_detector(source_id, src.get('webhook_url'),
@@ -375,25 +457,40 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                    '--raw', '--latency-msec=50']
             if pulse_name:
                 cmd.append(f'--device={pulse_name}')
-            logging.info(f"Micro: lancement {' '.join(cmd)}")
             from audio_utils import start_process_with_stderr_drain
-            proc = start_process_with_stderr_drain(cmd)
 
             if settings.get('microphone', {}).get('auto_volume', False) and pulse_name:
                 auto_volume_mgr.start(pulse_name, socketio)
 
             block_bytes = 1600 * 4
+            reconnect_delay = 1
             try:
+                # Relance de parecord s'il meurt (redemarrage de PulseAudio ou du
+                # Supervisor audio), avec backoff, comme pour le RTSP.
                 while _still_current():
-                    data = proc.stdout.read(block_bytes)
-                    if not data:
+                    logging.info(f"Micro: lancement {' '.join(cmd)}")
+                    proc = start_process_with_stderr_drain(cmd)
+                    try:
+                        while _still_current():
+                            data = proc.stdout.read(block_bytes)
+                            if not data:
+                                break
+                            usable = len(data) - (len(data) % 4)
+                            if not usable:
+                                continue
+                            reconnect_delay = 1
+                            samples = np.frombuffer(data[:usable], dtype=np.float32)
+                            auto_volume_mgr.feed_peak(float(np.max(np.abs(samples))))
+                            detector.process_audio(samples, source_id)
+                    finally:
+                        terminate_process(proc)
+                    if not _still_current():
                         break
-                    samples = np.frombuffer(data, dtype=np.float32)
-                    auto_volume_mgr.feed_peak(float(np.max(np.abs(samples))))
-                    detector.process_audio(samples, source_id)
+                    logging.warning(f"Micro: parecord s'est arrete (code {proc.returncode}), "
+                                    f"relance dans {reconnect_delay}s")
+                    _sleep_while_current(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, 30)
             finally:
-                from audio_utils import terminate_process
-                terminate_process(proc)
                 detector.stop()
 
         def run_rtsp_source(src):
@@ -436,30 +533,34 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                         if socketio:
                             socketio.emit('rtsp_status', {'id': stream_id, 'status': 'reconnecting'})
                         logging.warning(f"RTSP interrompu, reconnexion dans {reconnect_delay}s...")
-                        time.sleep(reconnect_delay)
+                        _sleep_while_current(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
                 except Exception as e:
                     if _still_current():
                         if socketio:
                             socketio.emit('rtsp_status', {'id': stream_id, 'status': 'error', 'error': mask_url_credentials(str(e))})
                         logging.error(f"Erreur RTSP: {mask_url_credentials(str(e))}")
-                        time.sleep(reconnect_delay)
+                        _sleep_while_current(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 2, 30)
             detector.stop()
 
         def run_vban_source(src):
             vban_ip = src['audio_source'].replace("vban://", "")
+            stream_name = src.get('stream_name') or src.get('name', '')
             source_id = f"vban_{vban_ip}"
             _vban_gains[vban_ip] = float(src.get('gain', 1.0))
+            vban_det = get_vban_detector()
+            if vban_det is None:
+                logging.error(f"VBAN: ecoute UDP indisponible, source {src.get('label')} ignoree")
+                return
             from ha_entities import source_entity_key
             entity_id = source_entity_key('vban', {'name': src.get('name', ''), 'ip': vban_ip})
             detector = create_detector(source_id, src.get('webhook_url'),
                 groups=src.get('groups'), label=src.get('label'),
                 entity_id=entity_id,
                 kind='vban', source_key=src.get('source_key') or vban_ip)
-            logging.info(f"VBAN: démarrage capture {vban_ip} (gain={_vban_gains[vban_ip]}x)")
+            logging.info(f"VBAN: démarrage capture {vban_ip}/{stream_name} (gain={_vban_gains[vban_ip]}x)")
 
-            vban_det = get_vban_detector()
             def audio_callback(audio_data, timestamp):
                 if not _still_current():
                     return
@@ -467,18 +568,17 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
                 if gain != 1.0:
                     audio_data = np.clip(audio_data * gain, -1.0, 1.0).astype(np.float32)
                 detector.process_audio(audio_data, source_id)
-            vban_det.add_source_callback(vban_ip, audio_callback)
+            vban_det.add_source_callback(vban_ip, audio_callback, stream_name=stream_name)
 
             while _still_current():
                 time.sleep(0.5)
             try:
                 # Retrait discriminant : ne retire QUE notre propre callback. Sans
                 # ce garde, l'ancien thread VBAN pouvait retirer le callback que le
-                # nouveau run venait de reenregistrer pour la meme IP (l'audio ne
-                # parvenait alors plus au detecteur apres un redemarrage).
-                vban_det.remove_source_callback(vban_ip, audio_callback)
-            except Exception:
-                pass
+                # nouveau run venait de reenregistrer pour le meme flux.
+                vban_det.remove_source_callback(vban_ip, audio_callback, stream_name=stream_name)
+            except Exception as e:
+                logging.debug(f"VBAN: retrait du callback {vban_ip}/{stream_name}: {e}")
             detector.stop()
 
         # --- Lancer un thread par source ---
@@ -489,8 +589,8 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
             init_entities(settings=reload_settings())
             source_labels = [s['label'] for s in sources]
             update_detection_state(True, source_labels)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Etat HA de la detection non publie: {e}")
 
         runners = {'mic': run_mic_source, 'rtsp': run_rtsp_source, 'vban': run_vban_source}
         for src in sources:
@@ -516,26 +616,46 @@ def run_detection(model, max_results, score_threshold, overlapping_factor, socke
         logging.error(traceback.format_exc())
         return False
     finally:
-        # Stopper tous les detectors restants (ceux de CE run uniquement).
-        for det in detectors:
-            try:
-                det.stop()
-            except Exception:
-                pass
         # Ne toucher a l'etat global QUE si on est encore la generation courante.
         # Un redemarrage a pu lancer un nouveau run entre-temps : dans ce cas il
         # ne faut pas ecraser son `detection_running` ni repasser le capteur HA
         # a OFF (c'etait la cause du "la detection s'arrete au redemarrage").
         with _detection_lock:
             is_current = (_detection_gen == generation)
+            # Arret "de lui-meme" (toutes les sources mortes, erreur) et non via
+            # stop_detection() : il faut prevenir l'UI, sinon elle reste sur
+            # "en cours".
+            stopped_by_itself = is_current and detection_running
             if is_current:
                 detection_running = False
+        # Laisser les threads sources sortir de leur boucle AVANT de fermer les
+        # classifiers (sinon un process_audio en cours utilise un classifier ferme).
+        for t in source_threads:
+            t.join(timeout=2)
+        for det in detectors:
+            try:
+                det.stop()
+            except Exception as e:
+                logging.debug(f"Arret d'un detecteur: {e}")
+        # Retirer des registres les detecteurs de CE run (s'ils n'ont pas deja
+        # ete remplaces par ceux d'un run plus recent).
+        with _active_detectors_lock:
+            for det in detectors:
+                if det in _active_detectors:
+                    _active_detectors.remove(det)
+            for sid in run_source_ids:
+                if _detectors_by_source_id.get(sid) in detectors:
+                    _detectors_by_source_id.pop(sid, None)
+                    _seen_labels_by_source.pop(sid, None)
+                    _source_info_by_id.pop(sid, None)
         if is_current:
             try:
                 from ha_entities import update_detection_state
                 update_detection_state(False)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Etat HA de la detection non publie: {e}")
+        if stopped_by_itself and socketio:
+            socketio.emit("detection_status", {"status": "stopped"})
         logging.info("run_detection terminé")
 
 
@@ -552,8 +672,8 @@ def stop_detection():
         try:
             from auto_volume import auto_volume_mgr
             auto_volume_mgr.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Arret de l'auto-volume: {e}")
 
         with _detection_lock:
             detection_running = False
@@ -561,8 +681,8 @@ def stop_detection():
         try:
             from ha_entities import update_detection_state
             update_detection_state(False)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Etat HA de la detection non publie: {e}")
 
         if _socketio:
             _socketio.emit("detection_status", {"status": "stopped"})

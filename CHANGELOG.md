@@ -1,5 +1,55 @@
 # Changelog
 
+## 6.26.0
+
+### Detection audio : fiabilite et comptage des claps
+
+- **Plus de gel du flux audio a chaque clap** : les callbacks de detection
+  sont appeles hors du verrou du detecteur, et les effets de bord (evenement
+  HA `claptrap_clap`, entites MQTT, webhook) passent par un worker dedie. Un
+  HA lent bloquait jusqu'a 3 s le thread audio (et toutes les sources VBAN).
+- **Comptage multi-clap corrige** :
+  - les pics sont mesures sur le signal brut (l'auto-gain faisait compter
+    des bruits faibles et comparait deux echelles differentes) ;
+  - la fenetre est ancree sur les pics recents (< 1,2 s), plus sur le plus
+    vieux pic en memoire (un bruit de porte 2 s avant coupait la sequence) ;
+  - les pics comptes dans une detection sont consommes ;
+  - apres un declenchement, un groupe ne se re-arme qu'avec un nouveau pic
+    ou apres 1 s (fin des doubles evenements sur un meme clap) ;
+  - l'exclusivite par source couvre aussi les groupes armes a des cycles
+    differents.
+- **Auto-volume** : l'arret de la detection n'ecrase plus le volume micro
+  avec 100 % quand l'auto-volume n'a pas tourne.
+- **RTSP** : chien de garde qui tue ffmpeg apres 15 s sans donnees (une
+  camera muette figeait le thread et laissait des ffmpeg orphelins), process
+  toujours reap, `-nostats -loglevel error`, stderr lu ligne par ligne (il
+  etait accumule en memoire). Une URL saisie sans `rtsp://` est maintenant
+  prefixee pour ffmpeg et pour le gain en direct. `ffmpeg-python` n'est plus
+  utilise par la detection.
+- **Micro** : parecord est relance avec backoff s'il s'arrete (redemarrage
+  de PulseAudio). Si toutes les sources s'arretent, l'UI recoit
+  `detection_status: stopped` et les registres de detecteurs sont vides.
+- **Arret propre** : les threads sources sont joints avant la fermeture des
+  classifiers, et un detecteur arrete ne se relance plus tout seul (il
+  recreait un classifier jamais ferme).
+- **VBAN** :
+  - deux flux d'une meme IP ne se melangent plus (routage par ip + nom) ;
+  - sous-protocole et format verifies (INT16/24/32, FLOAT32/64 ; texte,
+    serial et codecs ignores), sample rate inconnu ignore au lieu de 44,1 kHz ;
+  - reechantillonnage par blocs de 100 ms avec contexte (plus d'artefact a
+    chaque paquet, ~20x moins d'appels) ;
+  - rien n'est decode pour un flux sans abonne ;
+  - sources multicast routees par nom de flux ;
+  - purge des sources muettes et resynchro multicast sur une horloge (elles
+    ne tournaient jamais avec un flux continu) ;
+  - plus de warning par paquet trop court.
+- **Auto-start** : une seule fonction `start_from_settings()` pour l'auto-start,
+  le bouton Demarrer et les redemarrages. L'auto-start applique maintenant les
+  reglages avances de pics, et le delai par defaut est partout 1,5 s.
+- **Webhook** : les URL `http://homeassistant:8123/...`, les noms d'add-on et
+  l'IPv6 sont acceptes ; le retry sur 502/503/504 fonctionne pour les POST.
+- Les erreurs HA/MQTT auparavant avalees en silence sont loguees.
+
 ## 6.25.0
 
 ### Securite et privileges

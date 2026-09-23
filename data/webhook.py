@@ -26,11 +26,13 @@ class WebhookManager:
         # reel. Avec total=3/backoff=1 + timeout=5, un endpoint lent bloquait un
         # worker ~20 s -> le pool (4) se saturait et les claps suivants etaient
         # retardes/perdus. Ici : au plus 1 retry rapide.
-        retry_strategy = Retry(
-            total=1,
-            backoff_factor=0.3,
-            status_forcelist=[502, 503, 504]
-        )
+        # allowed_methods : par defaut urllib3 ne rejoue pas un POST sur
+        # status_forcelist (methode non idempotente) -> le retry ne servait a rien.
+        retry_kwargs = dict(total=1, backoff_factor=0.3, status_forcelist=[502, 503, 504])
+        try:
+            retry_strategy = Retry(allowed_methods=frozenset({'POST'}), **retry_kwargs)
+        except TypeError:  # urllib3 < 1.26
+            retry_strategy = Retry(method_whitelist=frozenset({'POST'}), **retry_kwargs)
         self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy))
         self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy))
 

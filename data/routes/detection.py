@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 import logging
 
-from classify import start_detection, stop_detection, is_running, get_current_source, get_detection_history
+from classify import stop_detection, is_running, get_current_source, get_detection_history
 from settings_manager import load_settings
 
 detection_bp = Blueprint('detection', __name__)
@@ -26,64 +26,23 @@ def start_detection_route():
         if not detection_settings.get('saved_vban_sources'):
             detection_settings['saved_vban_sources'] = saved.get('saved_vban_sources', [])
 
-        # Vérifier la présence des sections requises
-        if 'global' not in detection_settings or detection_settings['global'] is None:
-            detection_settings['global'] = {'threshold': '0.2', 'delay': '1.0'}
-
-        if 'microphone' not in detection_settings or detection_settings['microphone'] is None:
-            detection_settings['microphone'] = {
-                'enabled': False,
-                'webhook_url': None,
-                'audio_source': None,
-                'device_index': '0'
-            }
-
-        # Vérifier si le microphone est activé
-        microphone_enabled = detection_settings.get('microphone', {})
-        if isinstance(microphone_enabled, dict):
-            microphone_enabled = microphone_enabled.get('enabled', False)
-        else:
-            microphone_enabled = False
-
-        if not microphone_enabled:
-            logging.debug("Microphone désactivé - aucune capture audio ne sera effectuée")
-
-        # Préparer les paramètres pour start_detection avec gestion des valeurs null
-        try:
-            global_settings = detection_settings.get('global', {})
-            if not isinstance(global_settings, dict):
-                global_settings = {}
-
-            microphone_settings = detection_settings.get('microphone', {})
-            if not isinstance(microphone_settings, dict):
-                microphone_settings = {}
-
-            from classify import build_sources_from_settings
-            sources = build_sources_from_settings(detection_settings)
-            for s in sources:
-                logging.info(f"Source activée: {s['label']}")
-
-            if not sources:
-                return jsonify({'error': 'Aucune source audio activée'}), 400
-
-            detection_params = {
-                'model': "yamnet.tflite",
-                'max_results': 10,
-                'score_threshold': float(global_settings.get('threshold', 0.5)),
-                'overlapping_factor': 0.8,
-                'socketio': _socketio,
-                'delay': float(global_settings.get('delay', 1.0)),
-                'sources': sources,
-                'peak_cooldown': float(global_settings.get('peak_cooldown', 0.08)),
-                'peak_ratio': float(global_settings.get('peak_ratio', 3.0)),
-                'peak_reset': float(global_settings.get('peak_reset', 0.3)),
-            }
-
-        except (ValueError, TypeError) as e:
-            return jsonify({'error': f'Erreur dans les paramètres : {str(e)}'}), 400
+        # Sections absentes du payload : reprendre celles enregistrees.
+        if not isinstance(detection_settings.get('global'), dict):
+            detection_settings['global'] = saved.get('global', {})
+        if not isinstance(detection_settings.get('microphone'), dict):
+            detection_settings['microphone'] = {'enabled': False}
 
         # Démarrer la détection multi-source
-        if start_detection(**detection_params):
+        from classify import start_from_settings
+        try:
+            started, sources = start_from_settings(_socketio, detection_settings)
+        except (ValueError, TypeError) as e:
+            return jsonify({'error': f'Erreur dans les paramètres : {str(e)}'}), 400
+        if not sources:
+            return jsonify({'error': 'Aucune source audio activée'}), 400
+        for s in sources:
+            logging.info(f"Source activée: {s['label']}")
+        if started:
             source_labels = [s['label'] for s in sources]
             source_display = ' + '.join(source_labels)
             _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
