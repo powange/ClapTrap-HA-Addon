@@ -7,11 +7,12 @@
 #   journalctl _TRANSPORT="audit" -g 'apparmor="ALLOWED"'
 # pendant une utilisation complete (micro, RTSP, VBAN, MQTT, webhook), les
 # ajouter ici si besoin, puis retirer "complain" pour les refuser.
+# Pas de regle `file,` generique : elle autorisait tout acces fichier et
+# rendait les regles ci-dessous decoratives, meme sans "complain".
 profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
   #include <abstractions/base>
 
   # Capacites
-  file,
   signal (send) set=(kill,term,int,hup,cont),
   capability chown,
   capability dac_override,
@@ -51,9 +52,17 @@ profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
 
   # Application : Python (venv), Gunicorn, ffmpeg, parecord et pactl
   /usr/src/app/** r,
+  /usr/src/app/venv/** mr,
   /usr/src/app/venv/bin/** ix,
   /usr/lib/** mr,
   /usr/local/** mr,
+  /usr/share/** r,
+  /etc/** r,
+  /proc/** r,
+  /sys/** r,
+  /dev/shm/** rw,
+  /root/.cache/** rwk,
+  /root/.config/** rwk,
 
   # Reglages (/data/settings.json)
   /data/** rw,

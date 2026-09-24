@@ -1,0 +1,158 @@
+# Tests, images et publication de l'add-on.
+#
+# La version a publier est dans VERSION ; `version` de config.yaml est la
+# version publiee, celle que voit Home Assistant. A chaque push sur main :
+#   1. tests (pytest, interface) ;
+#   2. si VERSION differe de config.yaml : images amd64/aarch64 puis manifeste
+#      multi-architecture sur ghcr.io/powange/claptrap ;
+#   3. seulement ensuite, config.yaml passe a la nouvelle version (commit du
+#      workflow). Une version n'est donc jamais annoncee avant son image, ni
+#      publiee si un test ou un build echoue.
+# Sur une pull request : tests et construction de l'image amd64 sans publication.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  ARCHITECTURES: '["amd64", "aarch64"]'
+  IMAGE_NAME: claptrap
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Tests Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -r data/requirements-dev.txt
+      - run: python scripts/check_lock.py
+      - run: python -m pytest -q data/tests
+
+  ui:
+    name: Tests de l'interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pip install jinja2
+      - run: npm ci --prefix data/tests/ui
+      - run: python data/tests/ui/render_page.py data/tests/ui/page.html
+      - run: node data/tests/ui/ui_test.js data/tests/ui/page.html
+
+  build-pr:
+    name: Construction de l'image (pull request)
+    if: github.event_name == 'pull_request'
+    needs: [python, ui]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: amd64
+          image: ghcr.io/${{ github.repository_owner }}/amd64-claptrap
+          image-tags: pr
+          push: "false"
+          version: pr
+
+  init:
+    name: Version à publier
+    if: github.event_name != 'pull_request'
+    needs: [python, ui]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Comparer VERSION et config.yaml
+        id: version
+        run: |
+          next="$(tr -d '[:space:]' < VERSION)"
+          current="$(yq '.version' config.yaml)"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          if [ "$next" != "$current" ]; then echo "publish=true" >> "$GITHUB_OUTPUT"; else echo "publish=false" >> "$GITHUB_OUTPUT"; fi
+          echo "VERSION=$next, config.yaml=$current"
+      - name: Matrice
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.IMAGE_NAME }}
+
+  build:
+    name: Image ${{ matrix.arch }}
+    needs: init
+    if: needs.init.outputs.publish == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          push: "true"
+          skip-existing: ${{ needs.init.outputs.version }}
+          version: ${{ needs.init.outputs.version }}
+
+  manifest:
+    name: Manifeste multi-architecture
+    needs: [init, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          skip-existing: ${{ needs.init.outputs.version }}
+
+  release:
+    name: Publier la version
+    needs: [init, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main   # derniere version de main (un commit a pu arriver depuis)
+      - name: config.yaml passe à la version publiée
+        run: |
+          v="${{ needs.init.outputs.version }}"
+          sed -i "s/^version: .*/version: \"$v\"/" config.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $v"
+          git push

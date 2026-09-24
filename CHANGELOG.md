@@ -1,5 +1,43 @@
 # Changelog
 
+## 6.50.0
+
+### Publication et arrêt
+
+- **Arrêt propre même avec un onglet ouvert** : le nettoyage (état MQTT
+  « détection OFF », entités indisponibles, auto-volume) démarre dès la
+  réception du signal d'arrêt. Avec une connexion Socket.IO ouverte, il ne
+  s'exécutait jamais. Vérifié sur l'image.
+- **Publication sûre** : un seul workflow GitHub (`ci.yaml`) lance les tests,
+  construit les images, publie le manifeste, puis seulement passe
+  `config.yaml` à la nouvelle version (lue dans `VERSION`). Home Assistant ne
+  propose plus une version dont l'image n'existe pas encore, ni une version
+  dont un test ou une construction a échoué. Les pull requests construisent
+  l'image sans la publier.
+- `build.yaml` retiré (inutilisé depuis les images précompilées) ; procédure
+  de mise à jour du lock corrigée et contrôlée par la CI
+  (`scripts/check_lock.py`) ; dépendances de test figées aux versions de
+  l'image (`constraints.txt`) et `package-lock.json` pour les tests
+  d'interface ; `libgl1` et `libglib2.0-0` déclarés (nécessaires à cv2,
+  chargé par mediapipe).
+
+### Sécurité
+
+- Mots de passe entièrement masqués dans les journaux et l'export « sans
+  secrets », y compris ceux qui contiennent « @ » et les identifiants passés
+  en paramètres d'URL (`?password=`).
+- Le test de webhook renvoie un message d'échec unique (le détail est dans le
+  journal) : distinguer « HTTP 404 » de « injoignable » permettait de sonder le
+  réseau local.
+- Profil AppArmor sans règle `file,` générique (qui autorisait tout accès
+  fichier) ; accès nécessaires ajoutés. Toujours en mode « complain ».
+
+### Documentation
+
+- Règle exacte des entity_id VBAN (nom affiché saisi à l'ajout), tableau des
+  changements complété (6.45, 6.47, 6.48), watchdog décrit tel qu'il est,
+  taille du téléchargement.
+
 ## 6.49.0
 
 ### Interface

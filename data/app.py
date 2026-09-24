@@ -140,6 +140,7 @@ def cleanup():
     if _cleaned:
         return
     _cleaned = True
+    logging.info("Arrêt de ClapTrap : publication de l'état et arrêt de la détection")
     # MQTT d'abord (detection OFF, entites indisponibles) : ces publications
     # se perdaient quand l'arret de la detection consommait le delai de grace.
     try:

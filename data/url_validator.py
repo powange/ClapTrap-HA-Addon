@@ -37,7 +37,11 @@ def mask_url_credentials(url):
     """
     if not url:
         return url
-    return re.sub(r'(?<=://)[^/@\s]+@', '***@', str(url))
+    # Jusqu'au dernier « @ » avant le chemin : un mot de passe contenant « @ »
+    # (accepte par ffmpeg) laissait sa fin visible.
+    url = re.sub(r'(?<=://)[^/\s]*@', '***@', str(url))
+    # Identifiants passes en parametres (?password=..., &token=...).
+    return re.sub(r'(?i)([?&](?:password|passwd|pwd|pass|token|auth|key)=)[^&\s]*', r'\1***', url)
 
 
 def mask_webhook_url(url):

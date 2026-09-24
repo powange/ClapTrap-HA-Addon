@@ -24,9 +24,11 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
    `https://github.com/powange/ClapTrap-HA-Addon`
 2. Recherchez **ClapTrap**, cliquez sur **Installer**, puis **Démarrer**.
    L'image est précompilée : l'installation ne prend que le temps du
-   téléchargement.
+   téléchargement (environ 400 Mo, 1,7 Go une fois installée ; compter
+   quelques minutes sur un Raspberry Pi).
 3. Activez **Afficher dans la barre latérale** et, si vous le souhaitez,
-   **Watchdog** (Home Assistant relance alors l'add-on s'il ne répond plus).
+   **Watchdog** (Home Assistant relance alors l'add-on s'il s'arrête : le
+   contrôle vérifie que le port de l'interface reste ouvert).
 4. Ouvrez l'interface (**Ouvrir l'interface utilisateur Web**) et ajoutez
    votre première source.
 
@@ -96,7 +98,9 @@ Toutes les entités sont regroupées dans l'appareil **ClapTrap**.
 | `binary_sensor.claptrap_detection` | la détection tourne (attribut `sources`) |
 
 - `<source>` vaut `mic` pour le micro, `rtsp_` suivi des 8 premiers caractères
-  de l'identifiant de la caméra, `vban_` suivi du nom du flux ; `<groupe>` est
+  de l'identifiant de la caméra, `vban_` suivi du nom affiché saisi à l'ajout
+  du flux (avec 4 caractères de son identifiant en plus si deux flux portent
+  le même nom ; renommer ensuite la source ne le change pas) ; `<groupe>` est
   l'identifiant du groupe (`clap` pour le groupe par défaut). Les identifiants
   exacts sont affichés dans les réglages de chaque groupe, avec un bouton pour
   les copier.
@@ -210,6 +214,9 @@ Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 | 6.38 | Entités indisponibles tant que la source n'écoute pas | Vérifier les automatisations qui réagissaient au passage « indisponible ». |
 | 6.39 | Champs `threshold`, `ha_entities`, `sound_whitelist` au niveau de la source retirés (ils sont dans les groupes) | Scripts utilisant l'API : passer par les groupes (`/api/source/sound_groups`). |
 | 6.42.1 | Image précompilée téléchargée depuis GHCR | Rien. |
+| 6.45 | Routes d'API héritées supprimées (`GET /api/rtsp/streams`, `PUT /api/rtsp/stream/<id>`, `/api/vban/update`, `/api/vban/sources`, `/api/vban/saved-sources`, `PUT /api/microphone/*` sauf `auto-start`, `/api/settings/save`, `/api/ha/entities`…) ; sources VBAN désignées par leur identifiant (`DELETE /api/vban/<id>`) | Scripts utilisant l'API : passer par `PATCH /api/sources/<type>/<id>` et les routes de groupes. |
+| 6.47 | Au-delà de 4 claps, aucune entité n'est déclenchée (c'était « 4 claps ») | Rien. |
+| 6.48 | Un export « sans secrets » est refusé à l'import | Importer une sauvegarde complète (« Exporter »). |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).

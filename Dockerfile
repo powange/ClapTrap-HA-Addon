@@ -34,14 +34,18 @@ ARG BUILD_ARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Micro : parecord/pactl (PulseAudio natif) ; RTSP : ffmpeg ; YAMNet :
-# mediapipe (libgles2, libegl1). Plus de PortAudio ni d'ALSA depuis le retrait
-# de sounddevice.
+# mediapipe (libgles2, libegl1), dont l'import charge cv2 (libgl1,
+# libglib2.0-0 : declares ici, ils n'etaient presents que parce que ffmpeg les
+# tirait). Pas de PortAudio : sounddevice, installe par mediapipe, n'est jamais
+# importe.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     ffmpeg \
     libpulse0 \
     libgles2 \
     libegl1 \
+    libgl1 \
+    libglib2.0-0 \
     pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
 

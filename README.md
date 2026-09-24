@@ -44,12 +44,17 @@ Issues et pull requests sur
 [GitHub](https://github.com/powange/ClapTrap-HA-Addon) ; l'historique est dans
 [CHANGELOG.md](CHANGELOG.md).
 
-Tests (lancés aussi par GitHub Actions à chaque push) :
+Publication : la version à publier se met dans `VERSION` (et le
+`CHANGELOG.md`). À chaque push sur `main`, GitHub Actions lance les tests,
+construit et publie les images, puis seulement passe `config.yaml` à cette
+version : Home Assistant ne propose jamais une version dont l'image manque.
+
+Tests (lancés aussi par GitHub Actions à chaque push et pull request) :
 
 ```sh
 pip install -r data/requirements-dev.txt
 python -m pytest data/tests          # comptage, détecteur, VBAN, sources, session, HA, réglages, routes
-cd data/tests/ui && npm install && python render_page.py && node ui_test.js page.html   # interface
+cd data/tests/ui && npm ci && python render_page.py && node ui_test.js page.html   # interface
 ```
 
 Merci à @korben, qui a développé le système de reconnaissance en Python.

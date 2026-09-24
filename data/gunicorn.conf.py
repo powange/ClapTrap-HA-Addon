@@ -44,10 +44,31 @@ def when_ready(server):
                            "(port 16045 joignable depuis le réseau, accès refusé hors ingress)")
 
 
-def worker_exit(server, worker):
-    # Arret propre : detection, MQTT (detection OFF + indisponible), VBAN.
+def _cleanup(log):
     try:
         import app
         app.cleanup()
     except Exception as exc:
-        server.log.warning(f"Arrêt de ClapTrap incomplet : {exc}")
+        log.warning(f"Arrêt de ClapTrap incomplet : {exc}")
+
+
+def post_worker_init(worker):
+    """Nettoyage des la reception de SIGTERM, en parallele de l'attente des
+    requetes : avec un onglet ouvert (connexion Socket.IO), le worker attendait
+    jusqu'au graceful_timeout et le maitre le tuait avant worker_exit. Le
+    nettoyage (MQTT « detection OFF », auto-volume) etait alors perdu."""
+    import signal
+    import threading
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def on_term(signum, frame):
+        threading.Thread(target=_cleanup, args=(worker.log,), daemon=True, name="cleanup").start()
+        if callable(previous):
+            previous(signum, frame)
+
+    signal.signal(signal.SIGTERM, on_term)
+
+
+def worker_exit(server, worker):
+    # Filet de securite (arret sans SIGTERM) ; cleanup() est idempotent.
+    _cleanup(server.log)

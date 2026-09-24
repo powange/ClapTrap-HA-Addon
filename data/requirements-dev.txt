@@ -1,9 +1,12 @@
-# Tests (python -m pytest data/tests) : memes versions que l'image, sans
-# mediapipe (simule par data/tests/conftest.py).
+# Tests (python -m pytest data/tests) : memes versions que l'image, y compris
+# les dependances indirectes (constraints.txt), sans mediapipe (simule par
+# data/tests/conftest.py).
+-c constraints.txt
 pytest>=8,<9
-numpy==2.5.3
-scipy==1.18.1
-flask==3.1.3
-flask-socketio==5.6.1
-requests==2.34.2
-paho-mqtt==2.1.0
+packaging
+numpy
+scipy
+flask
+flask-socketio
+requests
+paho-mqtt

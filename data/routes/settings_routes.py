@@ -8,6 +8,7 @@ import requests
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
                               to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
+from url_validator import mask_webhook_url
 from routes.sources import ApiError, add_restart_to_response, api_error_response, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
@@ -199,13 +200,17 @@ def test_webhook():
         'group_name': 'Clap',
         'ignored': False,
     }
+    # Un seul message d'echec : distinguer « HTTP 404 » de « injoignable »
+    # permettait de sonder le reseau local. Le detail (sans le chemin secret
+    # du webhook) est dans le journal de l'add-on.
+    failure = jsonify({'success': False,
+                       'error': "Le webhook n'a pas été accepté (détail dans le journal de l'add-on)"}), 502
     try:
         response = send_webhook(url, payload, follow_redirects=False)
-    except requests.exceptions.HTTPError as e:
-        status = getattr(e.response, 'status_code', '?')
-        return jsonify({'success': False, 'error': f'Le serveur a répondu HTTP {status}'}), 502
-    except requests.exceptions.RequestException as e:
-        return jsonify({'success': False, 'error': f'Serveur injoignable ({type(e).__name__})'}), 502
+    except requests.exceptions.RequestException:
+        return failure
     if 300 <= response.status_code < 400:
-        return jsonify({'success': False, 'error': f'Redirection refusée (HTTP {response.status_code})'}), 502
+        logging.error(f"Webhook de test vers {mask_webhook_url(url)} : redirection refusée "
+                      f"(HTTP {response.status_code})")
+        return failure
     return jsonify({'success': True, 'message': 'Test réussi'})

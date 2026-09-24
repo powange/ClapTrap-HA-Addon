@@ -102,7 +102,7 @@ def test_webhook_test_payload_and_no_redirect(client, monkeypatch):
         return types.SimpleNamespace(status_code=302)
     monkeypatch.setattr(sr, 'send_webhook', fake_send)
     r = client.post('/api/webhook/test', json={'url': 'http://ha:8123/api/webhook/x', 'source': 'mic'})
-    assert r.status_code == 502 and 'Redirection' in r.json['error']
+    assert r.status_code == 502 and 'journal' in r.json['error']   # message unique (pas de sondage du reseau)
     assert sent['follow'] is False and sent['payload']['test'] is True
     assert {'event', 'source_id', 'entity_key', 'source_name', 'clap_count', 'labels'} <= set(sent['payload'])
 
