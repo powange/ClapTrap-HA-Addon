@@ -18,8 +18,16 @@
     }
     var wasRunning = null;
 
+    var degradedShown = false;
     CT.renderStatus = function () {
         var st = CT.state.status;
+        if (st.settings_degraded && !degradedShown) {
+            // Reglages illisibles : valeurs par defaut en memoire, rien n'est
+            // supprime ; le dire au lieu d'afficher une configuration vide.
+            degradedShown = true;
+            CT.error('Réglages illisibles (settings.json et sa sauvegarde) : valeurs par défaut affichées. '
+                     + 'Importez une sauvegarde ; les fichiers illisibles sont conservés.');
+        }
         var bar = document.getElementById('statusbar');
         if (!bar) return;
         var enabled = CT.sourceList().filter(function (s) { return s.enabled; });
@@ -147,6 +155,7 @@
     function renderHistoryEmpty() {
         var list = CT.$('#history-list');
         CT.$('#history-empty').hidden = list.children.length > 0;
+        CT.$('#history-clear').disabled = !list.children.length;
     }
     function bindHistory() {
         var list = CT.$('#history-list');

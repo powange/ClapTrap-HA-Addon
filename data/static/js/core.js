@@ -65,7 +65,9 @@
         if (!box) return;
         var el = document.createElement('div');
         el.className = 'toast toast-' + (kind || 'info');
-        el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+        // Le conteneur #toasts est deja une region live : un role « status »
+        // en plus faisait lire deux fois. Les erreurs restent des alertes.
+        if (kind === 'error') el.setAttribute('role', 'alert');
         var text = document.createElement('span');
         text.textContent = message;
         el.appendChild(text);
@@ -272,7 +274,9 @@
         mark.classList.add('is-on');
         clearTimeout(mark._t);
         mark._t = setTimeout(function () { mark.classList.remove('is-on'); }, 2000);
-        if (CT.announce) CT.announce(text || 'Enregistré');
+        // Annonce prioritaire : l'anti-rafale de 2 s bloquait sinon l'annonce
+        // d'un clap juste apres l'enregistrement.
+        if (CT.announce) CT.announce(text || 'Enregistré', true);
     };
 
     // ---- Resynchronisation ------------------------------------------------------
@@ -336,12 +340,14 @@
         if (!card) return a.id ? {id: a.id} : null;
         var group = a.closest('.group-card[data-slug], .group-live[data-slug]');
         var sel = null;
-        ['data-field', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
+        // Reperes stables uniquement (data-*, id) : la premiere classe CSS
+        // (« .input ») designait parfois un autre champ du groupe.
+        ['data-role', 'data-field', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
             if (a.hasAttribute(attr)) { sel = '[' + attr + '="' + CT.cssEscape(a.getAttribute(attr)) + '"]'; return true; }
             return false;
         });
         if (!sel && a.id) return {id: a.id, caret: typeof a.selectionStart === 'number' ? a.selectionStart : null};
-        if (!sel) sel = a.className ? '.' + String(a.className).trim().split(/\s+/)[0] : a.tagName.toLowerCase();
+        if (!sel) return null;
         return {card: card.id, sel: sel,
                 group: group ? {slug: group.getAttribute('data-slug'),
                                 cls: group.classList.contains('group-card') ? 'group-card' : 'group-live'} : null,
@@ -354,8 +360,10 @@
         else {
             var card = document.getElementById(d.card);
             if (!card) return;
-            var scope = d.group ? card.querySelector('.' + d.group.cls + '[data-slug="' + CT.cssEscape(d.group.slug) + '"]') || card : card;
-            el = scope.querySelector(d.sel);
+            var scope = d.group ? card.querySelector('.' + d.group.cls + '[data-slug="' + CT.cssEscape(d.group.slug) + '"]') : card;
+            // Groupe disparu (supprime) : focus sur « Nouveau groupe », et non
+            // sur le meme bouton d'un AUTRE groupe (Entree le supprimait).
+            el = scope ? scope.querySelector(d.sel) : card.querySelector('[data-action="add-group"]');
         }
         if (!el || el.hidden) return;
         el.focus({preventScroll: true});
@@ -377,24 +385,44 @@
     // Rendu complet, differe tant qu'un champ est en cours de saisie : un
     // enregistrement qui se terminait pendant la frappe dans un autre champ
     // reconstruisait la carte et effacait le texte tape.
-    var renderPending = false;
+    var renderPending = false, pointerDown = false;
+    document.addEventListener('pointerdown', function () { pointerDown = true; }, true);
+    document.addEventListener('pointerup', function () { setTimeout(function () { pointerDown = false; }, 0); }, true);
     CT.renderWhenIdle = function () {
         if (!CT.isEditing()) { CT.render(); return; }
         if (CT.renderStatus) CT.renderStatus();
         if (renderPending) return;
         renderPending = true;
-        document.addEventListener('focusout', function retry() {
+        function done() {
+            document.removeEventListener('focusout', retry);
+            renderPending = false;
+            CT.render();
+        }
+        function retry() {
             setTimeout(function () {
                 if (CT.isEditing()) return;
-                document.removeEventListener('focusout', retry);
-                renderPending = false;
-                CT.render();
+                if (pointerDown) {
+                    // Clic en cours (le focus part au pointerdown) : rendre apres
+                    // le clic, sinon le bouton vise etait remplace avant d'etre clique.
+                    document.addEventListener('click', function after() {
+                        document.removeEventListener('click', after, true);
+                        setTimeout(done, 0);
+                    }, true);
+                    return document.removeEventListener('focusout', retry);
+                }
+                done();
             }, 0);
-        });
+        }
+        document.addEventListener('focusout', retry);
     };
+    // Reconstruire la grille seulement si les reglages ont change : au retour
+    // sur l'onglet, un rendu complet remasquait l'URL, fermait les menus et
+    // effacait la ligne en direct pour rien.
     CT.resync = function () {
+        var before = JSON.stringify([CT.state.settings, CT.state.entityIds]);
         return Promise.all([CT.reloadSettings(), CT.reloadStatus()]).then(function () {
-            CT.renderWhenIdle();
+            if (JSON.stringify([CT.state.settings, CT.state.entityIds]) !== before) CT.renderWhenIdle();
+            else if (CT.renderStatus) CT.renderStatus();
         }).catch(function () {});
     };
 
@@ -449,7 +477,7 @@
         }
         if (src.kind === 'rtsp') {
             return {key: 'rtsp_' + src.key, domId: src.domId, startUrl: '/api/rtsp/test/start', stopUrl: '/api/rtsp/test/stop',
-                    body: {id: src.key, url: url || src.data.url, gain: gain || src.data.gain || 10}};
+                    body: {id: src.key, url: url || src.data.url, gain: gain != null ? gain : (src.data.gain != null ? src.data.gain : 10)}};
         }
         return {key: 'vban_' + src.key, domId: src.domId, startUrl: '/api/vban/test/start', stopUrl: '/api/vban/test/stop',
                 body: {id: src.key}};

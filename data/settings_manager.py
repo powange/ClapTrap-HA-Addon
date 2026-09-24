@@ -1,4 +1,5 @@
 import copy
+import re
 import json
 import os
 import shutil
@@ -59,6 +60,10 @@ _CACHE_TTL = 5  # secondes
 # et la premiere ecriture voulue par l'utilisateur met les fichiers corrompus
 # de cote : avant, la premiere ecriture automatique les ecrasait.
 _degraded = False
+# Migration non enregistrable (/data en lecture seule, disque plein) : version
+# migree gardee tant que le fichier n'a pas change (ids VBAN stables), puis
+# relue normalement des qu'il change (un cache infini ne le relisait jamais).
+_unsaved = None   # (mtime du fichier, reglages migres)
 
 
 def _deep_merge(default, saved):
@@ -71,6 +76,10 @@ def _deep_merge(default, saved):
     for key, value in saved.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge(merged[key], value)
+        elif key in merged and isinstance(merged[key], (dict, list)) and not isinstance(value, type(merged[key])):
+            # Section d'un mauvais type (null, texte...) : valeur par defaut. Un
+            # « microphone: null » empechait l'add-on de redemarrer.
+            logging.warning(f"Réglages : section « {key} » invalide, valeurs par défaut utilisées")
         else:
             merged[key] = value
     return merged
@@ -311,13 +320,17 @@ def load_settings():
     toucher au cache partage (avant, un cache hit renvoyait l'objet du cache
     lui-meme, mute ensuite hors verrou par les routes).
     """
-    global _cache, _cache_time, _degraded
+    global _cache, _cache_time, _degraded, _unsaved
 
     with _lock:
         now = time.time()
         if _cache is not None and (now - _cache_time) < _CACHE_TTL:
             return copy.deepcopy(_cache)
 
+        if _unsaved is not None and _file_mtime() == _unsaved[0]:
+            _cache, _cache_time = _unsaved[1], now
+            return copy.deepcopy(_cache)
+        _unsaved = None
         saved, any_file = _read_saved()
         mic_migrated = False
         if saved is not None:
@@ -350,17 +363,28 @@ def load_settings():
                 _write_atomic(merged)
             except Exception as e:
                 logging.error(f"Migration des réglages non enregistrée: {e}")
-                # /data en lecture seule : garder cette version en memoire,
-                # sinon les ids VBAN etaient regeneres a chaque rechargement.
-                now = float('inf')
+                _unsaved = (_file_mtime(), merged)
         _cache = merged
         _cache_time = now
         return copy.deepcopy(_cache)
 
 
+def _file_mtime():
+    try:
+        return os.path.getmtime(SETTINGS_FILE)
+    except OSError:
+        return None
+
+
+def is_degraded():
+    """settings.json et sa sauvegarde illisibles : valeurs par defaut en memoire."""
+    return _degraded
+
+
 def _commit(settings):
     """Ecrit `settings` tel quel (sous _lock) et met le cache a jour."""
-    global _cache, _cache_time, _degraded
+    global _cache, _cache_time, _degraded, _unsaved
+    _unsaved = None
     if _degraded:
         stamp = time.strftime('%Y%m%d-%H%M%S')
         for path in (SETTINGS_FILE, SETTINGS_BACKUP):
@@ -371,6 +395,22 @@ def _commit(settings):
     _write_atomic(settings)
     _cache = copy.deepcopy(settings)
     _cache_time = time.time()
+
+
+def merge_import(current, new_settings):
+    """Reglages resultant d'un import (sections presentes remplacees,
+    migrations appliquees). Utilise par l'enregistrement ET par le controle
+    des collisions, qui voyait des reglages differents."""
+    current = copy.deepcopy(current)
+    new_settings = copy.deepcopy(dict(new_settings))
+    _migrate_mic_configured(new_settings.get('microphone'))
+    for key, value in new_settings.items():
+        current[key] = value
+    merged = _deep_merge(DEFAULT_SETTINGS, current)
+    _apply_group_migrations(merged)
+    _ensure_vban_ids(merged)
+    _strip_legacy_fields(merged)
+    return merged
 
 
 def save_settings(new_settings):
@@ -384,16 +424,7 @@ def save_settings(new_settings):
     """
     with _lock:
         try:
-            current = load_settings()
-            new_settings = copy.deepcopy(dict(new_settings))
-            _migrate_mic_configured(new_settings.get('microphone'))
-            for key, value in new_settings.items():
-                current[key] = value
-            merged = _deep_merge(DEFAULT_SETTINGS, current)
-            _apply_group_migrations(merged)
-            _ensure_vban_ids(merged)
-            _strip_legacy_fields(merged)
-            _commit(merged)
+            _commit(merge_import(load_settings(), new_settings))
             return True, "Paramètres sauvegardés avec succès"
         except Exception as e:
             logging.error(f"Sauvegarde des paramètres impossible: {e}")
@@ -621,6 +652,12 @@ def normalize_settings(data):
     """
     if not isinstance(data, dict):
         raise ValueError("Format invalide : objet JSON attendu")
+    # Sections connues : type exact exige (null compris), sinon l'add-on ne
+    # redemarrait plus apres un import.
+    for key, kind, label in (('global', dict, 'objet'), ('microphone', dict, 'objet'),
+                             ('rtsp_sources', list, 'liste'), ('saved_vban_sources', list, 'liste')):
+        if key in data and not isinstance(data[key], kind):
+            raise ValueError(f"{key} : {label} attendu")
     g = data.get('global')
     if g is not None:
         if not isinstance(g, dict):
@@ -661,7 +698,7 @@ def normalize_settings(data):
             if key == 'rtsp_sources':
                 # Meme controle que l'API : « http://… » devenait « rtsp://http://… »
                 src['url'] = normalize_rtsp_url(src.get('url', ''), f"{key}[{i}].url")
-                if '***@' in src['url']:
+                if '***@' in src['url'] or re.search(r'=\*\*\*(&|$)', src['url']):
                     raise ValueError(f"{key}[{i}].url : identifiants masqués (export « sans secrets »)")
             else:
                 src['ip'] = to_ip(src.get('ip'), f"{key}[{i}].ip")
@@ -680,10 +717,12 @@ def normalize_settings(data):
                     src['entity_key'] = ek if ek.startswith('vban_') else f"vban_{ek}" if ek else None
                     if not src['entity_key']:
                         src.pop('entity_key')
-                # Cle d'entite en double : recalculee au chargement.
-                if src.get('entity_key') in entity_keys:
-                    src.pop('entity_key')
-                entity_keys.add(src.get('entity_key'))
+                # Cle d'entite absente ou en double : recalculee au chargement.
+                ek = src.get('entity_key')
+                if not ek or ek in entity_keys:
+                    src.pop('entity_key', None)
+                else:
+                    entity_keys.add(ek)
             # Id absent ou en double (les routes prenaient la premiere source
             # trouvee) : nouvel id.
             if not isinstance(src.get('id'), str) or not src['id'] or src['id'] in ids:

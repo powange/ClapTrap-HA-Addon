@@ -14,6 +14,9 @@ profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
 
   # Capacites
   signal (send) set=(kill,term,int,hup,cont),
+  # Signaux d'arret (Supervisor, s6, Gunicorn) recus par les processus confines
+  signal (receive) peer=unconfined,
+  signal (send, receive) peer=claptrap,
   capability chown,
   capability dac_override,
   capability fowner,
@@ -62,6 +65,7 @@ profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
   /sys/** r,
   /dev/shm/** rw,
   /root/.cache/** rwk,
+  /root/.config/ rw,
   /root/.config/** rwk,
   /usr/src/app/.matplotlib/** rwk,
 

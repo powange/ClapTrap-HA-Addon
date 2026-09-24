@@ -56,6 +56,10 @@ class AudioDetector:
         self._recent_peaks = collections.deque(maxlen=AGC_MEMORY)
         self._prev_tail = np.zeros(0, dtype=np.float32)  # fin du bloc precedent (|x|)
         self._clock_end = 0.0     # horloge audio : fin du dernier bloc recu
+        # Horodatage MediaPipe -> horloge audio du bloc analyse : les resultats
+        # sont dates sur la fenetre analysee, pas sur le dernier bloc recu
+        # (un resultat differe pendant une rafale etait decale de ~1 s).
+        self._ts_clock = collections.OrderedDict()
         self._cadence = []        # instants des premiers resultats (mesure de cadence)
         self._errors_logged = 0
         self._detection_callback = None
@@ -83,11 +87,6 @@ class AudioDetector:
             self.tracker.set_groups(groups, default_threshold=self.score_threshold)
             if self.tracker.min_threshold is not None:
                 self.score_threshold = self.tracker.min_threshold
-
-    @property
-    def groups(self):
-        with self.lock:
-            return [dict(g, whitelist=dict(g['whitelist'])) for g in self.tracker.groups]
 
     def set_exclusions(self, labels):
         with self.lock:
@@ -214,8 +213,16 @@ class AudioDetector:
         self._prev_tail = mag[-(PRE_GAP + PRE_WINDOW):].copy()
         return peak, start + idx / self.sample_rate, pre
 
+    def skip_audio(self, samples):
+        """Audio perdu en amont (blocs VBAN jetes) : l'horloge audio avance
+        d'autant, l'espacement des claps suivants reste juste."""
+        self._clock_end += samples / self.sample_rate
+
     def _classify(self, block):
         self._timestamp_ms += int(BLOCK_SAMPLES / self.sample_rate * 1000)
+        self._ts_clock[self._timestamp_ms] = self._clock_end
+        while len(self._ts_clock) > 100:
+            self._ts_clock.popitem(last=False)
         container = self._containers.AudioData.create_from_array(block, self.sample_rate)
         with self._clf_lock:
             if not self.running or not self.classifier:
@@ -259,7 +266,8 @@ class AudioDetector:
                 threshold = self.score_threshold
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
-                events = self.tracker.on_classification(categories, self._clock_end or time.monotonic())
+                now = self._ts_clock.get(timestamp) or self._clock_end or time.monotonic()
+                events = self.tracker.on_classification(categories, now)
                 group_scores = {
                     g['slug']: max((s for n, s in categories
                                     if g['whitelist'].get(n) and n not in exclusions), default=0.0)

@@ -26,3 +26,17 @@ def test_no_raise_after_loud_sound():
 
 def test_normal_level_unchanged():
     assert decide(100, [0.05] * 20, 0.2) == 100
+
+
+def test_stop_is_immediate_and_device_change_restarts(monkeypatch):
+    import time
+    import auto_volume
+    monkeypatch.setattr(auto_volume, 'load_settings', lambda: {'microphone': {'volume': 100}})
+    monkeypatch.setattr(AutoVolume, '_persist_volume', lambda self, v: None)
+    av = AutoVolume()
+    av.start('alsa.a', None)
+    av.start('alsa.b', None)          # autre micro : relance sur le nouveau
+    assert av._pulse_name == 'alsa.b'
+    t0 = time.monotonic()
+    av.stop()
+    assert time.monotonic() - t0 < 0.5   # attendait jusqu'a 2 s (sleep)

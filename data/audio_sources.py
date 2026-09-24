@@ -125,6 +125,7 @@ class VbanSource:
         # ~1 s de tampon : au-dela, les blocs les plus anciens sont jetes (avant :
         # 5 s, soit jusqu'a 5 s de retard de detection si l'inference traine).
         self._queue = queue.Queue(maxsize=10)
+        self._dropped = 0   # blocs jetes (file pleine), pour l'horloge audio
 
     def _on_chunk(self, chunk, _timestamp=None):
         try:
@@ -132,9 +133,15 @@ class VbanSource:
         except queue.Full:
             try:
                 self._queue.get_nowait()
+                self._dropped += 1
                 self._queue.put_nowait(chunk)
             except (queue.Empty, queue.Full):
                 pass
+
+    def take_dropped(self):
+        """Nombre de blocs jetes depuis le dernier appel."""
+        n, self._dropped = self._dropped, 0
+        return n
 
     def iter_blocks(self, stop_event):
         self.listener.add_source_callback(self.ip, self._on_chunk, stream_name=self.stream_name)

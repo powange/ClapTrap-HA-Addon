@@ -33,7 +33,8 @@
             '<span class="clap-badge" hidden></span>' +
             '<span class="group-live-score" title="Score actuel">0 %</span></div>' +
             '<div class="scorebar"><div class="scorebar-fill"></div>' +
-            '<input type="range" class="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
+            '<input type="range" class="threshold" data-role="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
+            'aria-valuetext="' + CT.pct(t) + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
             '<canvas class="spark" width="320" height="40" aria-hidden="true"></canvas>' +
             '<div class="group-live-foot"><span>Seuil de confiance <strong class="threshold-value">' + CT.pct(t) + '</strong></span>' +
@@ -57,16 +58,16 @@
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
                 field('Adresse du flux', '<div class="input-group"><input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(maskUrl(d.url || '')) + '"' +
                     (maskUrl(d.url || '') !== (d.url || '') ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
-                    (maskUrl(d.url || '') !== (d.url || '') ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher</button>' : '') + '</div>' +
-                    '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
-                gainField(src, gain, 50);
+                    (maskUrl(d.url || '') !== (d.url || '') ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
+                    '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
+                gainField(src, gain, 100);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
                 '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(d.port || 6980)) +
                 ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p>' +
                 '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>' +
-                gainField(src, d.gain != null ? d.gain : 1, 20);
+                gainField(src, d.gain != null ? d.gain : 1, 100);
         }
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
@@ -148,16 +149,7 @@
         CT.$('#add-source').addEventListener('click', function () { if (CT.openWizard) CT.openWizard(); });
         // Scores et courbes conserves d'un rendu a l'autre (ils repartaient a
         // zero a chaque action), ligne de seuil visible des l'affichage.
-        var now = Date.now() / 1000;
-        sources.forEach(function (src) {
-            var live = (CT.state.live[src.sourceId] || {scores: {}}).scores;
-            CT.$$('.group-live', document.getElementById(src.domId)).forEach(function (row) {
-                var series = live[row.getAttribute('data-slug')] || [];
-                var threshold = parseFloat(row.querySelector('.threshold').value);
-                if (series.length) setScore(row, series[series.length - 1][1], threshold);
-                drawSpark(row.querySelector('canvas'), series, threshold, now);
-            });
-        });
+        CT.redrawLive();
         CT.renderSourceStatuses();
         if (CT.state.testing) CT.onTestChange(CT.state.testing, true);
     };
@@ -226,7 +218,6 @@
                 urlInput.value = reveal ? (src.data.url || '') : maskUrl(src.data.url || '');
                 urlInput.readOnly = !reveal;
                 btn.setAttribute('aria-pressed', String(reveal));
-                btn.textContent = reveal ? 'Masquer' : 'Afficher';
                 if (reveal) urlInput.focus();
             }
             else if (action === 'add-group' && CT.addGroup) { CT.addGroup(src); }
@@ -247,6 +238,7 @@
             var prev = slider.value;
             slider.addEventListener('input', function () {
                 row.querySelector('.threshold-value').textContent = CT.pct(slider.value);
+                slider.setAttribute('aria-valuetext', CT.pct(slider.value));
                 var live = (CT.state.live[src.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
                 drawSpark(row.querySelector('canvas'), live, parseFloat(slider.value), Date.now() / 1000);
             });
@@ -419,9 +411,6 @@
             cardIndex[src.sourceId] = {src: src, card: card, rows: rows};
         });
     }
-    function cardFor(sourceId) {
-        return cardIndex[sourceId] || null;
-    }
     // Rien a dessiner si la page est cachee ou l'onglet Reglages affiche ; les
     // courbes sont redessinees depuis l'etat au retour.
     function liveVisible() {
@@ -435,7 +424,7 @@
             Object.keys(c.rows).forEach(function (slug) {
                 var row = c.rows[slug], series = live[slug] || [];
                 var threshold = parseFloat(row.querySelector('.threshold').value);
-                if (series.length) setScore(row, series[series.length - 1][1], threshold);
+                setScore(row, series.length ? series[series.length - 1][1] : 0, threshold);
                 drawSpark(row.querySelector('canvas'), series, threshold, now);
             });
         });
@@ -443,14 +432,14 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) CT.redrawLive(); });
 
     CT.on('source_level', function (d) {
-        var c = d && cardFor(d.source_id);
+        var c = d && cardIndex[d.source_id];
         if (!c || !c.card) return;
         if (CT.state.testing && CT.state.testing.domId === c.src.domId) return;
         if (liveVisible()) setMeter(c.card, d.db);
     });
 
     CT.on('group_scores', function (d) {
-        var c = d && cardFor(d.source_id);
+        var c = d && cardIndex[d.source_id];
         if (!c || !c.card) return;
         var live = CT.state.live[d.source_id] = CT.state.live[d.source_id] || {scores: {}};
         var now = Date.now() / 1000, visible = liveVisible();
@@ -477,11 +466,9 @@
     CT.resetLive = function () {
         CT.state.live = {};
         CT.state.sourceStatus = {};
-        CT.$$('.source-card').forEach(function (card) {
-            CT.$$('.group-live', card).forEach(function (row) {
-                setScore(row, 0, 1);
-                drawSpark(row.querySelector('canvas'), [], parseFloat(row.querySelector('.threshold').value), Date.now() / 1000);
-            });
+        CT.redrawLive();
+        Object.keys(cardIndex).forEach(function (sid) {
+            var card = cardIndex[sid].card;
             var line = card.querySelector('[data-role="live"]');
             if (line) line.textContent = card.classList.contains('is-disabled') ? 'Source désactivée' : 'En attente de sons…';
         });
@@ -541,7 +528,7 @@
     }
 
     CT.on('labels', function (d) {
-        var c = d && cardFor(d.source);
+        var c = d && cardIndex[d.source];
         if (!c || !c.card || !Array.isArray(d.detected)) return;
         var line = c.card.querySelector('[data-role="live"]');
         if (line.dataset.clapUntil && Date.now() < +line.dataset.clapUntil) return;
@@ -549,7 +536,7 @@
     });
 
     CT.on('clap', function (d) {
-        var c = d && cardFor(d.source_id);
+        var c = d && cardIndex[d.source_id];
         if (!c || !c.card) return;
         var n = d.clap_count || 1;
         var text = n + ' clap' + (n > 1 ? 's' : '');

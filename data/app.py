@@ -7,7 +7,8 @@ import sys
 import threading
 import time
 
-from flask import Flask, request, render_template, send_file
+from flask import Flask, jsonify, request, render_template, send_file
+from werkzeug.exceptions import HTTPException
 from flask_socketio import SocketIO
 
 from settings_manager import load_settings, DEFAULT_SETTINGS
@@ -144,16 +145,30 @@ except Exception as e:
 
 
 _cleaned = False
+_cleanup_lock = threading.Lock()
+_cleanup_done = threading.Event()
 
 
 @atexit.register
 def cleanup():
     """Nettoie les ressources lors de l'arrêt (appele par atexit, par le
-    handler SIGTERM en dev et par le hook worker_exit de Gunicorn)."""
+    handler SIGTERM en dev, et par Gunicorn : thread lance au SIGTERM puis
+    worker_exit). Le second appel ATTEND la fin du premier : sans onglet
+    ouvert, le worker sortait aussitot et tuait le thread de nettoyage en
+    cours (volume auto non enregistre, « detection OFF » perdu)."""
     global _cleaned
-    if _cleaned:
+    with _cleanup_lock:
+        started, _cleaned = _cleaned, True
+    if started:
+        _cleanup_done.wait(5)
         return
-    _cleaned = True
+    try:
+        _do_cleanup()
+    finally:
+        _cleanup_done.set()
+
+
+def _do_cleanup():
     logging.info("Arrêt de ClapTrap : publication de l'état et arrêt de la détection")
     # MQTT d'abord (detection OFF, entites indisponibles) : ces publications
     # se perdaient quand l'arret de la detection consommait le delai de grace.
@@ -221,6 +236,15 @@ app.register_blueprint(detection_bp)
 app.register_blueprint(sources_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(testing_bp)
+
+
+@app.errorhandler(HTTPException)
+def _api_http_error(e):
+    """Routes d'API inconnues, methode refusee, requete trop grosse : JSON
+    {success, error} comme les autres erreurs, et non une page HTML."""
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': e.description or e.name}), e.code
+    return e
 
 init_detection(socketio)
 init_sources(socketio)

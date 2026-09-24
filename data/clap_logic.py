@@ -119,7 +119,7 @@ class ClapTracker:
             self._warmup.append(raw_peak)
             if len(self._warmup) == self.WARMUP_BLOCKS:
                 self.avg_level = max(0.0001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
-            return max(floor, self.avg_level * self.peak_ratio)
+            return
 
         # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
         # pendant un son : un bruit qui s'installe finit par etre absorbe.
@@ -145,7 +145,6 @@ class ClapTracker:
         elif raw_peak < threshold * 0.6:
             self._above = False
         self._prev_peak = raw_peak
-        return threshold
 
     # --- Classification -----------------------------------------------------
 

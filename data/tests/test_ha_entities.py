@@ -173,3 +173,55 @@ def test_stale_source_never_unpublishes_ids_claimed_by_kept_source(mqtt):
     mqtt.published.clear()
     ha.sync_sources(s)
     assert 'homeassistant/binary_sensor/claptrap/vban_salon_tele_clap_2claps/config' not in mqtt.deleted()
+
+
+def test_degraded_mode_keeps_entities(mqtt, monkeypatch):
+    """Reglages illisibles (valeurs par defaut, aucune source) : aucune entite
+    supprimee, nettoyage des orphelines suspendu."""
+    import settings_manager as sm
+    ha.sync_sources(settings())
+    monkeypatch.setattr(sm, '_degraded', True)
+    mqtt.published.clear()
+    ha.sync_sources({'microphone': {}, 'rtsp_sources': [], 'saved_vban_sources': []})
+    assert mqtt.deleted() == [] and ha._expected_keys is None
+    ha._discovered.add('mic_clap_1clap')
+    assert ha.cleanup_orphans() == []
+
+
+def test_readded_source_purged_from_pending_removal(mqtt):
+    """Source supprimee broker injoignable puis recreee : ses entites ne sont
+    pas retirees a la reconnexion."""
+    s = settings()
+    ha.sync_sources(s)
+    ha._mqtt_connected.clear()
+    ha.unregister_source('mic')
+    assert ha._pending_removal
+    ha._mqtt_connected.set()
+    ha.sync_sources(s)
+    assert ha._pending_removal == set()
+
+
+def colliding():
+    return settings(saved_vban_sources=[
+        {'id': 'a', 'entity_key': 'vban_salon', 'ip': '1', 'name': 'Salon', 'enabled': True,
+         'sound_groups': [G('tele_clap', 'T', [1])]},
+        {'id': 'b', 'entity_key': 'vban_salon_tele', 'ip': '2', 'name': 'Salon Tele', 'enabled': True,
+         'sound_groups': [G('clap', 'C', [1])]}])
+
+
+def test_legacy_collision_not_pulsed(mqtt):
+    s = colliding()
+    ha.sync_sources(s)
+    mqtt.published.clear()
+    ha.on_clap_detected('vban_salon_tele', 0.9, 1, 'clap')
+    assert mqtt.published == []   # source non publiee : pas les entites de l'autre
+
+
+def test_only_new_collisions_refused(mqtt):
+    s = colliding()
+    changed = json.loads(json.dumps(s))
+    changed['microphone']['sound_groups'][0]['name'] = 'Autre'
+    assert ha.find_entity_collision(changed) == 'VBAN: Salon Tele'
+    assert ha.find_entity_collision(changed, before=s) is None   # collision heritee
+    clean = settings()
+    assert ha.find_entity_collision(s, before=clean) == 'VBAN: Salon Tele'

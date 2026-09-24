@@ -3,3 +3,4 @@ data/routes/__pycache__/
 .claude/
 **/__pycache__/
 data/settings.json
+data/settings.json.*

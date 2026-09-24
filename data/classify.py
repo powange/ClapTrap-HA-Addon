@@ -20,7 +20,7 @@ import requests
 from audio_detector import AudioDetector
 from clap_logic import default_group, normalize_group
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
-from audio_utils import level_db
+from audio_utils import BLOCK_SAMPLES, level_db
 from ha_entities import source_label, source_entity_key
 from settings_manager import load_settings
 from url_validator import mask_url_credentials
@@ -172,10 +172,13 @@ def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, gr
 # --- Session -------------------------------------------------------------------
 
 class DetectionSession:
-    def __init__(self, sources, params, socketio):
+    def __init__(self, sources, socketio):
         self.sources = sources
-        self.params = params
         self.socketio = socketio
+        # Mises a jour en cours (apply_settings) : le superviseur ne prend pas
+        # la liste de sources momentanement vide pour une fin de session (la
+        # relance de l'unique source arretait toute la detection).
+        self._applying = 0
         self.stop_event = threading.Event()
         self.label = ' + '.join(s['label'] for s in sources)
         self.started_at = time.time()
@@ -291,7 +294,7 @@ class DetectionSession:
                                   'score': float(data.get('score', 0.0))})
 
     def _create_detector(self, src, stop=None):
-        p = self.params
+        p = detection_params_from_settings(load_settings())
         groups = list(src.get('groups') or []) or [default_group(p['score_threshold'])]
         det = AudioDetector(MODEL_PATH)
         # 30 labels : un son de groupe classe 11e mais au-dessus de son seuil
@@ -322,27 +325,33 @@ class DetectionSession:
                 return None
             self.detectors[src['source_id']] = det
             self.seen[src['source_id']] = {l for g in groups for l in (g.get('whitelist') or {})}
+        # Reglages modifies pendant l'initialisation (plusieurs secondes sur Pi).
         self._apply_current_settings(src, det)
         return det
 
-    def _apply_current_settings(self, src, det):
-        """Relit les reglages et les applique au detecteur d'une source :
-        groupes, sons deja vus, webhook, gain, reglages avances, exclusions.
-        Seule mise a jour en direct (routes, et demarrage : un reglage modifie
-        pendant l'initialisation de YAMNet n'atteignait aucun detecteur).
+    def _apply_current_settings(self, src, det, settings=None, built=None):
+        """Applique les reglages au detecteur d'une source : groupes, sons
+        deja vus, webhook, gain, reglages avances, exclusions. Seule mise a
+        jour en direct (routes et fin d'initialisation). `settings` et `built`
+        (sources construites) evitent de tout relire pour chaque source.
         Lecture et application sous un meme verrou : pas d'ecrasement par une
         mise a jour intercalee."""
         sid = src['source_id']
         try:
             with _whitelist_lock:
-                settings = load_settings()
-                current = next((s for s in build_sources_from_settings(settings) if s['source_id'] == sid), None)
+                if settings is None:
+                    settings = load_settings()
+                if built is None:
+                    built = {s['source_id']: s for s in build_sources_from_settings(settings)}
+                current = built.get(sid)
                 if current:
                     if current['groups']:
                         det.set_groups(current['groups'])
+                    known = {l for g in current['groups'] for l in (g.get('whitelist') or {})}
                     with self._lock:
-                        # Sons retires (« Vider la liste ») : redevenus decouvrables.
-                        self.seen[sid] = {l for g in current['groups'] for l in (g.get('whitelist') or {})}
+                        # Sons retires (« Vider la liste ») : redevenus decouvrables ;
+                        # sons en attente d'ecriture : toujours connus (doublons sinon).
+                        self.seen[sid] = known | _pending_seen(src['kind'], src['source_key'])
                         self.webhooks[sid] = current.get('webhook_url') or ''
                     if 'gain' in current:
                         _live_gains[sid] = float(current['gain'])
@@ -357,7 +366,7 @@ class DetectionSession:
 
     # --- Sources ---
 
-    def _prepare_mic(self):
+    def _prepare_mic(self, stop):
         """Resout le device PulseAudio, applique le volume, demarre l'auto-volume."""
         mic = load_settings().get('microphone', {})
         device_name = mic.get('audio_source', 'default')
@@ -376,7 +385,9 @@ class DetectionSession:
                 set_pulse_volume(pulse_name, mic.get('volume', 100))
             except Exception as e:
                 logging.warning(f"Micro: volume non appliqué: {e}")
-            if mic.get('auto_volume', False) and not self.stop_event.is_set():
+            # Arret du lanceur (et pas seulement de la session) : un ancien
+            # lanceur lent demarrait l'auto-volume sur l'ancien peripherique.
+            if mic.get('auto_volume', False) and not self.stop_event.is_set() and not stop.is_set():
                 from auto_volume import auto_volume_mgr
                 auto_volume_mgr.start(pulse_name, self.socketio)
                 auto_volume = auto_volume_mgr
@@ -391,7 +402,7 @@ class DetectionSession:
         gain_of = auto_volume = None
         on_status = lambda status, error=None: self._set_status(sid, status, error)
         if kind == 'mic':
-            reader, auto_volume = self._prepare_mic()
+            reader, auto_volume = self._prepare_mic(runner['stop'])
         elif kind == 'rtsp':
             url = src['rtsp_url']
             reader = rtsp_source(url)
@@ -414,6 +425,10 @@ class DetectionSession:
             # Bloc brut + gain : le detecteur compte les pics avant le gain et
             # n'amplifie que ce qu'il donne au classifieur. Il renvoie le pic du
             # bloc (calcule une seule fois : niveau, auto-volume).
+            dropped = reader.take_dropped() if hasattr(reader, 'take_dropped') else 0
+            if dropped:
+                # Blocs VBAN jetes (file pleine) : l'horloge audio avance d'autant.
+                det.skip_audio(dropped * BLOCK_SAMPLES)
             peak = det.process_audio(block, gain=gain_of() if gain_of else 1.0) or 0.0
             if auto_volume is not None:
                 auto_volume.feed_peak(peak)
@@ -440,22 +455,20 @@ class DetectionSession:
                 _live_gains[src['source_id']] = float(src['gain'])
         runner['thread'].start()
 
-    def _stop_runner(self, source_id):
-        """Arrete une source (thread, lecteur, classifieur) sans toucher aux autres."""
+    def _detach_runner(self, source_id):
+        """Arrete une source sans attendre son thread : retrait des tables,
+        signal d'arret, lecteur ferme, auto-volume arrete, hors ecoute.
+        Retourne (lanceur, detecteur) a finir avec _finish_runner."""
         with self._lock:
             runner = self._runners.pop(source_id, None)
-        if runner is None:
-            return
-        runner['stop'].set()
-        if runner.get('reader') is not None:
-            runner['reader'].close()
-        runner['thread'].join(timeout=5)
-        with self._lock:
             det = self.detectors.pop(source_id, None)
             self.seen.pop(source_id, None)
             self.source_status.pop(source_id, None)
-        if det is not None:
-            det.stop()
+        if runner is None:
+            return None, det
+        runner['stop'].set()
+        if runner.get('reader') is not None:
+            runner['reader'].close()   # debloque les read() en cours
         if runner['src']['type'] == 'mic':
             try:
                 from auto_volume import auto_volume_mgr
@@ -463,6 +476,28 @@ class DetectionSession:
             except Exception as e:
                 logging.warning(f"Arret de l'auto-volume: {e}")
         self._set_listening(runner['src'], False)
+        return runner, det
+
+    @staticmethod
+    def _finish_runner(runner, det, deadline):
+        """Attend le thread (jusqu'a `deadline`) puis ferme le classifieur."""
+        if runner is not None:
+            runner['thread'].join(timeout=max(0.0, deadline - time.monotonic()))
+        if det is not None:
+            det.stop()
+
+    def _stop_runner(self, source_id, wait=False):
+        """Arrete une source sans toucher aux autres. Sans `wait`, le thread est
+        attendu en arriere-plan : la requete HTTP (et les autres modifications,
+        sous le meme verrou) n'attendent plus jusqu'a 5 s."""
+        runner, det = self._detach_runner(source_id)
+        if runner is None and det is None:
+            return
+        if wait:
+            self._finish_runner(runner, det, time.monotonic() + 5)
+        else:
+            threading.Thread(target=self._finish_runner, args=(runner, det, time.monotonic() + 5),
+                             daemon=True, name="source-stop").start()
 
     @staticmethod
     def _signature(src, settings):
@@ -480,38 +515,61 @@ class DetectionSession:
         """Aligne la session sur les reglages : sources retirees arretees,
         ajoutees demarrees, modifiees (adresse, micro, flux) relancees seules ;
         les autres gardent leur classifieur et relisent groupes et reglages.
-        Retourne True si une source a ete demarree, arretee ou relancee."""
-        wanted = {s['source_id']: s for s in build_sources_from_settings(settings)}
+        Retourne True si une source a ete demarree, arretee ou relancee, None
+        si la session s'arrete."""
         with self._lock:
-            current = dict(self._runners)
-        changed = False
-        for sid, runner in current.items():
-            new = wanted.get(sid)
-            if new is None or self._signature(new, settings) != runner['sig']:
-                self._stop_runner(sid)
-                changed = True
-        with self._lock:
-            running = set(self._runners)
-        for sid, src in wanted.items():
-            if sid not in running:
-                self._start_runner(src, settings)
-                changed = True
-            else:
-                runner = self._runners.get(sid)
-                if runner:
-                    runner['src'].update(label=src['label'], name=src['name'], entity_key=src['entity_key'])
-                    det = self.detectors.get(sid)
-                    if det is not None:   # sinon : relu a la fin de l'initialisation
-                        self._apply_current_settings(runner['src'], det)
-        with self._lock:
-            self.sources = [r['src'] for r in self._runners.values()]
-            self.label = ' + '.join(s['label'] for s in self.sources)
+            if self.stop_event.is_set():
+                return None
+            self._applying += 1
         try:
-            from ha_entities import update_detection_state
-            update_detection_state(True, [s['label'] for s in self.sources])
-        except Exception as e:
-            logging.warning(f"Etat HA de la detection non publie: {e}")
-        return changed
+            built = {s['source_id']: s for s in build_sources_from_settings(settings)}
+            if not built:
+                # Plus aucune source : c'est le superviseur qui termine la
+                # session (etat HA « arretee » publie une seule fois).
+                self.stop_event.set()
+                return None
+            with self._lock:
+                current = dict(self._runners)
+                before = [r['src']['label'] for r in current.values()]
+            changed = False
+            for sid, runner in current.items():
+                new = built.get(sid)
+                if new is None or self._signature(new, settings) != runner['sig']:
+                    self._stop_runner(sid)
+                    changed = True
+            for sid, src in built.items():
+                if self.stop_event.is_set():
+                    return None
+                with self._lock:
+                    runner = self._runners.get(sid)
+                if runner is None:
+                    self._start_runner(src, settings)
+                    changed = True
+                    continue
+                old_key = runner['src']['entity_key']
+                runner['src'].update(label=src['label'], name=src['name'], entity_key=src['entity_key'])
+                if old_key != src['entity_key']:
+                    # Cle d'entite changee (import) : la disponibilite suit.
+                    self._set_listening({'entity_key': old_key, 'label': src['label']}, False)
+                    self._set_listening(runner['src'], self.source_status.get(sid) == 'connected')
+                det = self.detectors.get(sid)
+                if det is not None:   # sinon : relu a la fin de l'initialisation
+                    self._apply_current_settings(runner['src'], det, settings, built)
+            with self._lock:
+                self.sources = [r['src'] for r in self._runners.values()]
+                self.label = ' + '.join(s['label'] for s in self.sources)
+                labels = [s['label'] for s in self.sources]
+            if labels != before and not self.stop_event.is_set():
+                # Etat MQTT seulement si la liste change (pas a chaque case cochee).
+                try:
+                    from ha_entities import update_detection_state
+                    update_detection_state(True, labels)
+                except Exception as e:
+                    logging.warning(f"Etat HA de la detection non publie: {e}")
+            return changed
+        finally:
+            with self._lock:
+                self._applying -= 1
 
     # --- Cycle de vie ---
 
@@ -526,6 +584,8 @@ class DetectionSession:
             self._start_runner(src)
         while not self.stop_event.wait(0.5):
             with self._lock:
+                if self._applying:
+                    continue   # liste momentanement vide pendant une relance
                 threads = [r['thread'] for r in self._runners.values()]
             if all(not t.is_alive() for t in threads):
                 logging.warning("Toutes les sources se sont arrêtées" if threads else "Plus aucune source active")
@@ -536,21 +596,14 @@ class DetectionSession:
         global _session
         self.stop_event.set()
         with self._lock:
-            runners = list(self._runners.values())
-        for r in runners:
-            r['stop'].set()
-            if r.get('reader') is not None:
-                r['reader'].close()  # debloque les read() en cours
-        for r in runners:
-            r['thread'].join(timeout=3)
-        # Threads sortis : les classifieurs peuvent etre fermes sans course.
-        with self._lock:
-            detectors = list(self.detectors.values())
-        for det in detectors:
-            det.stop()
+            ids = set(self._runners) | set(self.detectors)
+        # Meme arret que pour une source seule ; une echeance commune (3 s au
+        # total, et non 3 s par source) pour tenir dans les delais d'arret.
+        detached = [self._detach_runner(sid) for sid in ids]
+        deadline = time.monotonic() + 3
+        for runner, det in detached:
+            self._finish_runner(runner, det, deadline)
         _flush_sound_seen()
-        for src in self.sources:
-            self._set_listening(src, False)
         try:
             from auto_volume import auto_volume_mgr
             auto_volume_mgr.stop()
@@ -586,18 +639,14 @@ class DetectionSession:
 
 # --- API de module ---------------------------------------------------------
 
-def start_detection(sources, socketio, score_threshold=0.5, delay=1.5,
-                    peak_cooldown=0.08, peak_ratio=3.0):
+def start_detection(sources, socketio):
+    """Demarre une session (False si une session tourne deja). Les reglages
+    (seuils, fenetre...) sont lus par chaque detecteur a sa creation."""
     global _session
-    if not 0 <= score_threshold <= 1:
-        raise ValueError("Score threshold must be between 0 and 1.")
     with _session_lock:
         if _session is not None:
             return False
-        _session = DetectionSession(sources, {
-            'score_threshold': score_threshold, 'delay': delay,
-            'peak_cooldown': peak_cooldown, 'peak_ratio': peak_ratio,
-        }, socketio)
+        _session = DetectionSession(sources, socketio)
         session = _session
     session.start()
     return True
@@ -611,7 +660,8 @@ def start_from_settings(socketio, settings=None):
     sources = build_sources_from_settings(settings)
     if not sources:
         return False, []
-    return start_detection(sources, socketio, **detection_params_from_settings(settings)), sources
+    detection_params_from_settings(settings)   # ValueError si un reglage est invalide
+    return start_detection(sources, socketio), sources
 
 
 def apply_settings_if_running(settings=None):
@@ -633,10 +683,6 @@ def stop_detection(timeout=10):
 def _current():
     with _session_lock:
         return _session
-
-
-def is_running():
-    return _current() is not None
 
 
 def get_status():
@@ -669,11 +715,6 @@ def live_gain(source_id, default):
     return _live_gains.get(source_id, default)
 
 
-def get_detector(source_id):
-    s = _current()
-    return s.detectors.get(source_id) if s else None
-
-
 # --- Sons "vus" (auto-decouverte) -----------------------------------------------
 
 def _ensure_label_in_groups(source_dict, label):
@@ -696,6 +737,12 @@ def _ensure_label_in_groups(source_dict, label):
                 wl[label] = False
                 changed = True
     return changed
+
+
+def _pending_seen(kind, source_key):
+    """Sons entendus pas encore enregistres pour une source."""
+    with _seen_lock:
+        return set(_seen_pending.get((kind, source_key), ()))
 
 
 def _queue_sound_seen(kind, source_key, label):

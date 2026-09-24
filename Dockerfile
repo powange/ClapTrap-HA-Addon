@@ -1,5 +1,5 @@
-# BUILD_FROM est fourni par le Supervisor (build.yaml) ; les actions GitHub
-# de Home Assistant (BuildKit) ne fournissent que BUILD_ARCH, d'ou le defaut.
+# Image construite par .github/workflows/ci.yaml (actions Home Assistant, qui
+# ne fournissent que BUILD_ARCH) : base unique definie ici.
 ARG BUILD_ARCH=amd64
 ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base/${BUILD_ARCH}:9.4.0
 
@@ -36,10 +36,9 @@ ARG BUILD_ARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Micro : parecord/pactl (PulseAudio natif) ; RTSP : ffmpeg ; YAMNet :
-# mediapipe (libgles2, libegl1), dont l'import charge cv2 (libgl1,
-# libglib2.0-0 : declares ici, ils n'etaient presents que parce que ffmpeg les
-# tirait). Pas de PortAudio : sounddevice, installe par mediapipe, n'est jamais
-# importe.
+# mediapipe (libgles2, libegl1). libgl1 et libglib2.0-0 sont tires par ffmpeg
+# (cv2 « headless » n'en a pas besoin) ; declares pour ne pas dependre de ce
+# detail. Ni PortAudio ni sounddevice (ecarte du lock).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     ffmpeg \
@@ -72,6 +71,16 @@ ENV S6_KILL_GRACETIME=9000
 
 # Copier les fichiers de l'application
 COPY data/ ./
+# .pyc precompiles : Python ne tente plus d'ecrire dans /usr/src/app a chaque
+# demarrage (refuse par AppArmor en mode strict).
+RUN python -m compileall -q -x '/(venv|tests|\.matplotlib)/' /usr/src/app
+# Test de fumee : lock complet (installe en --no-deps) et imports reels. Une
+# nouvelle dependance de mediapipe absente du lock echoue ici, pas chez
+# l'utilisateur.
+RUN out="$(pip check 2>&1 || true)"; \
+    bad="$(echo "$out" | grep -vE 'opencv-contrib-python|sounddevice' | grep . || true)"; \
+    if [ -n "$bad" ]; then echo "$bad"; exit 1; fi; \
+    python -c "from mediapipe.tasks.python import audio; import cv2, matplotlib.pyplot, flask_socketio, paho.mqtt.client, simple_websocket"
 
 # Copier le script de démarrage
 COPY run.sh /

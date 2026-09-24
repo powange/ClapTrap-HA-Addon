@@ -42,6 +42,7 @@ class AutoVolume:
         self._peaks = collections.deque()
         self._lock = threading.Lock()
         self._thread = None
+        self._wake = threading.Event()   # arret immediat (plus d'attente de sleep)
         self._last_save_time = 0
         self._SAVE_DEBOUNCE = 30
 
@@ -51,10 +52,14 @@ class AutoVolume:
 
     def start(self, pulse_name, socketio):
         if self._running:
-            return
+            if pulse_name == self._pulse_name:
+                return
+            # Autre peripherique (micro change) : ne pas garder l'ancien.
+            self.stop()
         self._pulse_name = pulse_name
         self._socketio = socketio
         self._running = True
+        self._wake.clear()
         self._peaks = collections.deque()
 
         # Lire le volume actuel depuis les settings
@@ -71,6 +76,7 @@ class AutoVolume:
         # ecrasait le volume choisi par l'utilisateur avec la valeur par defaut.
         was_running = self._thread is not None
         self._running = False
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
@@ -101,8 +107,9 @@ class AutoVolume:
 
     def _adjust_loop(self):
         while self._running:
-            time.sleep(ADJUST_INTERVAL)
-            if not self._running:
+            # Event.wait : stop() reveille la boucle aussitot (sleep(2) faisait
+            # durer l'arret d'une source micro jusqu'a 2 s).
+            if self._wake.wait(ADJUST_INTERVAL) or not self._running:
                 break
 
             now = time.monotonic()

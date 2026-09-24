@@ -123,3 +123,28 @@ def test_degraded_mode_refuses_background_writes(settings_dir):
     assert glob.glob(sm.SETTINGS_FILE + '.corrompu-*')               # fichier illisible conserve
     sm._cache = None
     assert sm.load_settings()['global']['threshold'] == 0.7
+
+
+@pytest.mark.parametrize('data', [
+    {'microphone': None}, {'global': None}, {'rtsp_sources': None}, {'saved_vban_sources': None},
+    {'microphone': []}, {'rtsp_sources': {}}, {'saved_vban_sources': 'x'},
+])
+def test_null_or_wrong_type_sections_refused(settings_dir, data):
+    with pytest.raises(ValueError):
+        settings_dir.normalize_settings(data)
+
+
+def test_wrong_type_in_file_falls_back_to_default(settings_dir):
+    sm = settings_dir
+    open(sm.SETTINGS_FILE, 'w').write(json.dumps({'microphone': None, 'rtsp_sources': {}}))
+    sm._cache = None
+    s = sm.load_settings()
+    assert isinstance(s['microphone'], dict) and s['rtsp_sources'] == []
+
+
+def test_several_vban_without_entity_key(settings_dir):
+    sm = settings_dir
+    sm.save_settings({'saved_vban_sources': [{'ip': '1.1.1.1', 'stream_name': 'A'},
+                                             {'ip': '1.1.1.2', 'stream_name': 'B'}]})
+    keys = [v['entity_key'] for v in sm.load_settings()['saved_vban_sources']]
+    assert all(keys) and len(set(keys)) == 2

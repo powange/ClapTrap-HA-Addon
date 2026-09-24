@@ -30,6 +30,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/detection/stop') status = { running: false, sources: [] };
       else if (url.startsWith('/api/sources/') && method === 'PATCH') res = { success: true, source: {}, ...(w.__restart ? { restart: w.__restart } : {}) };
       else if (url === '/api/microphone' && method === 'DELETE') { settings.microphone.configured = false; }
+      else if (url === '/api/microphone' && method === 'POST') { Object.assign(settings.microphone, { configured: true, enabled: true }); }
       else if (url.startsWith('/api/rtsp/stream/') && method === 'DELETE') { settings.rtsp_sources = settings.rtsp_sources.filter(s => !url.endsWith(s.id)); }
       else if (url === '/api/source/sound_groups' && method === 'POST') { settings.microphone.sound_groups.push({ slug: 'snap', name: body.name, ha_entities: [1], sound_whitelist: {} }); }
       else if (url === '/api/ha/entity-ids') res = { mic: { clap: ['binary_sensor.claptrap_mic_clap_1clap', 'binary_sensor.claptrap_mic_clap_2claps'] } };
@@ -268,6 +269,47 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  pas de dessin pendant l\'onglet Réglages', liveRow.querySelector('.group-live-score').textContent === before);
   $('#tab-listen').click(); await tick();
   ok('+  courbes rattrapées au retour sur Écoute', d.querySelector('#' + liveSrc.domId + ' .group-live[data-slug="' + liveSlug + '"] .group-live-score').textContent === '93 %');
+  // --- lot 6.53
+  // Assistant RTSP sans adresse : l'etape ne reste pas bloquee
+  $('#add-source').click(); await tick(); $('.choice[data-kind="rtsp"]').click(); await tick();
+  $('#wz-url').value = ''; $('[data-w="ok"]').click(); await tick(2);
+  ok('+  assistant RTSP sans adresse : étape utilisable', !$('[data-w="ok"]').disabled && !/Ajout en cours/.test($('[data-w="ok"]').textContent) && /adresse/.test($('#toasts').textContent));
+  $('[data-w="close"]').click(); await tick(3);
+  // Assistant micro : une seule requete, focus sur la nouvelle carte
+  const patchesBefore = calls.filter(c => c[0] === 'PATCH').length;
+  $('#add-source').click(); await tick(); $('.choice[data-kind="mic"]').click(); await tick(2);
+  $('[data-w="ok"]').click(); await tick(5);
+  const micPost = lastCall('POST', '/api/microphone');
+  ok('+  assistant micro : une seule requête', !!micPost && micPost[2].enabled === true && !!micPost[2].device && calls.filter(c => c[0] === 'PATCH').length === patchesBefore);
+  $('[data-w="done"]').click(); await tick(5);
+  ok('+  assistant terminé : focus sur la nouvelle carte', $('#wizard').hidden && d.activeElement && d.activeElement.id === 'src-mic');
+  // Focus apres renommage / suppression de groupe
+  const gSrc = CT.sourceList().find(x => x.kind === 'mic');
+  CT.state.settings.microphone.sound_groups = JSON.parse(JSON.stringify(base.microphone.sound_groups));
+  CT.render();
+  const tocName = d.querySelector('#' + gSrc.domId + ' .group-card[data-slug="toc"] [data-role="group-name"]');
+  tocName.focus(); CT.render();
+  ok('+  focus restauré sur le nom du bon groupe', d.activeElement && d.activeElement.getAttribute('data-role') === 'group-name' && d.activeElement.closest('.group-card').getAttribute('data-slug') === 'toc');
+  d.querySelector('#' + gSrc.domId + ' .group-card[data-slug="toc"] [data-group-action="delete"]').focus();
+  CT.state.settings.microphone.sound_groups = CT.state.settings.microphone.sound_groups.filter(g => g.slug !== 'toc');
+  CT.render();
+  ok('+  groupe supprimé : focus sur « Nouveau groupe »', d.activeElement && d.activeElement.getAttribute('data-action') === 'add-group');
+  // Recherche de sons : focus et texte gardes
+  const many = {}; ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].forEach(l => { many[l] = false; });
+  CT.state.settings.microphone.sound_groups[0].sound_whitelist = many; CT.render();
+  const search = d.querySelector('#' + gSrc.domId + ' [data-role="sound-search"]');
+  search.focus(); CT.render();
+  ok('+  recherche de sons : focus gardé', d.activeElement && d.activeElement.getAttribute('data-role') === 'sound-search');
+  // Retour sur l'onglet sans changement : pas de reconstruction
+  CT.state.settings = JSON.parse(JSON.stringify(settings));
+  d.activeElement.blur(); CT.render();
+  const cardBefore = $('#src-mic');
+  await CT.resync(); await tick();
+  ok('+  retour sur l\'onglet sans changement : grille gardée', $('#src-mic') === cardBefore);
+  ok('+  « Effacer » désactivé si l\'historique est vide', $('#history-clear').disabled === ($('#history-list').children.length === 0));
+  const thr2 = d.querySelector('.threshold');
+  ok('+  seuil lu en % (aria-valuetext)', / %$/.test(thr2.getAttribute('aria-valuetext') || ''));
+  ok('+  messages d\'information sans rôle en double', !d.querySelector('#toasts .toast:not(.toast-error)[role]'));
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

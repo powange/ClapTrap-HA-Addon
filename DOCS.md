@@ -24,7 +24,7 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
    `https://github.com/powange/ClapTrap-HA-Addon`
 2. Recherchez **ClapTrap**, cliquez sur **Installer**, puis **Démarrer**.
    L'image est précompilée : l'installation ne prend que le temps du
-   téléchargement (environ 400 Mo, 1,7 Go une fois installée ; compter
+   téléchargement (environ 340 Mo, 1,4 Go une fois installée ; compter
    quelques minutes sur un Raspberry Pi).
 3. Activez **Afficher dans la barre latérale** et, si vous le souhaitez,
    **Watchdog** (Home Assistant relance alors l'add-on s'il s'arrête : le
@@ -60,12 +60,12 @@ monter nettement. Lancez ensuite la détection avec **Démarrer la détection** 
 cochez **Démarrer au lancement de l'add-on**).
 
 Le mot de passe d'une adresse RTSP est masqué à l'écran : le bouton
-**Afficher** révèle l'adresse complète pour la modifier. Il reste dans la
+**Afficher le mot de passe** révèle l'adresse complète pour la modifier. Il reste dans la
 sauvegarde « Exporter ».
 
-Activer, désactiver, ajouter ou supprimer une source active redémarre
-brièvement toute la détection (la barre d'état affiche « Redémarrage… », puis
-confirme). Une source en erreur est signalée dans la barre d'état (point
+Activer, désactiver, ajouter ou supprimer une source (ou changer son
+adresse ou son micro) ne relance que cette source : les autres continuent
+d'écouter sans interruption. Une source en erreur est signalée dans la barre d'état (point
 orange, « 1 en erreur »).
 
 Sur chaque carte, l'état de la source est affiché : « À l'écoute »,

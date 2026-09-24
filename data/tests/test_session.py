@@ -8,6 +8,12 @@ import pytest
 from audio_utils import BLOCK_SAMPLES
 
 
+def det_of(source_id):
+    import classify
+    s = classify._current()
+    return s.detectors.get(source_id) if s else None
+
+
 class FakeReader:
     name = 'fake'
     last_error = ''
@@ -57,7 +63,7 @@ def test_session_counts_emits_and_persists(session_env, monkeypatch):
     reader = FakeReader(clap_blocks=(30, 45))
     monkeypatch.setattr(classify, 'rtsp_source', lambda url: reader)
     ok, _ = classify.start_from_settings(sock)
-    assert ok and classify.is_running()
+    assert ok and classify.get_status()['running']
     time.sleep(2.5)
     claps = [d for e, d in emitted if e == 'clap']
     assert [(c['source_id'], c['clap_count'], c['entity_key'], c['source_name']) for c in claps] == \
@@ -68,7 +74,7 @@ def test_session_counts_emits_and_persists(session_env, monkeypatch):
     assert ('rtsp_cam1', True) in calls['listening']
     assert not any('u:p' in str(d) for e, d in emitted)   # jamais l'URL
     classify.stop_detection()
-    assert not classify.is_running() and reader.closed
+    assert not classify.get_status()['running'] and reader.closed
     assert ('rtsp_cam1', False) in calls['listening']
     time.sleep(0.3)
     wl = sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
@@ -98,8 +104,8 @@ def test_settings_changed_during_initialisation_are_applied(session_env, monkeyp
         s['global']['delay'] = 0.4
     sm.modify_settings(mut)
     time.sleep(1.0)
-    det = classify.get_detector('rtsp_cam1')
-    assert det.groups[0]['whitelist'].get('Knock') is True
+    det = det_of('rtsp_cam1')
+    assert det.tracker.groups[0]['whitelist'].get('Knock') is True
     assert det.tracker.window == 0.4
 
 
@@ -123,7 +129,7 @@ def test_all_sources_dead_stops_session(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'run_source', lambda reader, on_block, stop, **k: None)
     classify.start_from_settings(sock)
     time.sleep(1.5)
-    assert not classify.is_running()
+    assert not classify.get_status()['running']
     assert ('detection_status', {'status': 'stopped'}) in emitted
 
 
@@ -187,7 +193,7 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
     two_cameras(sm)
     classify.start_from_settings(sock)
     time.sleep(0.5)
-    det1, det2 = classify.get_detector('rtsp_cam1'), classify.get_detector('rtsp_cam2')
+    det1, det2 = det_of('rtsp_cam1'), det_of('rtsp_cam2')
     assert det1 and det2
 
     # Changement de groupe seulement : rien n'est relance
@@ -195,22 +201,24 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
         s['rtsp_sources'][1]['sound_groups'][0]['sound_whitelist']['Knock'] = True
     sm.modify_settings(add_sound)
     assert classify.apply_settings_if_running() is False
-    assert classify.get_detector('rtsp_cam2') is det2
-    assert det2.groups[0]['whitelist'].get('Knock') is True
+    assert det_of('rtsp_cam2') is det2
+    assert det2.tracker.groups[0]['whitelist'].get('Knock') is True
 
     # Adresse de la camera 2 : seule elle est relancee
     sm.modify_settings(lambda s: s['rtsp_sources'][1].update(url='rtsp://h/2b'))
     assert classify.apply_settings_if_running() is True
     time.sleep(0.5)
-    assert classify.get_detector('rtsp_cam1') is det1 and not det1.tracker is None
-    new2 = classify.get_detector('rtsp_cam2')
+    assert det_of('rtsp_cam1') is det1 and not det1.tracker is None
+    new2 = det_of('rtsp_cam2')
     assert new2 is not None and new2 is not det2 and det2.classifier is None
     assert urls[-1] == 'rtsp://h/2b'
 
     # Camera 1 desactivee : arretee, la 2 continue
     sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
     classify.apply_settings_if_running()
-    assert classify.get_detector('rtsp_cam1') is None and det1.classifier is None
+    assert det_of('rtsp_cam1') is None
+    time.sleep(0.5)   # classifieur ferme en arriere-plan (la requete n'attend plus)
+    assert det1.classifier is None
     assert classify.get_status()['sources'] == ['rtsp_cam2']
     assert ('rtsp_cam1', False) in calls['listening']
 
@@ -218,7 +226,7 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
     sm.modify_settings(lambda s: s['rtsp_sources'][1].update(enabled=False))
     classify.apply_settings_if_running()
     time.sleep(1.2)
-    assert not classify.is_running()
+    assert not classify.get_status()['running']
 
 
 def test_no_live_emits_without_clients(session_env, monkeypatch):
@@ -232,3 +240,100 @@ def test_no_live_emits_without_clients(session_env, monkeypatch):
     time.sleep(0.5)
     assert [e for e, d in emitted if e == 'source_level']
     classify.client_connected(-1)
+
+
+def test_restarting_only_source_keeps_session_alive(session_env, monkeypatch):
+    """Relance de l'unique source avec un arret lent (auto-volume, init YAMNet) :
+    la session survit et l'etat HA reste « en cours » (elle s'arretait pendant
+    la fenetre sans source, en 6.51-6.52)."""
+    classify, sock, emitted, calls, sm = session_env
+    import ha_entities
+    states = []
+    monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    classify.start_from_settings(sock)
+    time.sleep(0.4)
+    slow = classify.DetectionSession._set_listening
+    monkeypatch.setattr(classify.DetectionSession, '_set_listening',
+                        staticmethod(lambda src, on: (time.sleep(1.0), slow(src, on))))
+    sm.modify_settings(lambda s: s['rtsp_sources'][0].update(url='rtsp://h/nouvelle'))
+    assert classify.apply_settings_if_running() is True
+    time.sleep(1.0)
+    assert classify.get_status()['running'] and det_of('rtsp_cam1') is not None
+    assert states == [True]   # jamais « arretee » puis « en cours »
+
+
+def test_removing_last_source_stops_session_once(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    import ha_entities
+    states = []
+    monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    classify.start_from_settings(sock)
+    time.sleep(0.4)
+    sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
+    assert classify.apply_settings_if_running() is None
+    time.sleep(1.2)
+    assert not classify.get_status()['running'] and states == [True, False]
+
+
+def test_sound_seen_not_duplicated_after_live_change(session_env, monkeypatch):
+    """Son en attente d'ecriture : une mise a jour en direct ne le rend pas
+    « nouveau » une seconde fois."""
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    monkeypatch.setattr(classify, 'SEEN_FLUSH_DELAY', 30)
+    classify.start_from_settings(sock)
+    time.sleep(0.6)
+    before = [d['label'] for e, d in emitted if e == 'sound_seen']
+    assert before.count('Speech') == 1
+    classify.apply_settings_if_running()
+    time.sleep(0.5)
+    assert [d['label'] for e, d in emitted if e == 'sound_seen'].count('Speech') == 1
+
+
+def test_entity_key_change_keeps_listening(session_env, monkeypatch):
+    """Cle d'entite changee par un import (capture identique, pas de relance) :
+    l'ancienne cle passe hors ligne, la nouvelle en ligne."""
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'get_vban_detector', lambda: object())
+    monkeypatch.setattr(classify, 'VbanSource', lambda listener, ip, name, on_idle=None: FakeReader(n=400))
+    sm.modify_settings(lambda s: s.update(rtsp_sources=[], saved_vban_sources=[
+        {'id': 'v1', 'entity_key': 'vban_salon', 'ip': '1.1.1.1', 'name': 'Salon', 'stream_name': 'S',
+         'enabled': True, 'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'ha_entities': [1]}]}]))
+    classify.start_from_settings(sock)
+    time.sleep(0.5)
+    calls['listening'].clear()
+    sm.modify_settings(lambda s: s['saved_vban_sources'][0].update(entity_key='vban_bureau'))
+    assert classify.apply_settings_if_running() is False   # aucune relance
+    assert calls['listening'] == [('vban_salon', False), ('vban_bureau', True)]
+
+
+def test_apply_settings_during_shutdown_is_ignored(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    classify.start_from_settings(sock)
+    time.sleep(0.3)
+    session = classify._current()
+    session.stop_event.set()
+    assert session.apply_settings(sm.load_settings()) is None
+    assert session._applying == 0
+
+
+def test_mic_runner_stopped_during_prepare(session_env, monkeypatch):
+    """Micro arrete pendant la resolution PulseAudio : aucun auto-volume ni
+    volume applique apres coup."""
+    classify, sock, emitted, calls, sm = session_env
+    import threading
+    stop = threading.Event()
+    stop.set()
+    session = classify.DetectionSession([], sock)
+    started = []
+    import auto_volume
+    monkeypatch.setattr(auto_volume.auto_volume_mgr, 'start', lambda *a, **k: started.append(a))
+    import audio_utils
+    monkeypatch.setattr(audio_utils, 'set_pulse_volume', lambda *a: None)
+    monkeypatch.setattr(classify, 'mic_source', lambda name: FakeReader())
+    sm.modify_settings(lambda s: s['microphone'].update(enabled=True, auto_volume=True, pulse_name='alsa.x'))
+    session._prepare_mic(stop)
+    assert started == []

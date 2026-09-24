@@ -50,7 +50,11 @@ def stop_detection_route():
 @detection_bp.route('/status')
 def status():
     from classify import get_status
-    return jsonify(get_status())
+    from settings_manager import is_degraded
+    st = get_status()
+    if is_degraded():
+        st['settings_degraded'] = True   # l'interface le signale
+    return jsonify(st)
 
 
 @detection_bp.route('/api/detections/history', methods=['GET'])

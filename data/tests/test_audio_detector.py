@@ -90,3 +90,29 @@ def test_agc_stays_up_on_isolated_weak_clap(fake_classifier):
     assert np.abs(clf.blocks[-1]).max() > 0.1   # clap 0,03 amplifie
     det.process_audio(block(0.5, 0.0005))
     assert np.abs(clf.blocks[-1]).max() < 1.0   # son fort : pas d'ecretage
+
+
+def test_results_dated_on_analysed_block(fake_classifier):
+    """Resultat MediaPipe differe : date sur le bloc analyse (son horodatage),
+    pas sur le dernier bloc recu."""
+    det, clf, _ = make(fake_classifier)
+    det.process_audio(block(0.002, 0.001))
+    ts_first = det._timestamp_ms
+    first_clock = det._ts_clock[ts_first]
+    for _ in range(10):
+        det.process_audio(block(0.002, 0.001))
+    seen = []
+    orig = det.tracker.on_classification
+    det.tracker.on_classification = lambda cats, now: seen.append(now) or orig(cats, now)
+    import types
+    cat = types.SimpleNamespace(category_name='Speech', score=0.9)
+    det._handle_result(types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])]), ts_first)
+    assert seen == [first_clock] and first_clock < det._clock_end
+
+
+def test_skip_audio_advances_clock(fake_classifier):
+    det, clf, _ = make(fake_classifier)
+    det.process_audio(block(0.002))
+    t = det._clock_end
+    det.skip_audio(3 * BLOCK_SAMPLES)
+    assert abs(det._clock_end - t - 0.3) < 1e-9

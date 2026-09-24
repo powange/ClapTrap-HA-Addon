@@ -9,7 +9,8 @@ from settings_manager import (load_settings, save_settings, modify_settings, nor
                               to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
 from url_validator import mask_webhook_url
-from routes.sources import ApiError, add_restart_to_response, api_error_response, _apply_live, _restart_detection_if_running
+from routes.sources import (ApiError, add_restart_to_response, api_error_response, _apply_live, _json,
+                           _sync_and_apply)
 
 settings_bp = Blueprint('settings', __name__)
 settings_bp.register_error_handler(Exception, api_error_response)
@@ -26,7 +27,7 @@ def get_settings():
 
 @settings_bp.route('/api/settings/debug', methods=['PUT'])
 def toggle_debug():
-    data = request.get_json(silent=True) or {}
+    data = _json()
     if 'enabled' not in data:
         raise ValueError("enabled : booléen attendu")  # {} desactivait le journal
     enabled = to_bool(data['enabled'], 'enabled')
@@ -46,7 +47,7 @@ _ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
-    data = request.get_json(silent=True) or {}
+    data = _json()
     unknown = sorted(set(data) - set(_ADVANCED_LIMITS))
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
@@ -73,6 +74,10 @@ def cleanup_ha_entities():
     if not _mqtt_connected.is_set():
         # Rien ne serait publie : ne pas annoncer de suppressions.
         return jsonify({'success': False, 'error': 'Broker MQTT injoignable : réessayez une fois connecté'}), 503
+    from settings_manager import is_degraded
+    if is_degraded():
+        return jsonify({'success': False, 'error': 'Réglages illisibles : nettoyage suspendu pour ne supprimer '
+                                                   'aucune entité (restaurez une sauvegarde)'}), 409
     sync_sources(load_settings())
     removed = cleanup_orphans()
     return jsonify({
@@ -115,13 +120,11 @@ def export_settings():
 
 def _check_import_collisions(imported):
     """Refuse un import dont deux sources produiraient les memes entites HA."""
-    import copy
-    from settings_manager import _ensure_vban_ids
+    from settings_manager import merge_import
     from ha_entities import find_entity_collision
-    prospective = load_settings()
-    prospective.update(copy.deepcopy(imported))
-    _ensure_vban_ids(prospective)
-    clash = find_entity_collision(prospective)
+    # Meme fusion (et memes migrations) que l'enregistrement.
+    current = load_settings()
+    clash = find_entity_collision(merge_import(current, imported), before=current)
     if clash:
         raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
                        "renommez-la dans le fichier avant de l'importer", 409)
@@ -151,7 +154,7 @@ def import_settings():
     # Appliquer la configuration importee sans attendre un redemarrage manuel.
     level = logging.DEBUG if load_settings().get('global', {}).get('debug') else logging.INFO
     logging.getLogger().setLevel(level)
-    _restart_detection_if_running()
+    _sync_and_apply()
     return jsonify({'success': True, 'message': msg})
 
 
@@ -165,7 +168,7 @@ def test_webhook():
     pouvait servir a lire des services internes).
     """
     from url_validator import is_valid_url
-    data = request.get_json(silent=True) or {}
+    data = _json()
     url = str(data.get('url') or '').strip()
     if not url:
         return jsonify({'success': False, 'error': 'URL manquante'}), 400

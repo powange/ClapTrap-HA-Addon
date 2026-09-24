@@ -42,7 +42,17 @@
 
     // ---- Exclusions -----------------------------------------------------------
     function loadExclusions() {
-        return CT.api('GET', '/api/sound_exclusions').then(renderExclusions).catch(function (err) {
+        return CT.api('GET', '/api/sound_exclusions').then(function (data) {
+            // L'etat local sert aux listes de sons des groupes : sans cette
+            // copie, un son exclu y restait propose jusqu'au rechargement.
+            var g = CT.state.settings && (CT.state.settings.global = CT.state.settings.global || {});
+            var excluded = data.excluded || [];
+            if (g && JSON.stringify(g.sound_exclusions || []) !== JSON.stringify(excluded)) {
+                g.sound_exclusions = excluded;
+                CT.renderWhenIdle();
+            }
+            renderExclusions(data);
+        }).catch(function (err) {
             CT.error('Exclusions indisponibles : ' + err.message);
         });
     }

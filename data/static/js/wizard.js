@@ -22,10 +22,10 @@
         });
         stepType();
     }
-    function close() {
+    function close(show) {
         CT.stopTest();
         var back = document.getElementById('wizard');
-        if (back.hidden) return;
+        if (back.hidden) return Promise.resolve();
         back.hidden = true;
         session++;
         var rel = release;
@@ -33,8 +33,18 @@
         // Toujours recharger : un ajout termine apres la fermeture (ou un micro
         // ajoute dont le reglage a echoue) doit apparaitre dans la grille.
         var done = CT.refresh().catch(function () {});
-        // Rendre le focus au bouton "Ajouter" une fois la grille reconstruite.
-        done.then(function () { if (rel) rel(); });
+        // Focus rendu une fois la grille reconstruite : a la nouvelle carte
+        // (defilee et mise en evidence) apres un ajout, sinon au bouton "Ajouter".
+        return done.then(function () {
+            if (rel) rel();   // leve d'abord l'inertie de la page
+            var card = show && show.domId && document.getElementById(show.domId);
+            if (!card) return;
+            if (!card.hasAttribute('tabindex')) card.setAttribute('tabindex', '-1');
+            card.focus({preventScroll: true});
+            if (card.scrollIntoView) card.scrollIntoView({block: 'center'});
+            card.classList.add('is-highlight');
+            setTimeout(function () { card.classList.remove('is-highlight'); }, 2000);
+        });
     }
     function setStep(n, title) {
         CT.$('#wizard-title').textContent = title;
@@ -83,7 +93,9 @@
             ok.disabled = true;
             back.disabled = true;   // « Retour » pendant l'ajout menait a un doublon
             ok.textContent = 'Ajout en cours…';
-            Promise.resolve(okFn(mine)).catch(function (err) { if (mine === session) CT.error(err.message); })
+            // .then : une erreur levee tout de suite (adresse vide) passe aussi
+            // par le catch/finally, sinon l'etape restait « Ajout en cours… ».
+            Promise.resolve().then(function () { return okFn(mine); }).catch(function (err) { if (mine === session) CT.error(err.message); })
                 .finally(function () { ok.disabled = false; back.disabled = false; ok.textContent = label; });
         });
     }
@@ -108,9 +120,7 @@
         });
         wire(stepType, function (mine) {
             var dev = CT.deviceFromOption(CT.$('#wz-device').value) || CT.deviceFromOption('default');
-            return CT.api('POST', '/api/microphone')
-                .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {device: dev}); })
-                .then(function () { return CT.withRestart(CT.patchSource({kind: 'mic', key: 'mic'}, {enabled: true})); })
+            return CT.withRestart(CT.api('POST', '/api/microphone', {device: dev, enabled: true}))
                 .then(function () { return CT.reloadSettings(); })
                 .then(function () {
                     if (!current(mine)) return;
@@ -231,14 +241,14 @@
             '<div class="modal-actions">' +
             (running ? '' : '<button type="button" class="btn btn-ghost" data-w="start">Démarrer la détection</button>') +
             '<button type="button" class="btn btn-primary" data-w="done">Terminer</button></div>';
-        body.querySelector('[data-w="done"]').addEventListener('click', close);
+        var shown = created;
+        body.querySelector('[data-w="done"]').addEventListener('click', function () { close(shown); });
         var start = body.querySelector('[data-w="start"]');
         if (start) start.addEventListener('click', function () {
             start.disabled = true;
             // Le test du son ouvrait une 2e session RTSP en parallele de la
             // detection (beaucoup de cameras en limitent le nombre).
             CT.stopTest();
-            var shown = created;
             CT.api('POST', '/api/detection/start', {})
                 .catch(function (err) {
                     // Demarree ailleurs entre-temps (409) : ce n'est pas une erreur.
@@ -251,16 +261,6 @@
                     CT.$('#wz-hint').textContent = 'Détection démarrée : tapez dans vos mains, les claps reconnus s\'affichent sur la carte de la source.';
                     var done = body.querySelector('[data-w="done"]');
                     done.textContent = 'Terminer et voir la carte';
-                    done.addEventListener('click', function () {
-                        // Carte mise en evidence une fois la fenetre fermee.
-                        setTimeout(function () {
-                            var card = shown && document.getElementById(shown.domId);
-                            if (!card) return;
-                            card.scrollIntoView({block: 'center'});
-                            card.classList.add('is-highlight');
-                            setTimeout(function () { card.classList.remove('is-highlight'); }, 2000);
-                        }, 300);
-                    });
                 })
                 .catch(function (err) { start.disabled = false; CT.error('Démarrage impossible : ' + err.message); });
         });

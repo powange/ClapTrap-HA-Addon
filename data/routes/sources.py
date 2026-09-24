@@ -27,7 +27,8 @@ class ApiError(Exception):
 def api_error_response(e):
     """Handlers d'erreurs partages par les blueprints qui modifient les settings."""
     if isinstance(e, HTTPException):
-        return e
+        # Meme format JSON que les autres erreurs (413, 404, 405 partaient en HTML).
+        return jsonify({'success': False, 'error': e.description or e.name}), e.code
     if isinstance(e, ApiError):
         return jsonify({'success': False, 'error': e.message, **e.extra}), e.status
     if isinstance(e, ValueError):
@@ -85,9 +86,11 @@ def _sync_ha_entities():
 
 
 def _check_entity_collision(settings):
-    """Refuse une modification dont les entites HA en ecraseraient d'autres."""
+    """Refuse une modification qui CREE une collision d'entites HA (appele
+    dans le mutateur : le disque contient encore l'etat d'avant). Une
+    collision heritee ne bloque plus les modifications des autres sources."""
     from ha_entities import find_entity_collision
-    clash = find_entity_collision(settings)
+    clash = find_entity_collision(settings, before=load_settings())
     if clash:
         raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
                        "choisissez un autre nom", 409)
@@ -101,13 +104,15 @@ def _apply_live():
     try:
         from classify import apply_settings_if_running
         with _restart_lock:
-            apply_settings_if_running()
+            return apply_settings_if_running()   # None : detection arretee
     except Exception as e:
         logging.warning(f"Réglages non appliqués en direct: {e}")
+        return None
 
 
 def _set_live_gain(source_id, gain):
-    """Gain lu en direct aussi par le test du son (detection arretee)."""
+    """Gain lu par le test du son quand la detection est arretee (sinon
+    l'application des reglages le met a jour)."""
     try:
         from classify import update_source_gain
         update_source_gain(source_id, gain)
@@ -119,9 +124,23 @@ def _after_change(restart):
     """Apres une modification de source : redemarrage de la detection (qui
     resynchronise les entites HA) ou simple synchronisation."""
     if restart:
-        _restart_detection_if_running()
+        _sync_and_apply()
     else:
         _sync_ha_entities()
+
+
+def _source_effects(source_id, fields, restart, gain=None):
+    """Effets en direct d'une modification RTSP/VBAN, en un seul passage :
+    avant, gain, application et synchronisation HA s'enchainaient (le gain
+    etait applique deux fois, les reglages relus a chaque etape)."""
+    if restart or 'name' in fields:
+        running = _sync_and_apply()          # entites HA + detection (gain compris)
+    elif fields & {'webhook_url', 'gain'}:
+        running = _apply_live()
+    else:
+        return
+    if gain is not None and running is None:
+        _set_live_gain(source_id, gain)
 
 
 def _note_restart(result):
@@ -151,11 +170,11 @@ def add_restart_to_response(response):
 sources_bp.after_request(add_restart_to_response)
 
 
-def _restart_detection_if_running():
-    """Applique les reglages a la detection en cours : seules les sources
-    ajoutees, retirees ou modifiees (adresse, micro, flux) sont relancees ; les
-    autres gardent leur classifieur (tout etait recree a chaque modification).
-    Le nom est historique."""
+def _sync_and_apply():
+    """Synchronise les entites HA puis applique les reglages a la detection
+    en cours : seules les sources ajoutees, retirees ou modifiees (adresse,
+    micro, flux) sont relancees ; les autres gardent leur classifieur.
+    Renvoie None si la detection est arretee."""
     _sync_ha_entities()
     with _restart_lock:
         try:
@@ -163,7 +182,7 @@ def _restart_detection_if_running():
             settings = load_settings()
             changed = apply_settings_if_running(settings)
             if changed is None:
-                return  # detection arretee
+                return None  # detection arretee
             if not build_sources_from_settings(settings):
                 # Plus aucune source : la session s'arrete d'elle-meme.
                 logging.info("Détection arrêtée: aucune source active")
@@ -173,9 +192,11 @@ def _restart_detection_if_running():
                     _socketio.emit('detection_status', {'status': 'running'})
                 logging.info("Détection mise à jour (sources modifiées relancées)")
                 _note_restart('ok')
+            return changed
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la détection: {e}")
             _note_restart('failed')
+            return None
 
 
 def _persist_pulse_name(pulse_name):
@@ -312,13 +333,7 @@ def _update_rtsp(stream_id, data):
     stream = modify_settings(_mut)
 
     # Effets en direct, APRES l'enregistrement (un redemarrage relit le disque).
-    if 'gain' in data:
-        _set_live_gain(_source_id_for('rtsp', stream_id), stream['gain'])
-    if 'webhook_url' in data or 'gain' in data:
-        _apply_live()
-    if state.get('restart') or 'name' in data:
-        # Une seule synchronisation HA : la relance la fait deja.
-        _after_change(state.get('restart'))
+    _source_effects(_source_id_for('rtsp', stream_id), set(data), state.get('restart'), stream.get('gain') if 'gain' in data else None)
     return stream
 
 
@@ -354,7 +369,7 @@ def save_vban_source():
         'ip': ip,
         'port': to_number(source['port'], 'port', 1, 65535, integer=True),
         # Nom du flux VBAN tel qu'emis par l'emetteur (routage des paquets).
-        'stream_name': str(source.get('stream_name') or name).strip(),
+        'stream_name': _source_name(source.get('stream_name') or name),
         'webhook_url': to_webhook(source.get('webhook_url', '')),
         'enabled': to_bool(source.get('enabled', True), 'enabled'),
     }
@@ -410,12 +425,7 @@ def _update_vban(vban_id, source):
         return dict(s)
 
     s = modify_settings(_mut)
-    if 'gain' in source:
-        _set_live_gain(_source_id_for('vban', s['id']), s['gain'])
-    if 'webhook_url' in source or 'gain' in source:
-        _apply_live()
-    if state.get('restart') or 'name' in source:
-        _after_change(state.get('restart'))   # nom affiche des entites / relance
+    _source_effects(_source_id_for('vban', s['id']), set(source), state.get('restart'), s.get('gain') if 'gain' in source else None)
     return s
 
 
@@ -576,19 +586,14 @@ def update_source_sound_whitelist():
 
     def _mut(settings):
         source_dict = _require_source(settings, kind, source_key)
-        groups = source_dict.setdefault('sound_groups', [])
+        # Les groupes se creent par /api/source/sound_groups (et chaque source
+        # en a un des sa creation) : plus de groupe cree ici a la volee.
+        groups = source_dict.get('sound_groups') or []
         default = _default_group(groups)
-        target_slug = data.get('group_slug') or (default.get('slug') if default else 'clap')
+        target_slug = data.get('group_slug') or (default.get('slug') if default else None)
         target_group = next((g for g in groups if isinstance(g, dict) and g.get('slug') == target_slug), None)
         if target_group is None:
-            if groups:
-                raise ApiError('groupe introuvable', 404)
-            target_group = {
-                'slug': target_slug, 'name': target_slug.capitalize(),
-                'sound_whitelist': {}, 'threshold': 0.5, 'ha_entities': [1, 2],
-            }
-            groups.append(target_group)
-            default = target_group
+            raise ApiError('groupe introuvable', 404)
         if enabled:
             for g in groups:
                 if g is target_group or not isinstance(g, dict):
@@ -626,9 +631,9 @@ def create_source_sound_group():
     data = _json()
     kind = _require_kind(data, 'name')
     source_key = data.get('source_key')
-    name = str(data.get('name') or '').strip()
-    if not name:
-        raise ApiError('kind / name requis')
+    if not isinstance(data.get('name'), str):
+        raise ApiError('Nom du groupe : texte attendu')
+    name = _source_name(data['name'])
 
     def _mut(settings):
         src = _require_source(settings, kind, source_key)
@@ -679,7 +684,9 @@ def update_source_sound_group():
             # Le slug (donc l'entity_id HA) reste STABLE : renommer un groupe
             # ne change que le nom affiche. Avant, l'entity_id suivait le nom
             # et les automations cassaient a chaque renommage.
-            target['name'] = str(data['name'] or '').strip() or target.get('name', slug)
+            if not isinstance(data['name'], str):
+                raise ApiError('Nom du groupe : texte attendu')
+            target['name'] = _source_name(data['name'], target.get('name', slug))
         if 'threshold' in data:
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'ha_entities' in data:
@@ -738,7 +745,16 @@ def _update_mic(field, value):
 
 @sources_bp.route('/api/microphone', methods=['POST'])
 def add_microphone():
-    """Affiche a nouveau la source micro (bouton "Ajouter > Microphone")."""
+    """Affiche a nouveau la source micro (bouton "Ajouter > Microphone").
+
+    Corps facultatif avec les memes champs que le PATCH (device, enabled...) :
+    l'assistant ajoute, regle et active le micro en une requete (une ecriture,
+    une synchronisation HA) au lieu de trois.
+    """
+    data = request.get_json(silent=True)
+    if isinstance(data, dict) and data:
+        return jsonify({'success': True, 'microphone': _update_mic_fields(data, configured=True)})
+
     def _mut(settings):
         mic = settings.setdefault('microphone', {})
         mic['configured'] = True
@@ -790,7 +806,7 @@ def _check_fields(kind, data):
         raise ApiError(f"Champ(s) non modifiable(s) : {', '.join(unknown)}")
 
 
-def _update_mic_fields(data):
+def _update_mic_fields(data, configured=False):
     """Champs du micro modifiables via PATCH /api/sources/mic/mic.
 
     Tout le corps est valide AVANT d'ecrire, puis applique en une seule
@@ -814,6 +830,8 @@ def _update_mic_fields(data):
         changes['webhook_url'] = to_webhook(data['webhook_url'])
     if 'enabled' in data:
         changes['enabled'] = to_bool(data['enabled'], 'enabled')
+    if configured:
+        changes['configured'] = True
 
     current = load_settings().get('microphone', {})
     auto_after = changes.get('auto_volume', current.get('auto_volume', False))
@@ -834,10 +852,6 @@ def _update_mic_fields(data):
     if 'volume' in changes and mic.get('pulse_name'):
         from audio_utils import set_pulse_volume
         set_pulse_volume(mic['pulse_name'], changes['volume'])
-    if 'webhook_url' in changes:
-        _apply_live()
-    if 'enabled' in changes:
-        _sync_ha_entities()  # disponibilite des entites du micro
     if changes.get('auto_volume') is False:
         from auto_volume import auto_volume_mgr
         auto_volume_mgr.stop()
@@ -845,8 +859,12 @@ def _update_mic_fields(data):
     needs_restart = (('enabled' in changes and before.get('enabled') != mic.get('enabled'))
                      or ('auto_volume' in changes and before.get('auto_volume') != mic.get('auto_volume'))
                      or (device_changed and mic.get('enabled')))
-    if needs_restart:
-        _restart_detection_if_running()
+    if needs_restart or 'enabled' in changes or device_changed or configured:
+        # Une seule synchronisation HA (disponibilite, nom du micro affiche,
+        # meme desactive) : la relance la fait deja.
+        _after_change(needs_restart)
+    elif 'webhook_url' in changes:
+        _apply_live()
     return mic
 
 

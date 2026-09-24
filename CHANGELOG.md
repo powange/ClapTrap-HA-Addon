@@ -1,5 +1,75 @@
 # Changelog
 
+## 6.53.0
+
+Correction de tous les points de l'audit 6.52.
+
+### Détection audio
+
+- **Relancer l'unique source n'arrête plus la détection** (changer de micro
+  ou d'auto-volume la coupait alors qu'elle restait affichée « en cours ») ;
+  retirer la dernière source l'arrête une seule fois, proprement.
+- Mises à jour en direct protégées pendant l'arrêt d'une source (arrêt hors
+  de la requête HTTP), micro arrêté pendant sa préparation sans auto-volume
+  démarré après coup, arrêt de toutes les sources avec un délai commun.
+- Résultats YAMNet datés sur le bloc analysé (et non à leur arrivée) ; blocs
+  VBAN perdus comptés dans l'horloge audio.
+- Sons en attente d'écriture jamais annoncés deux fois ; auto-volume arrêté
+  immédiatement et relancé au changement de périphérique.
+
+### Home Assistant / MQTT
+
+- **Réglages illisibles : plus aucune entité supprimée** (mode dégradé
+  signalé dans l'interface, nettoyage refusé).
+- Clé d'entité changée par un import : la disponibilité suit ; source
+  recréée pendant une coupure du broker : ses entités ne sont plus retirées
+  à la reconnexion ; une collision héritée ne fait plus refuser les autres
+  modifications ni déclencher les entités d'une autre source.
+
+### API et réglages
+
+- Sections `null` ou mal typées refusées à l'import (elles empêchaient
+  l'add-on de redémarrer) et remplacées par les valeurs par défaut au
+  chargement ; plusieurs VBAN sans `entity_key` acceptés.
+- Une seule fusion pour le contrôle et l'enregistrement d'un import ; noms
+  de groupe validés ; erreurs HTTP (404, 413…) en JSON sur `/api/`.
+- Nettoyage à l'arrêt terminé avant la sortie, même sans onglet ouvert.
+- Assistant micro : une requête (et une synchronisation HA) au lieu de
+  trois.
+
+### Sécurité et publication
+
+- `settings.json.backup` retiré du dépôt ; AppArmor : signaux et
+  configuration nécessaires ; URL RTSP masquée refusée à l'enregistrement.
+- CI : une publication à la fois, depuis `main` seulement, sans retour en
+  arrière de version ; test de fumée de l'image (dépendances, imports) et
+  bytecode précompilé.
+
+### Interface
+
+- Assistant RTSP sans adresse : l'étape n'est plus bloquée ; à la fin de
+  l'assistant, focus et défilement vers la nouvelle carte.
+- Focus gardé sur le bon champ après un rendu (repères `data-role`), sur
+  « Nouveau groupe » après la suppression d'un groupe ; rendu différé après
+  le clic en cours.
+- Retour sur l'onglet : la grille n'est reconstruite que si les réglages ont
+  changé ; exclusions reportées dans les listes de sons des groupes.
+- Accessibilité : seuil lu en %, bouton « Afficher le mot de passe »,
+  messages sans double annonce, « Enregistré » n'empêche plus l'annonce
+  d'un clap ; gain jusqu'à 100 ; « Effacer » désactivé si l'historique est
+  vide.
+
+### Simplifier le code et documentation
+
+- Effets d'une modification de source en un seul passage ; plus de groupe
+  créé à la volée par la route des sons ; `_sync_and_apply` remplace
+  `_restart_detection_if_running` ; boucles de redessin et CSS dédoublonnées ;
+  code mort retiré (`get_detector`, `is_running`, `AudioDetector.groups`).
+- DOCS : seule la source modifiée est relancée ; tailles réelles (~340 Mo,
+  1,4 Go). README : procédure de publication (commit du workflow,
+  `config.yaml` jamais modifié à la main).
+- 20 tests pytest et 10 vérifications d'interface ajoutés.
+
 ## 6.52.0
 
 ### Simplifier le code

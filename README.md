@@ -49,6 +49,14 @@ Publication : la version à publier se met dans `VERSION` (et le
 construit et publie les images, puis seulement passe `config.yaml` à cette
 version : Home Assistant ne propose jamais une version dont l'image manque.
 
+- Le workflow ajoute lui-même un commit « Release X » sur `main` : faire
+  `git pull --rebase origin main` avant de pousser la version suivante.
+- Ne jamais modifier `version` dans `config.yaml` à la main (c'est la version
+  publiée, que voit Home Assistant).
+- Si une publication échoue après avoir poussé une partie des images,
+  corriger puis relancer le workflow ; changer `VERSION` si le correctif
+  modifie l'image (les tags déjà publiés ne sont pas reconstruits).
+
 Tests (lancés aussi par GitHub Actions à chaque push et pull request) :
 
 ```sh

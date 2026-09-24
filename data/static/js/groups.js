@@ -39,7 +39,7 @@
         }).join('');
         return '<section class="group-card" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-head">' +
-                '<input type="text" class="input group-name" value="' + esc(g.name || g.slug) + '" aria-label="Nom du groupe">' +
+                '<input type="text" class="input group-name" data-role="group-name" value="' + esc(g.name || g.slug) + '" aria-label="Nom du groupe">' +
                 (isDefault ? '<span class="pill">Groupe principal</span>'
                            : '<button type="button" class="btn-link danger" data-group-action="delete">Supprimer le groupe</button>') +
             '</div>' +
@@ -48,7 +48,7 @@
             '</fieldset>' +
             '<div class="field"><div class="field-row"><span class="field-label">Sons qui déclenchent ce groupe</span>' +
                 '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
-                (labels.length > 8 ? '<input type="search" class="input sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
+                (labels.length > 8 ? '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
                     esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
                 '<div class="chips">' + (chips || '<p class="hint">Les sons entendus pendant la détection apparaîtront ici.</p>') + '</div>' +
             '</div></section>';
@@ -129,7 +129,7 @@
                 var name = nameInput.value.trim();
                 if (!name) { nameInput.value = group.name; return; }
                 putGroup(src, slug, {name: name})
-                    .then(function () { group.name = name; CT.renderSources(); })
+                    .then(function () { group.name = name; CT.renderWhenIdle(); })
                     .catch(function (err) { nameInput.value = group.name; CT.error('Renommage impossible : ' + err.message); });
             });
             CT.$$('[data-clap]', cardEl).forEach(function (cb) {

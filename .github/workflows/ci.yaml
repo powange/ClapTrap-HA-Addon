@@ -24,6 +24,12 @@ env:
 permissions:
   contents: read
 
+# Une publication a la fois, dans l'ordre des pushes : deux runs paralleles
+# pouvaient ecrire config.yaml dans le desordre (6.54 puis 6.53).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   python:
     name: Tests Python
@@ -70,7 +76,9 @@ jobs:
 
   init:
     name: Version à publier
-    if: github.event_name != 'pull_request'
+    # Publication depuis main seulement (un lancement manuel depuis une autre
+    # branche publiait une version absente de main).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [python, ui]
     runs-on: ubuntu-latest
     outputs:
@@ -151,8 +159,18 @@ jobs:
       - name: config.yaml passe à la version publiée
         run: |
           v="${{ needs.init.outputs.version }}"
-          sed -i "s/^version: .*/version: \"$v\"/" config.yaml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Release $v"
-          git push
+          for attempt in 1 2 3; do
+            git pull --rebase --quiet origin main
+            current="$(yq '.version' config.yaml)"
+            # Jamais de retour en arriere (run plus ancien termine apres un plus recent).
+            if [ "$(printf '%s\n%s\n' "$v" "$current" | sort -V | tail -1)" != "$v" ] || [ "$v" = "$current" ]; then
+              echo "config.yaml deja en $current : rien a publier"; exit 0
+            fi
+            sed -i "s/^version: .*/version: \"$v\"/" config.yaml
+            git diff --quiet || git commit -qam "Release $v"
+            git push --quiet origin HEAD:main && exit 0
+            git reset --quiet --hard origin/main
+          done
+          exit 1

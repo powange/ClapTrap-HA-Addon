@@ -161,7 +161,7 @@ def test_import_validates_entity_key_and_vban_duplicates(client):
 def test_disabled_source_add_publishes_and_delete_does_not_restart(client, settings_dir, monkeypatch):
     import routes.sources as rs
     calls = []
-    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: calls.append('restart'))
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: calls.append('restart'))
     monkeypatch.setattr(rs, '_sync_ha_entities', lambda: calls.append('sync'))
     sid = client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://c/1', 'enabled': False}).json['stream']['id']
     assert calls == ['sync']
@@ -190,9 +190,37 @@ def test_route_validation_consistency(client, settings_dir):
 def test_restart_result_reported_in_response(client, settings_dir, monkeypatch):
     import routes.sources as rs
     settings_dir.save_settings({'microphone': {'configured': True, 'enabled': False}})
-    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: rs._note_restart('ok'))
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: rs._note_restart('ok'))
     r = client.patch('/api/sources/mic/mic', json={'enabled': True})
     assert r.json['restart'] == 'ok'
-    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: None)
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: None)
     r = client.patch('/api/sources/mic/mic', json={'enabled': False})
     assert 'restart' not in r.json
+
+
+def test_http_errors_are_json(client):
+    r = client.post('/api/settings/import', data=b'x' * (3 * 1024 * 1024), content_type='application/json')
+    assert r.status_code == 413 and r.json['success'] is False
+    r = client.get('/api/nexiste/pas')
+    assert r.status_code == 404
+
+
+def test_wizard_mic_single_request(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    calls = []
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: calls.append('restart'))
+    monkeypatch.setattr(rs, '_sync_ha_entities', lambda: calls.append('sync'))
+    r = client.post('/api/microphone', json={'device': {'name': 'USB', 'index': 2, 'pulse_name': 'alsa.usb'}, 'enabled': True})
+    assert r.status_code == 200
+    mic = settings_dir.load_settings()['microphone']
+    assert mic['configured'] and mic['enabled'] and mic['audio_source'] == 'USB'
+    assert calls == ['restart']   # une seule application (et synchronisation HA)
+
+
+def test_whitelist_unknown_group_refused(client, settings_dir):
+    settings_dir.save_settings({'microphone': {'configured': True}})
+    before = settings_dir.load_settings()['microphone']['sound_groups']
+    r = client.put('/api/source/sound_whitelist', json={'kind': 'mic', 'label': 'Clapping', 'enabled': True,
+                                                        'group_slug': 'inconnu'})
+    assert r.status_code == 404
+    assert settings_dir.load_settings()['microphone']['sound_groups'] == before   # aucun groupe cree

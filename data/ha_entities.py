@@ -407,21 +407,17 @@ def republish_all():
             _publish_source(info)
 
 
-def _normalise_groups(groups, fallback_clap_counts=None):
-    """Normalise une liste de groupes en {slug: {name, clap_counts}}."""
+def _normalise_groups(groups):
+    """Normalise une liste de groupes en {slug: {name, clap_counts}} (groupe
+    « Clap » 1 et 2 claps si la source n'en a aucun)."""
+    from settings_manager import clap_counts_of
     out = {}
-    if isinstance(groups, list) and groups:
-        for idx, g in enumerate(groups):
-            if not isinstance(g, dict):
-                continue
-            slug = g.get('slug') or f'group{idx + 1}'
-            from settings_manager import clap_counts_of
-            out[slug] = {'name': g.get('name') or slug,
-                         'clap_counts': clap_counts_of(g, fallback_clap_counts or [1, 2])}
-    if not out:
-        counts = [n for n in (fallback_clap_counts or [1, 2]) if 1 <= n <= 4]
-        out['clap'] = {'name': 'Clap', 'clap_counts': counts}
-    return out
+    for idx, g in enumerate(groups if isinstance(groups, list) else []):
+        if not isinstance(g, dict):
+            continue
+        slug = g.get('slug') or f'group{idx + 1}'
+        out[slug] = {'name': g.get('name') or slug, 'clap_counts': clap_counts_of(g)}
+    return out or {'clap': {'name': 'Clap', 'clap_counts': [1, 2]}}
 
 
 def _object_ids(info):
@@ -429,7 +425,7 @@ def _object_ids(info):
             for g_slug, g in info['groups'].items() for n in g['clap_counts']}
 
 
-def register_source(source_id, label=None, clap_counts=None, groups=None, available=None):
+def register_source(source_id, label=None, groups=None, available=None):
     """Enregistre (ou met a jour) les entites d'une source.
 
     Republie simplement la config : HA met a jour l'entite existante (meme
@@ -437,7 +433,7 @@ def register_source(source_id, label=None, clap_counts=None, groups=None, availa
     Seules les entites qui disparaissent (groupe ou nombre de claps retire)
     sont supprimees.
     """
-    norm_groups = _normalise_groups(groups, fallback_clap_counts=clap_counts)
+    norm_groups = _normalise_groups(groups)
     with _lock:
         existing = _source_info.get(source_id)
         info = {
@@ -447,6 +443,9 @@ def register_source(source_id, label=None, clap_counts=None, groups=None, availa
             'groups': norm_groups,
             'available': (existing or {}).get('available', True) if available is None else bool(available),
         }
+        # Re-ajoutee pendant une coupure du broker : annuler sa suppression en
+        # attente (effacee puis recreee a la reconnexion, personnalisations perdues).
+        _pending_removal.difference_update(_object_ids(info))
         if existing == info:
             return
         removed = _object_ids(existing) - _object_ids(info) if existing else set()
@@ -501,22 +500,23 @@ def _resolve_sources(settings):
     publication, le controle des routes et les entity_id affiches (il y en
     avait trois, avec deux logiques de dedoublonnage).
     """
-    claimed, keys, kept, collision = {}, {}, [], None
+    claimed, keys, kept, collisions = {}, {}, [], []
     for ui_key, key, label, groups, available in _all_sources(settings):
         norm = _normalise_groups(groups)
         objs = _object_ids({'slug': _make_slug(key), 'groups': norm})
         clash = keys.get(key) or next((claimed[o] for o in objs if o in claimed), None)
         if clash:
-            collision = collision or label
+            collisions.append(label)
             if (key, clash) not in _warned_collisions:
                 _warned_collisions.add((key, clash))
                 logging.warning(f"Entités HA : « {label} » produirait les mêmes entités que « {clash} », "
-                                "non publiée : renommez la source ou le groupe")
+                                "non publiée : supprimez puis recréez le groupe (ou la source) sous un autre "
+                                "nom (renommer ne change pas l'identifiant)")
             continue
         keys[key] = label
         claimed.update({o: label for o in objs})
         kept.append((ui_key, key, label, groups, available, norm))
-    return kept, collision
+    return kept, collisions
 
 
 def _configured_sources(settings):
@@ -524,10 +524,16 @@ def _configured_sources(settings):
     return [(key, label, groups, available) for _, key, label, groups, available, _ in _resolve_sources(settings)[0]]
 
 
-def find_entity_collision(settings):
-    """Libelle de la premiere source dont les entites en ecraseraient d'autres
-    (None si aucune)."""
-    return _resolve_sources(settings)[1]
+def find_entity_collision(settings, before=None):
+    """Libelle de la premiere source dont les entites en ecraseraient
+    d'autres (None si aucune). Avec `before` (reglages avant modification),
+    seules les NOUVELLES collisions comptent : une collision heritee ne fait
+    plus refuser les modifications des autres sources."""
+    after = _resolve_sources(settings)[1]
+    if before is not None:
+        old = set(_resolve_sources(before)[1])
+        after = [c for c in after if c not in old]
+    return after[0] if after else None
 
 
 def sync_sources(settings=None):
@@ -541,6 +547,13 @@ def sync_sources(settings=None):
         configured = _configured_sources(settings)
         for key, label, groups, available in configured:
             register_source(key, label=label, groups=groups, available=available)
+        from settings_manager import is_degraded
+        if is_degraded():
+            # Reglages illisibles (valeurs par defaut, aucune source) : ne rien
+            # supprimer, sinon toutes les entites et leurs personnalisations
+            # disparaissaient de HA ; le nettoyage des orphelines est suspendu.
+            _expected_keys = None
+            return
         with _lock:
             _expected_keys = {key for key, *_ in configured}
             stale = [k for k in _source_info if k not in _expected_keys]
@@ -621,8 +634,13 @@ def _pulse(topic):
 def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_clap_counts=None):
     """Appele quand un clap est detecte. Route vers l'entite du bon groupe."""
     with _lock:
-        info = _source_info.get(entity_key, {})
-    source_slug = info.get('slug', _make_slug(entity_key))
+        info = _source_info.get(entity_key)
+    if info is None:
+        # Source non publiee (collision heritee) : ne pas declencher les
+        # entites de meme identifiant d'une autre source.
+        logging.info(f"Clap sur {entity_key} : source sans entités publiées")
+        return
+    source_slug = info['slug']
     group_info = (info.get('groups') or {}).get(group_slug, {})
     clap_counts = group_info['clap_counts'] if 'clap_counts' in group_info else (group_clap_counts or [])
     # Au-dela de 4 : bruit pendant la fenetre de comptage, pas « 4 claps ».
