@@ -148,3 +148,14 @@ def test_several_vban_without_entity_key(settings_dir):
                                              {'ip': '1.1.1.2', 'stream_name': 'B'}]})
     keys = [v['entity_key'] for v in sm.load_settings()['saved_vban_sources']]
     assert all(keys) and len(set(keys)) == 2
+
+
+def test_new_source_group_empty_legacy_source_keeps_sounds(settings_dir):
+    sm = settings_dir
+    sm.save_settings({'rtsp_sources': [{'id': 'new', 'url': 'rtsp://h/1'},
+                                       {'id': 'old', 'url': 'rtsp://h/2', 'threshold': 0.6}]})
+    new, old = sm.load_settings()['rtsp_sources']
+    assert new['sound_groups'][0]['sound_whitelist'] == {}
+    assert old['sound_groups'][0]['sound_whitelist'].get('Clapping') is True
+    with pytest.raises(ValueError, match='auto_add_sounds'):
+        sm.normalize_settings({'microphone': {'sound_groups': [{'slug': 'a', 'auto_add_sounds': 'x'}]}})

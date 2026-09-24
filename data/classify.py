@@ -324,7 +324,7 @@ class DetectionSession:
                 det.stop()
                 return None
             self.detectors[src['source_id']] = det
-            self.seen[src['source_id']] = {l for g in groups for l in (g.get('whitelist') or {})}
+            self.seen[src['source_id']] = _discovery_seen(groups)
         # Reglages modifies pendant l'initialisation (plusieurs secondes sur Pi).
         self._apply_current_settings(src, det)
         return det
@@ -347,11 +347,11 @@ class DetectionSession:
                 if current:
                     if current['groups']:
                         det.set_groups(current['groups'])
-                    known = {l for g in current['groups'] for l in (g.get('whitelist') or {})}
+                    known = _discovery_seen(current['groups'])
                     with self._lock:
                         # Sons retires (« Vider la liste ») : redevenus decouvrables ;
                         # sons en attente d'ecriture : toujours connus (doublons sinon).
-                        self.seen[sid] = known | _pending_seen(src['kind'], src['source_key'])
+                        self.seen[sid] = None if known is None else known | _pending_seen(src['kind'], src['source_key'])
                         self.webhooks[sid] = current.get('webhook_url') or ''
                     if 'gain' in current:
                         _live_gains[sid] = float(current['gain'])
@@ -717,9 +717,19 @@ def live_gain(source_id, default):
 
 # --- Sons "vus" (auto-decouverte) -----------------------------------------------
 
+def _discovery_seen(groups):
+    """Sons deja connus pour l'auto-decouverte : ceux presents dans TOUS les
+    groupes qui ajoutent les sons entendus (un groupe qui vient d'activer
+    l'option recoit aussi les sons deja connus des autres). None si aucun
+    groupe ne l'a activee : aucun son n'est alors ajoute ni annonce."""
+    lists = [set(g.get('whitelist') or {}) for g in groups if g.get('auto_add')]
+    return set.intersection(*lists) if lists else None
+
+
 def _ensure_label_in_groups(source_dict, label):
-    """Ajoute `label: False` dans la whitelist de chaque groupe de la source.
-    Renvoie True si quelque chose a change."""
+    """Ajoute `label: False` dans la whitelist des groupes de la source qui
+    ajoutent les sons entendus (`auto_add_sounds`). Renvoie True si quelque
+    chose a change."""
     if not isinstance(source_dict, dict):
         return False
     groups = source_dict.get('sound_groups')
@@ -731,7 +741,7 @@ def _ensure_label_in_groups(source_dict, label):
         return False
     changed = False
     for g in groups:
-        if isinstance(g, dict):
+        if isinstance(g, dict) and g.get('auto_add_sounds'):
             wl = g.setdefault('sound_whitelist', {})
             if label not in wl:
                 wl[label] = False

@@ -51,7 +51,8 @@ def session_env(settings_dir, fake_classifier, monkeypatch):
     settings = {'global': {'threshold': 0.5, 'delay': 1.5}, 'microphone': {'enabled': False},
                 'rtsp_sources': [{'id': 'cam1', 'name': 'Cam', 'url': 'rtsp://u:p@h/x', 'enabled': True, 'gain': 1,
                                   'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'threshold': 0.5,
-                                                    'ha_entities': [1, 2], 'sound_whitelist': {'Clapping': True}}]}],
+                                                    'ha_entities': [1, 2], 'sound_whitelist': {'Clapping': True},
+                                                    'auto_add_sounds': True}]}],
                 'saved_vban_sources': []}
     settings_dir.save_settings(settings)
     yield classify, sock, emitted, calls, settings_dir
@@ -337,3 +338,36 @@ def test_mic_runner_stopped_during_prepare(session_env, monkeypatch):
     sm.modify_settings(lambda s: s['microphone'].update(enabled=True, auto_volume=True, pulse_name='alsa.x'))
     session._prepare_mic(stop)
     assert started == []
+
+
+def test_sounds_not_added_without_auto_add(session_env, monkeypatch):
+    """Groupe sans « Ajouter les sons entendus » : aucun son ajouté ni annoncé."""
+    classify, sock, emitted, calls, sm = session_env
+    sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'][0].update(auto_add_sounds=False))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    classify.start_from_settings(sock)
+    time.sleep(1.0)
+    classify.stop_detection(timeout=5)
+    assert not [d for e, d in emitted if e == 'sound_seen']
+    assert sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist'] == {'Clapping': True}
+
+
+def test_sounds_added_only_to_auto_add_groups(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'].append(
+        {'slug': 'toc', 'name': 'Toc', 'ha_entities': [1], 'sound_whitelist': {}}))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    classify.start_from_settings(sock)
+    time.sleep(1.0)
+    classify.stop_detection(timeout=5)
+    clap, toc = sm.load_settings()['rtsp_sources'][0]['sound_groups']
+    assert clap['sound_whitelist'].get('Speech') is False and toc['sound_whitelist'] == {}
+
+
+def test_discovery_seen_intersection():
+    import classify
+    assert classify._discovery_seen([{'whitelist': {'A': True}, 'auto_add': False}]) is None
+    groups = [{'whitelist': {'A': True, 'B': False}, 'auto_add': True},
+              {'whitelist': {}, 'auto_add': True},       # option tout juste activee
+              {'whitelist': {'C': True}, 'auto_add': False}]
+    assert classify._discovery_seen(groups) == set()   # A et B manquent au 2e groupe

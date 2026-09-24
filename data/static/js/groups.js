@@ -48,9 +48,13 @@
             '</fieldset>' +
             '<div class="field"><div class="field-row"><span class="field-label">Sons qui déclenchent ce groupe</span>' +
                 '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
+                '<label class="switch-inline"><input type="checkbox" role="switch" data-role="auto-add"' + (g.auto_add_sounds ? ' checked' : '') +
+                    '> Ajouter les sons entendus</label>' +
                 (labels.length > 8 ? '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
                     esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
-                '<div class="chips">' + (chips || '<p class="hint">Les sons entendus pendant la détection apparaîtront ici.</p>') + '</div>' +
+                '<div class="chips">' + (chips || '<p class="hint">' + (g.auto_add_sounds
+                    ? 'Les sons entendus pendant la détection apparaîtront ici.'
+                    : 'Activez « Ajouter les sons entendus » puis lancez la détection : les sons entendus apparaîtront ici.') + '</p>') + '</div>' +
             '</div></section>';
     }
 
@@ -144,6 +148,17 @@
                         .catch(function (err) { cb.checked = !cb.checked; CT.error('Entités non enregistrées : ' + err.message); });
                 });
             });
+            var auto = cardEl.querySelector('[data-role="auto-add"]');
+            auto.addEventListener('change', function () {
+                var on = auto.checked;
+                putGroup(src, slug, {auto_add_sounds: on})
+                    .then(function () {
+                        group.auto_add_sounds = on;
+                        CT.markSaved(auto, on ? 'Sons entendus ajoutés' : 'Ajout automatique arrêté');
+                        CT.renderGroupsManage(box.closest('.source-card'), src);
+                    })
+                    .catch(function (err) { auto.checked = !on; CT.error('Réglage non enregistré : ' + err.message); });
+            });
             CT.$$('.chip input', cardEl).forEach(function (cb) {
                 cb.addEventListener('change', function () {
                     var label = cb.getAttribute('data-label');
@@ -178,13 +193,15 @@
         });
     };
 
-    // Auto-decouverte : un nouveau son entendu apparait dans chaque groupe.
+    // Auto-decouverte : un nouveau son entendu apparait dans les groupes qui
+    // ajoutent les sons entendus.
     CT.on('sound_seen', function (d) {
         if (!d || !d.label) return;
         var src = CT.findSource(function (s) { return s.sourceId === d.source_id; });
         if (!src) return;
         var changed = false;
         (src.data.sound_groups || []).forEach(function (g) {
+            if (!g.auto_add_sounds) return;
             g.sound_whitelist = g.sound_whitelist || {};
             if (!(d.label in g.sound_whitelist)) { g.sound_whitelist[d.label] = false; changed = true; }
         });

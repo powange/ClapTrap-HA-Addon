@@ -639,16 +639,11 @@ def create_source_sound_group():
         src = _require_source(settings, kind, source_key)
         groups = src.setdefault('sound_groups', [])
         existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)}
-        # Le nouveau groupe propose tous les sons deja entendus sur la source
-        # (non coches) : sinon il restait vide, un son deja "vu" ailleurs n'y
-        # etant jamais ajoute.
-        known = set()
-        for g in groups:
-            if isinstance(g, dict):
-                known.update((g.get('sound_whitelist') or {}).keys())
+        # Groupe vide : ses sons s'ajoutent en activant « Ajouter les sons
+        # entendus » (auto_add_sounds) pendant la detection.
         new_group = {
             'slug': _slugify_group(name, existing_slugs), 'name': name,
-            'sound_whitelist': {label: False for label in sorted(known)},
+            'sound_whitelist': {}, 'auto_add_sounds': False,
             'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
             # [] = aucune entite (un `or` le remplacait par 1 et 2 claps)
             'ha_entities': to_clap_counts(data['ha_entities'] if data.get('ha_entities') is not None else [1, 2]),
@@ -667,7 +662,8 @@ def create_source_sound_group():
 def update_source_sound_group():
     """Met a jour les meta-donnees d'un groupe.
 
-    Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?}
+    Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?,
+           auto_add_sounds?}
     """
     data = _json()
     kind = _require_kind(data, 'group_slug')
@@ -689,6 +685,8 @@ def update_source_sound_group():
             target['name'] = _source_name(data['name'], target.get('name', slug))
         if 'threshold' in data:
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
+        if 'auto_add_sounds' in data:
+            target['auto_add_sounds'] = to_bool(data['auto_add_sounds'], 'auto_add_sounds')
         if 'ha_entities' in data:
             target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
             # Plus de nombres de claps = nouvelles entites : meme controle qu'a

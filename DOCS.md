@@ -59,6 +59,11 @@ La dernière étape affiche le niveau sonore : tapez dans vos mains, il doit
 monter nettement. Lancez ensuite la détection avec **Démarrer la détection** (ou
 cochez **Démarrer au lancement de l'add-on**).
 
+Le groupe « Clap » d'une nouvelle source est vide : dans **Réglages de la
+source**, activez **Ajouter les sons entendus**, tapez dans vos mains pendant
+la détection, puis cochez les sons qui doivent déclencher le groupe (par
+exemple « Applaudissement », « Mains »).
+
 Le mot de passe d'une adresse RTSP est masqué à l'écran : le bouton
 **Afficher le mot de passe** révèle l'adresse complète pour la modifier. Il reste dans la
 sauvegarde « Exporter ».
@@ -75,10 +80,14 @@ rien reçu depuis 10 s)…
 ## Groupes de sons
 
 Chaque source a un ou plusieurs **groupes de sons**. Un groupe réunit les
-sons qui doivent le déclencher (par défaut : applaudissements, mains) et a son
-propre **seuil de confiance** (score YAMNet minimal, réglable avec la poignée
-sur la carte). Les sons entendus par la source s'ajoutent automatiquement à la
-liste, non cochés : cochez ceux qui doivent déclencher le groupe.
+sons qui doivent le déclencher et a son propre **seuil de confiance** (score
+YAMNet minimal, réglable avec la poignée sur la carte).
+
+La liste des sons ne se remplit pas toute seule. L'interrupteur **Ajouter les
+sons entendus** (désactivé par défaut, réglable par groupe) ajoute à la liste
+du groupe, non cochés, les sons que la source entend pendant la détection :
+cochez ceux qui doivent déclencher le groupe, puis désactivez-le une fois la
+liste faite. Un nouveau groupe démarre vide.
 
 Un son ne peut être coché que dans un groupe par source. Si plusieurs groupes
 reconnaissent le même événement sonore, seul celui qui a le meilleur score

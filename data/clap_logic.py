@@ -30,6 +30,8 @@ def normalize_group(g, idx=0, default_threshold=0.5):
         'whitelist': dict(g.get('whitelist') or g.get('sound_whitelist') or {}),
         'threshold': float(g.get('threshold', default_threshold)),
         'clap_counts': [n for n in counts if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 4],
+        # Sons entendus ajoutes a la liste du groupe (desactive par defaut).
+        'auto_add': bool(g.get('auto_add', g.get('auto_add_sounds', False))),
     }
 
 

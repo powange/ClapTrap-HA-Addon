@@ -133,7 +133,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('.modal #dlg-input').value = 'Snap'; $('.modal [data-r="ok"]').click(); await tick(4);
   ok('15. nouveau groupe (sans rechargement)', lastCall('POST', '/api/source/sound_groups')[2].name === 'Snap' && !!$('#src-mic .group-live[data-slug="snap"]'));
   emit('sound_seen', { source_id: 'mic', label: 'Dog' }); await tick();
-  ok('15. auto-découverte d\'un son', !!$('#src-mic .chip input[data-label="Dog"]'));
+  ok('15. auto-découverte d\'un son (groupe avec « Ajouter les sons entendus »)', !!$('#src-mic .chip input[data-label="Dog"]'));
   $('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]').click(); await tick();
   $('.modal [data-r="ok"]').click(); await tick(3);
   ok('15. supprimer un groupe', lastCall('DELETE', '/api/source/sound_groups')[2].group_slug === 'toc');
@@ -310,6 +310,19 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const thr2 = d.querySelector('.threshold');
   ok('+  seuil lu en % (aria-valuetext)', / %$/.test(thr2.getAttribute('aria-valuetext') || ''));
   ok('+  messages d\'information sans rôle en double', !d.querySelector('#toasts .toast:not(.toast-error)[role]'));
+  // --- lot 6.54 : ajout des sons entendus par groupe
+  CT.state.settings = JSON.parse(JSON.stringify(settings));
+  CT.state.settings.microphone.sound_groups = [{ slug: 'clap', name: 'Clap', ha_entities: [1], sound_whitelist: {} },
+                                               { slug: 'toc', name: 'Toc', ha_entities: [1], sound_whitelist: {}, auto_add_sounds: true }];
+  CT.render();
+  const micCard = $('#src-mic');
+  const autoClap = micCard.querySelector('.group-card[data-slug="clap"] [data-role="auto-add"]');
+  ok('+  interrupteur « Ajouter les sons entendus » désactivé par défaut', !!autoClap && !autoClap.checked && /Activez « Ajouter les sons entendus »/.test(micCard.querySelector('.group-card[data-slug="clap"]').textContent));
+  emit('sound_seen', { source_id: 'mic', label: 'Dog' }); await tick();
+  ok('+  son entendu ajouté seulement aux groupes qui l\'ont activé', !micCard.querySelector('.group-card[data-slug="clap"] [data-label="Dog"]') && !!$('#src-mic .group-card[data-slug="toc"] [data-label="Dog"]'));
+  change($('#src-mic .group-card[data-slug="clap"] [data-role="auto-add"]'), true); await tick(2);
+  const autoPut = lastCall('PUT', '/api/source/sound_groups');
+  ok('+  activer l\'ajout des sons entendus (serveur)', !!autoPut && autoPut[2].group_slug === 'clap' && autoPut[2].auto_add_sounds === true);
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

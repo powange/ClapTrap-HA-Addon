@@ -61,7 +61,11 @@ def test_groups_crud(client, settings_dir):
         {'slug': 'clap', 'name': 'Clap', 'sound_whitelist': {'Clapping': True, 'Knock': False}, 'ha_entities': [1]}]}})
     r = client.post('/api/source/sound_groups', json={'kind': 'mic', 'name': 'Portes', 'ha_entities': []})
     g = [x for x in settings_dir.load_settings()['microphone']['sound_groups'] if x['slug'] == 'portes'][0]
-    assert r.status_code == 200 and g['ha_entities'] == [] and g['sound_whitelist'] == {'Clapping': False, 'Knock': False}
+    # Nouveau groupe vide, sans ajout automatique des sons entendus
+    assert r.status_code == 200 and g['ha_entities'] == [] and g['sound_whitelist'] == {} and g['auto_add_sounds'] is False
+    r = client.put('/api/source/sound_groups', json={'kind': 'mic', 'group_slug': 'portes', 'auto_add_sounds': True})
+    assert r.status_code == 200 and r.json['group']['auto_add_sounds'] is True
+    assert client.put('/api/source/sound_groups', json={'kind': 'mic', 'group_slug': 'portes', 'auto_add_sounds': 'peut-être'}).status_code == 400
     r = client.put('/api/source/sound_whitelist', json={'kind': 'mic', 'label': 'Clapping', 'enabled': True,
                                                         'group_slug': 'portes'})
     assert r.status_code == 409 and r.json['conflict_group'] == 'clap'

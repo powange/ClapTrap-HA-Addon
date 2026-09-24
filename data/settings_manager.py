@@ -117,9 +117,13 @@ def _ensure_source_groups(source, default_threshold=0.5):
             g.setdefault('ha_entities', source.get('ha_entities', [1, 2]))
         return
 
-    legacy_whitelist = source.get('sound_whitelist') or {
-        "Clapping": True, "Hands": True, "Applause": True
-    }
+    # Source historique (champs monogroupe) : ses sons d'origine. Source
+    # neuve : groupe « Clap » vide, a remplir en activant « Ajouter les sons
+    # entendus » puis en lancant la detection.
+    if any(k in source for k in LEGACY_SOURCE_FIELDS):
+        legacy_whitelist = source.get('sound_whitelist') or {"Clapping": True, "Hands": True, "Applause": True}
+    else:
+        legacy_whitelist = {}
     source['sound_groups'] = [{
         'name': 'Clap',
         'slug': 'clap',
@@ -605,6 +609,8 @@ def _norm_groups(src, path):
             g['ha_entities'] = to_clap_counts(g.pop('clap_counts'), f"{gp}.clap_counts")
         if 'ha_entities' in g:
             g['ha_entities'] = to_clap_counts(g['ha_entities'], f"{gp}.ha_entities")
+        if 'auto_add_sounds' in g:
+            g['auto_add_sounds'] = to_bool(g['auto_add_sounds'], f"{gp}.auto_add_sounds")
         wl = g.get('sound_whitelist')
         if wl is not None:
             if not isinstance(wl, dict):

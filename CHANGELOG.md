@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.54.0
+
+### Sons d'un groupe
+
+- **La liste « Sons qui déclenchent ce groupe » ne se remplit plus toute
+  seule.** Un interrupteur par groupe, **Ajouter les sons entendus**
+  (désactivé par défaut), ajoute à la liste, non cochés, les sons entendus
+  pendant la détection. Les groupes existants gardent leur liste.
+- Un nouveau groupe, comme le groupe « Clap » d'une nouvelle source, démarre
+  vide : activez l'interrupteur, lancez la détection, tapez dans vos mains,
+  puis cochez les sons voulus. L'assistant et la documentation l'expliquent.
+
 ## 6.53.0
 
 Correction de tous les points de l'audit 6.52.

@@ -236,8 +236,8 @@
             '<span class="meter-target" style="left:' + CT.dbToPct(GOOD_DB) + '%" aria-hidden="true"><span>bon niveau</span></span>' +
             '<span class="meter-label">En attente du son…</span></div>' +
             '<p class="hint" id="wz-hint">' + (running
-                ? 'La détection tourne : les claps reconnus s\'afficheront sur la carte de la source.'
-                : 'Ce test mesure seulement le niveau. Démarrez la détection pour que vos claps soient reconnus.') + '</p>' +
+                ? 'La détection tourne. Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, tapez dans vos mains et cochez les sons qui doivent le déclencher.'
+                : 'Ce test mesure seulement le niveau. Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, démarrez la détection, tapez dans vos mains et cochez les sons qui doivent le déclencher.') + '</p>' +
             '<div class="modal-actions">' +
             (running ? '' : '<button type="button" class="btn btn-ghost" data-w="start">Démarrer la détection</button>') +
             '<button type="button" class="btn btn-primary" data-w="done">Terminer</button></div>';
@@ -258,7 +258,7 @@
                 .then(function () {
                     if (CT.renderStatus) CT.renderStatus();
                     start.remove();
-                    CT.$('#wz-hint').textContent = 'Détection démarrée : tapez dans vos mains, les claps reconnus s\'affichent sur la carte de la source.';
+                    CT.$('#wz-hint').textContent = 'Détection démarrée. Dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, tapez dans vos mains et cochez les sons qui doivent le déclencher.';
                     var done = body.querySelector('[data-w="done"]');
                     done.textContent = 'Terminer et voir la carte';
                 })
