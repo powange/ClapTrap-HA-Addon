@@ -32,6 +32,8 @@
         return Number(n || 0).toFixed(digits == null ? 2 : digits).replace('.', ',');
     };
     CT.pct = function (n) { return Math.round((n || 0) * 100) + ' %'; };
+    // Nom francais d'un son YAMNet (sounds_fr.js), le nom anglais a defaut.
+    CT.soundLabel = function (label) { return (CT.SOUNDS_FR || {})[label] || label; };
     CT.dbToPct = function (db) { return Math.max(0, Math.min(100, ((db + 60) / 60) * 100)); };
     CT.setMeterFill = function (fill, pct) {
         fill.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
@@ -89,11 +91,13 @@
     // Annonces pour lecteurs d'ecran : seulement les evenements importants
     // (claps), au plus une toutes les 2 s.
     var lastAnnounce = 0;
-    CT.announce = function (text) {
+    // `important` (demarrage / arret) : jamais filtre, et ne bloque pas
+    // l'annonce d'un clap qui suit.
+    CT.announce = function (text, important) {
         var now = Date.now();
         var box = document.getElementById('announcer');
-        if (!box || now - lastAnnounce < 2000) return;
-        lastAnnounce = now;
+        if (!box || (!important && now - lastAnnounce < 2000)) return;
+        if (!important) lastAnnounce = now;
         box.textContent = text;
     };
     CT.error = function (message) { CT.toast(message, 'error'); };
@@ -228,6 +232,38 @@
         return CT.api('PATCH', '/api/sources/' + src.kind + '/' + src.key.split('/').map(encodeURIComponent).join('/'), body);
     };
 
+    // ---- Theme : celui de Home Assistant ------------------------------------------
+    // L'ingress sert la page dans la meme origine que HA : on lit la couleur de
+    // fond du theme HA. Sinon (acces direct, lecture impossible), le theme du
+    // systeme s'applique (prefers-color-scheme).
+    function luminance(color) {
+        var ctx = document.createElement('canvas').getContext('2d');
+        if (!ctx) return null;
+        ctx.fillStyle = '#010203';
+        ctx.fillStyle = color;
+        var hex = ctx.fillStyle;
+        if (!/^#[0-9a-f]{6}$/i.test(hex) || hex === '#010203') return null;
+        var rgb = [1, 3, 5].map(function (i) { return parseInt(hex.substr(i, 2), 16) / 255; });
+        return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    }
+    CT.syncTheme = function () {
+        var theme = null;
+        try {
+            if (window.parent && window.parent !== window) {
+                var root = window.parent.document.documentElement;
+                var bg = getComputedStyle(root).getPropertyValue('--primary-background-color').trim() ||
+                         getComputedStyle(window.parent.document.body).backgroundColor;
+                var lum = bg ? luminance(bg) : null;
+                if (lum !== null) theme = lum < 0.4 ? 'dark' : 'light';
+            }
+        } catch (e) { theme = null; }  // autre origine
+        var el = document.documentElement;
+        if (theme) { if (el.getAttribute('data-theme') !== theme) el.setAttribute('data-theme', theme); }
+        else el.removeAttribute('data-theme');
+    };
+    CT.syncTheme();
+    setInterval(CT.syncTheme, 5000);
+
     // ---- Resynchronisation ------------------------------------------------------
     CT.reloadEntityIds = function () {
         return CT.api('GET', '/api/ha/entity-ids').then(function (ids) { CT.state.entityIds = ids || {}; })
@@ -243,7 +279,8 @@
         }).catch(function () {});
     };
     CT.reloadStatus = function () {
-        return fetch(basePath + '/status').then(function (r) { return r.json(); }).then(function (st) {
+        // Via CT.api : une erreur 500 affichait « Arrêté » au lieu d'echouer.
+        return CT.api('GET', '/status').then(function (st) {
             CT.state.status = st;
             return st;
         });
@@ -252,7 +289,7 @@
     CT.isEditing = function () {
         var a = document.activeElement;
         return !!(a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.type !== 'range' && a.type !== 'checkbox' &&
-                  !a.closest('.modal'));
+                  a.type !== 'file' && !a.closest('.modal'));
     };
     // Rendu avec restauration du focus : chaque action reconstruisait la
     // grille et renvoyait l'utilisateur clavier en haut de la page.

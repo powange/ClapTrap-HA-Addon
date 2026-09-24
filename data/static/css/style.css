@@ -1,4 +1,5 @@
-/* ClapTrap : interface de l'add-on (theme clair / sombre via prefers-color-scheme). */
+/* ClapTrap : interface de l'add-on. Theme clair / sombre : celui de Home Assistant
+   (data-theme pose par core.js), sinon celui du systeme (prefers-color-scheme). */
 
 :root {
     --bg: #f3f5f4;
@@ -27,7 +28,7 @@
     color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --bg: #0e1412;
         --surface: #161e1b;
         --surface-2: #1b2522;
@@ -50,6 +51,28 @@
         color-scheme: dark;
     }
 }
+:root[data-theme="dark"] {
+        --bg: #0e1412;
+        --surface: #161e1b;
+        --surface-2: #1b2522;
+        --ink: #e4ece9;
+        --ink-2: #aab8b3;
+        --ink-3: #7c8c87;
+        --line: #2a3531;
+        --accent: #4cc3a8;
+        --accent-ink: #06201a;
+        --accent-soft: #16332c;
+        --ok: #5fd38d;
+        --warn: #ffb561;
+        --danger: #ff8a80;
+        --danger-ink: #2a0906;
+        --danger-soft: #3a1714;
+        --meter-low: #4cc38a;
+        --meter-mid: #e8c84a;
+        --meter-high: #ff7a6e;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        color-scheme: dark;
+    }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -184,9 +207,11 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 .tag-rtsp { background: color-mix(in srgb, #5a47c2 14%, transparent); color: #4c3aad; }
 .tag-vban { background: color-mix(in srgb, #b3380a 12%, transparent); color: #9a3008; }
 @media (prefers-color-scheme: dark) {
-    .tag-rtsp { color: #b3a6ff; }
-    .tag-vban { color: #ffab7a; }
+    :root:not([data-theme="light"]) .tag-rtsp { color: #b3a6ff; }
+    :root:not([data-theme="light"]) .tag-vban { color: #ffab7a; }
 }
+:root[data-theme="dark"] .tag-rtsp { color: #b3a6ff; }
+:root[data-theme="dark"] .tag-vban { color: #ffab7a; }
 .menu { position: relative; }
 .menu-list {
     position: absolute; right: 0; top: 100%; z-index: 10; min-width: 220px; padding: 6px;
@@ -255,11 +280,11 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 .scorebar .threshold::-webkit-slider-runnable-track { background: transparent; height: 100%; }
 .scorebar .threshold::-moz-range-track { background: transparent; height: 100%; }
 .scorebar .threshold::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 34px; margin-top: -4px; pointer-events: auto; cursor: ew-resize;
+    -webkit-appearance: none; width: 24px; height: 34px; margin-top: -4px; pointer-events: auto; cursor: ew-resize;
     background: var(--surface); border: 2px solid var(--ink); border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,.25);
 }
 .scorebar .threshold::-moz-range-thumb {
-    width: 12px; height: 30px; pointer-events: auto; cursor: ew-resize;
+    width: 20px; height: 30px; pointer-events: auto; cursor: ew-resize;
     background: var(--surface); border: 2px solid var(--ink); border-radius: 5px;
 }
 .scorebar .threshold:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
@@ -367,7 +392,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
     padding: 16px; background: rgba(0, 0, 0, 0.5);
 }
 .modal {
-    width: 100%; max-width: 560px; max-height: calc(100vh - 32px); overflow: auto;
+    width: 100%; max-width: 560px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto;
     background: var(--surface); color: var(--ink); border-radius: var(--radius); padding: 20px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 16px;
 }
@@ -420,8 +445,9 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
 .toast-success { background: var(--ok); color: #fff; }
 .toast-error { background: var(--danger); color: #fff; }
 @media (prefers-color-scheme: dark) {
-    .toast-success, .toast-error { color: #111; }
+    :root:not([data-theme="light"]) .toast-success, :root:not([data-theme="light"]) .toast-error { color: #111; }
 }
+:root[data-theme="dark"] .toast-success, :root[data-theme="dark"] .toast-error { color: #111; }
 .toast-out { opacity: 0; transform: translateY(8px); }
 
 /* ---- Petits ecrans ---------------------------------------------------------------- */
@@ -436,7 +462,8 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
     /* Barre compacte : etat + bouton sur une ligne, option + onglets sur la
        suivante (elle occupait ~200 px collants sur un telephone). */
     .statusbar { grid-template-columns: 1fr auto; gap: 4px 12px; padding-top: 8px; }
-    .brand { display: none; }
+    /* Titre gardé pour les lecteurs d'écran, masqué à l'œil (place). */
+    .brand { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
     .status-actions { display: contents; }
     .status-actions .btn-large { grid-row: 1; grid-column: 2; min-height: 44px; padding: 0 16px; font-size: 0.95rem; }
     .status-actions .switch-inline { grid-row: 2; grid-column: 2; justify-self: end; }

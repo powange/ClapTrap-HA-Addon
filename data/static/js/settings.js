@@ -5,11 +5,11 @@
     var DEFAULTS = {delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3.0};
     var FIELDS = {delay: 'adv-delay', peak_cooldown: 'adv-cooldown', peak_ratio: 'adv-ratio'};
 
-    function fillAdvanced() {
+    function fillAdvanced(force) {
         var g = CT.state.settings.global || {};
         Object.keys(FIELDS).forEach(function (k) {
             var el = document.getElementById(FIELDS[k]);
-            if (el && document.activeElement !== el) el.value = g[k] != null ? g[k] : DEFAULTS[k];
+            if (el && (force || document.activeElement !== el)) el.value = g[k] != null ? g[k] : DEFAULTS[k];
         });
         CT.$('#debug-toggle').checked = !!g.debug;
     }
@@ -18,7 +18,14 @@
         Object.keys(FIELDS).forEach(function (k) {
             var el = document.getElementById(FIELDS[k]);
             el.addEventListener('change', function () {
-                if (!el.reportValidity()) return;  // bornes identiques a celles du serveur
+                if (!el.checkValidity()) {
+                    // Bornes identiques a celles du serveur : valeur refusee,
+                    // l'ancienne est remise et la raison reste affichee.
+                    var why = el.validationMessage;
+                    fillAdvanced(true);
+                    CT.error(el.labels[0].textContent + ' : ' + why);
+                    return;
+                }
                 var body = {};
                 body[k] = parseFloat(el.value);
                 CT.api('PUT', '/api/settings/advanced', body)
@@ -44,7 +51,7 @@
         var ex = CT.$('#excluded-list'), av = CT.$('#available-list');
         ex.innerHTML = excluded.length ? excluded.map(function (l) {
             return '<span class="chip is-on"><span title="' + CT.esc(l) + '">' + CT.esc(CT.soundLabel(l)) + '</span>' +
-                '<button type="button" class="chip-remove" data-unexclude="' + CT.esc(l) + '" aria-label="Ne plus exclure ' + CT.esc(l) + '">×</button></span>';
+                '<button type="button" class="chip-remove" data-unexclude="' + CT.esc(l) + '" aria-label="Ne plus exclure ' + CT.esc(CT.soundLabel(l)) + '">×</button></span>';
         }).join('') : '<p class="hint">Aucun son exclu.</p>';
         av.innerHTML = available.length ? available.map(function (l) {
             return '<button type="button" class="chip" data-exclude="' + CT.esc(l) + '" title="' + CT.esc(l) + '">' +
@@ -97,7 +104,16 @@
             var fd = new FormData();
             fd.append('file', file);
             CT.apiForm('/api/settings/import', fd)
-                .then(function () { CT.success('Configuration importée'); return CT.resync(); })
+                .then(function () {
+                    CT.success('Configuration importée');
+                    input.blur();
+                    // Tout recharger : l'onglet Reglages (reglages avances,
+                    // exclusions, journal detaille) gardait les anciennes valeurs.
+                    return Promise.all([CT.reloadSettings(), CT.reloadStatus()]).then(function () {
+                        CT.render();
+                        CT.onSettingsOpen();
+                    });
+                })
                 .catch(function (err) { CT.error('Import refusé : ' + err.message); })
                 .finally(function () { input.value = ''; });
         });

@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.42.0
+
+### Interface
+
+- **Assistant d'ajout robuste** : le bouton affiche « Ajout en cours… » ;
+  fermer l'assistant pendant l'ajout ne lance plus de test dans la fenêtre
+  cachée, et la grille est toujours rechargée à la fermeture (la source
+  ajoutée apparaît). Une caméra déjà ajoutée est refusée (6.39.0).
+- **Import** : l'onglet Réglages (comptage des claps, sons ignorés, journal
+  détaillé) et les cartes sont rechargés ; ils gardaient les anciennes valeurs.
+- **Sons en français partout** : 252 sons YAMNet traduits (20 avant), dans
+  les groupes, la ligne en direct des cartes, l'historique et les sons ignorés.
+- **Thème de Home Assistant** : l'interface suit le thème clair ou sombre de
+  HA (et non plus seulement celui du système).
+- **Lecteurs d'écran** : la zone d'état n'est plus relue chaque minute ;
+  démarrage et arrêt de l'écoute sont annoncés.
+- Poignée du seuil élargie (cible tactile) ; titre conservé pour les
+  lecteurs d'écran sur mobile ; assistant plus coupé sous la barre d'adresse
+  mobile ; une erreur du serveur n'affiche plus « Arrêté » ; « Effacer »
+  l'historique demande confirmation et l'historique est rechargé après un
+  redémarrage de l'add-on ; un réglage avancé hors bornes est remis à sa
+  valeur avec un message ; le gain RTSP modifié pendant un test est conservé ;
+  statut de chaque source (micro, caméra, VBAN) sur sa carte.
+
 ## 6.41.0
 
 ### Build et déploiement

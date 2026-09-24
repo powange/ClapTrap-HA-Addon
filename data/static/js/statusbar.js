@@ -33,6 +33,9 @@
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
                               : 'Activez une source pour pouvoir démarrer'));
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
+        if (wasRunning !== null && wasRunning !== running && CT.announce) {
+            CT.announce(running ? 'Écoute démarrée' : 'Écoute arrêtée', true);
+        }
         wasRunning = running;
         var btn = CT.$('#toggle-detection');
         btn.textContent = running ? 'Arrêter' : "Démarrer l'écoute";
@@ -124,7 +127,7 @@
             CT.esc(sourceNameFor(ev.source_id)) + ' · ' + CT.esc(ev.group_name || ev.group_slug || '') +
             (ev.ignored ? ' <span class="muted">(ignoré : un autre groupe a gagné)</span>' : '') + '</span>' +
             '<span class="history-score">' + CT.pct(ev.score) + '</span>';
-        var labels = (ev.labels || []).map(function (l) { return l.label + ' ' + CT.pct(l.score); }).join(' · ');
+        var labels = (ev.labels || []).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
         if (labels) li.title = labels;
         return li;
     }
@@ -134,18 +137,23 @@
     }
     function bindHistory() {
         var list = CT.$('#history-list');
-        fetch(CT.basePath + '/api/detections/history').then(function (r) { return r.ok ? r.json() : []; })
-            .then(function (events) {
+        function loadHistory() {
+            CT.api('GET', '/api/detections/history').then(function (events) {
                 list.innerHTML = '';
-                (events || []).slice(0, 20).forEach(function (ev) { list.appendChild(historyItem(ev)); });
+                (Array.isArray(events) ? events : []).slice(0, 20).forEach(function (ev) { list.appendChild(historyItem(ev)); });
                 renderHistoryEmpty();
             }).catch(renderHistoryEmpty);
+        }
+        loadHistory();
+        // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus.
+        CT.on('connect', loadHistory);
         CT.on('clap', function (ev) {
             list.insertBefore(historyItem(ev || {}), list.firstChild);
             while (list.children.length > 20) list.removeChild(list.lastChild);
             renderHistoryEmpty();
         });
         CT.$('#history-clear').addEventListener('click', function () {
+            if (!list.children.length || !window.confirm('Effacer les dernières détections ?')) return;
             CT.api('DELETE', '/api/detections/history')
                 .then(function () { list.innerHTML = ''; renderHistoryEmpty(); })
                 .catch(function (err) { CT.error('Historique non effacé : ' + err.message); });

@@ -30,7 +30,7 @@
         return '<div class="group-live" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) + '</span>' +
             '<span class="clap-badge" hidden></span>' +
-            '<span class="group-live-score" aria-label="Score actuel">0,00</span></div>' +
+            '<span class="group-live-score" title="Score actuel">0,00</span></div>' +
             '<div class="scorebar"><div class="scorebar-fill"></div><div class="scorebar-mark" style="left:' + (t * 100) + '%"></div>' +
             '<input type="range" class="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
@@ -286,12 +286,11 @@
                         var vol = card.querySelector('[data-field="volume"]');
                         if (vol) vol.disabled = input.checked;
                     }
-                    if (name === 'gain' && src.kind === 'rtsp' && CT.state.testing && CT.state.testing.domId === src.domId) {
-                        return; // le test lit le gain en direct
-                    }
                     if (['name', 'url', 'device'].indexOf(name) !== -1) {
                         return CT.reloadSettings().then(function () { CT.render(); CT.success('Enregistré'); });
                     }
+                    // Y compris pendant un test (qui lit le gain en direct) : la
+                    // valeur n'etait pas recopiee et revenait au rendu suivant.
                     Object.assign(src.data, d.source || {});
                 }).catch(function (err) {
                     if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
@@ -471,7 +470,7 @@
         if (!c || !c.card || !Array.isArray(d.detected)) return;
         var line = c.card.querySelector('[data-role="live"]');
         if (line.dataset.clapUntil && Date.now() < +line.dataset.clapUntil) return;
-        line.textContent = d.detected.slice(0, 3).map(function (l) { return l.label + ' ' + CT.pct(l.score); }).join(' · ');
+        line.textContent = d.detected.slice(0, 3).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
     });
 
     CT.on('clap', function (d) {

@@ -4,18 +4,6 @@
     var CT = window.CT;
     var esc = CT.esc;
 
-    // Traductions des sons YAMNet les plus courants (le nom anglais reste la
-    // reference enregistree et affichee en infobulle).
-    var FR = {
-        'Clapping': 'Applaudissement', 'Hands': 'Mains', 'Applause': 'Applaudissements',
-        'Finger snapping': 'Claquement de doigts', 'Speech': 'Parole', 'Music': 'Musique',
-        'Silence': 'Silence', 'Knock': 'Toc (porte)', 'Tap': 'Tapotement', 'Door': 'Porte',
-        'Dog': 'Chien', 'Cat': 'Chat', 'Laughter': 'Rire', 'Whistling': 'Sifflement',
-        'Doorbell': 'Sonnette', 'Alarm': 'Alarme', 'Typing': 'Frappe au clavier',
-        'Inside, small room': 'Intérieur, petite pièce', 'Vehicle': 'Véhicule', 'Television': 'Télévision'
-    };
-    CT.soundLabel = function (label) { return FR[label] || label; };
-
     function slugOfSource(src) {
         if (src.kind === 'mic') return 'mic';
         if (src.kind === 'rtsp') return CT.slug('rtsp_' + String(src.key).substring(0, 8));

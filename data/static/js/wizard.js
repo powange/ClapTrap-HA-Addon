@@ -4,12 +4,17 @@
     var CT = window.CT;
     var esc = CT.esc;
     var modal, body, release, created;
+    // Numero de session : une reponse arrivee apres la fermeture (ou une
+    // reouverture) est ignoree. Fermer pendant l'ajout lancait sinon un test
+    // dans la fenetre cachee, sans rafraichir la grille.
+    var session = 0;
 
     function open() {
         var back = document.getElementById('wizard');
         modal = back.querySelector('.modal');
         body = back.querySelector('[data-role="wizard-body"]');
         back.hidden = false;
+        session++;
         created = null;
         release = CT.trapFocus(modal, close, function () { return document.getElementById('add-source'); });
         stepType();
@@ -19,9 +24,12 @@
         var back = document.getElementById('wizard');
         if (back.hidden) return;
         back.hidden = true;
+        session++;
         var rel = release;
         release = null;
-        var done = created ? CT.reloadSettings().then(CT.render).catch(function () {}) : Promise.resolve();
+        // Toujours recharger : un ajout termine apres la fermeture (ou un micro
+        // ajoute dont le reglage a echoue) doit apparaitre dans la grille.
+        var done = CT.reloadSettings().then(CT.render).catch(function () {});
         // Rendre le focus au bouton "Ajouter" une fois la grille reconstruite.
         done.then(function () { if (rel) rel(); });
     }
@@ -65,11 +73,16 @@
     function wire(backFn, okFn) {
         body.querySelector('[data-w="back"]').addEventListener('click', backFn);
         var ok = body.querySelector('[data-w="ok"]');
+        var label = ok.textContent;
         ok.addEventListener('click', function () {
+            var mine = session;
             ok.disabled = true;
-            Promise.resolve(okFn()).catch(function (err) { CT.error(err.message); }).finally(function () { ok.disabled = false; });
+            ok.textContent = 'Ajout en cours…';
+            Promise.resolve(okFn(mine)).catch(function (err) { if (mine === session) CT.error(err.message); })
+                .finally(function () { ok.disabled = false; ok.textContent = label; });
         });
     }
+    function current(mine) { return mine === session; }
 
     // ---- Etape 2 : parametres -----------------------------------------------------
     function stepMic() {
@@ -89,14 +102,18 @@
             sel.innerHTML = '<option value="default">Micro par défaut du système</option>' +
                 devices.map(function (d, i) { return '<option value="' + i + '">' + esc(d.name) + '</option>'; }).join('');
         });
-        wire(stepType, function () {
+        wire(stepType, function (mine) {
             var v = CT.$('#wz-device').value;
             var dev = v === 'default' ? {index: 0, name: 'default', pulse_name: ''} : devices[parseInt(v, 10)];
             return CT.api('POST', '/api/microphone')
                 .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {device: {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''}}); })
                 .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {enabled: true}); })
                 .then(function () { return CT.reloadSettings(); })
-                .then(function () { created = CT.findSource(function (s) { return s.kind === 'mic'; }); stepCheck(); });
+                .then(function () {
+                    if (!current(mine)) return;
+                    created = CT.findSource(function (s) { return s.kind === 'mic'; });
+                    stepCheck();
+                });
         });
     }
 
@@ -109,12 +126,16 @@
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
             actions('Ajouter la caméra');
         CT.$('#wz-url').focus();
-        wire(stepType, function () {
+        wire(stepType, function (mine) {
             var url = CT.$('#wz-url').value.trim();
             if (!url) { CT.$('#wz-url').focus(); throw new Error("Saisissez l'adresse du flux."); }
             return CT.api('POST', '/api/rtsp/stream', {name: CT.$('#wz-name').value.trim() || 'Caméra', url: url, enabled: true})
                 .then(function (d) { return CT.reloadSettings().then(function () { return d; }); })
-                .then(function (d) { created = CT.findSource(function (s) { return s.kind === 'rtsp' && s.key === d.stream.id; }); stepCheck(); });
+                .then(function (d) {
+                    if (!current(mine)) return;
+                    created = CT.findSource(function (s) { return s.kind === 'rtsp' && s.key === d.stream.id; });
+                    stepCheck();
+                });
         });
     }
 
@@ -172,14 +193,17 @@
     function saveVban(src) {
         if (savingVban) return;  // double clic : le 2e envoi repondait « existe deja »
         savingVban = true;
+        var mine = session;
         CT.$$('.vban-item, #wz-v-add', body).forEach(function (b) { b.disabled = true; });
         CT.api('POST', '/api/vban/save', src)
             .then(function (d) { return CT.reloadSettings().then(function () { return d.source; }); })
             .then(function (saved) {
+                if (!current(mine)) return;
                 created = CT.findSource(function (s) { return s.kind === 'vban' && s.data.id === saved.id; });
                 stepCheck();
             })
             .catch(function (err) {
+                if (!current(mine)) return;
                 CT.error('Ajout impossible : ' + err.message);
                 CT.$$('.vban-item:not([data-added]), #wz-v-add', body).forEach(function (b) { b.disabled = false; });
             })

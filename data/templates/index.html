@@ -16,7 +16,9 @@
             <img src="{{ url_for('static', filename='img/logo.webp') }}" alt="" width="32" height="32">
             <span>ClapTrap</span>
         </h1>
-        <div class="status" role="status" aria-live="polite">
+        <!-- Pas de région live : la durée (« depuis 14 min ») était relue chaque
+             minute ; démarrage et arrêt sont annoncés par #announcer. -->
+        <div class="status">
             <span class="status-dot" aria-hidden="true"></span>
             <div>
                 <strong id="status-title">Arrêté</strong>
@@ -168,6 +170,7 @@
         window.basePath = {{ ingress_path|tojson }};
     </script>
     <script src="{{ url_for('static', filename='js/vendor/socket.io.min.js') }}"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/sounds_fr.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/core.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/statusbar.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/groups.js"></script>
