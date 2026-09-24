@@ -6,7 +6,7 @@ from datetime import datetime
 import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
-                              to_bool, to_number, SettingsSaveError, SETTINGS_FILE)
+                              to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
 from routes.sources import api_error_response, _restart_detection_if_running
 
@@ -99,20 +99,21 @@ def export_settings():
     """Sauvegarde complete, ou `?secrets=0` pour une copie a partager
     (demande d'aide, issue GitHub) : identifiants RTSP et chemins de webhook
     (le secret d'un webhook Home Assistant) masques."""
-    from flask import Response, send_file
-    if request.args.get('secrets', '1') not in ('0', 'false', 'no'):
-        return send_file(SETTINGS_FILE, as_attachment=True, download_name='claptrap-settings.json')
-    from url_validator import mask_url_credentials, mask_webhook_url
+    from flask import Response
     data = load_settings()
-    sources = [data.get('microphone') or {}] + list(data.get('rtsp_sources') or []) + \
-        list(data.get('saved_vban_sources') or [])
-    for src in sources:
-        if src.get('webhook_url'):
-            src['webhook_url'] = mask_webhook_url(src['webhook_url'])
-        if src.get('url'):
-            src['url'] = mask_url_credentials(src['url'])
+    shareable = request.args.get('secrets', '1') in ('0', 'false', 'no')
+    if shareable:
+        from url_validator import mask_url_credentials, mask_webhook_url
+        sources = [data.get('microphone') or {}] + list(data.get('rtsp_sources') or []) + \
+            list(data.get('saved_vban_sources') or [])
+        for src in sources:
+            if src.get('webhook_url'):
+                src['webhook_url'] = mask_webhook_url(src['webhook_url'])
+            if src.get('url'):
+                src['url'] = mask_url_credentials(src['url'])
+    name = 'claptrap-settings-partage.json' if shareable else 'claptrap-settings.json'
     return Response(json.dumps(data, indent=4, ensure_ascii=False), mimetype='application/json',
-                    headers={'Content-Disposition': 'attachment; filename=claptrap-settings-partage.json'})
+                    headers={'Content-Disposition': f'attachment; filename={name}'})
 
 
 @settings_bp.route('/api/settings/import', methods=['POST'])

@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Tests de l interface ClapTrap (jsdom)",
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

@@ -42,7 +42,14 @@ affichée dans l'onglet **Documentation** de l'add-on.
 
 Issues et pull requests sur
 [GitHub](https://github.com/powange/ClapTrap-HA-Addon) ; l'historique est dans
-[CHANGELOG.md](CHANGELOG.md). Les tests de la logique de comptage se lancent
-avec `python -m pytest data/tests`.
+[CHANGELOG.md](CHANGELOG.md).
+
+Tests (lancés aussi par GitHub Actions à chaque push) :
+
+```sh
+pip install -r data/requirements-dev.txt
+python -m pytest data/tests          # comptage, détecteur, VBAN, sources, session, HA, réglages, routes
+cd data/tests/ui && npm install && python render_page.py && node ui_test.js page.html   # interface
+```
 
 Merci à @korben, qui a développé le système de reconnaissance en Python.

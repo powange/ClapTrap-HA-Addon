@@ -1,0 +1,40 @@
+# Tests a chaque push et pull request : logique de comptage, detecteur, VBAN,
+# sources, session, entites Home Assistant, reglages, routes (pytest) et
+# parcours complet de l'interface (jsdom).
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -r data/requirements-dev.txt
+      - run: python -m pytest -q data/tests
+
+  ui:
+    name: Interface (jsdom)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: pip install jinja2
+      - run: npm install --no-save --prefix data/tests/ui
+      - run: python data/tests/ui/render_page.py data/tests/ui/page.html
+      - run: node data/tests/ui/ui_test.js data/tests/ui/page.html

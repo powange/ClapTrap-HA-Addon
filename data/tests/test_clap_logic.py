@@ -225,3 +225,60 @@ def test_group_without_entities_triggers_without_peak_with_zero_count():
         events += t.on_classification([('Bark', 0.9 if i < 5 else 0.05)], now)
         now += 0.1
     assert [(e['group']['slug'], e['clap_count']) for e in events] == [('dog', 0)]
+
+
+def test_three_groups_single_winner():
+    """3 groupes reconnaissent le meme son : un seul gagnant, les autres ignores."""
+    t = ClapTracker(window=0.5)
+    t.set_groups([
+        {'slug': 'a', 'name': 'A', 'whitelist': {'Clapping': True}, 'threshold': 0.3},
+        {'slug': 'b', 'name': 'B', 'whitelist': {'Hands': True}, 'threshold': 0.3},
+        {'slug': 'c', 'name': 'C', 'whitelist': {'Applause': True}, 'threshold': 0.3},
+    ])
+    now, events = 1000.0, []
+    for _ in range(50):
+        t.feed_peak(0.002, now); now += 0.1
+    t.feed_peak(0.5, now); now += 0.1
+    for _ in range(10):
+        t.feed_peak(0.002, now)
+        events += t.on_classification([('Clapping', 0.6), ('Hands', 0.9), ('Applause', 0.4)], now)
+        now += 0.1
+    assert sorted((e['group']['slug'], e['ignored']) for e in events) == [('a', True), ('b', False), ('c', True)]
+
+
+def test_params_changed_while_armed():
+    """Fenetre raccourcie pendant qu'un groupe est arme : la detection se
+    termine avec la nouvelle fenetre, sans erreur."""
+    s = Sim(window=1.5)
+    s.audio(1, 0.3); s.audio(2)
+    s.result(Clapping=0.8)
+    s.tracker.set_params(window=0.3)
+    s.settle(Clapping=0.7)
+    assert [e['clap_count'] for e in s.events] == [1]
+
+
+def test_set_groups_keeps_empty_clap_counts():
+    t = ClapTracker()
+    t.set_groups([{'slug': 'x', 'whitelist': {}, 'ha_entities': []},
+                  {'slug': 'y', 'whitelist': {}, 'clap_counts': [1, 9, True, 3]},
+                  {'slug': 'z', 'whitelist': {}}])
+    assert [g['clap_counts'] for g in t.groups] == [[], [1, 3], [1, 2]]
+
+
+def test_lookback_extended_for_slow_cadence():
+    """Resultat 1,4 s apres le pic : hors fenetre par defaut, rattache avec la
+    fenetre elargie (cadence d'un resultat par seconde)."""
+    for lookback, expected in ((1.2, []), (1.5, [1])):
+        t, now = _quiet_tracker()
+        t.peak_lookback = lookback
+        t.feed_peak(0.5, now)
+        events = []
+        for _ in range(14):
+            now += 0.1
+            t.feed_peak(0.002, now)
+        events += t.on_classification([('Clapping', 0.9)], now)
+        for _ in range(20):
+            now += 0.1
+            t.feed_peak(0.002, now)
+            events += t.on_classification([('Clapping', 0.05)], now)
+        assert [e['clap_count'] for e in events] == expected, lookback

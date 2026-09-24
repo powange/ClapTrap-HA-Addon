@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.46.0
+
+### Tests
+
+- **109 tests pytest dans le dépôt** (au lieu de 11), sans matériel ni Home
+  Assistant (MediaPipe et MQTT simulés) : comptage des claps (réverbération,
+  son sans pic, 3 groupes, réglages modifiés en cours), détecteur (gain
+  réservé au classifieur, auto-gain, arrêt), auto-volume, VBAN (décodage
+  INT24/INT32/FLOAT64, nom de 16 caractères, rééchantillonnage, routage,
+  multicast, flux muet), sources (chien de garde, relance, erreurs), session
+  (arrêt pendant l'initialisation, réglages pris en compte au démarrage,
+  gains), entités Home Assistant (publication, suppressions, disponibilité,
+  collisions, modifications concurrentes, impulsions), réglages (validation,
+  migrations, écriture concurrente, sauvegarde), routes, tests du son, URL et
+  webhooks.
+- **Tests de l'interface** (jsdom, 74 vérifications) dans `data/tests/ui`.
+- **CI GitHub Actions** (`.github/workflows/tests.yaml`) à chaque push et
+  pull request ; `data/requirements-dev.txt` pour les lancer en local.
+- Corrigé au passage : l'export lisait un chemin de fichier figé au
+  chargement ; il part désormais des réglages courants.
+
 ## 6.45.0
 
 ### Simplifier le code
