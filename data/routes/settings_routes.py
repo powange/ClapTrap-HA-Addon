@@ -176,10 +176,18 @@ def test_webhook():
         return jsonify({'success': False, 'error': 'URL manquante'}), 400
     if not is_valid_url(url):
         return jsonify({'success': False, 'error': 'URL invalide : http:// ou https:// attendu'}), 400
+    source_id = str(data.get('source') or 'test')
+    try:
+        from classify import build_sources_from_settings
+        src = next((x for x in build_sources_from_settings(load_settings()) if x['source_id'] == source_id), None)
+    except Exception:
+        src = None
     payload = {
         'event': 'clap',
         'test': True,
-        'source_id': str(data.get('source') or 'test'),
+        'source_id': source_id,
+        'entity_key': src['entity_key'] if src else 'test',
+        'source_name': src['name'] if src else 'Test',
         'timestamp': datetime.now().timestamp(),
         'score': 0.9,
         'clap_count': 1,

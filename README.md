@@ -1,56 +1,48 @@
-# 🎉 ClapTrap Add-on pour Home Assistant 🎉
+# ClapTrap, add-on Home Assistant
 
-**ClapTrap** est un add-on puissant pour Home Assistant qui permet la détection d'applaudissements en temps réel 👏 à partir de diverses sources audio 🎤. Il s'appuie sur l'IA 🤖 et le modèle YAMNet pour offrir une reconnaissance audio précise et rapide, tout en prenant en charge des intégrations personnalisées via des webhooks 🌐.
+ClapTrap reconnaît les applaudissements, et plus largement les sons, en temps
+réel avec le modèle YAMNet. Il écoute un micro branché sur Home Assistant, le
+son d'une caméra RTSP ou un flux VBAN (Voicemeeter), et crée des entités qui
+s'allument à chaque clap : tapez deux fois dans vos mains pour allumer le
+salon.
 
-## ✨ Fonctionnalités principales
+## Fonctionnalités
 
-- 🔊 **Détection des sons** : Reconnaît les applaudissements à partir de microphones locaux, flux RTSP 📹 ou sources VBAN 🌐.
-- 🔗 **Webhook configurable** : Envoie une notification aux URL définies lorsqu'un événement est détecté.
-- 🖥️ **Interface intuitive** : Configuration facile des paramètres audio et des webhooks.
-- ⚡ **Support multi-sources** : Gère plusieurs flux simultanément avec des réglages indépendants.
+- **Sources** : micro USB, caméras RTSP, flux VBAN, plusieurs en même temps.
+- **Entités Home Assistant** (MQTT) : `binary_sensor.claptrap_<source>_<groupe>_2claps`,
+  une par nombre de claps (1 à 4), plus l'événement `claptrap_clap`.
+- **Groupes de sons** : un groupe par type de son (claps, claquements de
+  doigts, sonnette…), chacun avec son seuil et ses entités.
+- **Webhook** facultatif par source (Node-RED, webhook Home Assistant…).
+- **Interface** dans Home Assistant : niveaux et scores en direct, historique
+  des détections, sons en français.
 
-## 📋 Prérequis
+## Prérequis
 
-- 🏠 **Home Assistant x86 installé**
+- Home Assistant OS ou Supervised 2025.10 ou plus récent, sur amd64 ou
+  aarch64 (Raspberry Pi 4 et 5).
+- L'add-on **Mosquitto broker** et l'intégration **MQTT** : ClapTrap ne
+  démarre pas sans broker, et sans l'intégration aucune entité n'apparaît.
 
-## 🚀 Installation
+## Installation
 
-### Étape 1 : Ajout du dépôt
-1. Ouvrez Home Assistant et allez dans **Paramètres** > **Add-ons, Backups & Supervisor** > **Add-on Store**.
-2. Cliquez sur **Menu (⋮)** > **Dépôt** et ajoutez l'URL de votre dépôt GitHub contenant cet add-on.
+1. **Paramètres > Modules complémentaires > Boutique des modules
+   complémentaires**, menu **⋮ > Dépôts**, ajoutez
+   `https://github.com/powange/ClapTrap-HA-Addon`.
+2. Installez **ClapTrap** (image précompilée), démarrez-le et ouvrez son
+   interface.
+3. **Ajouter une source**, tapez dans vos mains pour vérifier le niveau, puis
+   **Démarrer l'écoute**.
 
-### Étape 2 : Installation de l'add-on
-1. Recherchez **ClapTrap** dans l'Add-on Store.
-2. Cliquez sur **Installer** 🛠️, (ATTENTION la compilation peut prendre plusieurs minutes), puis sur **Démarrer** ▶️.
+La documentation complète (entités, événement, webhook, réglages,
+changements entre versions, dépannage) est dans [DOCS.md](DOCS.md), aussi
+affichée dans l'onglet **Documentation** de l'add-on.
 
-### Étape 3 : Configuration
-1. Configurez vos sources audio 🎙️ et les webhooks associés selon vos besoins directement dans l'interface web de l'add-on 🌐.
+## Contribuer
 
-## 🛠️ Utilisation
+Issues et pull requests sur
+[GitHub](https://github.com/powange/ClapTrap-HA-Addon) ; l'historique est dans
+[CHANGELOG.md](CHANGELOG.md). Les tests de la logique de comptage se lancent
+avec `python -m pytest data/tests`.
 
-1. Accédez à l'interface de gestion via l'interface web dans l'add-on Home Assistant 🏠.
-2. Configurez les paramètres audio :
-   - **Sources** : Sélectionnez vos microphones 🎤, flux RTSP 📹 ou sources VBAN 🌐.
-   - **Paramètres de détection** : Ajustez le seuil de sensibilité 📈 et les délais entre détections ⏱️.
-   - **Webhooks** : Définissez les URL 🌍 qui recevront les notifications.
-3. Cliquez sur **Démarrer la détection** ▶️ pour lancer le service.
-4. Visualisez les détections en temps réel 👀 et recevez les événements sur vos webhooks configurés 🔔.
-
-## ⚙️ Paramètres
-
-- 🎙️ **Sources audio** :  
-  - Microphone local 🎤  
-  - Flux RTSP 📹  
-  - Sources VBAN 🌐  
-- 🔗 **Webhook URL** : Obligatoire, commence par `http://` ou `https://`.
-- 📈 **Seuil de détection** : Valeur entre 0 et 1 (par défaut : 0.5).
-- ⏱️ **Délai entre détections** : Temps minimum en secondes (par défaut : 2).
-
-## 🤝 Contribution
-
-Vous souhaitez contribuer ? 🛠️ Ouvrez une issue ou une pull request sur le dépôt GitHub ; l'historique des changements est dans `CHANGELOG.md` 📘.
-Big thanks to @korben qui a entierement developpé le systeme de reconnaisance en Python.
-
-## 🆘 Support
-
-Si vous rencontrez des problèmes, consultez la documentation de l'add-on (`DOCS.md`, onglet Documentation dans Home Assistant) 📖 ou ouvrez une issue sur le dépôt GitHub 🐙.
+Merci à @korben, qui a développé le système de reconnaissance en Python.

@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.43.0
+
+### Documentation
+
+- **DOCS.md réécrit** (onglet Documentation de l'add-on) : prérequis MQTT
+  (Mosquitto et intégration), installation, ajout de chaque type de source,
+  groupes de sons, entités (`binary_sensor.claptrap_…`, impulsion de 2 s,
+  4 claps au plus, indisponibilité), événement `claptrap_clap` et webhook
+  avec leur contenu réel, réglages du comptage, export et import, tableau
+  des changements cassants par version avec ce qu'il faut faire, dépannage.
+- **README** : présentation courte, prérequis et installation corrects
+  (aarch64 pris en charge, webhook facultatif, dépôt à ajouter).
+- Le webhook de test contient aussi `entity_key` et `source_name`, comme les
+  vrais claps.
+
 ## 6.42.1
 
 ### Build et déploiement
