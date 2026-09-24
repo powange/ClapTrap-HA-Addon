@@ -1,5 +1,5 @@
 name: "ClapTrap"
-version: "6.53.0"
+version: "6.54.0"
 slug: "claptrap"
 # Image publiee par .github/workflows/ci.yaml (multi-architecture) : le
 # Supervisor la telecharge au lieu de la construire chez chaque utilisateur.
