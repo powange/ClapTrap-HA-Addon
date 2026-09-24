@@ -25,7 +25,9 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # data/requirements.txt par scripts/lock_requirements.py) : une nouvelle
 # version d'une dependance ne peut plus casser l'installation.
 COPY data/requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements.lock
+# --no-deps : le lock est complet ; les dependances declarees de mediapipe
+# (opencv-contrib, sounddevice) sont volontairement remplacees ou ecartees.
+RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --no-deps -r /tmp/requirements.lock
 
 # Stage 2: Image finale (sans build-essential)
 FROM ${BUILD_FROM}
@@ -59,6 +61,11 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # Version de l'add-on (BUILD_VERSION est fourni par le Supervisor au build)
 ARG BUILD_VERSION
 ENV CLAPTRAP_VERSION=${BUILD_VERSION}
+# Cache de polices de matplotlib (importe par mediapipe) cree au build : il
+# etait regenere a chaque demarrage du conteneur.
+ENV MPLCONFIGDIR=/usr/src/app/.matplotlib
+RUN python -c "import matplotlib.pyplot" && chmod -R a+rX /usr/src/app/.matplotlib
+
 # Delai laisse aux services a l'arret avant SIGKILL (3 s par defaut) : arret
 # propre de Gunicorn (graceful_timeout 6 s), publications MQTT comprises.
 ENV S6_KILL_GRACETIME=9000

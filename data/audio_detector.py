@@ -7,9 +7,21 @@ import threading
 import time
 
 import numpy as np
-from mediapipe.tasks import python
-from mediapipe.tasks.python import audio
-from mediapipe.tasks.python.components import containers
+
+_mediapipe = None
+
+
+def _load_mediapipe():
+    """Import de mediapipe au premier detecteur cree : il charge aussi cv2 et
+    matplotlib (plus d'une seconde, davantage sur Raspberry Pi) et ralentissait
+    le demarrage de l'add-on meme si la detection n'etait jamais lancee."""
+    global _mediapipe
+    if _mediapipe is None:
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import audio
+        from mediapipe.tasks.python.components import containers
+        _mediapipe = (python, audio, containers)
+    return _mediapipe
 
 from audio_utils import BLOCK_SAMPLES
 from clap_logic import ClapTracker
@@ -91,6 +103,8 @@ class AudioDetector:
         self.score_threshold = score_threshold
         self.tracker.set_params(window=clap_window, peak_cooldown=peak_cooldown,
                                 peak_ratio=peak_ratio)
+        python, audio, containers = _load_mediapipe()
+        self._containers = containers
         # Pas de category_allowlist : les labels hors groupes sont remontes
         # pour l'auto-decouverte dans l'UI.
         options = audio.AudioClassifierOptions(
@@ -131,7 +145,8 @@ class AudioDetector:
         d'une camera depassait 1/ratio et plus aucun pic n'etait detecte.
         """
         if not self.running:
-            return
+            return 0.0
+        raw_peak = 0.0
         try:
             audio_data = np.asarray(audio_data, dtype=np.float32).reshape(-1)
             if not np.isfinite(audio_data).all():
@@ -171,6 +186,7 @@ class AudioDetector:
             self._pending = audio_data[n_blocks * BLOCK_SAMPLES:].copy()
         except Exception:
             logging.exception(f"Erreur dans le traitement audio ({self.label})")
+        return raw_peak
 
     def _locate_peak(self, x):
         """(pic, instant du pic, niveau juste avant lui) d'un bloc.
@@ -200,7 +216,7 @@ class AudioDetector:
 
     def _classify(self, block):
         self._timestamp_ms += int(BLOCK_SAMPLES / self.sample_rate * 1000)
-        container = containers.AudioData.create_from_array(block, self.sample_rate)
+        container = self._containers.AudioData.create_from_array(block, self.sample_rate)
         with self._clf_lock:
             if not self.running or not self.classifier:
                 return
@@ -276,7 +292,7 @@ class AudioDetector:
 
             if events:
                 winner = next(e for e in events if not e['ignored'])
-                logging.info(f"[{self.label}] CLAP groupe={winner['group']['name']}: "
+                logging.debug(f"[{self.label}] CLAP groupe={winner['group']['name']}: "
                              f"{winner['clap_count']} pic(s), score={winner['score']:.2f}")
             for ev in events:
                 if not self._detection_callback:

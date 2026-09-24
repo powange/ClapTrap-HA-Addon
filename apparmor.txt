@@ -63,6 +63,7 @@ profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
   /dev/shm/** rw,
   /root/.cache/** rwk,
   /root/.config/** rwk,
+  /usr/src/app/.matplotlib/** rwk,
 
   # Reglages (/data/settings.json)
   /data/** rw,

@@ -171,3 +171,64 @@ def test_listening_off_while_reconnecting(session_env, monkeypatch):
     time.sleep(1.5)
     assert ('rtsp_cam1', True) in calls['listening']
     assert calls['listening'][-1] == ('rtsp_cam1', False)   # flux perdu, reconnexion en cours
+
+
+def two_cameras(sm):
+    s = sm.load_settings()
+    cam2 = dict(s['rtsp_sources'][0], id='cam2', name='Cam2', url='rtsp://h/2')
+    s['rtsp_sources'].append(cam2)
+    sm.save_settings(s)
+
+
+def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    urls = []
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: urls.append(url) or FakeReader(n=400))
+    two_cameras(sm)
+    classify.start_from_settings(sock)
+    time.sleep(0.5)
+    det1, det2 = classify.get_detector('rtsp_cam1'), classify.get_detector('rtsp_cam2')
+    assert det1 and det2
+
+    # Changement de groupe seulement : rien n'est relance
+    def add_sound(s):
+        s['rtsp_sources'][1]['sound_groups'][0]['sound_whitelist']['Knock'] = True
+    sm.modify_settings(add_sound)
+    assert classify.apply_settings_if_running() is False
+    assert classify.get_detector('rtsp_cam2') is det2
+    assert det2.groups[0]['whitelist'].get('Knock') is True
+
+    # Adresse de la camera 2 : seule elle est relancee
+    sm.modify_settings(lambda s: s['rtsp_sources'][1].update(url='rtsp://h/2b'))
+    assert classify.apply_settings_if_running() is True
+    time.sleep(0.5)
+    assert classify.get_detector('rtsp_cam1') is det1 and not det1.tracker is None
+    new2 = classify.get_detector('rtsp_cam2')
+    assert new2 is not None and new2 is not det2 and det2.classifier is None
+    assert urls[-1] == 'rtsp://h/2b'
+
+    # Camera 1 desactivee : arretee, la 2 continue
+    sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
+    classify.apply_settings_if_running()
+    assert classify.get_detector('rtsp_cam1') is None and det1.classifier is None
+    assert classify.get_status()['sources'] == ['rtsp_cam2']
+    assert ('rtsp_cam1', False) in calls['listening']
+
+    # Plus aucune source : la session s'arrete d'elle-meme
+    sm.modify_settings(lambda s: s['rtsp_sources'][1].update(enabled=False))
+    classify.apply_settings_if_running()
+    time.sleep(1.2)
+    assert not classify.is_running()
+
+
+def test_no_live_emits_without_clients(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    monkeypatch.setattr(classify, '_clients', 0)
+    classify.start_from_settings(sock)
+    time.sleep(0.8)
+    assert not [e for e, d in emitted if e in ('source_level', 'group_scores', 'labels')]
+    classify.client_connected(+1)
+    time.sleep(0.5)
+    assert [e for e, d in emitted if e == 'source_level']
+    classify.client_connected(-1)

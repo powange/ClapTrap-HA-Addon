@@ -249,8 +249,8 @@
         }
         return promise.then(function (d) {
             var r = d && d.restart;
-            if (r === 'ok') CT.success('Détection redémarrée avec la nouvelle configuration');
-            else if (r === 'failed') CT.error('Détection arrêtée : le redémarrage a échoué (voir le journal)');
+            if (r === 'ok') CT.success('Détection mise à jour avec la nouvelle configuration');
+            else if (r === 'failed') CT.error('La mise à jour de la détection a échoué (voir le journal)');
             else if (r === 'stopped') CT.toast('Détection arrêtée : plus aucune source active');
             return d;
         }).finally(function () {

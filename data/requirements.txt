@@ -4,8 +4,12 @@
 # numpy<2 imposait une compilation de numpy depuis les sources.
 numpy>=2,<3
 mediapipe>=1.0,<2
+# Installe sans ses dependances declarees (lock complet, pip --no-deps) :
+# opencv « headless » au lieu d'opencv-contrib (Qt, FFmpeg embarque, ~150 Mo),
+# ni sounddevice (jamais importe). matplotlib reste : mediapipe l'importe.
+opencv-python-headless>=5,<6
+matplotlib>=3,<4
 requests>=2.31,<3
-scipy>=1.11,<2
 flask>=3,<4
 flask_socketio>=5,<6
 paho-mqtt>=2.0,<3

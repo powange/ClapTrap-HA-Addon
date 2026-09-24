@@ -98,6 +98,20 @@ socketio = SocketIO(app,
     ping_interval=25,
     async_mode='threading'
 )
+
+
+@socketio.on('connect')
+def _on_socket_connect(*args):
+    from classify import client_connected
+    client_connected(+1)
+
+
+@socketio.on('disconnect')
+def _on_socket_disconnect(*args):
+    from classify import client_connected
+    client_connected(-1)
+
+
 # Enveloppe externe (apres SocketIO) : le filtre couvre aussi /socket.io.
 app.wsgi_app = IngressOnlyMiddleware(app.wsgi_app)
 
@@ -169,7 +183,9 @@ def index():
                            advanced_defaults={k: DEFAULT_SETTINGS['global'][k]
                                               for k in ('delay', 'peak_cooldown', 'peak_ratio')},
                            ingress_path=request.script_root,
-                           cache_bust=int(time.time()))
+                           # Version dans le chemin des CSS/JS (servis « immutable ») :
+                           # l'heure les faisait retelecharger a chaque ouverture.
+                           cache_bust=os.environ.get('CLAPTRAP_VERSION') or int(time.time()))
 
 
 def _versioned(folder, filename, mimetype):

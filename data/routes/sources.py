@@ -130,35 +130,29 @@ sources_bp.after_request(add_restart_to_response)
 
 
 def _restart_detection_if_running():
-    """Redémarre la détection avec les sources mises à jour si elle tourne."""
+    """Applique les reglages a la detection en cours : seules les sources
+    ajoutees, retirees ou modifiees (adresse, micro, flux) sont relancees ; les
+    autres gardent leur classifieur (tout etait recree a chaque modification).
+    Le nom est historique."""
     _sync_ha_entities()
     with _restart_lock:
         try:
-            from classify import is_running, stop_detection, start_from_settings
-            if not is_running():
-                return
-            stop_detection()  # attend la fin des threads de la session
-            # Un arret lent (plusieurs sources, Raspberry Pi) ne doit pas etre
-            # pris pour un echec : attendre que la session soit vraiment finie.
-            import time
-            deadline = time.monotonic() + 15
-            while is_running() and time.monotonic() < deadline:
-                time.sleep(0.2)
-            started, sources = start_from_settings(_socketio)
-            if started:
-                source_display = ' + '.join(s['label'] for s in sources)
+            from classify import apply_settings_if_running, build_sources_from_settings
+            settings = load_settings()
+            changed = apply_settings_if_running(settings)
+            if changed is None:
+                return  # detection arretee
+            if not build_sources_from_settings(settings):
+                # Plus aucune source : la session s'arrete d'elle-meme.
+                logging.info("Détection arrêtée: aucune source active")
+                _note_restart('stopped')
+            elif changed:
                 if _socketio:
-                    _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
-                logging.info(f"Détection redémarrée avec: {source_display}")
+                    _socketio.emit('detection_status', {'status': 'running'})
+                logging.info("Détection mise à jour (sources modifiées relancées)")
                 _note_restart('ok')
-            else:
-                if _socketio:
-                    _socketio.emit('detection_status', {'status': 'stopped'})
-                logging.info("Détection arrêtée: aucune source active" if not sources
-                             else "Détection arrêtée: redémarrage impossible")
-                _note_restart('stopped' if not sources else 'failed')
         except Exception as e:
-            logging.error(f"Erreur redémarrage détection: {e}")
+            logging.error(f"Erreur de mise à jour de la détection: {e}")
             _note_restart('failed')
 
 

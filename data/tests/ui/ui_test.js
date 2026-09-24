@@ -238,10 +238,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await CT.reloadStatus(); CT.renderStatus();
   w.__restart = null;
   await CT.withRestart(CT.patchSource({ kind: 'mic', key: 'mic' }, { enabled: true }));
-  ok('+  pas de « redémarrée » si le serveur n\'a pas redémarré', !$$('#toasts .toast').slice(toastsBefore).some(t => /redémarrée/.test(t.textContent)));
+  ok('+  pas de « mise à jour » si le serveur n\'a pas redémarré', !$$('#toasts .toast').slice(toastsBefore).some(t => /mise à jour/.test(t.textContent)));
   w.__restart = 'ok';
   await CT.withRestart(CT.patchSource({ kind: 'mic', key: 'mic' }, { enabled: true }));
-  ok('+  « redémarrée » quand le serveur l\'indique', $$('#toasts .toast').some(t => /redémarrée/.test(t.textContent)));
+  ok('+  « mise à jour » quand le serveur l\'indique', $$('#toasts .toast').some(t => /mise à jour/.test(t.textContent)));
   w.__restart = null;
   CT.state.sourceStatus['mic'] = 'error'; CT.renderStatus();
   ok('+  barre d\'état : source en erreur signalée', /en erreur/.test($('#status-detail').textContent) && $('#statusbar').classList.contains('is-degraded'));
@@ -258,6 +258,16 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
     ok('+  « Afficher » révèle l\'adresse', !rtspCard.readOnly && /u:p@/.test(rtspCard.value));
   }
   ok('+  zone des messages audible', $('#toasts').getAttribute('aria-live') === 'polite');
+  // --- lot performance 6.51
+  const liveSrc = CT.sourceList().find(x => d.querySelector('#' + x.domId + ' .group-live'));
+  const liveRow = d.querySelector('#' + liveSrc.domId + ' .group-live');
+  const liveSlug = liveRow.getAttribute('data-slug');
+  $('#tab-settings').click(); await tick();
+  const before = liveRow.querySelector('.group-live-score').textContent;
+  emit('group_scores', { source_id: liveSrc.sourceId, scores: { [liveSlug]: 0.93 } }); await tick();
+  ok('+  pas de dessin pendant l\'onglet Réglages', liveRow.querySelector('.group-live-score').textContent === before);
+  $('#tab-listen').click(); await tick();
+  ok('+  courbes rattrapées au retour sur Écoute', d.querySelector('#' + liveSrc.domId + ' .group-live[data-slug="' + liveSlug + '"] .group-live-score').textContent === '93 %');
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

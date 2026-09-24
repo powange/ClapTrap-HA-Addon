@@ -54,6 +54,16 @@ _history_lock = threading.Lock()
 # modifiee laissait une entree orpheline. Remis a zero a chaque session.
 _live_gains = {}       # {source_id: gain}
 _whitelist_lock = threading.Lock()  # mises a jour en direct des listes de sons
+# Onglets connectes (Socket.IO) : sans aucun, les retours en direct (niveau,
+# scores, sons, ~12 messages/s par source) ne sont pas emis.
+_clients = 0
+_clients_lock = threading.Lock()
+
+
+def client_connected(delta):
+    global _clients
+    with _clients_lock:
+        _clients = max(0, _clients + delta)
 
 
 # --- Construction des sources depuis les settings ------------------------------
@@ -169,8 +179,10 @@ class DetectionSession:
         self.stop_event = threading.Event()
         self.label = ' + '.join(s['label'] for s in sources)
         self.started_at = time.time()
-        self._threads = []
-        self._readers = []
+        # Un lanceur par source (signal d'arret, thread, lecteur) : une source
+        # ajoutee, retiree ou modifiee est relancee seule, sans recreer les
+        # classifieurs YAMNet de toutes les autres.
+        self._runners = {}    # source_id -> {'src', 'stop', 'thread', 'reader'}
         self._lock = threading.Lock()
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
@@ -215,7 +227,10 @@ class DetectionSession:
     # --- Callbacks du detecteur ---
 
     def _emit_live(self, source_id, event, payload, interval=0.2):
-        """Retours en direct limites a ~5/s par source (niveau, scores)."""
+        """Retours en direct limites a ~5/s par source (niveau, scores), et
+        seulement si un onglet est ouvert."""
+        if not _clients:
+            return
         now = time.monotonic()
         key = (source_id, event)
         if now - self._last_live.get(key, 0) < interval:
@@ -275,7 +290,7 @@ class DetectionSession:
                                   'source_key': src['source_key'], 'label': label,
                                   'score': float(data.get('score', 0.0))})
 
-    def _create_detector(self, src):
+    def _create_detector(self, src, stop=None):
         p = self.params
         groups = list(src.get('groups') or []) or [default_group(p['score_threshold'])]
         det = AudioDetector(MODEL_PATH)
@@ -302,7 +317,7 @@ class DetectionSession:
             # L'initialisation de YAMNet peut durer plus que l'attente de
             # l'arret : si l'arret a ete demande entre-temps, fermer ce
             # detecteur ici (sinon il n'etait jamais ferme).
-            if self.stop_event.is_set():
+            if self.stop_event.is_set() or (stop is not None and stop.is_set()):
                 det.stop()
                 return None
             self.detectors[src['source_id']] = det
@@ -359,8 +374,8 @@ class DetectionSession:
                 auto_volume = auto_volume_mgr
         return mic_source(pulse_name), auto_volume
 
-    def _run_one(self, src):
-        det = self._create_detector(src)
+    def _run_one(self, src, runner):
+        det = self._create_detector(src, runner['stop'])
         if det is None:
             return  # arret demande pendant l'initialisation
         kind = src['type']
@@ -383,25 +398,114 @@ class DetectionSession:
                                 on_idle=lambda idle, msg: on_status('error', msg) if idle else on_status('connected'))
             gain_of = lambda: _live_gains.get(sid, 1.0)
         with self._lock:
-            self._readers.append(reader)
+            runner['reader'] = reader
+            if runner['stop'].is_set():
+                return
 
         def on_block(block):
-            peak = float(np.abs(block).max()) if block.size else 0.0
+            # Bloc brut + gain : le detecteur compte les pics avant le gain et
+            # n'amplifie que ce qu'il donne au classifieur. Il renvoie le pic du
+            # bloc (calcule une seule fois : niveau, auto-volume).
+            peak = det.process_audio(block, gain=gain_of() if gain_of else 1.0) or 0.0
             if auto_volume is not None:
                 auto_volume.feed_peak(peak)
             self._on_level(src, peak, gain_of)
-            # Bloc brut + gain : le detecteur compte les pics avant le gain et
-            # n'amplifie que ce qu'il donne au classifieur.
-            det.process_audio(block, gain=gain_of() if gain_of else 1.0)
 
         # Lecture + relance avec backoff (micro, RTSP et VBAN : meme logique)
-        run_source(reader, on_block, self.stop_event, on_status=on_status)
+        run_source(reader, on_block, runner['stop'], on_status=on_status)
 
-    def _run_guarded(self, src):
+    def _run_guarded(self, src, runner):
         try:
-            self._run_one(src)
+            self._run_one(src, runner)
         except Exception:
             logging.exception(f"Source {src['label']} arrêtée sur erreur")
+
+    def _start_runner(self, src, settings=None):
+        runner = {'src': src, 'stop': threading.Event(), 'reader': None,
+                  'sig': self._signature(src, settings if settings is not None else load_settings())}
+        runner['thread'] = threading.Thread(target=self._run_guarded, args=(src, runner), daemon=True,
+                                            name=f"source-{src['source_id'][:24]}")
+        with self._lock:
+            self._runners[src['source_id']] = runner
+            self.webhooks[src['source_id']] = src.get('webhook_url') or ''
+            if 'gain' in src:
+                _live_gains[src['source_id']] = float(src['gain'])
+        runner['thread'].start()
+
+    def _stop_runner(self, source_id):
+        """Arrete une source (thread, lecteur, classifieur) sans toucher aux autres."""
+        with self._lock:
+            runner = self._runners.pop(source_id, None)
+        if runner is None:
+            return
+        runner['stop'].set()
+        if runner.get('reader') is not None:
+            runner['reader'].close()
+        runner['thread'].join(timeout=5)
+        with self._lock:
+            det = self.detectors.pop(source_id, None)
+            self.seen.pop(source_id, None)
+            self.source_status.pop(source_id, None)
+        if det is not None:
+            det.stop()
+        if runner['src']['type'] == 'mic':
+            try:
+                from auto_volume import auto_volume_mgr
+                auto_volume_mgr.stop()
+            except Exception as e:
+                logging.warning(f"Arret de l'auto-volume: {e}")
+        self._set_listening(runner['src'], False)
+
+    @staticmethod
+    def _signature(src, settings):
+        """Ce qui impose de relancer la capture d'une source (le reste :
+        groupes, gain, webhook, reglages avances, s'applique en direct)."""
+        if src['type'] == 'rtsp':
+            return ('rtsp', src['rtsp_url'])
+        if src['type'] == 'vban':
+            return ('vban', src['ip'], src['stream_name'])
+        mic = settings.get('microphone') or {}
+        return ('mic', mic.get('device_index'), mic.get('audio_source'), mic.get('pulse_name'),
+                bool(mic.get('auto_volume')))
+
+    def apply_settings(self, settings):
+        """Aligne la session sur les reglages : sources retirees arretees,
+        ajoutees demarrees, modifiees (adresse, micro, flux) relancees seules ;
+        les autres gardent leur classifieur et relisent groupes et reglages.
+        Retourne True si une source a ete demarree, arretee ou relancee."""
+        wanted = {s['source_id']: s for s in build_sources_from_settings(settings)}
+        with self._lock:
+            current = dict(self._runners)
+        changed = False
+        for sid, runner in current.items():
+            new = wanted.get(sid)
+            if new is None or self._signature(new, settings) != runner['sig']:
+                self._stop_runner(sid)
+                changed = True
+        with self._lock:
+            running = set(self._runners)
+        for sid, src in wanted.items():
+            if sid not in running:
+                self._start_runner(src, settings)
+                changed = True
+            else:
+                runner = self._runners.get(sid)
+                if runner:
+                    runner['src'].update(label=src['label'], name=src['name'], entity_key=src['entity_key'])
+                    with self._lock:
+                        self.webhooks[sid] = src.get('webhook_url') or ''
+                    det = self.detectors.get(sid)
+                    if det is not None:
+                        self._apply_current_settings(runner['src'], det)
+        with self._lock:
+            self.sources = [r['src'] for r in self._runners.values()]
+            self.label = ' + '.join(s['label'] for s in self.sources)
+        try:
+            from ha_entities import update_detection_state
+            update_detection_state(True, [s['label'] for s in self.sources])
+        except Exception as e:
+            logging.warning(f"Etat HA de la detection non publie: {e}")
+        return changed
 
     # --- Cycle de vie ---
 
@@ -413,13 +517,12 @@ class DetectionSession:
         except Exception as e:
             logging.warning(f"Etat HA de la detection non publie: {e}")
         for src in self.sources:
-            t = threading.Thread(target=self._run_guarded, args=(src,), daemon=True,
-                                 name=f"source-{src['source_id'][:24]}")
-            t.start()
-            self._threads.append(t)
+            self._start_runner(src)
         while not self.stop_event.wait(0.5):
-            if all(not t.is_alive() for t in self._threads):
-                logging.warning("Toutes les sources se sont arrêtées")
+            with self._lock:
+                threads = [r['thread'] for r in self._runners.values()]
+            if all(not t.is_alive() for t in threads):
+                logging.warning("Toutes les sources se sont arrêtées" if threads else "Plus aucune source active")
                 break
         self._shutdown()
 
@@ -427,11 +530,13 @@ class DetectionSession:
         global _session
         self.stop_event.set()
         with self._lock:
-            readers = list(self._readers)
-        for r in readers:
-            r.close()  # debloque les read() en cours
-        for t in self._threads:
-            t.join(timeout=3)
+            runners = list(self._runners.values())
+        for r in runners:
+            r['stop'].set()
+            if r.get('reader') is not None:
+                r['reader'].close()  # debloque les read() en cours
+        for r in runners:
+            r['thread'].join(timeout=3)
         # Threads sortis : les classifieurs peuvent etre fermes sans course.
         with self._lock:
             detectors = list(self.detectors.values())
@@ -503,6 +608,15 @@ def start_from_settings(socketio, settings=None):
     return start_detection(sources, socketio, **detection_params_from_settings(settings)), sources
 
 
+def apply_settings_if_running(settings=None):
+    """Applique les reglages a la detection en cours sans tout redemarrer.
+    None si elle ne tourne pas, sinon True si une source a change."""
+    s = _current()
+    if s is None:
+        return None
+    return s.apply_settings(settings if settings is not None else load_settings())
+
+
 def stop_detection(timeout=10):
     """Arrete la session en cours et attend la fin de ses threads."""
     session = _current()
@@ -524,7 +638,7 @@ def get_status():
     if s is None:
         return {'running': False, 'source': None}
     return {'running': True, 'source': s.label, 'since': s.started_at,
-            'sources': [src['source_id'] for src in s.sources],
+            'sources': [src['source_id'] for src in list(s.sources)],
             'source_status': dict(s.source_status)}
 
 

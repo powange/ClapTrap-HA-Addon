@@ -1,5 +1,30 @@
 # Changelog
 
+## 6.51.0
+
+### Performance
+
+- **Seule la source modifiée est relancée** : activer, désactiver, ajouter,
+  supprimer une source ou changer son adresse ne recrée plus les classifieurs
+  YAMNet de toutes les autres, qui continuent d'écouter. Les changements de
+  groupes, de gain ou de réglages s'appliquent toujours sans relance.
+- **Image allégée** : 1,47 Go au lieu de 1,74 Go (amd64). Rééchantillonnage
+  VBAN en numpy (scipy retiré, résultat identique à 10⁻¹⁶ près), opencv
+  « headless » au lieu d'opencv-contrib, sounddevice retiré.
+- **Démarrage plus rapide** : mediapipe n'est chargé qu'au premier démarrage
+  de la détection (chargement de l'application : 0,38 s au lieu de 1,70 s) ;
+  cache de polices de matplotlib créé au build au lieu de chaque démarrage.
+- **VBAN** : filtre de rééchantillonnage calculé une seule fois (il l'était à
+  chaque bloc) ; plus de dictionnaire recréé à chaque paquet.
+- **Temps réel** : niveaux et scores ne sont plus émis quand aucun onglet
+  n'est ouvert ; pic calculé une seule fois par bloc ; une ligne de journal par
+  clap au lieu de deux.
+- **Interface** : fichiers CSS et JS mis en cache par version (ils étaient
+  retéléchargés à chaque ouverture) ; rendu en direct par index des cartes,
+  couleurs lues une fois, rien n'est dessiné quand la page est cachée ou
+  l'onglet Réglages affiché ; courbes nettes sur écran haute densité.
+- « Détection mise à jour » remplace « redémarrée » dans les messages.
+
 ## 6.50.0
 
 ### Publication et arrêt

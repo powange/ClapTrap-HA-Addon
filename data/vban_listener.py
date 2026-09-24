@@ -8,7 +8,6 @@ import logging
 from collections import namedtuple
 
 import numpy as np
-from scipy.signal import resample_poly
 
 from audio_utils import BLOCK_SAMPLES
 from settings_manager import load_settings as _load_settings_from_manager
@@ -53,6 +52,25 @@ def decode_vban_samples(payload, datatype):
     return np.frombuffer(raw, dtype='<f8').astype(np.float32)
 
 
+def _polyphase_filter(up, down):
+    """Filtre de scipy.signal.resample_poly (sinc fenetre de Kaiser, beta 5,
+    demi-longueur 10 x max(up, down)), calcule UNE fois et range par phase.
+    resample_poly le recalculait a chaque appel (8 821 coefficients a
+    44,1 kHz, 10 fois par seconde) ; scipy n'est plus necessaire."""
+    max_rate = max(up, down)
+    f_c = 1.0 / max_rate
+    half_len = 10 * max_rate
+    n = 2 * half_len + 1
+    m = np.arange(n) - (n - 1) / 2
+    h = f_c * np.sinc(f_c * m) * np.kaiser(n, 5.0)
+    h = h / h.sum() * up
+    pre_pad = down - half_len % down
+    h = np.concatenate((np.zeros(pre_pad), h))
+    taps = math.ceil(len(h) / up)
+    h = np.concatenate((h, np.zeros(taps * up - len(h))))
+    return h.reshape(taps, up).T.copy(), taps, (half_len + pre_pad) // down
+
+
 class StreamResampler:
     """Reechantillonne un flux continu vers 16 kHz par blocs de ~100 ms.
 
@@ -76,6 +94,15 @@ class StreamResampler:
         half = math.ceil(10 * max(self.up, self.down) / self.up) + 2
         self.ctx = self.down * math.ceil(half / self.down)
         self._buf = np.zeros(0, dtype=np.float32)
+        if not self.passthrough:
+            # Sorties calculees : partie centrale de chaque bloc seulement.
+            self._bank, taps, pre = _polyphase_filter(self.up, self.down)
+            start = self.ctx * self.up // self.down
+            length = self.block * self.up // self.down
+            t = (np.arange(start, start + length) + pre) * self.down
+            base = t // self.up
+            self._phase = t - base * self.up
+            self._index = base[:, None] - np.arange(taps)[None, :]   # toujours dans le bloc + contexte
 
     def process(self, samples):
         if self.passthrough:
@@ -83,11 +110,10 @@ class StreamResampler:
         self._buf = np.concatenate((self._buf, samples))
         need = self.block + 2 * self.ctx
         out = []
-        start = self.ctx * self.up // self.down
-        length = self.block * self.up // self.down
         while len(self._buf) >= need:
-            y = resample_poly(self._buf[:need], self.up, self.down)
-            out.append(y[start:start + length].astype(np.float32))
+            x = self._buf[:need].astype(np.float64)
+            y = np.einsum('ij,ij->i', self._bank[self._phase], x[self._index])
+            out.append(y.astype(np.float32))
             self._buf = self._buf[self.block:]
         if not out:
             return np.zeros(0, dtype=np.float32)
@@ -338,13 +364,17 @@ class VBANDetector:
         key = (ip, hdr.name)
         now = time.time()
         with self._lock:
-            if key not in self.sources:
-                logging.info(f"Source VBAN détectée: {hdr.name} ({ip}), {hdr.channels} canaux @ "
-                             f"{hdr.sample_rate}Hz, {VBAN_DATATYPES[hdr.datatype][1]}")
-            self.sources[key] = {
-                'ip': ip, 'name': hdr.name, 'last_seen': now,
-                'sample_rate': hdr.sample_rate, 'channels': hdr.channels,
-            }
+            known = self.sources.get(key)
+            if known is not None and known['sample_rate'] == hdr.sample_rate and known['channels'] == hdr.channels:
+                known['last_seen'] = now   # cas courant (~190 paquets/s) : pas de nouveau dict
+            else:
+                if known is None:
+                    logging.info(f"Source VBAN détectée: {hdr.name} ({ip}), {hdr.channels} canaux @ "
+                                 f"{hdr.sample_rate}Hz, {VBAN_DATATYPES[hdr.datatype][1]}")
+                self.sources[key] = {
+                    'ip': ip, 'name': hdr.name, 'last_seen': now,
+                    'sample_rate': hdr.sample_rate, 'channels': hdr.channels,
+                }
             stream = self._streams.get(key)
             if stream is None:
                 mkey = self._mcast_by_name.get(hdr.name)

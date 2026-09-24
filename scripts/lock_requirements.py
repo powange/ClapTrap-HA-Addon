@@ -7,6 +7,8 @@ data/constraints.txt (memes versions, sans empreintes, pour les tests).
      docker run --rm -v "$PWD/data:/d:ro" python:3.13-slim \\
        sh -c "pip install -q -r /d/requirements.txt && pip freeze" > freeze.txt
 2. python3 scripts/lock_requirements.py freeze.txt
+   (les dependances declarees par mediapipe mais inutiles, EXCLUDED, sont
+   ecartees ; l'image installe le lock avec pip --no-deps)
 3. Construire l'image et lancer les tests (la CI verifie la coherence avec
    scripts/check_lock.py).
 
@@ -20,6 +22,12 @@ import sys
 import urllib.request
 
 
+# Tirees par les dependances declarees de mediapipe, inutiles a l'add-on :
+# opencv-contrib (remplace par opencv-python-headless), sounddevice (jamais
+# importe) et ses dependances, scipy (reechantillonnage fait en numpy).
+EXCLUDED = {'opencv-contrib-python', 'opencv-python', 'sounddevice', 'cffi', 'pycparser', 'scipy'}
+
+
 def main(path):
     data = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
     lock = ["# Genere par scripts/lock_requirements.py : ne pas modifier a la main."]
@@ -30,6 +38,8 @@ def main(path):
         if not line or line.startswith('#') or '==' not in line:
             continue
         name, version = line.split('==', 1)
+        if name.lower().replace('_', '-') in EXCLUDED:
+            continue
         with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/{version}/json") as r:
             files = json.load(r)['urls']
         hashes = sorted({f['digests']['sha256'] for f in files})

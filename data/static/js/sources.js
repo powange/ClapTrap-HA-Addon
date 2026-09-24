@@ -139,6 +139,7 @@
         // qu'aucune source n'existe (l'accueil a son propre bouton).
         CT.$('#history').hidden = sources.length === 0;
         CT.$('#add-source').hidden = sources.length === 0;
+        indexCards(sources);
         sources.forEach(function (src) {
             var card = document.getElementById(src.domId);
             bindCard(card, src);
@@ -404,29 +405,61 @@
     });
 
     // ---- Temps reel pendant la detection ----------------------------------------
-    function cardFor(sourceId) {
-        var src = CT.findSource(function (s) { return s.sourceId === sourceId; });
-        return src ? {src: src, card: document.getElementById(src.domId)} : null;
+    // Index sourceId -> {src, card, rows} construit a chaque rendu : les
+    // evenements en direct (~5/s par source) reconstruisaient toute la liste
+    // des sources et relancaient des querySelector.
+    var cardIndex = {};
+    function indexCards(sources) {
+        cardIndex = {};
+        sources.forEach(function (src) {
+            var card = document.getElementById(src.domId);
+            if (!card) return;
+            var rows = {};
+            CT.$$('.group-live', card).forEach(function (row) { rows[row.getAttribute('data-slug')] = row; });
+            cardIndex[src.sourceId] = {src: src, card: card, rows: rows};
+        });
     }
+    function cardFor(sourceId) {
+        return cardIndex[sourceId] || null;
+    }
+    // Rien a dessiner si la page est cachee ou l'onglet Reglages affiche ; les
+    // courbes sont redessinees depuis l'etat au retour.
+    function liveVisible() {
+        var panel = document.getElementById('panel-listen');
+        return !document.hidden && !(panel && panel.hidden);
+    }
+    CT.redrawLive = function () {
+        var now = Date.now() / 1000;
+        Object.keys(cardIndex).forEach(function (sid) {
+            var c = cardIndex[sid], live = (CT.state.live[sid] || {scores: {}}).scores;
+            Object.keys(c.rows).forEach(function (slug) {
+                var row = c.rows[slug], series = live[slug] || [];
+                var threshold = parseFloat(row.querySelector('.threshold').value);
+                if (series.length) setScore(row, series[series.length - 1][1], threshold);
+                drawSpark(row.querySelector('canvas'), series, threshold, now);
+            });
+        });
+    };
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) CT.redrawLive(); });
 
     CT.on('source_level', function (d) {
         var c = d && cardFor(d.source_id);
         if (!c || !c.card) return;
         if (CT.state.testing && CT.state.testing.domId === c.src.domId) return;
-        setMeter(c.card, d.db);
+        if (liveVisible()) setMeter(c.card, d.db);
     });
 
     CT.on('group_scores', function (d) {
         var c = d && cardFor(d.source_id);
         if (!c || !c.card) return;
         var live = CT.state.live[d.source_id] = CT.state.live[d.source_id] || {scores: {}};
-        var now = Date.now() / 1000;
+        var now = Date.now() / 1000, visible = liveVisible();
         Object.keys(d.scores || {}).forEach(function (slug) {
             var score = d.scores[slug];
             var series = live.scores[slug] = (live.scores[slug] || []).filter(function (p) { return now - p[0] <= SPARK_SECONDS; });
             series.push([now, score]);
-            var row = c.card.querySelector('.group-live[data-slug="' + CT.cssEscape(slug) + '"]');
-            if (!row) return;
+            var row = c.rows[slug];
+            if (!row || !visible) return;
             var threshold = parseFloat(row.querySelector('.threshold').value);
             setScore(row, score, threshold);
             drawSpark(row.querySelector('canvas'), series, threshold, now);
@@ -454,16 +487,40 @@
         });
     };
 
+    // Couleurs lues une fois (getComputedStyle a chaque dessin forcait un
+    // recalcul de style), relues quand le theme change.
+    var sparkColors = null;
+    function colors() {
+        if (!sparkColors) {
+            var css = getComputedStyle(document.documentElement);
+            sparkColors = {accent: css.getPropertyValue('--accent').trim() || '#0d7c6b',
+                           line: css.getPropertyValue('--ink-3').trim() || '#888'};
+        }
+        return sparkColors;
+    }
+    if (window.MutationObserver) {
+        new MutationObserver(function () { sparkColors = null; CT.redrawLive(); })
+            .observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+    }
+    if (window.matchMedia) {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        if (mq.addEventListener) mq.addEventListener('change', function () { sparkColors = null; CT.redrawLive(); });
+    }
     function drawSpark(canvas, series, threshold, now) {
         var ctx = canvas && canvas.getContext && canvas.getContext('2d');
         if (!ctx) return;
-        var w = canvas.width, h = canvas.height, css = getComputedStyle(canvas);
-        var accent = css.getPropertyValue('--accent').trim() || '#0d7c6b';
-        var line = css.getPropertyValue('--ink-3').trim() || '#888';
+        // Taille reelle x densite de l'ecran : un canevas fixe de 320x40 etire
+        // en largeur etait flou et deforme.
+        var dpr = window.devicePixelRatio || 1;
+        var cw = Math.round((canvas.clientWidth || 320) * dpr), ch = Math.round((canvas.clientHeight || 40) * dpr);
+        if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+        var w = canvas.width, h = canvas.height, c = colors();
+        var accent = c.accent, line = c.line;
+        ctx.lineWidth = dpr;
         ctx.clearRect(0, 0, w, h);
         var ty = h - threshold * (h - 4) - 2;
         ctx.strokeStyle = line;
-        ctx.setLineDash([4, 4]);
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
         ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(w, ty); ctx.stroke();
         ctx.setLineDash([]);
         if (!series.length) return;
@@ -472,7 +529,7 @@
         ctx.beginPath();
         series.forEach(function (p, i) { i ? ctx.lineTo(x(p[0]), y(p[1])) : ctx.moveTo(x(p[0]), y(p[1])); });
         ctx.strokeStyle = accent;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
         ctx.lineTo(x(series[series.length - 1][0]), h);
         ctx.lineTo(x(series[0][0]), h);
