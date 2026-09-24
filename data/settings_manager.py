@@ -215,6 +215,12 @@ def _ensure_vban_ids(settings):
         if not src.get('entity_key'):
             src['entity_key'] = vban_entity_key(src, vbans)
             changed = True
+    for src in vbans:
+        # Nom du flux explicite : le nom affiche devient modifiable sans
+        # changer le routage des paquets (qui retombait sur `name`).
+        if not src.get('stream_name') and src.get('name'):
+            src['stream_name'] = src['name']
+            changed = True
     sources = [settings.get('microphone')] + list(settings.get('rtsp_sources', []) or []) + vbans
     for src in sources:
         if not isinstance(src, dict):

@@ -26,7 +26,7 @@
         var enabled = CT.sourceList().filter(function (s) { return s.enabled; });
         var running = !!st.running;
         bar.classList.toggle('is-running', running);
-        setText(CT.$('#status-title'), running ? "À l'écoute" : 'Arrêté');
+        setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : running ? 'Détection en cours' : 'Détection arrêtée');
         var n = running ? (st.sources || []).length : enabled.length;
         setText(CT.$('#status-detail'), running
             ? n + ' source' + (n > 1 ? 's' : '') + ' · ' + sinceText(st.since)
@@ -34,11 +34,11 @@
                               : 'Activez une source pour pouvoir démarrer'));
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
         if (wasRunning !== null && wasRunning !== running && CT.announce) {
-            CT.announce(running ? 'Écoute démarrée' : 'Écoute arrêtée', true);
+            CT.announce(running ? 'Détection démarrée' : 'Détection arrêtée', true);
         }
         wasRunning = running;
         var btn = CT.$('#toggle-detection');
-        btn.textContent = running ? 'Arrêter' : "Démarrer l'écoute";
+        btn.textContent = running ? 'Arrêter la détection' : 'Démarrer la détection';
         btn.classList.toggle('btn-danger', running);
         btn.classList.toggle('btn-primary', !running);
         btn.disabled = !running && enabled.length === 0;

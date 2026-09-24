@@ -1,5 +1,30 @@
 # Changelog
 
+## 6.44.0
+
+### Simplifier l'usage
+
+- **Premiers pas** : l'accueil d'une installation neuve a son propre bouton
+  « Ajouter une source » ; l'historique n'apparaît qu'une fois une source
+  ajoutée. La dernière étape de l'assistant s'appelle « Vérifier le son »,
+  affiche un repère « bon niveau » sur le VU-mètre et propose « Démarrer la
+  détection » si elle est arrêtée.
+- **Vocabulaire** : « Tester le son » (niveau seulement) et « Démarrer /
+  Arrêter la détection » ne se confondent plus ; scores et seuils en % partout ;
+  « Force minimale d'un clap (× bruit ambiant) » et « Écart minimal entre deux
+  claps » au lieu des termes techniques ; « Vider la liste des sons non
+  cochés ».
+- **Retours** : « Enregistré » après chaque réglage (webhook, gain, volume,
+  seuil compris) ; « Redémarrage… » dans la barre d'état puis confirmation
+  quand une modification redémarre la détection.
+- **VBAN** : le nom affiché se modifie dans les réglages (le nom du flux et
+  l'adresse, fixés à l'ajout, sont expliqués) ; le nom du flux des sources
+  existantes est enregistré à part pour que le renommage ne change pas le
+  routage.
+- **RTSP** : le mot de passe de l'adresse est masqué dans les réglages
+  (affiché pendant la modification) ; le message de test de webhook ne
+  répète plus l'URL.
+
 ## 6.43.0
 
 ### Documentation

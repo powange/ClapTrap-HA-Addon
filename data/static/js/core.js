@@ -264,6 +264,23 @@
     CT.syncTheme();
     setInterval(CT.syncTheme, 5000);
 
+    // ---- Redemarrage de la detection -----------------------------------------------
+    // Activer, desactiver, ajouter ou supprimer une source (ou changer de micro)
+    // redemarre toute la detection : on l'indique pendant la requete, puis on
+    // le confirme (avant, rien ne le signalait).
+    CT.withRestart = function (promise, applies) {
+        if (!CT.state.status.running || applies === false) return promise;
+        CT.state.restarting = true;
+        if (CT.renderStatus) CT.renderStatus();
+        return promise.then(function (v) {
+            CT.success('Détection redémarrée avec la nouvelle configuration');
+            return v;
+        }).finally(function () {
+            CT.state.restarting = false;
+            CT.reloadStatus().then(function () { if (CT.renderStatus) CT.renderStatus(); }).catch(function () {});
+        });
+    };
+
     // ---- Resynchronisation ------------------------------------------------------
     CT.reloadEntityIds = function () {
         return CT.api('GET', '/api/ha/entity-ids').then(function (ids) { CT.state.entityIds = ids || {}; })

@@ -50,10 +50,18 @@ Bouton **Ajouter une source**, puis :
   le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur
   qui ne diffuse pas encore, utilisez **Ajouter à la main** (le nom du flux
   doit être celui configuré dans Voicemeeter).
+  Le nom affiché d'une source VBAN se modifie dans ses réglages ; le nom du
+  flux et l'adresse de l'émetteur, eux, sont fixés à l'ajout.
 
 La dernière étape affiche le niveau sonore : tapez dans vos mains, il doit
-monter nettement. Lancez ensuite la détection avec **Démarrer l'écoute** (ou
+monter nettement. Lancez ensuite la détection avec **Démarrer la détection** (ou
 cochez **Démarrer au lancement de l'add-on**).
+
+Le mot de passe d'une adresse RTSP est masqué dans les réglages ; il
+s'affiche quand vous modifiez l'adresse.
+
+Activer, désactiver, ajouter ou supprimer une source redémarre brièvement
+toute la détection (la barre d'état affiche « Redémarrage… »).
 
 Sur chaque carte, l'état de la source est affiché : « À l'écoute »,
 « Connectée », « Flux perdu, reconnexion… », « Aucun paquet reçu » (VBAN :
@@ -167,8 +175,8 @@ déclencher l'automatisation. ClapTrap la masque dans ses journaux.
 | Réglage | Défaut | Rôle |
 |---|---|---|
 | Fenêtre multi-clap | 1,5 s | Durée pendant laquelle les claps consécutifs sont comptés ensemble (3 claps en 1,5 s = « 3 claps »). |
-| Intervalle minimal entre deux pics | 0,08 s | Filtre les rebonds d'un même clap. |
-| Sensibilité des pics | 3 × le bruit de fond | Un clap doit dépasser le bruit de fond de ce facteur. Baissez pour un micro faible, montez contre les faux positifs. |
+| Écart minimal entre deux claps | 0,08 s | Filtre les rebonds d'un même clap. |
+| Force minimale d'un clap | 3 × le bruit ambiant | Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs. |
 
 Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 
@@ -227,7 +235,7 @@ identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
 **Les claps ne sont pas comptés** : regardez la carte pendant un clap. Si le
 son est reconnu mais que le score reste sous le seuil, baissez le seuil du
-groupe. Si « 2 claps » donne « 1 clap », baissez la sensibilité des pics ou
+groupe. Si « 2 claps » donne « 1 clap », baissez la « force minimale d'un clap » ou
 rapprochez le micro.
 
 **Trop de fausses détections** : montez le seuil du groupe, décochez les sons

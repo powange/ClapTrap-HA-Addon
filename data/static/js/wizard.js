@@ -16,7 +16,10 @@
         back.hidden = false;
         session++;
         created = null;
-        release = CT.trapFocus(modal, close, function () { return document.getElementById('add-source'); });
+        release = CT.trapFocus(modal, close, function () {
+            var add = document.getElementById('add-source');
+            return add && !add.hidden ? add : document.getElementById('empty-add');
+        });
         stepType();
     }
     function close() {
@@ -211,17 +214,36 @@
     }
 
     // ---- Etape 3 : verification ---------------------------------------------------
+    // Repere « bon niveau » du VU-metre : un clap doit depasser -20 dB.
+    var GOOD_DB = -20;
     function stepCheck() {
-        setStep(3, 'Tapez dans vos mains');
+        setStep(3, 'Vérifier le son');
         if (!created) { close(); return; }
+        var running = CT.state.status.running;
         body.innerHTML =
-            '<p>Tapez dans vos mains près de <strong>' + esc(created.name) + '</strong> : le niveau doit monter nettement.</p>' +
-            '<div class="meter meter-large" id="wz-meter"><div class="meter-fill"></div><span class="meter-label">En attente du son…</span></div>' +
-            '<p class="hint" id="wz-hint">' + (CT.state.status.running
-                ? 'La détection tourne : les sons reconnus s\'afficheront aussi sur la carte de la source.'
-                : 'Lancez ensuite l\'écoute avec « Démarrer l\'écoute » pour détecter les claps.') + '</p>' +
-            '<div class="modal-actions"><button type="button" class="btn btn-primary" data-w="done">Terminer</button></div>';
+            '<p>Tapez dans vos mains près de <strong>' + esc(created.name) + '</strong> : le niveau doit dépasser le repère « bon niveau ».</p>' +
+            '<div class="meter meter-large" id="wz-meter"><div class="meter-fill"></div>' +
+            '<span class="meter-target" style="left:' + CT.dbToPct(GOOD_DB) + '%" aria-hidden="true"><span>bon niveau</span></span>' +
+            '<span class="meter-label">En attente du son…</span></div>' +
+            '<p class="hint" id="wz-hint">' + (running
+                ? 'La détection tourne : les claps reconnus s\'afficheront sur la carte de la source.'
+                : 'Ce test mesure seulement le niveau. Démarrez la détection pour que vos claps soient reconnus.') + '</p>' +
+            '<div class="modal-actions">' +
+            (running ? '' : '<button type="button" class="btn btn-ghost" data-w="start">Démarrer la détection</button>') +
+            '<button type="button" class="btn btn-primary" data-w="done">Terminer</button></div>';
         body.querySelector('[data-w="done"]').addEventListener('click', close);
+        var start = body.querySelector('[data-w="start"]');
+        if (start) start.addEventListener('click', function () {
+            start.disabled = true;
+            CT.api('POST', '/api/detection/start', {})
+                .then(function () { return CT.reloadStatus(); })
+                .then(function () {
+                    if (CT.renderStatus) CT.renderStatus();
+                    start.remove();
+                    CT.$('#wz-hint').textContent = 'Détection démarrée : tapez dans vos mains, les claps reconnus s\'affichent sur la carte de la source.';
+                })
+                .catch(function (err) { start.disabled = false; CT.error('Démarrage impossible : ' + err.message); });
+        });
         body.querySelector('[data-w="done"]').focus();
         var test = CT.testFor(created);
         test.domId = 'wizard';
@@ -250,5 +272,7 @@
         var back = document.getElementById('wizard');
         back.addEventListener('click', function (e) { if (e.target === back) close(); });
         back.querySelector('[data-w="close"]').addEventListener('click', close);
+        var emptyAdd = document.getElementById('empty-add');
+        if (emptyAdd) emptyAdd.addEventListener('click', open);
     };
 })();

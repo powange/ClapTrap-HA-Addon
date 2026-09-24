@@ -389,6 +389,11 @@ def _update_vban(vban_id, source):
     def _mut(settings):
         s = _find_vban_by_id(settings, vban_id)
         restart = False
+        if 'name' in source:
+            name = str(source['name'] or '').strip()
+            if not name or len(name) > 80:
+                raise ApiError('Nom : texte de 1 à 80 caractères attendu')
+            s['name'] = name
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
         if 'enabled' in source:
@@ -401,6 +406,8 @@ def _update_vban(vban_id, source):
         return dict(s)
 
     s = modify_settings(_mut)
+    if 'name' in source:
+        _sync_ha_entities()  # nom affiche des entites
     if 'gain' in source:
         try:
             from classify import update_vban_gain
@@ -953,7 +960,9 @@ _PATCH_FIELDS = {
     # champs de source equivalents etaient acceptes sans aucun effet.
     'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled'},
     'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain'},
-    'vban': {'webhook_url', 'enabled', 'gain'},
+    # VBAN : `name` n'est que le nom affiche ; le routage utilise stream_name
+    # et les entity_id la cle fixee a la creation.
+    'vban': {'name', 'webhook_url', 'enabled', 'gain'},
 }
 
 

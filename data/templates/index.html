@@ -21,7 +21,7 @@
         <div class="status">
             <span class="status-dot" aria-hidden="true"></span>
             <div>
-                <strong id="status-title">Arrêté</strong>
+                <strong id="status-title">Détection arrêtée</strong>
                 <span id="status-detail" class="muted"></span>
             </div>
         </div>
@@ -30,7 +30,7 @@
                 <input type="checkbox" role="switch" id="auto-start">
                 <span class="label-long">Démarrer au lancement de l'add-on</span><span class="label-short">Au lancement</span>
             </label>
-            <button type="button" class="btn btn-primary btn-large" id="toggle-detection">Démarrer l'écoute</button>
+            <button type="button" class="btn btn-primary btn-large" id="toggle-detection">Démarrer la détection</button>
         </div>
         <nav class="tabs" role="tablist" aria-label="Sections">
             <button type="button" role="tab" id="tab-listen" aria-controls="panel-listen" aria-selected="true">Écoute</button>
@@ -45,15 +45,16 @@
                 <h2>Ajoutez votre première source</h2>
                 <p>ClapTrap écoute un micro, le son d'une caméra RTSP ou un flux VBAN, et crée des entités Home Assistant
                    qui s'allument à chaque clap.</p>
+                <button type="button" class="btn btn-primary btn-large" id="empty-add">Ajouter une source</button>
             </div>
             <div class="sources-grid" id="sources-grid"></div>
 
-            <section class="card history" aria-labelledby="history-title">
+            <section class="card history" id="history" aria-labelledby="history-title" hidden>
                 <div class="card-row">
                     <h2 id="history-title">Dernières détections</h2>
                     <button type="button" class="btn-link" id="history-clear">Effacer</button>
                 </div>
-                <p class="hint" id="history-empty">Aucun clap pour l'instant : lancez l'écoute et tapez dans vos mains.</p>
+                <p class="hint" id="history-empty">Aucun clap pour l'instant : démarrez la détection et tapez dans vos mains.</p>
                 <ol class="history-list" id="history-list"></ol>
             </section>
         </section>
@@ -65,18 +66,18 @@
                     <h2 id="adv-title">Comptage des claps</h2>
                     <p class="hint">Ces réglages s'appliquent à toutes les sources. La sensibilité aux sons se règle, elle,
                        avec le seuil de confiance de chaque groupe, directement sur les cartes.</p>
-                    <svg class="diagram" viewBox="0 0 400 120" role="img" aria-label="Schéma : trois claps comptés dans la fenêtre multi-clap, au-dessus du seuil de pic">
+                    <svg class="diagram" viewBox="0 0 400 120" role="img" aria-label="Schéma : trois claps comptés dans la fenêtre multi-clap, au-dessus de la force minimale">
                         <rect class="d-noise-bg" x="0" y="85" width="400" height="30"/>
                         <line class="d-noise" x1="0" y1="85" x2="400" y2="85"/>
                         <text class="d-noise-t" x="5" y="105">Bruit de fond</text>
                         <line class="d-thr" x1="0" y1="55" x2="400" y2="55"/>
-                        <text class="d-thr-t" x="5" y="52">Seuil de pic (bruit × sensibilité)</text>
+                        <text class="d-thr-t" x="5" y="52">Force minimale (bruit × facteur)</text>
                         <polyline class="d-sig" points="0,90 10,88 20,92 30,87 40,91 50,89 60,90 70,88 80,91 90,89"/>
                         <polyline class="d-clap" points="90,89 95,85 100,40 105,20 110,35 115,60 120,75 125,85 130,89"/>
                         <text class="d-clap-t" x="95" y="15">Clap 1</text>
                         <polyline class="d-sig" points="130,89 140,91 150,88 160,90 170,89"/>
                         <line class="d-cool" x1="105" y1="110" x2="175" y2="110"/>
-                        <text class="d-cool-t" x="112" y="119">intervalle minimal</text>
+                        <text class="d-cool-t" x="112" y="119">écart minimal</text>
                         <polyline class="d-clap" points="170,89 175,85 180,45 185,25 190,40 195,65 200,80 205,88"/>
                         <text class="d-clap-t" x="175" y="15">Clap 2</text>
                         <polyline class="d-sig" points="205,88 215,91 225,89 235,90 245,88"/>
@@ -93,14 +94,14 @@
                             <p class="hint">Durée pendant laquelle les claps consécutifs sont comptés ensemble : 3 claps en 1,5 s = « 3 claps ».</p>
                         </div>
                         <div class="field">
-                            <label class="field-label" for="adv-cooldown">Intervalle minimal entre deux pics (s)</label>
+                            <label class="field-label" for="adv-cooldown">Écart minimal entre deux claps (s)</label>
                             <input class="input" type="number" id="adv-cooldown" min="0" max="2" step="0.01" required>
                             <p class="hint">Filtre les rebonds d'un même clap. Baissez-le si des claps rapides ne sont pas comptés.</p>
                         </div>
                         <div class="field">
-                            <label class="field-label" for="adv-ratio">Sensibilité des pics (× bruit de fond)</label>
+                            <label class="field-label" for="adv-ratio">Force minimale d'un clap (× bruit ambiant)</label>
                             <input class="input" type="number" id="adv-ratio" min="1" max="50" step="0.5" required>
-                            <p class="hint">Un pic doit dépasser le bruit de fond de ce facteur. Baissez pour un micro faible, montez contre les faux positifs.</p>
+                            <p class="hint">Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs.</p>
                         </div>
                     </div>
                     <button type="button" class="btn btn-ghost" id="adv-defaults">Rétablir les valeurs par défaut</button>

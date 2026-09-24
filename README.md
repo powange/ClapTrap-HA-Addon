@@ -32,7 +32,7 @@ salon.
 2. Installez **ClapTrap** (image précompilée), démarrez-le et ouvrez son
    interface.
 3. **Ajouter une source**, tapez dans vos mains pour vérifier le niveau, puis
-   **Démarrer l'écoute**.
+   **Démarrer la détection**.
 
 La documentation complète (entités, événement, webhook, réglages,
 changements entre versions, dépannage) est dans [DOCS.md](DOCS.md), aussi

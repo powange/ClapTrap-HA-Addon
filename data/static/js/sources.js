@@ -30,12 +30,12 @@
         return '<div class="group-live" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) + '</span>' +
             '<span class="clap-badge" hidden></span>' +
-            '<span class="group-live-score" title="Score actuel">0,00</span></div>' +
+            '<span class="group-live-score" title="Score actuel">0 %</span></div>' +
             '<div class="scorebar"><div class="scorebar-fill"></div><div class="scorebar-mark" style="left:' + (t * 100) + '%"></div>' +
             '<input type="range" class="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
             '<canvas class="spark" width="320" height="40" aria-hidden="true"></canvas>' +
-            '<div class="group-live-foot"><span>Seuil de confiance <strong class="threshold-value">' + CT.fmt(t) + '</strong></span>' +
+            '<div class="group-live-foot"><span>Seuil de confiance <strong class="threshold-value">' + CT.pct(t) + '</strong></span>' +
             '<span class="muted">' + SPARK_SECONDS + ' dernières secondes</span></div></div>';
     }
 
@@ -60,17 +60,19 @@
         } else if (src.kind === 'rtsp') {
             var gain = d.gain != null ? d.gain : 10;
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
-                field('Adresse du flux', '<input type="url" class="input" data-field="url" id="' + src.domId + '-url" value="' + esc(d.url || '') + '" placeholder="rtsp://camera:554/stream" spellcheck="false">' +
-                    '<p class="hint">Les identifiants éventuels (rtsp://utilisateur:mot-de-passe@…) ne sont jamais affichés dans les journaux.</p>', src.domId + '-url') +
+                field('Adresse du flux', '<input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(maskUrl(d.url || '')) + '" placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
+                    '<p class="hint">Le mot de passe est masqué ; il s\'affiche quand vous modifiez l\'adresse, et n\'apparaît jamais dans les journaux.</p>', src.domId + '-url') +
                 gainField(src, gain, 50);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
-            html += '<div class="field"><span class="field-label">Flux</span><p class="mono">' + esc(d.name) + ' · ' + esc(d.ip) + ':' + esc(String(d.port || 6980)) +
-                ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p></div>' +
+            html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
+                '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(d.port || 6980)) +
+                ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p>' +
+                '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>' +
                 gainField(src, d.gain != null ? d.gain : 1, 20);
         }
-        html += '<div class="field"><span class="field-label">Tester le son</span>' +
-            '<button type="button" class="btn btn-ghost" data-action="test">Écouter cette source</button>' +
+        html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
+            '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
             '<p class="hint">Affiche le niveau sonore dans le VU-mètre de la carte, sans lancer la détection.</p></div>';
         html += '<div class="field"><span class="field-label">Groupes de sons</span>' +
             '<p class="hint">Chaque groupe a son propre seuil, ses entités Home Assistant et sa liste de sons. Un son ne peut être actif que dans un seul groupe d\'une même source.</p>' +
@@ -81,6 +83,10 @@
             '<button type="button" class="btn btn-ghost" data-action="test-webhook">Tester</button></div>' +
             '<p class="hint">Appelé à chaque détection, en plus des entités Home Assistant.</p>', src.domId + '-webhook');
         return html;
+    }
+    // Mot de passe d'une URL RTSP masque a l'affichage (rtsp://admin:••••@…).
+    function maskUrl(url) {
+        return String(url || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^:@\/\s]*):[^\/\s]*@/i, '$1:••••@');
     }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
@@ -103,7 +109,7 @@
                 '<div class="menu"><button type="button" class="btn-icon" data-action="menu" aria-haspopup="true" aria-expanded="false" aria-label="Actions pour ' + esc(src.name) + '">' +
                 '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg></button>' +
                 '<div class="menu-list" role="menu" hidden>' +
-                    '<button type="button" role="menuitem" data-action="test">Écouter cette source</button>' +
+                    '<button type="button" role="menuitem" data-action="test">Tester le son</button>' +
                     '<button type="button" role="menuitem" data-action="open-settings">Réglages de la source</button>' +
                     '<button type="button" role="menuitem" class="danger" data-action="delete">Supprimer…</button>' +
                 '</div></div>' +
@@ -130,6 +136,10 @@
             '<span class="add-plus" aria-hidden="true">+</span><span>Ajouter une source</span>' +
             '<span class="muted">Micro, caméra RTSP ou flux VBAN</span></button>';
         CT.$('#sources-empty').hidden = sources.length > 0;
+        // Premiers pas : pas d'historique ni de seconde carte « Ajouter » tant
+        // qu'aucune source n'existe (l'accueil a son propre bouton).
+        CT.$('#history').hidden = sources.length === 0;
+        CT.$('#add-source').hidden = sources.length === 0;
         sources.forEach(function (src) {
             var card = document.getElementById(src.domId);
             bindCard(card, src);
@@ -218,7 +228,7 @@
         toggle.addEventListener('change', function () {
             var value = toggle.checked;
             toggle.disabled = true;
-            refreshAfter(CT.patchSource(src, {enabled: value}))
+            refreshAfter(CT.withRestart(CT.patchSource(src, {enabled: value})))
                 .catch(function (err) { toggle.checked = !value; CT.error('Activation impossible : ' + err.message); })
                 .finally(function () { toggle.disabled = false; });
         });
@@ -228,7 +238,7 @@
             var slider = row.querySelector('.threshold');
             var prev = slider.value;
             slider.addEventListener('input', function () {
-                row.querySelector('.threshold-value').textContent = CT.fmt(slider.value);
+                row.querySelector('.threshold-value').textContent = CT.pct(slider.value);
                 row.querySelector('.scorebar-mark').style.left = (slider.value * 100) + '%';
                 var live = (CT.state.live[src.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
                 drawSpark(row.querySelector('canvas'), live, parseFloat(slider.value), Date.now() / 1000);
@@ -248,6 +258,7 @@
                         prev = slider.value;
                         var g = groupsOf(src).filter(function (x) { return x.slug === slug; })[0];
                         if (g) g.threshold = parseFloat(slider.value);
+                        CT.success('Seuil enregistré : ' + CT.pct(slider.value));
                     })
                     .catch(function (err) {
                         slider.value = prev;
@@ -267,6 +278,15 @@
                 });
             }
             input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
+            if (input.dataset.secret) {
+                // Adresse complete pendant la saisie, masquee sinon.
+                input.addEventListener('focus', function () {
+                    if (input.value === maskUrl(src.data.url || '')) input.value = src.data.url || '';
+                });
+                input.addEventListener('blur', function () {
+                    if (input.value === (src.data.url || '')) input.value = maskUrl(input.value);
+                });
+            }
             input.addEventListener('change', function () {
                 var body = {};
                 if (name === 'device') {
@@ -280,7 +300,9 @@
                 } else {
                     body[name] = input.value.trim();
                 }
-                CT.patchSource(src, body).then(function (d) {
+                if (input.dataset.secret && body[name] === maskUrl(src.data.url || '')) return;  // rien change
+                var restarts = src.enabled && ['url', 'device', 'auto_volume'].indexOf(name) !== -1;
+                CT.withRestart(CT.patchSource(src, body), restarts).then(function (d) {
                     input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
                     if (name === 'auto_volume') {
                         var vol = card.querySelector('[data-field="volume"]');
@@ -292,6 +314,7 @@
                     // Y compris pendant un test (qui lit le gain en direct) : la
                     // valeur n'etait pas recopiee et revenait au rendu suivant.
                     Object.assign(src.data, d.source || {});
+                    CT.success('Enregistré');
                 }).catch(function (err) {
                     if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
                     else input.value = input.dataset.prev;
@@ -330,7 +353,7 @@
                 : CT.api('DELETE', '/api/vban/remove', {ip: src.data.ip, name: src.data.name,
                                                          stream_name: src.data.stream_name || src.data.name});
             if (CT.state.testing && CT.state.testing.domId === src.domId) CT.stopTest();
-            refreshAfter(req, 'Source supprimée').catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
+            refreshAfter(CT.withRestart(req, src.enabled), 'Source supprimée').catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
         });
     }
 
@@ -339,7 +362,7 @@
         var url = input.value.trim();
         if (!url) { CT.error("Saisissez d'abord l'adresse du webhook."); input.focus(); return; }
         CT.api('POST', '/api/webhook/test', {url: url, source: src.sourceId})
-            .then(function () { CT.success('Webhook reçu par ' + url); })
+            .then(function () { CT.success('Webhook de test envoyé et accepté'); })
             .catch(function (err) { CT.error('Test du webhook échoué : ' + err.message); });
     }
 
@@ -348,7 +371,9 @@
         if (CT.state.testing && CT.state.testing.domId === src.domId) { CT.stopTest(); return; }
         var url = card.querySelector('[data-field="url"]');
         var gain = card.querySelector('[data-field="gain"]');
-        CT.startTest(CT.testFor(src, url && url.value, gain && parseInt(gain.value, 10)))
+        var u = url && url.value;
+        if (url && url.dataset.secret && u === maskUrl(src.data.url || '')) u = src.data.url;
+        CT.startTest(CT.testFor(src, u, gain && parseInt(gain.value, 10)))
             .catch(function (err) { CT.error('Test impossible : ' + err.message); });
     }
     CT.onTestChange = function (test, on) {
@@ -356,7 +381,7 @@
             var mine = on && card.id === test.domId;
             card.classList.toggle('is-testing', mine);
             CT.$$('[data-action="test"]', card).forEach(function (b) {
-                b.textContent = mine ? 'Arrêter le test' : 'Écouter cette source';
+                b.textContent = mine ? 'Arrêter le test' : 'Tester le son';
             });
             if (!mine && card.id === test.domId) setMeter(card, null);
         });
@@ -416,7 +441,7 @@
     });
 
     function setScore(row, score, threshold) {
-        row.querySelector('.group-live-score').textContent = CT.fmt(score);
+        row.querySelector('.group-live-score').textContent = CT.pct(score);
         var fill = row.querySelector('.scorebar-fill');
         fill.style.width = Math.min(100, score * 100) + '%';
         fill.classList.toggle('is-over', score >= threshold);

@@ -55,7 +55,7 @@
             (entities ? '<ul class="entity-list">' + entities + '</ul>' : '<p class="hint">Aucune entité : cochez au moins un nombre de claps.</p>') +
             '</fieldset>' +
             '<div class="field"><div class="field-row"><span class="field-label">Sons qui déclenchent ce groupe</span>' +
-                '<button type="button" class="btn-link" data-group-action="cleanup">Retirer les sons non cochés</button></div>' +
+                '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
                 (labels.length > 8 ? '<input type="search" class="input sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
                     esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
                 '<div class="chips">' + (chips || '<p class="hint">Les sons entendus pendant la détection apparaîtront ici.</p>') + '</div>' +

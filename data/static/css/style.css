@@ -248,7 +248,14 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
     font: 600 0.75rem var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums;
 }
-.meter-large { height: 32px; }
+.meter-large { height: 32px; overflow: visible; margin-top: 18px; }
+.meter-target {
+    position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink);
+}
+.meter-target span {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px;
+    font-size: 0.7rem; white-space: nowrap; color: var(--ink-2);
+}
 .source-card.is-testing .meter { border-color: var(--accent); }
 .live-line { min-height: 1.5em; font-size: 0.9rem; color: var(--ink-2); overflow-wrap: anywhere; }
 
