@@ -166,3 +166,17 @@ def test_vban_source_reports_idle_and_recovery(monkeypatch):
     th.join(2)
     assert calls == [True, False] and len(blocks) == 1
     assert fake.cb is None   # desabonne a l'arret
+
+
+def test_real_listener_unsubscribes_bound_method(listener):
+    """VbanSource s'abonne avec une methode liee : le desabonnement doit la
+    reconnaitre (chaque acces cree un nouvel objet)."""
+    src = VbanSource(listener, '10.0.0.5', 'Stream1')
+    stop = threading.Event()
+    th = threading.Thread(target=lambda: list(src.iter_blocks(stop)))
+    th.start()
+    time.sleep(0.2)
+    assert ('10.0.0.5', 'Stream1') in listener._streams
+    stop.set()
+    th.join(2)
+    assert ('10.0.0.5', 'Stream1') not in listener._streams

@@ -125,3 +125,31 @@ def test_all_sources_dead_stops_session(session_env, monkeypatch):
     time.sleep(1.5)
     assert not classify.is_running()
     assert ('detection_status', {'status': 'stopped'}) in emitted
+
+
+def test_live_gains_cleared_after_stop(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=200))
+    classify.start_from_settings(sock)
+    time.sleep(0.3)
+    classify.update_source_gain('rtsp_cam1', 7)
+    classify.stop_detection()
+    assert classify.live_gain('rtsp_cam1', 3) == 3
+
+
+def test_pending_sounds_flushed_before_cleanup(session_env, monkeypatch):
+    """Un son en attente d'ecriture groupee ne reapparait pas apres « Vider
+    la liste des sons non coches »."""
+    classify, sock, emitted, calls, sm = session_env
+    from flask import Flask
+    import routes.sources as rs
+    monkeypatch.setattr(classify, 'SEEN_FLUSH_DELAY', 30)
+    classify._queue_sound_seen('rtsp', 'cam1', 'Dog')
+    app = Flask(__name__)
+    app.register_blueprint(rs.sources_bp)
+    r = app.test_client().post('/api/source/sound_whitelist/cleanup',
+                               json={'kind': 'rtsp', 'source_key': 'cam1', 'group_slug': 'clap'})
+    assert r.status_code == 200
+    classify._flush_sound_seen()
+    wl = sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
+    assert 'Dog' not in wl

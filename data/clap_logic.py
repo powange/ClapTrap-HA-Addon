@@ -56,11 +56,16 @@ class ClapTracker:
     # Apres un declenchement, le score YAMNet reste haut ~1 s sur le meme son :
     # un groupe ne se re-arme qu'avec un nouveau pic ou apres ce delai.
     RETRIGGER_GUARD = 1.0
-    # Un nouveau pic pendant un son deja au-dessus du seuil exige une vraie
-    # attaque : bloc ATTACK_RATIO fois plus fort que le precedent, et au moins
-    # REATTACK_GAP s apres le dernier pic (un clap a cheval sur deux blocs ne
-    # compte qu'une fois). La decroissance d'un son (reverberation) ne remonte
-    # jamais : elle ne peut plus etre comptee comme un 2e clap.
+    # Un pic n'est compte que sur une vraie attaque : ATTACK_RATIO fois plus
+    # fort que le niveau qui le precede. La decroissance d'un son
+    # (reverberation) ne remonte jamais : elle ne peut pas compter pour un 2e
+    # clap.
+    # - Avec `pre_level` (detecteur) : niveau des ~20 ms juste avant le pic, et
+    #   instant precis du pic dans le bloc. Deux claps dans des blocs voisins
+    #   comptent pour deux, un clap a cheval sur deux blocs pour un (pics a
+    #   quelques ms d'ecart, sous peak_cooldown).
+    # - Sans (pics de blocs seuls) : bloc precedent, et REATTACK_GAP s apres le
+    #   dernier pic pendant un son deja au-dessus du seuil.
     ATTACK_RATIO = 1.5
     REATTACK_GAP = 0.15
 
@@ -101,26 +106,36 @@ class ClapTracker:
 
     # --- Pics -------------------------------------------------------------
 
-    def feed_peak(self, raw_peak, now):
-        """Pic brut (avant gain et auto-gain) d'un bloc audio."""
+    def feed_peak(self, raw_peak, now, pre_level=None, gain=1.0):
+        """Pic brut (avant gain et auto-gain) d'un bloc audio.
+
+        `now` : instant du pic ; `pre_level` : niveau juste avant lui (voir
+        ATTACK_RATIO) ; `gain` : gain de la source. Le plancher absolu est
+        rapporte au gain : sur le signal brut, une camera faible (gain x10)
+        n'atteignait jamais 0,01 et plus aucun clap n'etait compte.
+        """
+        floor = self.PEAK_FLOOR / max(1.0, float(gain or 1.0))
         if len(self._warmup) < self.WARMUP_BLOCKS:
             self._warmup.append(raw_peak)
             if len(self._warmup) == self.WARMUP_BLOCKS:
-                self.avg_level = max(0.001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
-            return max(self.PEAK_FLOOR, self.avg_level * self.peak_ratio)
+                self.avg_level = max(0.0001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
+            return max(floor, self.avg_level * self.peak_ratio)
 
         # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
         # pendant un son : un bruit qui s'installe finit par etre absorbe.
         rate = 0.001 if self._above else 0.005
         self.avg_level = self.avg_level * (1 - rate) + raw_peak * rate
-        threshold = max(self.PEAK_FLOOR, self.avg_level * self.peak_ratio)
+        threshold = max(floor, self.avg_level * self.peak_ratio)
 
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
 
-        attack = (not self._above
-                  or (raw_peak > self._prev_peak * self.ATTACK_RATIO
-                      and (now - self._last_peak_time) > self.REATTACK_GAP))
+        if pre_level is not None:
+            attack = raw_peak > pre_level * self.ATTACK_RATIO
+        else:
+            attack = (not self._above
+                      or (raw_peak > self._prev_peak * self.ATTACK_RATIO
+                          and (now - self._last_peak_time) > self.REATTACK_GAP))
         if raw_peak > threshold and attack:
             # Front montant ou nouvelle attaque : nouveau pic
             if (now - self._last_peak_time) > self.peak_cooldown:

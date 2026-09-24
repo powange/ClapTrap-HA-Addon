@@ -149,3 +149,12 @@ def test_detection_entity_metadata(mqtt):
     ha._publish_detection()
     cfg = [json.loads(p) for t, p, r in mqtt.published if t.endswith('detection/config')][0]
     assert cfg['device_class'] == 'running' and cfg['entity_category'] == 'diagnostic'
+
+
+def test_more_than_four_claps_ignored(mqtt):
+    s = settings()
+    s['microphone']['sound_groups'][0]['ha_entities'] = [1, 2, 3, 4]
+    ha.sync_sources(s)
+    mqtt.published.clear()
+    ha.on_clap_detected('mic', 0.9, 5)
+    assert mqtt.published == []

@@ -314,11 +314,12 @@ class DetectionSession:
         ignore jusqu'au redemarrage suivant. Les routes enregistrent AVANT
         d'appliquer en direct : ce qui n'a pas trouve le detecteur est ici."""
         try:
-            settings = load_settings()
-            current = next((s for s in build_sources_from_settings(settings)
-                            if s['source_id'] == src['source_id']), None)
-            if current and current['groups']:
-                det.set_groups(current['groups'])
+            with _whitelist_lock:  # lecture et application sans mise a jour intercalee
+                settings = load_settings()
+                current = next((s for s in build_sources_from_settings(settings)
+                                if s['source_id'] == src['source_id']), None)
+                if current and current['groups']:
+                    det.set_groups(current['groups'])
             p = detection_params_from_settings(settings)
             det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
             exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
@@ -446,6 +447,9 @@ class DetectionSession:
             if is_current:
                 _session = None
         if is_current:
+            # Gains en direct de cette session : un test du son lance ensuite
+            # (apres un import par exemple) doit lire le gain transmis.
+            _live_gains.clear()
             try:
                 from ha_entities import update_detection_state
                 update_detection_state(False)
@@ -559,7 +563,10 @@ def push_groups(source_id, groups):
     """Applique des groupes (format detecteur) a une source en cours."""
     det = get_detector(source_id)
     if det is not None and groups:
-        det.set_groups(groups)
+        # Meme verrou que les autres mises a jour en direct et que la relecture
+        # des reglages au demarrage : sinon l'une pouvait ecraser l'autre.
+        with _whitelist_lock:
+            det.set_groups(groups)
 
 
 def set_seen_labels(source_id, labels):

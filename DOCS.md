@@ -89,7 +89,7 @@ Toutes les entités sont regroupées dans l'appareil **ClapTrap**.
 | Entité | Rôle |
 |---|---|
 | `binary_sensor.claptrap_<source>_<groupe>_1clap` | 1 clap détecté |
-| `binary_sensor.claptrap_<source>_<groupe>_2claps` | 2 claps, etc. jusqu'à `4claps` (4 claps ou plus) |
+| `binary_sensor.claptrap_<source>_<groupe>_2claps` | 2 claps, etc. jusqu'à `4claps` (au-delà de 4, aucune entité : c'est du bruit, pas un geste) |
 | `binary_sensor.claptrap_detection` | la détection tourne (attribut `sources`) |
 
 - `<source>` vaut `mic` pour le micro, `rtsp_` suivi des 8 premiers caractères

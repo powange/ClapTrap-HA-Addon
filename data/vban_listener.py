@@ -149,7 +149,11 @@ class VBANDetector:
         key = (ip, stream_name)
         with self._lock:
             entry = self._streams.get(key)
-            if entry is None or (callback is not None and entry.get('callback') is not callback):
+            # `!=` et non `is not` : chaque acces a une methode liee
+            # (self._on_chunk) cree un nouvel objet ; avec `is`, le
+            # desabonnement ne se faisait jamais et les paquets etaient encore
+            # decodes apres l'arret.
+            if entry is None or (callback is not None and entry.get('callback') != callback):
                 return
             self._streams.pop(key, None)
             if self._mcast_by_name.get(stream_name) == key:

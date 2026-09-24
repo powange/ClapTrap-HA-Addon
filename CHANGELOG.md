@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.47.0
+
+### Détection audio
+
+- **Caméras et flux faibles** : le seuil minimal d'un pic est rapporté au
+  gain de la source. Sur le son brut, une caméra faible (gain ×10 par défaut)
+  n'atteignait jamais ce seuil et, depuis la 6.37, ne déclenchait plus aucune
+  entité.
+- **Claps rapprochés** : l'attaque d'un clap se mesure par rapport au son des
+  20 ms qui le précèdent, à sa position exacte dans le bloc. Deux claps à
+  150 ms d'écart dans des blocs voisins, ou un 2e clap sur la traîne du
+  premier, comptent pour deux ; un clap à cheval sur deux blocs compte pour un.
+- **Temps audio** : pics et résultats de YAMNet sont datés sur la durée des
+  blocs reçus, et non plus à l'heure de traitement. Des blocs livrés en
+  rafale par ffmpeg gardent leur espacement réel.
+- **Auto-gain** : calculé sur le son le plus fort des 3 dernières secondes ;
+  un clap faible isolé est bien amplifié pour YAMNet (×1,4 au plus avant), un
+  son fort n'est toujours pas écrêté.
+- **VBAN** : le désabonnement d'un flux se fait enfin ; les paquets n'étaient
+  plus jamais ignorés après l'arrêt de la détection.
+- Mises à jour en direct des groupes et relecture des réglages au démarrage
+  sérialisées ; les sons en attente d'enregistrement sont écrits avant « Vider
+  la liste des sons non cochés » (ils réapparaissaient) ; gains remis à zéro à
+  l'arrêt (le test du son reprenait un gain périmé) ; au-delà de 4 claps,
+  aucune entité n'est déclenchée (c'était « 4 claps »).
+- 13 tests ajoutés, dont 8 sur de vrais échantillons audio.
+
 ## 6.46.0
 
 ### Tests

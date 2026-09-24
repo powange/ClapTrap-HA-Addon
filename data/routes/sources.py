@@ -479,6 +479,13 @@ def cleanup_source_sound_whitelist():
     kind = _require_kind(data)
     source_key = data.get('source_key')
     group_slug = data.get('group_slug')
+    try:
+        # Sons entendus en attente d'enregistrement (par lots de 2 s) : les
+        # ecrire avant, sinon ils reapparaissaient juste apres le nettoyage.
+        from classify import _flush_sound_seen
+        _flush_sound_seen()
+    except Exception as e:
+        logging.debug(f"Sons en attente non enregistrés: {e}")
 
     def _mut(settings):
         target = _require_source(settings, kind, source_key)

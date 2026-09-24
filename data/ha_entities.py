@@ -640,8 +640,7 @@ def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_cla
     source_slug = info.get('slug', _make_slug(entity_key))
     group_info = (info.get('groups') or {}).get(group_slug, {})
     clap_counts = group_info['clap_counts'] if 'clap_counts' in group_info else (group_clap_counts or [])
-    clap_count = min(clap_count, 4)
-
+    # Au-dela de 4 : bruit pendant la fenetre de comptage, pas « 4 claps ».
     if clap_count not in clap_counts:
         logging.info(f"Clap x{clap_count} sur {source_slug}/{group_slug} : pas d'entité pour ce nombre "
                      f"(configuré : {clap_counts})")

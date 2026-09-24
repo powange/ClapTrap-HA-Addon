@@ -78,3 +78,15 @@ def test_stop_during_processing_is_safe(fake_classifier):
     t.join(2)
     assert clf.closed and det.classifier is None
     det.process_audio(block(0.3))   # detecteur arrete : ignore sans erreur
+
+
+def test_agc_stays_up_on_isolated_weak_clap(fake_classifier):
+    """Clap faible isole dans une piece calme : amplifie pour le classifieur
+    (l'ancien auto-gain retombait a 1 sur le bruit et n'atteignait que x1,4)."""
+    det, clf, _ = make(fake_classifier)
+    for _ in range(30):
+        det.process_audio(block(0.002, 0.0005))
+    det.process_audio(block(0.03, 0.0005))
+    assert np.abs(clf.blocks[-1]).max() > 0.1   # clap 0,03 amplifie
+    det.process_audio(block(0.5, 0.0005))
+    assert np.abs(clf.blocks[-1]).max() < 1.0   # son fort : pas d'ecretage

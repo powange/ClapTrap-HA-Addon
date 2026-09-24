@@ -1,6 +1,7 @@
 """Detecteur d'une source audio : pretraitement + YAMNet (MediaPipe) + logique
 de claps (clap_logic.ClapTracker). Un detecteur = une source."""
 
+import collections
 import logging
 import threading
 import time
@@ -12,6 +13,12 @@ from mediapipe.tasks.python.components import containers
 
 from audio_utils import BLOCK_SAMPLES
 from clap_logic import ClapTracker
+
+PRE_WINDOW = 320   # 20 ms : niveau mesure juste avant un pic (attaque)
+PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
+AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
+AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
+AGC_MAX = 5.0
 
 
 class AudioDetector:
@@ -34,6 +41,9 @@ class AudioDetector:
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
         self._last_total = 1.0    # gain total applique au bloc precedent
+        self._recent_peaks = collections.deque(maxlen=AGC_MEMORY)
+        self._prev_tail = np.zeros(0, dtype=np.float32)  # fin du bloc precedent (|x|)
+        self._clock_end = 0.0     # horloge audio : fin du dernier bloc recu
         self._cadence = []        # instants des premiers resultats (mesure de cadence)
         self._errors_logged = 0
         self._detection_callback = None
@@ -132,18 +142,18 @@ class AudioDetector:
                 # bloc creait des marches a chaque frontiere de 100 ms).
                 self._dc = 0.95 * self._dc + 0.05 * float(audio_data.mean())
                 audio_data = audio_data - np.float32(self._dc)
-            raw_peak = float(np.abs(audio_data).max()) if audio_data.size else 0.0
+            raw_peak, peak_time, pre_level = self._locate_peak(audio_data)
 
             with self.lock:
-                noise_floor = self.tracker.avg_level
-                self.tracker.feed_peak(raw_peak, time.monotonic())
-            # Gain pour le classifieur : gain de la source puis auto-gain lisse
-            # sur les signaux faibles.
-            boosted = raw_peak * gain
-            target = min(0.15 / boosted, 5.0) if 0.003 < boosted < 0.05 and raw_peak > noise_floor * 2 else 1.0
-            # Baisse immediate (un clap n'est plus ecrete par le gain du bruit
-            # qui le precede), remontee lente.
-            self._agc = target if target < self._agc else 0.9 * self._agc + 0.1 * target
+                self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
+            # Auto-gain (classifieur seulement) sur le son le plus fort des 3
+            # dernieres secondes : il reste eleve sur un clap faible isole (le
+            # bruit qui suit ne le fait plus retomber) et baisse aussitot sur
+            # un son fort, qui n'est donc pas ecrete.
+            self._recent_peaks.append(raw_peak * gain)
+            loudest = max(self._recent_peaks)
+            target = min(AGC_TARGET / loudest, AGC_MAX) if 0 < loudest < AGC_TARGET / 2 else 1.0
+            self._agc = target if target < self._agc else 0.95 * self._agc + 0.05 * target
             total = gain * self._agc
             if total > self._last_total + 1e-3 and audio_data.size:
                 # Remontee en rampe sur le bloc : pas de marche toutes les 100 ms.
@@ -161,6 +171,32 @@ class AudioDetector:
             self._pending = audio_data[n_blocks * BLOCK_SAMPLES:].copy()
         except Exception:
             logging.exception(f"Erreur dans le traitement audio ({self.label})")
+
+    def _locate_peak(self, x):
+        """(pic, instant du pic, niveau juste avant lui) d'un bloc.
+
+        L'instant suit une horloge audio (duree des blocs recus) et non l'heure
+        de traitement : des blocs livres en rafale par ffmpeg gardent leur
+        espacement reel. Elle n'est recalee (vers l'avant seulement) que si le
+        flux s'est interrompu (plus de 0,5 s de retard). Les resultats de YAMNet
+        sont dates sur la meme horloge (fin du dernier bloc recu).
+        """
+        now = time.monotonic()
+        n = x.size
+        dur = n / self.sample_rate
+        start = max(self._clock_end, now - 0.5 - dur)
+        self._clock_end = start + dur
+        if not n:
+            return 0.0, now, None
+        mag = np.abs(x)
+        idx = int(mag.argmax())
+        peak = float(mag[idx])
+        buf = np.concatenate((self._prev_tail, mag)) if self._prev_tail.size else mag
+        j = idx + self._prev_tail.size
+        lo, hi = max(0, j - PRE_GAP - PRE_WINDOW), max(0, j - PRE_GAP)
+        pre = float(buf[lo:hi].max()) if hi > lo else None
+        self._prev_tail = mag[-(PRE_GAP + PRE_WINDOW):].copy()
+        return peak, start + idx / self.sample_rate, pre
 
     def _classify(self, block):
         self._timestamp_ms += int(BLOCK_SAMPLES / self.sample_rate * 1000)
@@ -207,7 +243,7 @@ class AudioDetector:
                 threshold = self.score_threshold
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
-                events = self.tracker.on_classification(categories, time.monotonic())
+                events = self.tracker.on_classification(categories, self._clock_end or time.monotonic())
                 group_scores = {
                     g['slug']: max((s for n, s in categories
                                     if g['whitelist'].get(n) and n not in exclusions), default=0.0)
