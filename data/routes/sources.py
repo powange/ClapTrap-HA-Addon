@@ -93,6 +93,15 @@ def _check_entity_collision(settings):
                        "choisissez un autre nom", 409)
 
 
+def _after_change(restart):
+    """Apres une modification de source : redemarrage de la detection (qui
+    resynchronise les entites HA) ou simple synchronisation."""
+    if restart:
+        _restart_detection_if_running()
+    else:
+        _sync_ha_entities()
+
+
 def _restart_detection_if_running():
     """Redémarre la détection avec les sources mises à jour si elle tourne."""
     _sync_ha_entities()
@@ -161,6 +170,16 @@ def _resolve_pulse_name(settings):
     return ''
 
 
+def _source_name(value, default=None):
+    """Nom affiche d'une source : texte de 1 a 80 caracteres (vide = defaut)."""
+    name = str(value if value is not None else '').strip()
+    if not name and default:
+        return default
+    if not name or len(name) > 80:
+        raise ApiError('Nom : texte de 1 à 80 caractères attendu')
+    return name
+
+
 def _normalize_rtsp_url(url):
     from settings_manager import normalize_rtsp_url
     return normalize_rtsp_url(url)
@@ -196,7 +215,7 @@ def add_rtsp_stream():
     data = _json()
     new_stream = {
         'id': str(uuid.uuid4()),
-        'name': str(data.get('name', '') or '').strip(),
+        'name': _source_name(data.get('name'), 'Caméra'),
         'url': _normalize_rtsp_url(data.get('url', '')),
         'webhook_url': to_webhook(data.get('webhook_url', '')),
         'enabled': to_bool(data.get('enabled', True), 'enabled'),
@@ -211,9 +230,9 @@ def add_rtsp_stream():
         settings.setdefault('rtsp_sources', []).append(new_stream)
 
     modify_settings(_mut)
-    # Une source active avec URL doit etre ecoutee tout de suite.
-    if new_stream['enabled'] and new_stream['url']:
-        _restart_detection_if_running()
+    # Une source active avec URL doit etre ecoutee tout de suite ; une source
+    # desactivee est publiee (indisponible) sans redemarrage.
+    _after_change(new_stream['enabled'] and bool(new_stream['url']))
     return jsonify({'success': True, 'stream': new_stream})
 
 
@@ -228,7 +247,7 @@ def _update_rtsp(stream_id, data):
             url_changed = new_url != stream.get('url')
             stream['url'] = new_url
         if 'name' in data:
-            stream['name'] = str(data['name'] or '').strip()
+            stream['name'] = _source_name(data['name'], 'Caméra')
         if 'webhook_url' in data:
             stream['webhook_url'] = to_webhook(data['webhook_url'])
         if 'enabled' in data:
@@ -268,13 +287,10 @@ def delete_rtsp_stream(stream_id):
         settings['rtsp_sources'] = [s for s in before if s.get('id') != stream_id]
         if len(settings['rtsp_sources']) == len(before):
             raise ApiError('Stream non trouvé', 404)
-        return True
+        return next(s for s in before if s.get('id') == stream_id).get('enabled', False)
 
-    removed = modify_settings(_mut)
-    _sync_ha_entities()
-    if removed:
-        # Sinon ffmpeg continue sur le flux supprime jusqu'au prochain redemarrage.
-        _restart_detection_if_running()
+    # Source active : redemarrer, sinon ffmpeg continue sur le flux supprime.
+    _after_change(modify_settings(_mut))
     return jsonify({'success': True})
 
 
@@ -285,7 +301,7 @@ def save_vban_source():
     source = _json()
     if not all(field in source for field in ('name', 'ip', 'port')):
         raise ApiError('Données manquantes pour la source VBAN')
-    name = str(source['name']).strip()
+    name = _source_name(source['name'])
     if not name:
         raise ApiError('Nom requis pour la source VBAN')
     from settings_manager import to_ip
@@ -315,8 +331,7 @@ def save_vban_source():
         _check_entity_collision(settings)
 
     modify_settings(_mut)
-    if new_source['enabled']:
-        _restart_detection_if_running()
+    _after_change(new_source['enabled'])
     return jsonify({'success': True, 'source': new_source})
 
 
@@ -325,10 +340,11 @@ def remove_vban_source(vban_id):
     def _mut(settings):
         src = _find_vban_by_id(settings, vban_id)
         settings['saved_vban_sources'] = [s for s in settings['saved_vban_sources'] if s is not src]
+        return bool(src.get('enabled'))
 
-    modify_settings(_mut)
-    _sync_ha_entities()
-    _restart_detection_if_running()
+    # Source desactivee : rien a redemarrer (toutes les sources etaient
+    # coupees quelques secondes pour rien).
+    _after_change(modify_settings(_mut))
     return jsonify({'success': True})
 
 
@@ -339,10 +355,7 @@ def _update_vban(vban_id, source):
         s = _find_vban_by_id(settings, vban_id)
         restart = False
         if 'name' in source:
-            name = str(source['name'] or '').strip()
-            if not name or len(name) > 80:
-                raise ApiError('Nom : texte de 1 à 80 caractères attendu')
-            s['name'] = name
+            s['name'] = _source_name(source['name'])
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
         if 'enabled' in source:
@@ -350,7 +363,7 @@ def _update_vban(vban_id, source):
             restart = new_enabled != s.get('enabled')
             s['enabled'] = new_enabled
         if 'gain' in source:
-            s['gain'] = to_number(source['gain'], 'gain', 0, 100)
+            s['gain'] = to_number(source['gain'], 'gain', 0, 100, integer=True)
         state['restart'] = restart
         return dict(s)
 
@@ -540,6 +553,8 @@ def update_source_sound_whitelist():
     kind = _require_kind(data, 'label')
     source_key = data.get('source_key')
     label = data.get('label')
+    if not isinstance(label, str) or not label or len(label) > 200:
+        raise ApiError('label : nom de son attendu')
     enabled = to_bool(data.get('enabled', False), 'enabled')
 
     def _mut(settings):
@@ -671,6 +686,9 @@ def update_source_sound_group():
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'ha_entities' in data:
             target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
+            # Plus de nombres de claps = nouvelles entites : meme controle qu'a
+            # la creation (une collision effacait l'entite d'une autre source).
+            _check_entity_collision(settings)
         return dict(target), new_slug, dict(src)
 
     target, new_slug, src = modify_settings(_mut)
@@ -731,7 +749,9 @@ def add_microphone():
         mic = settings.setdefault('microphone', {})
         mic['configured'] = True
         return dict(mic)
-    return jsonify({'success': True, 'microphone': modify_settings(_mut)})
+    mic = modify_settings(_mut)
+    _sync_ha_entities()  # publie ses entites (indisponibles tant qu'il est desactive)
+    return jsonify({'success': True, 'microphone': mic})
 
 
 @sources_bp.route('/api/microphone', methods=['DELETE'])
@@ -745,10 +765,7 @@ def delete_microphone():
         mic['enabled'] = False
         mic['configured'] = False
         return was_enabled
-    was_enabled = modify_settings(_mut)
-    _sync_ha_entities()
-    if was_enabled:
-        _restart_detection_if_running()
+    _after_change(modify_settings(_mut))
     return jsonify({'success': True})
 
 
@@ -796,7 +813,7 @@ def _update_mic_fields(data):
         changes['device_index'] = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
         changes['pulse_name'] = str(dev.get('pulse_name') or '')
     if 'volume' in data:
-        changes['volume'] = int(max(0, min(150, to_number(data['volume'], 'volume'))))
+        changes['volume'] = to_number(data['volume'], 'volume', 0, 150, integer=True)
     if 'auto_volume' in data:
         changes['auto_volume'] = to_bool(data['auto_volume'], 'auto_volume')
     if 'webhook_url' in data:

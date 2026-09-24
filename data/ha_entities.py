@@ -397,11 +397,14 @@ def republish_all():
     """Republie la config et l'etat de toutes les entites connues."""
     if not _mqtt_connected.is_set():
         return
-    with _lock:
-        infos = [dict(i) for i in _source_info.values()]
-    _publish_detection()
-    for info in infos:
-        _publish_source(info)
+    # Sous le verrou des synchronisations : une source supprimee pendant la
+    # republication (naissance de HA) ressuscitait avec une config retenue.
+    with _sync_lock:
+        with _lock:
+            infos = [dict(i) for i in _source_info.values()]
+        _publish_detection()
+        for info in infos:
+            _publish_source(info)
 
 
 def _normalise_groups(groups, fallback_clap_counts=None):
@@ -454,20 +457,24 @@ def register_source(source_id, label=None, clap_counts=None, groups=None, availa
     logging.info(f"Entités HA: claptrap_{info['slug']} groupes={list(norm_groups.keys())} ({info['label']})")
 
 
-def unregister_source(source_id):
-    """Supprime toutes les entites d'une source (source supprimee)."""
+def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset()):
+    """Supprime toutes les entites d'une source (source supprimee), sauf les
+    object_ids `keep` revendiques par une source conservee (sinon une
+    collision effacait l'entite que l'autre source venait de publier)."""
     with _lock:
         info = _source_info.pop(source_id, None)
     if not info:
         return
+    objs = _object_ids(info) - set(keep)
     if not _mqtt_connected.is_set():
         # Broker injoignable : sans cela, la suppression etait perdue et les
         # entites restaient pour toujours. Elle sera faite a la reconnexion.
         with _lock:
-            _pending_removal.update(_object_ids(info))
-    for obj in _object_ids(info):
+            _pending_removal.update(objs)
+    for obj in objs:
         _unpublish_object(obj)
-    _mqtt_publish(f"claptrap/{info['slug']}/availability", '', retain=True)
+    if info['slug'] not in keep_slugs:
+        _mqtt_publish(f"claptrap/{info['slug']}/availability", '', retain=True)
     logging.info(f"Entités MQTT supprimées pour {info['slug']}")
 
 
@@ -552,8 +559,11 @@ def sync_sources(settings=None):
         with _lock:
             _expected_keys = {key for key, *_ in configured}
             stale = [k for k in _source_info if k not in _expected_keys]
+            kept = [_source_info[k] for k in _expected_keys if k in _source_info]
+            keep = set().union(*(_object_ids(i) for i in kept)) if kept else set()
+            keep_slugs = {i['slug'] for i in kept}
         for key in stale:
-            unregister_source(key)
+            unregister_source(key, keep=keep, keep_slugs=keep_slugs)
 
 
 def cleanup_orphans():

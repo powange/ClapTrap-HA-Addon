@@ -8,7 +8,7 @@ import requests
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
                               to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
-from routes.sources import api_error_response, _restart_detection_if_running
+from routes.sources import ApiError, api_error_response, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
 settings_bp.register_error_handler(Exception, api_error_response)
@@ -76,7 +76,10 @@ def cleanup_ha_entities():
     bouton ne faisait que marquer TOUTES les entites "unavailable" par l'API
     REST, y compris les actives.
     """
-    from ha_entities import cleanup_orphans, sync_sources
+    from ha_entities import cleanup_orphans, sync_sources, _mqtt_connected
+    if not _mqtt_connected.is_set():
+        # Rien ne serait publie : ne pas annoncer de suppressions.
+        return jsonify({'success': False, 'error': 'Broker MQTT injoignable : réessayez une fois connecté'}), 503
     sync_sources(load_settings())
     removed = cleanup_orphans()
     return jsonify({
@@ -111,9 +114,24 @@ def export_settings():
                 src['webhook_url'] = mask_webhook_url(src['webhook_url'])
             if src.get('url'):
                 src['url'] = mask_url_credentials(src['url'])
+        data['_shareable'] = True   # refuse a l'import
     name = 'claptrap-settings-partage.json' if shareable else 'claptrap-settings.json'
     return Response(json.dumps(data, indent=4, ensure_ascii=False), mimetype='application/json',
                     headers={'Content-Disposition': f'attachment; filename={name}'})
+
+
+def _check_import_collisions(imported):
+    """Refuse un import dont deux sources produiraient les memes entites HA."""
+    import copy
+    from settings_manager import _ensure_vban_ids
+    from ha_entities import find_entity_collision
+    prospective = load_settings()
+    prospective.update(copy.deepcopy(imported))
+    _ensure_vban_ids(prospective)
+    clash = find_entity_collision(prospective)
+    if clash:
+        raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
+                       "renommez-la dans le fichier avant de l'importer", 409)
 
 
 @settings_bp.route('/api/settings/import', methods=['POST'])
@@ -125,9 +143,15 @@ def import_settings():
             imported = request.get_json(silent=True)
     except (ValueError, UnicodeDecodeError) as e:
         return jsonify({'success': False, 'error': f'Fichier JSON illisible : {e}'}), 400
+    if isinstance(imported, dict) and imported.pop('_shareable', False):
+        # Identifiants et chemins de webhook masques : l'importer cassait
+        # cameras et webhooks sans aucune erreur.
+        raise ValueError("Ce fichier est un export « sans secrets » (identifiants et webhooks masqués) : "
+                         "importez plutôt une sauvegarde complète (« Exporter »)")
     # Validation AVANT ecriture : un seuil "abc" faisait planter float() au
     # demarrage suivant (auto-start en echec silencieux).
     normalize_settings(imported)
+    _check_import_collisions(imported)
     success, msg = save_settings(imported)
     if not success:
         raise SettingsSaveError(msg)

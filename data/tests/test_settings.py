@@ -108,3 +108,18 @@ def test_restore_from_backup_when_main_file_corrupted(settings_dir):
 
 def test_new_install_hides_mic(settings_dir):
     assert settings_dir.load_settings()['microphone']['configured'] is False
+
+
+def test_degraded_mode_refuses_background_writes(settings_dir):
+    sm = settings_dir
+    open(sm.SETTINGS_FILE, 'w').write('{corrompu')
+    open(sm.SETTINGS_BACKUP, 'w').write('{aussi')
+    sm._cache = None
+    sm.load_settings()
+    ok, _ = sm.atomic_update(lambda s: s['global'].update(threshold=0.9))
+    assert not ok and open(sm.SETTINGS_FILE).read() == '{corrompu'   # rien d'ecrase
+    sm.modify_settings(lambda s: s['global'].update(threshold=0.7))  # action de l'utilisateur
+    import glob
+    assert glob.glob(sm.SETTINGS_FILE + '.corrompu-*')               # fichier illisible conserve
+    sm._cache = None
+    assert sm.load_settings()['global']['threshold'] == 0.7

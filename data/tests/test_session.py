@@ -153,3 +153,21 @@ def test_pending_sounds_flushed_before_cleanup(session_env, monkeypatch):
     classify._flush_sound_seen()
     wl = sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
     assert 'Dog' not in wl
+
+
+def test_listening_off_while_reconnecting(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+
+    class Short(FakeReader):
+        def iter_blocks(self, stop):
+            self.runs += 1
+            for i in range(20 if self.runs == 1 else 0):
+                if stop.is_set():
+                    return
+                time.sleep(0.01)
+                yield np.zeros(BLOCK_SAMPLES, np.float32)
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url: Short())
+    classify.start_from_settings(sock)
+    time.sleep(1.5)
+    assert ('rtsp_cam1', True) in calls['listening']
+    assert calls['listening'][-1] == ('rtsp_cam1', False)   # flux perdu, reconnexion en cours

@@ -124,3 +124,64 @@ def test_legacy_routes_are_gone(client):
     for method, url in (('get', '/api/rtsp/streams'), ('put', '/api/microphone/threshold'),
                         ('post', '/api/settings/save'), ('get', '/api/ha/entities'), ('get', '/api/vban/saved-sources')):
         assert getattr(client, method)(url, json={}).status_code in (404, 405)
+
+
+def test_collision_refused_on_group_update_and_import(client, settings_dir):
+    settings_dir.save_settings({'saved_vban_sources': [
+        {'id': 'a', 'entity_key': 'vban_salon', 'ip': '10.0.0.1', 'name': 'Salon', 'stream_name': 'S1',
+         'sound_groups': [{'slug': 'tele_clap', 'name': 'T', 'ha_entities': [1]}]},
+        {'id': 'b', 'entity_key': 'vban_salon_tele', 'ip': '10.0.0.2', 'name': 'Salon Tele', 'stream_name': 'S2',
+         'sound_groups': [{'slug': 'clap', 'name': 'C', 'ha_entities': [2]}]}]})
+    r = client.put('/api/source/sound_groups', json={'kind': 'vban', 'source_key': 'a', 'group_slug': 'tele_clap',
+                                                     'ha_entities': [1, 2]})
+    assert r.status_code == 409
+    exported = json.loads(client.get('/api/settings/export').data)
+    exported['saved_vban_sources'][0]['sound_groups'][0]['ha_entities'] = [1, 2]
+    assert client.post('/api/settings/import', json=exported).status_code == 409
+
+
+def test_shareable_export_refused_at_import(client, settings_dir):
+    settings_dir.save_settings({'rtsp_sources': [{'id': 'a', 'url': 'rtsp://admin:pw@cam/1'}]})
+    share = json.loads(client.get('/api/settings/export?secrets=0').data)
+    r = client.post('/api/settings/import', json=share)
+    assert r.status_code == 400 and 'sans secrets' in r.json['error']
+    del share['_shareable']
+    r = client.post('/api/settings/import', json=share)
+    assert r.status_code == 400 and 'masqués' in r.json['error']
+
+
+def test_import_validates_entity_key_and_vban_duplicates(client):
+    r = client.post('/api/settings/import', json={'saved_vban_sources': [{'ip': '1.1.1.1', 'entity_key': ['x']}]})
+    assert r.status_code == 400
+    r = client.post('/api/settings/import', json={'saved_vban_sources': [
+        {'ip': '1.1.1.1', 'stream_name': 'S'}, {'ip': '1.1.1.1', 'stream_name': 'S'}]})
+    assert r.status_code == 400 and 'double' in r.json['error']
+
+
+def test_disabled_source_add_publishes_and_delete_does_not_restart(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    calls = []
+    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: calls.append('restart'))
+    monkeypatch.setattr(rs, '_sync_ha_entities', lambda: calls.append('sync'))
+    sid = client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://c/1', 'enabled': False}).json['stream']['id']
+    assert calls == ['sync']
+    calls.clear()
+    client.delete(f'/api/rtsp/stream/{sid}')
+    assert calls == ['sync']
+    calls.clear()
+    client.post('/api/microphone')
+    assert calls == ['sync']
+
+
+def test_cleanup_refused_when_mqtt_down(client):
+    import ha_entities
+    ha_entities._mqtt_connected.clear()
+    assert client.post('/api/ha/cleanup').status_code == 503
+
+
+def test_route_validation_consistency(client, settings_dir):
+    assert client.post('/api/rtsp/stream', json={'name': 'x' * 81, 'url': 'rtsp://c/1'}).status_code == 400
+    assert client.post('/api/vban/save', json={'name': 'x' * 81, 'ip': '1.1.1.1', 'port': 6980}).status_code == 400
+    settings_dir.save_settings({'microphone': {'configured': True}})
+    assert client.patch('/api/sources/mic/mic', json={'volume': 999}).status_code == 400
+    assert client.put('/api/source/sound_whitelist', json={'kind': 'mic', 'label': ['x'], 'enabled': True}).status_code == 400

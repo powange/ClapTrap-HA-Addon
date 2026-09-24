@@ -189,7 +189,10 @@ class DetectionSession:
         self.source_status[source_id] = status
         self._emit('source_status', {'source_id': source_id, 'status': status,
                                      **({'error': error} if error else {})})
-        if status in ('connected', 'error') and not self.stop_event.is_set():
+        if not self.stop_event.is_set():
+            # A l'ecoute seulement quand le flux arrive : pendant une
+            # reconnexion (camera debranchee, tentatives tuees par le chien de
+            # garde sans message d'erreur), les entites restaient disponibles.
             src = next((s for s in self.sources if s['source_id'] == source_id), None)
             if src:
                 self._set_listening(src, status == 'connected')

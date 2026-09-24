@@ -158,3 +158,18 @@ def test_more_than_four_claps_ignored(mqtt):
     mqtt.published.clear()
     ha.on_clap_detected('mic', 0.9, 5)
     assert mqtt.published == []
+
+
+def test_stale_source_never_unpublishes_ids_claimed_by_kept_source(mqtt):
+    """Collision creee hors des routes (fichier modifie a la main) : la source
+    conservee garde ses entites, meme celles de meme identifiant."""
+    s = settings(saved_vban_sources=[
+        {'id': 'a', 'entity_key': 'vban_salon', 'ip': '1', 'name': 'Salon', 'enabled': True,
+         'sound_groups': [G('tele_clap', 'T', [1])]},
+        {'id': 'b', 'entity_key': 'vban_salon_tele', 'ip': '2', 'name': 'Salon Tele', 'enabled': True,
+         'sound_groups': [G('clap', 'C', [2])]}])
+    ha.sync_sources(s)
+    s['saved_vban_sources'][0]['sound_groups'][0]['ha_entities'] = [1, 2]
+    mqtt.published.clear()
+    ha.sync_sources(s)
+    assert 'homeassistant/binary_sensor/claptrap/vban_salon_tele_clap_2claps/config' not in mqtt.deleted()

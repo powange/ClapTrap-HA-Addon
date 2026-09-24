@@ -1,5 +1,40 @@
 # Changelog
 
+## 6.48.0
+
+### Home Assistant / MQTT
+
+- **Collisions d'entités** : modifier les nombres de claps d'un groupe ou
+  importer une configuration qui ferait produire les mêmes entités à deux
+  sources est refusé (409). Et une source écartée ne dépublie plus les
+  entités qu'une source conservée revendique : l'entité toute neuve était
+  aussitôt supprimée de HA.
+- **Disponibilité** : les entités d'une source ne sont « disponibles » que
+  lorsque son flux arrive ; pendant une reconnexion (caméra débranchée), elles
+  passent « indisponibles » (elles le restaient indéfiniment).
+- **Sources ajoutées désactivées** (caméra, VBAN) et **micro ajouté** : leurs
+  entités sont publiées tout de suite.
+- La republication après un redémarrage de HA ne peut plus faire revivre une
+  source supprimée au même moment ; « Supprimer les entités orphelines »
+  répond une erreur quand le broker est injoignable au lieu d'annoncer des
+  suppressions.
+
+### API et réglages
+
+- **Export « sans secrets » refusé à l'import** (marqué comme tel, et valeurs
+  masquées détectées) : le réimporter cassait webhooks et caméras en silence.
+- **Validation** : `entity_key` importé vérifié et mis au format des
+  entity_id ; doublons VBAN (même IP, même flux) refusés à l'import ; noms de
+  source de 1 à 80 caractères partout ; gain entier pour toutes les sources ;
+  volume hors bornes refusé ; nom de son vérifié.
+- Supprimer une source désactivée ne relance plus toute la détection.
+- **Fichiers de réglages illisibles** : les écritures automatiques (sons
+  entendus, auto-volume) sont suspendues et la première modification de
+  l'utilisateur met les fichiers corrompus de côté (`settings.json.corrompu-…`)
+  au lieu de les écraser. Sur un disque en lecture seule, les identifiants
+  VBAN restent stables.
+- 9 tests ajoutés.
+
 ## 6.47.0
 
 ### Détection audio

@@ -54,6 +54,11 @@ _lock = RLock()
 _cache = None
 _cache_time = 0
 _CACHE_TTL = 5  # secondes
+# settings.json et sa sauvegarde illisibles : valeurs par defaut en memoire.
+# Les ecritures automatiques (sons entendus, auto-volume) sont alors refusees,
+# et la premiere ecriture voulue par l'utilisateur met les fichiers corrompus
+# de cote : avant, la premiere ecriture automatique les ecrasait.
+_degraded = False
 
 
 def _deep_merge(default, saved):
@@ -306,7 +311,7 @@ def load_settings():
     toucher au cache partage (avant, un cache hit renvoyait l'objet du cache
     lui-meme, mute ensuite hors verrou par les routes).
     """
-    global _cache, _cache_time
+    global _cache, _cache_time, _degraded
 
     with _lock:
         now = time.time()
@@ -316,6 +321,7 @@ def load_settings():
         saved, any_file = _read_saved()
         mic_migrated = False
         if saved is not None:
+            _degraded = False
             mic_migrated = _migrate_mic_configured(saved.get('microphone'))
             merged = _deep_merge(DEFAULT_SETTINGS, saved)
         elif _cache is not None:
@@ -331,7 +337,9 @@ def load_settings():
             else:
                 # Ne pas ecraser des fichiers corrompus : l'utilisateur peut
                 # encore les recuperer a la main.
-                logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire")
+                logging.error("settings.json et sa sauvegarde sont illisibles : valeurs par défaut en mémoire, "
+                              "fichiers conservés")
+                _degraded = True
         _apply_group_migrations(merged)
         migrated = _ensure_vban_ids(merged)
         migrated = _strip_legacy_fields(merged) or migrated
@@ -342,6 +350,9 @@ def load_settings():
                 _write_atomic(merged)
             except Exception as e:
                 logging.error(f"Migration des réglages non enregistrée: {e}")
+                # /data en lecture seule : garder cette version en memoire,
+                # sinon les ids VBAN etaient regeneres a chaque rechargement.
+                now = float('inf')
         _cache = merged
         _cache_time = now
         return copy.deepcopy(_cache)
@@ -349,7 +360,14 @@ def load_settings():
 
 def _commit(settings):
     """Ecrit `settings` tel quel (sous _lock) et met le cache a jour."""
-    global _cache, _cache_time
+    global _cache, _cache_time, _degraded
+    if _degraded:
+        stamp = time.strftime('%Y%m%d-%H%M%S')
+        for path in (SETTINGS_FILE, SETTINGS_BACKUP):
+            if os.path.exists(path):
+                os.replace(path, f"{path}.corrompu-{stamp}")
+                logging.warning(f"Fichier illisible conservé sous {path}.corrompu-{stamp}")
+        _degraded = False
     _write_atomic(settings)
     _cache = copy.deepcopy(settings)
     _cache_time = time.time()
@@ -420,6 +438,8 @@ def atomic_update(mutator):
     with _lock:
         try:
             settings = load_settings()
+            if _degraded:
+                return False, "réglages illisibles : écriture automatique suspendue"
             result = mutator(settings)
             if result is NO_CHANGE:
                 return True, "Aucun changement"
@@ -578,12 +598,14 @@ def _norm_source(src, path):
     if 'port' in src:
         src['port'] = to_number(src['port'], f"{path}.port", 1, 65535, integer=True)
     for key in ('name', 'audio_source', 'pulse_name', 'stream_name'):
-        if key in src and src[key] is not None and not isinstance(src[key], str):
-            raise ValueError(f"{path}.{key} : texte attendu")
+        if key in src and src[key] is not None and (not isinstance(src[key], str) or len(src[key]) > 200):
+            raise ValueError(f"{path}.{key} : texte de 200 caractères au plus attendu")
     if 'ha_entities' in src:
         src['ha_entities'] = to_clap_counts(src['ha_entities'], f"{path}.ha_entities")
     if 'webhook_url' in src:
         src['webhook_url'] = to_webhook(src['webhook_url'], f"{path}.webhook_url")
+        if src['webhook_url'].endswith('/…'):
+            raise ValueError(f"{path}.webhook_url : adresse masquée (export « sans secrets »)")
     wl = src.get('sound_whitelist')
     if wl is not None:
         if not isinstance(wl, dict):
@@ -633,14 +655,31 @@ def normalize_settings(data):
             continue
         if not isinstance(lst, list):
             raise ValueError(f"{key} : liste attendue")
-        ids, entity_keys = set(), set()
+        ids, entity_keys, streams = set(), set(), set()
         for i, src in enumerate(lst):
             _norm_source(src, f"{key}[{i}]")
             if key == 'rtsp_sources':
                 # Meme controle que l'API : « http://… » devenait « rtsp://http://… »
                 src['url'] = normalize_rtsp_url(src.get('url', ''), f"{key}[{i}].url")
+                if '***@' in src['url']:
+                    raise ValueError(f"{key}[{i}].url : identifiants masqués (export « sans secrets »)")
             else:
                 src['ip'] = to_ip(src.get('ip'), f"{key}[{i}].ip")
+                stream = (src.get('stream_name') or src.get('name') or '').strip()
+                if (src['ip'], stream) in streams:
+                    # Deux sources sur le meme flux se partagent les paquets.
+                    raise ValueError(f"{key}[{i}] : flux VBAN {src['ip']}/{stream} en double")
+                streams.add((src['ip'], stream))
+                # Cle d'entite : meme forme que les entity_id (vban_<slug>),
+                # sinon l'entity_key de l'evenement differait des entity_id.
+                ek = src.get('entity_key')
+                if ek is not None:
+                    if not isinstance(ek, str):
+                        raise ValueError(f"{key}[{i}].entity_key : texte attendu")
+                    ek = ascii_slug(ek)
+                    src['entity_key'] = ek if ek.startswith('vban_') else f"vban_{ek}" if ek else None
+                    if not src['entity_key']:
+                        src.pop('entity_key')
                 # Cle d'entite en double : recalculee au chargement.
                 if src.get('entity_key') in entity_keys:
                     src.pop('entity_key')
