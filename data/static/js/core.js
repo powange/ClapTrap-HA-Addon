@@ -231,52 +231,51 @@
     };
 
     // ---- Theme : celui de Home Assistant ------------------------------------------
-    // L'ingress sert la page dans la meme origine que HA : on lit la couleur de
-    // fond du theme HA. Sinon (acces direct, lecture impossible), le theme du
-    // systeme s'applique (prefers-color-scheme).
-    function luminance(color) {
-        var ctx = document.createElement('canvas').getContext('2d');
-        if (!ctx) return null;
-        ctx.fillStyle = '#010203';
-        ctx.fillStyle = color;
-        var hex = ctx.fillStyle;
-        if (!/^#[0-9a-f]{6}$/i.test(hex) || hex === '#010203') return null;
-        var rgb = [1, 3, 5].map(function (i) { return parseInt(hex.substr(i, 2), 16) / 255; });
-        return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-    }
-    CT.syncTheme = function () {
-        var theme = null;
-        try {
-            if (window.parent && window.parent !== window) {
-                var root = window.parent.document.documentElement;
-                var bg = getComputedStyle(root).getPropertyValue('--primary-background-color').trim() ||
-                         getComputedStyle(window.parent.document.body).backgroundColor;
-                var lum = bg ? luminance(bg) : null;
-                if (lum !== null) theme = lum < 0.4 ? 'dark' : 'light';
-            }
-        } catch (e) { theme = null; }  // autre origine
-        var el = document.documentElement;
-        if (theme) { if (el.getAttribute('data-theme') !== theme) el.setAttribute('data-theme', theme); }
-        else el.removeAttribute('data-theme');
-    };
-    CT.syncTheme();
+    // Applique des le <head> (script integre a index.html, sans flash au
+    // chargement) puis resynchronise ici toutes les 5 s.
+    CT.syncTheme = window.ctSyncTheme || function () {};
     setInterval(CT.syncTheme, 5000);
 
     // ---- Redemarrage de la detection -----------------------------------------------
     // Activer, desactiver, ajouter ou supprimer une source (ou changer de micro)
-    // redemarre toute la detection : on l'indique pendant la requete, puis on
-    // le confirme (avant, rien ne le signalait).
-    CT.withRestart = function (promise, applies) {
-        if (!CT.state.status.running || applies === false) return promise;
-        CT.state.restarting = true;
-        if (CT.renderStatus) CT.renderStatus();
-        return promise.then(function (v) {
-            CT.success('Détection redémarrée avec la nouvelle configuration');
-            return v;
+    // peut redemarrer toute la detection. « Redemarrage… » s'affiche pendant la
+    // requete si c'est possible ; le message final vient du serveur (champ
+    // `restart` : ok | stopped | failed) et non d'une supposition.
+    CT.withRestart = function (promise, mayRestart) {
+        var show = CT.state.status.running && mayRestart !== false;
+        if (show) {
+            CT.state.restarting = true;
+            if (CT.renderStatus) CT.renderStatus();
+        }
+        return promise.then(function (d) {
+            var r = d && d.restart;
+            if (r === 'ok') CT.success('Détection redémarrée avec la nouvelle configuration');
+            else if (r === 'failed') CT.error('Détection arrêtée : le redémarrage a échoué (voir le journal)');
+            else if (r === 'stopped') CT.toast('Détection arrêtée : plus aucune source active');
+            return d;
         }).finally(function () {
+            if (!show) return;
             CT.state.restarting = false;
             CT.reloadStatus().then(function () { if (CT.renderStatus) CT.renderStatus(); }).catch(function () {});
         });
+    };
+    // Enregistrement reussi : coche discrete a cote du champ (plutot qu'un
+    // message par reglage), annoncee aux lecteurs d'ecran.
+    CT.markSaved = function (el, text) {
+        if (!el) return;
+        var field = el.closest('.field') || el.parentNode;
+        var mark = field.querySelector('.saved-mark');
+        if (!mark) {
+            mark = document.createElement('span');
+            mark.className = 'saved-mark';
+            mark.setAttribute('aria-hidden', 'true');
+            field.appendChild(mark);
+        }
+        mark.textContent = '✓ ' + (text || 'Enregistré');
+        mark.classList.add('is-on');
+        clearTimeout(mark._t);
+        mark._t = setTimeout(function () { mark.classList.remove('is-on'); }, 2000);
+        if (CT.announce) CT.announce(text || 'Enregistré');
     };
 
     // ---- Resynchronisation ------------------------------------------------------
@@ -291,7 +290,7 @@
     // Recharger les reglages puis reconstruire la page (une seule facon de le
     // faire, il y en avait trois).
     CT.refresh = function () {
-        return CT.reloadSettings().then(function () { CT.render(); });
+        return CT.reloadSettings().then(function () { CT.renderWhenIdle(); });
     };
     // Liste des micros : options du <select> et corps de requete, communs a la
     // carte du micro et a l'assistant (ecrits trois fois auparavant).
@@ -336,25 +335,32 @@
     CT.focusDescriptor = function () {
         var a = document.activeElement;
         if (!a || a === document.body) return null;
-        var card = a.closest && a.closest('[id]');
-        if (!card) return null;
+        var card = a.closest && a.closest('.source-card');
+        if (!card) return a.id ? {id: a.id} : null;
+        var group = a.closest('.group-card[data-slug], .group-live[data-slug]');
         var sel = null;
         ['data-field', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
             if (a.hasAttribute(attr)) { sel = '[' + attr + '="' + CT.cssEscape(a.getAttribute(attr)) + '"]'; return true; }
             return false;
         });
+        if (!sel && a.id) return {id: a.id, caret: typeof a.selectionStart === 'number' ? a.selectionStart : null};
         if (!sel) sel = a.className ? '.' + String(a.className).trim().split(/\s+/)[0] : a.tagName.toLowerCase();
-        var group = a.closest('[data-slug]');
-        return {card: card.id, group: group ? group.getAttribute('data-slug') : null, sel: sel,
+        return {card: card.id, sel: sel,
+                group: group ? {slug: group.getAttribute('data-slug'),
+                                cls: group.classList.contains('group-card') ? 'group-card' : 'group-live'} : null,
                 caret: typeof a.selectionStart === 'number' ? a.selectionStart : null};
     };
     CT.restoreFocus = function (d) {
         if (!d) return;
-        var card = document.getElementById(d.card);
-        if (!card) return;
-        var scope = d.group ? card.querySelector('[data-slug="' + CT.cssEscape(d.group) + '"]') || card : card;
-        var el = scope.querySelector(d.sel);
-        if (!el) return;
+        var el = null;
+        if (d.id) el = document.getElementById(d.id);
+        else {
+            var card = document.getElementById(d.card);
+            if (!card) return;
+            var scope = d.group ? card.querySelector('.' + d.group.cls + '[data-slug="' + CT.cssEscape(d.group.slug) + '"]') || card : card;
+            el = scope.querySelector(d.sel);
+        }
+        if (!el || el.hidden) return;
         el.focus({preventScroll: true});
         if (d.caret != null && typeof el.setSelectionRange === 'function') {
             try { el.setSelectionRange(d.caret, d.caret); } catch (e) { /* type sans selection */ }
@@ -371,9 +377,27 @@
             if (CT.renderSources) CT.renderSources();
         });
     };
+    // Rendu complet, differe tant qu'un champ est en cours de saisie : un
+    // enregistrement qui se terminait pendant la frappe dans un autre champ
+    // reconstruisait la carte et effacait le texte tape.
+    var renderPending = false;
+    CT.renderWhenIdle = function () {
+        if (!CT.isEditing()) { CT.render(); return; }
+        if (CT.renderStatus) CT.renderStatus();
+        if (renderPending) return;
+        renderPending = true;
+        document.addEventListener('focusout', function retry() {
+            setTimeout(function () {
+                if (CT.isEditing()) return;
+                document.removeEventListener('focusout', retry);
+                renderPending = false;
+                CT.render();
+            }, 0);
+        });
+    };
     CT.resync = function () {
         return Promise.all([CT.reloadSettings(), CT.reloadStatus()]).then(function () {
-            if (!CT.isEditing()) CT.render(); else if (CT.renderStatus) CT.renderStatus();
+            CT.renderWhenIdle();
         }).catch(function () {});
     };
 

@@ -102,6 +102,33 @@ def _after_change(restart):
         _sync_ha_entities()
 
 
+def _note_restart(result):
+    """Resultat du redemarrage pour la reponse de la requete en cours
+    (`restart` : ok | stopped | failed) : l'interface l'annonce d'apres le
+    serveur au lieu de le supposer."""
+    try:
+        from flask import g, has_request_context
+        if has_request_context():
+            g.restart = result
+    except Exception:
+        pass
+
+
+def add_restart_to_response(response):
+    """after_request des blueprints : ajoute `restart` aux reponses JSON."""
+    from flask import g
+    result = g.pop('restart', None)
+    if result and response.is_json and response.status_code < 400:
+        data = response.get_json(silent=True)
+        if isinstance(data, dict):
+            data['restart'] = result
+            response.set_data(__import__('json').dumps(data))
+    return response
+
+
+sources_bp.after_request(add_restart_to_response)
+
+
 def _restart_detection_if_running():
     """Redémarre la détection avec les sources mises à jour si elle tourne."""
     _sync_ha_entities()
@@ -118,16 +145,21 @@ def _restart_detection_if_running():
             while is_running() and time.monotonic() < deadline:
                 time.sleep(0.2)
             started, sources = start_from_settings(_socketio)
-            if started and _socketio:
+            if started:
                 source_display = ' + '.join(s['label'] for s in sources)
-                _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
+                if _socketio:
+                    _socketio.emit('detection_status', {'status': 'running', 'source': source_display})
                 logging.info(f"Détection redémarrée avec: {source_display}")
-            elif _socketio:
-                _socketio.emit('detection_status', {'status': 'stopped'})
+                _note_restart('ok')
+            else:
+                if _socketio:
+                    _socketio.emit('detection_status', {'status': 'stopped'})
                 logging.info("Détection arrêtée: aucune source active" if not sources
                              else "Détection arrêtée: redémarrage impossible")
+                _note_restart('stopped' if not sources else 'failed')
         except Exception as e:
             logging.error(f"Erreur redémarrage détection: {e}")
+            _note_restart('failed')
 
 
 def _persist_pulse_name(pulse_name):

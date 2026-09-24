@@ -16,7 +16,8 @@
         if (!src.enabled) return {text: 'Désactivée', cls: 'off'};
         if (!st.running || (st.sources || []).indexOf(src.sourceId) === -1) {
             if (src.kind === 'rtsp' && !src.data.url) return {text: 'URL à renseigner', cls: 'warn'};
-            return {text: 'Prête', cls: 'idle'};
+            // Activee mais hors de la session en cours (ajoutee depuis) : pas « Prete ».
+            return st.running ? {text: 'Non démarrée', cls: 'warn'} : {text: 'Prête', cls: 'idle'};
         }
         var r = CT.state.sourceStatus[src.sourceId] || (st.source_status || {})[src.sourceId];
         if (r === 'reconnecting') return {text: 'Flux perdu, reconnexion…', cls: 'warn'};
@@ -54,8 +55,10 @@
         } else if (src.kind === 'rtsp') {
             var gain = d.gain != null ? d.gain : 10;
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
-                field('Adresse du flux', '<input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(maskUrl(d.url || '')) + '" placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
-                    '<p class="hint">Le mot de passe est masqué ; il s\'affiche quand vous modifiez l\'adresse, et n\'apparaît jamais dans les journaux.</p>', src.domId + '-url') +
+                field('Adresse du flux', '<div class="input-group"><input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(maskUrl(d.url || '')) + '"' +
+                    (maskUrl(d.url || '') !== (d.url || '') ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
+                    (maskUrl(d.url || '') !== (d.url || '') ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher</button>' : '') + '</div>' +
+                    '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
                 gainField(src, gain, 50);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
@@ -80,7 +83,9 @@
     }
     // Mot de passe d'une URL RTSP masque a l'affichage (rtsp://admin:••••@…).
     function maskUrl(url) {
-        return String(url || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^:@\/\s]*):[^\/\s]*@/i, '$1:••••@');
+        // Jusqu'au dernier « @ » : un mot de passe contenant « / » ou « @ »
+        // restait en partie visible.
+        return String(url || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^:@\/\s]*):\S*@/i, '$1:••••@');
     }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
@@ -213,6 +218,16 @@
                 det.querySelector('summary').focus();
             } else if (action === 'delete') { closeMenu(); deleteSource(src); }
             else if (action === 'test-webhook') { testWebhook(card, src); }
+            else if (action === 'reveal-url') {
+                // Bouton explicite : afficher l'adresse complete pour la modifier.
+                var urlInput = card.querySelector('[data-field="url"]');
+                var reveal = btn.getAttribute('aria-pressed') !== 'true';
+                urlInput.value = reveal ? (src.data.url || '') : maskUrl(src.data.url || '');
+                urlInput.readOnly = !reveal;
+                btn.setAttribute('aria-pressed', String(reveal));
+                btn.textContent = reveal ? 'Masquer' : 'Afficher';
+                if (reveal) urlInput.focus();
+            }
             else if (action === 'add-group' && CT.addGroup) { CT.addGroup(src); }
         });
 
@@ -249,7 +264,7 @@
                         prev = slider.value;
                         var g = groupsOf(src).filter(function (x) { return x.slug === slug; })[0];
                         if (g) g.threshold = parseFloat(slider.value);
-                        CT.success('Seuil enregistré : ' + CT.pct(slider.value));
+                        CT.markSaved(row.querySelector('.group-live-foot span'), 'Seuil enregistré');
                     })
                     .catch(function (err) {
                         slider.value = prev;
@@ -269,15 +284,6 @@
                 });
             }
             input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
-            if (input.dataset.secret) {
-                // Adresse complete pendant la saisie, masquee sinon.
-                input.addEventListener('focus', function () {
-                    if (input.value === maskUrl(src.data.url || '')) input.value = src.data.url || '';
-                });
-                input.addEventListener('blur', function () {
-                    if (input.value === (src.data.url || '')) input.value = maskUrl(input.value);
-                });
-            }
             input.addEventListener('change', function () {
                 var body = {};
                 if (name === 'device') {
@@ -291,21 +297,23 @@
                 } else {
                     body[name] = input.value.trim();
                 }
-                if (input.dataset.secret && body[name] === maskUrl(src.data.url || '')) return;  // rien change
-                var restarts = src.enabled && ['url', 'device', 'auto_volume'].indexOf(name) !== -1;
-                CT.withRestart(CT.patchSource(src, body), restarts).then(function (d) {
+                if (input.dataset.secret && (body[name] === maskUrl(src.data.url || '') ||
+                                             body[name] === (src.data.url || ''))) return;  // rien change
+                var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device'].indexOf(name) !== -1);
+                var fieldId = input.id;
+                CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
                     input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
                     if (name === 'auto_volume') {
                         var vol = card.querySelector('[data-field="volume"]');
                         if (vol) vol.disabled = input.checked;
                     }
                     if (['name', 'url', 'device'].indexOf(name) !== -1) {
-                        return CT.refresh().then(function () { CT.success('Enregistré'); });
+                        return CT.refresh().then(function () { CT.markSaved(document.getElementById(fieldId) || input); });
                     }
                     // Y compris pendant un test (qui lit le gain en direct) : la
                     // valeur n'etait pas recopiee et revenait au rendu suivant.
                     Object.assign(src.data, d.source || {});
-                    CT.success('Enregistré');
+                    CT.markSaved(input);
                 }).catch(function (err) {
                     if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
                     else input.value = input.dataset.prev;
@@ -334,7 +342,11 @@
                 : src.kind === 'rtsp' ? CT.api('DELETE', '/api/rtsp/stream/' + encodeURIComponent(src.key))
                 : CT.api('DELETE', '/api/vban/' + encodeURIComponent(src.key));
             if (CT.state.testing && CT.state.testing.domId === src.domId) CT.stopTest();
-            refreshAfter(CT.withRestart(req, src.enabled), 'Source supprimée').catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
+            refreshAfter(CT.withRestart(req, src.enabled), 'Source supprimée').then(function () {
+                // Focus sur l'ajout (la carte n'existe plus) plutot que perdu.
+                var add = document.getElementById('add-source');
+                (add && !add.hidden ? add : document.getElementById('empty-add')).focus();
+            }).catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
         });
     }
 
@@ -504,7 +516,7 @@
     CT.on('source_status', function (d) {
         if (!d || !d.source_id) return;
         CT.state.sourceStatus[d.source_id] = d.status;
-        CT.renderSourceStatuses();
+        if (CT.renderStatus) CT.renderStatus(); else CT.renderSourceStatuses();
     });
 
     CT.on('auto_volume_update', function (d) {

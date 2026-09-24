@@ -185,3 +185,14 @@ def test_route_validation_consistency(client, settings_dir):
     settings_dir.save_settings({'microphone': {'configured': True}})
     assert client.patch('/api/sources/mic/mic', json={'volume': 999}).status_code == 400
     assert client.put('/api/source/sound_whitelist', json={'kind': 'mic', 'label': ['x'], 'enabled': True}).status_code == 400
+
+
+def test_restart_result_reported_in_response(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    settings_dir.save_settings({'microphone': {'configured': True, 'enabled': False}})
+    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: rs._note_restart('ok'))
+    r = client.patch('/api/sources/mic/mic', json={'enabled': True})
+    assert r.json['restart'] == 'ok'
+    monkeypatch.setattr(rs, '_restart_detection_if_running', lambda: None)
+    r = client.patch('/api/sources/mic/mic', json={'enabled': False})
+    assert 'restart' not in r.json

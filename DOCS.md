@@ -57,11 +57,14 @@ La dernière étape affiche le niveau sonore : tapez dans vos mains, il doit
 monter nettement. Lancez ensuite la détection avec **Démarrer la détection** (ou
 cochez **Démarrer au lancement de l'add-on**).
 
-Le mot de passe d'une adresse RTSP est masqué dans les réglages ; il
-s'affiche quand vous modifiez l'adresse.
+Le mot de passe d'une adresse RTSP est masqué à l'écran : le bouton
+**Afficher** révèle l'adresse complète pour la modifier. Il reste dans la
+sauvegarde « Exporter ».
 
-Activer, désactiver, ajouter ou supprimer une source redémarre brièvement
-toute la détection (la barre d'état affiche « Redémarrage… »).
+Activer, désactiver, ajouter ou supprimer une source active redémarre
+brièvement toute la détection (la barre d'état affiche « Redémarrage… », puis
+confirme). Une source en erreur est signalée dans la barre d'état (point
+orange, « 1 en erreur »).
 
 Sur chaque carte, l'état de la source est affiché : « À l'écoute »,
 « Connectée », « Flux perdu, reconnexion… », « Aucun paquet reçu » (VBAN :

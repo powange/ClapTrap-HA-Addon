@@ -1,5 +1,36 @@
 # Changelog
 
+## 6.49.0
+
+### Interface
+
+- **Focus clavier réellement conservé** : après un enregistrement, le focus
+  revient sur le même champ, la même puce de son ou le même nom de groupe (il
+  repartait en haut de la page pour presque tous les champs).
+- **Plus de saisie effacée** : la page n'est plus reconstruite pendant que
+  vous tapez dans un champ ; la mise à jour attend la fin de la saisie.
+- **Redémarrage annoncé par le serveur** : « Détection redémarrée » ne
+  s'affiche que si elle l'a vraiment été, et un redémarrage raté est signalé
+  en erreur ; les ajouts depuis l'assistant sont couverts.
+- **Mot de passe RTSP** : masqué à l'écran avec un bouton « Afficher »
+  explicite ; aucun enregistrement si l'adresse n'a pas changé ; un mot de
+  passe contenant « / » ou « @ » est entièrement masqué.
+- **Messages** : « Enregistré » s'affiche discrètement à côté du champ (et
+  est annoncé), au lieu d'un message par réglage ; la zone des messages est
+  lue par les lecteurs d'écran.
+- **Assistant** : « Démarrer la détection » arrête d'abord le test du son
+  (une caméra recevait deux sessions RTSP), accepte une détection déjà
+  démarrée ailleurs et propose « Terminer et voir la carte » ; « Retour » est
+  désactivé pendant un ajout.
+- **Barre d'état** : point orange et « 1 en erreur » quand une source ne
+  reçoit plus rien ; une source activée hors de la session en cours affiche
+  « Non démarrée ».
+- Focus placé sur « Ajouter une source » après une suppression ; thème de
+  Home Assistant appliqué dès le chargement (plus de flash) avec repli sur la
+  couleur de fond ; confirmation de l'historique dans l'interface ; sons
+  reconnus visibles dans l'historique.
+- 11 vérifications d'interface et 1 test serveur ajoutés.
+
 ## 6.48.0
 
 ### Home Assistant / MQTT

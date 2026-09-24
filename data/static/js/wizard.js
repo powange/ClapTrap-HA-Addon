@@ -77,12 +77,14 @@
         body.querySelector('[data-w="back"]').addEventListener('click', backFn);
         var ok = body.querySelector('[data-w="ok"]');
         var label = ok.textContent;
+        var back = body.querySelector('[data-w="back"]');
         ok.addEventListener('click', function () {
             var mine = session;
             ok.disabled = true;
+            back.disabled = true;   // « Retour » pendant l'ajout menait a un doublon
             ok.textContent = 'Ajout en cours…';
             Promise.resolve(okFn(mine)).catch(function (err) { if (mine === session) CT.error(err.message); })
-                .finally(function () { ok.disabled = false; ok.textContent = label; });
+                .finally(function () { ok.disabled = false; back.disabled = false; ok.textContent = label; });
         });
     }
     function current(mine) { return mine === session; }
@@ -108,7 +110,7 @@
             var dev = CT.deviceFromOption(CT.$('#wz-device').value) || CT.deviceFromOption('default');
             return CT.api('POST', '/api/microphone')
                 .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {device: dev}); })
-                .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {enabled: true}); })
+                .then(function () { return CT.withRestart(CT.patchSource({kind: 'mic', key: 'mic'}, {enabled: true})); })
                 .then(function () { return CT.reloadSettings(); })
                 .then(function () {
                     if (!current(mine)) return;
@@ -130,7 +132,7 @@
         wire(stepType, function (mine) {
             var url = CT.$('#wz-url').value.trim();
             if (!url) { CT.$('#wz-url').focus(); throw new Error("Saisissez l'adresse du flux."); }
-            return CT.api('POST', '/api/rtsp/stream', {name: CT.$('#wz-name').value.trim() || 'Caméra', url: url, enabled: true})
+            return CT.withRestart(CT.api('POST', '/api/rtsp/stream', {name: CT.$('#wz-name').value.trim() || 'Caméra', url: url, enabled: true}))
                 .then(function (d) { return CT.reloadSettings().then(function () { return d; }); })
                 .then(function (d) {
                     if (!current(mine)) return;
@@ -196,7 +198,7 @@
         savingVban = true;
         var mine = session;
         CT.$$('.vban-item, #wz-v-add', body).forEach(function (b) { b.disabled = true; });
-        CT.api('POST', '/api/vban/save', src)
+        CT.withRestart(CT.api('POST', '/api/vban/save', src))
             .then(function (d) { return CT.reloadSettings().then(function () { return d.source; }); })
             .then(function (saved) {
                 if (!current(mine)) return;
@@ -233,12 +235,32 @@
         var start = body.querySelector('[data-w="start"]');
         if (start) start.addEventListener('click', function () {
             start.disabled = true;
+            // Le test du son ouvrait une 2e session RTSP en parallele de la
+            // detection (beaucoup de cameras en limitent le nombre).
+            CT.stopTest();
+            var shown = created;
             CT.api('POST', '/api/detection/start', {})
+                .catch(function (err) {
+                    // Demarree ailleurs entre-temps (409) : ce n'est pas une erreur.
+                    return CT.reloadStatus().then(function (st) { if (!st.running) throw err; });
+                })
                 .then(function () { return CT.reloadStatus(); })
                 .then(function () {
                     if (CT.renderStatus) CT.renderStatus();
                     start.remove();
                     CT.$('#wz-hint').textContent = 'Détection démarrée : tapez dans vos mains, les claps reconnus s\'affichent sur la carte de la source.';
+                    var done = body.querySelector('[data-w="done"]');
+                    done.textContent = 'Terminer et voir la carte';
+                    done.addEventListener('click', function () {
+                        // Carte mise en evidence une fois la fenetre fermee.
+                        setTimeout(function () {
+                            var card = shown && document.getElementById(shown.domId);
+                            if (!card) return;
+                            card.scrollIntoView({block: 'center'});
+                            card.classList.add('is-highlight');
+                            setTimeout(function () { card.classList.remove('is-highlight'); }, 2000);
+                        }, 300);
+                    });
                 })
                 .catch(function (err) { start.disabled = false; CT.error('Démarrage impossible : ' + err.message); });
         });

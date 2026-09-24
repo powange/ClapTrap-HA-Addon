@@ -28,7 +28,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/vban/save') { const s = Object.assign({ sound_groups: [] }, body); settings.saved_vban_sources.push(s); res = { success: true, source: s }; }
       else if (url === '/api/detection/start') status = { running: true, source: 'x', since: Date.now() / 1000 - 125, sources: ['mic', 'rtsp_abc-123'] };
       else if (url === '/api/detection/stop') status = { running: false, sources: [] };
-      else if (url.startsWith('/api/sources/') && method === 'PATCH') res = { success: true, source: {} };
+      else if (url.startsWith('/api/sources/') && method === 'PATCH') res = { success: true, source: {}, ...(w.__restart ? { restart: w.__restart } : {}) };
       else if (url === '/api/microphone' && method === 'DELETE') { settings.microphone.configured = false; }
       else if (url.startsWith('/api/rtsp/stream/') && method === 'DELETE') { settings.rtsp_sources = settings.rtsp_sources.filter(s => !url.endsWith(s.id)); }
       else if (url === '/api/source/sound_groups' && method === 'POST') { settings.microphone.sound_groups.push({ slug: 'snap', name: body.name, ha_entities: [1], sound_whitelist: {} }); }
@@ -74,7 +74,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('3.  clap : badge + ligne live', !$('#src-mic .group-live[data-slug="clap"] .clap-badge').hidden && /2 claps/.test($('#src-mic [data-role="live"]').textContent));
   // 4 : historique
   ok('4. historique chargé + nouveau clap', $$('#history-list li').length === 2 && $('#history-empty').hidden);
-  $('#history-clear').click(); await tick();
+  $('#history-clear').click(); await tick(); $('.modal [data-r="ok"]').click(); await tick(3);
   ok('4. effacer l\'historique (serveur)', !!lastCall('DELETE', '/api/detections/history') && $$('#history-list li').length === 0);
   // seuil en direct
   const thr = $('#src-mic .group-live[data-slug="clap"] .threshold'); change(thr, '0.65'); await tick(30);
@@ -219,6 +219,45 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  seuil affiché en %', / %$/.test(d.querySelector('.threshold-value').textContent));
   ok('+  mot de passe RTSP masqué dans le champ', !d.querySelector('[data-field="url"][data-secret]') || !/:[^•@\/]+@/.test(d.querySelector('[data-field="url"][data-secret]').value));
   ok('+  bouton dans l\'accueil', !!$('#empty-add'));
+  // --- lot interface 6.49
+  const cw = dom.window, CT = cw.CT;
+  const nameField = d.querySelector('[id$="-name"][data-field="name"]');
+  nameField.focus(); CT.render();
+  ok('+  focus restauré sur un champ (id)', d.activeElement && d.activeElement.id === nameField.id);
+  const chip = d.querySelector('.group-card .chip');
+  if (chip) { chip.focus(); CT.render(); }
+  ok('+  focus restauré sur une puce de groupe', !chip || (d.activeElement && d.activeElement.classList.contains('chip')));
+  const typing = d.querySelector('[data-field="webhook_url"]');
+  typing.focus(); typing.value = 'http://en-cours';
+  await CT.refresh(); await tick();
+  ok('+  pas de rendu pendant une saisie', d.querySelector('[data-field="webhook_url"]') === typing && typing.value === 'http://en-cours');
+  typing.blur(); typing.dispatchEvent(new cw.FocusEvent('focusout', { bubbles: true })); await tick(3);
+  ok('+  rendu effectué après la saisie', d.querySelector('[data-field="webhook_url"]') !== typing);
+  const toastsBefore = $$('#toasts .toast').length;
+  status = { running: true, sources: ['mic'], since: Date.now() / 1000 };
+  await CT.reloadStatus(); CT.renderStatus();
+  w.__restart = null;
+  await CT.withRestart(CT.patchSource({ kind: 'mic', key: 'mic' }, { enabled: true }));
+  ok('+  pas de « redémarrée » si le serveur n\'a pas redémarré', !$$('#toasts .toast').slice(toastsBefore).some(t => /redémarrée/.test(t.textContent)));
+  w.__restart = 'ok';
+  await CT.withRestart(CT.patchSource({ kind: 'mic', key: 'mic' }, { enabled: true }));
+  ok('+  « redémarrée » quand le serveur l\'indique', $$('#toasts .toast').some(t => /redémarrée/.test(t.textContent)));
+  w.__restart = null;
+  CT.state.sourceStatus['mic'] = 'error'; CT.renderStatus();
+  ok('+  barre d\'état : source en erreur signalée', /en erreur/.test($('#status-detail').textContent) && $('#statusbar').classList.contains('is-degraded'));
+  CT.state.sourceStatus = {};
+  // Carte RTSP avec identifiants (rtsp://u:p@h/x dans settings_ui.json)
+  CT.state.settings.rtsp_sources.push({ id: 'sec-1', name: 'Sec', url: 'rtsp://u:p@h/x', enabled: false, sound_groups: [] });
+  CT.render();
+  const rtspCard = d.querySelector('#src-rtsp-sec_1 [data-field="url"][data-secret]');
+  ok('+  carte avec identifiants présente', !!rtspCard);
+  if (rtspCard) {
+    const card = rtspCard.closest('.source-card');
+    ok('+  URL masquée en lecture seule', rtspCard.readOnly && /••••/.test(rtspCard.value));
+    card.querySelector('[data-action="reveal-url"]').click();
+    ok('+  « Afficher » révèle l\'adresse', !rtspCard.readOnly && /u:p@/.test(rtspCard.value));
+  }
+  ok('+  zone des messages audible', $('#toasts').getAttribute('aria-live') === 'polite');
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

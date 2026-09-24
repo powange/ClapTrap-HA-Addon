@@ -168,6 +168,11 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent);
     animation: breathe 2.4s ease-in-out infinite;
 }
+.statusbar.is-running.is-degraded .status-dot { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 25%, transparent); }
+/* Enregistrement reussi, a cote du champ */
+.saved-mark { display: inline-block; margin-left: 8px; font-size: 0.8rem; color: var(--ok); opacity: 0; transition: opacity .2s; }
+.saved-mark.is-on { opacity: 1; }
+.history-labels { display: block; font-size: 0.8rem; color: var(--ink-2); }
 @keyframes breathe { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--ok) 10%, transparent); } }
 .status-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .tabs { grid-column: 1 / -1; display: flex; gap: 4px; }
@@ -484,3 +489,4 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.source-card.is-highlight { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color .3s; }

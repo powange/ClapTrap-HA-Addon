@@ -13,8 +13,7 @@
     }
 
     function setText(el, text) {
-        // N'ecrire que si le texte change : la zone est annoncee par les
-        // lecteurs d'ecran (role=status).
+        // N'ecrire que si le texte change (evite des mutations inutiles).
         if (el.textContent !== text) el.textContent = text;
     }
     var wasRunning = null;
@@ -28,8 +27,15 @@
         bar.classList.toggle('is-running', running);
         setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : running ? 'Détection en cours' : 'Détection arrêtée');
         var n = running ? (st.sources || []).length : enabled.length;
+        // Sources en erreur ou en reconnexion : la barre ne dit plus « tout va
+        // bien » en vert quand plus rien n'arrive.
+        var bad = running ? (st.sources || []).filter(function (id) {
+            var r = CT.state.sourceStatus[id] || (st.source_status || {})[id];
+            return r === 'error' || r === 'reconnecting';
+        }).length : 0;
+        bar.classList.toggle('is-degraded', bad > 0);
         setText(CT.$('#status-detail'), running
-            ? n + ' source' + (n > 1 ? 's' : '') + ' · ' + sinceText(st.since)
+            ? n + ' source' + (n > 1 ? 's' : '') + (bad ? ' · ' + bad + ' en erreur' : '') + ' · ' + sinceText(st.since)
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
                               : 'Activez une source pour pouvoir démarrer'));
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
@@ -128,7 +134,13 @@
             (ev.ignored ? ' <span class="muted">(ignoré : un autre groupe a gagné)</span>' : '') + '</span>' +
             '<span class="history-score">' + CT.pct(ev.score) + '</span>';
         var labels = (ev.labels || []).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
-        if (labels) li.title = labels;
+        if (labels) {
+            // Visible (et lu) : en infobulle seulement, invisible au toucher.
+            var lab = document.createElement('span');
+            lab.className = 'history-labels';
+            lab.textContent = labels;
+            li.querySelector('.history-main').appendChild(lab);
+        }
         return li;
     }
     function renderHistoryEmpty() {
@@ -153,10 +165,15 @@
             renderHistoryEmpty();
         });
         CT.$('#history-clear').addEventListener('click', function () {
-            if (!list.children.length || !window.confirm('Effacer les dernières détections ?')) return;
-            CT.api('DELETE', '/api/detections/history')
-                .then(function () { list.innerHTML = ''; renderHistoryEmpty(); })
-                .catch(function (err) { CT.error('Historique non effacé : ' + err.message); });
+            if (!list.children.length) return;
+            // Dialogue de l'interface : window.confirm est peu fiable dans
+            // l'application mobile de Home Assistant.
+            CT.confirm('Effacer les dernières détections ?', 'Effacer').then(function (ok) {
+                if (!ok) return;
+                CT.api('DELETE', '/api/detections/history')
+                    .then(function () { list.innerHTML = ''; renderHistoryEmpty(); })
+                    .catch(function (err) { CT.error('Historique non effacé : ' + err.message); });
+            });
         });
     }
 

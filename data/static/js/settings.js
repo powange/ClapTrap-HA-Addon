@@ -29,7 +29,7 @@
                 var body = {};
                 body[k] = parseFloat(el.value);
                 CT.api('PUT', '/api/settings/advanced', body)
-                    .then(function () { (CT.state.settings.global = CT.state.settings.global || {})[k] = body[k]; CT.success('Enregistré'); })
+                    .then(function () { (CT.state.settings.global = CT.state.settings.global || {})[k] = body[k]; CT.markSaved(el); })
                     .catch(function (err) { fillAdvanced(); CT.error('Réglage refusé : ' + err.message); });
             });
         });

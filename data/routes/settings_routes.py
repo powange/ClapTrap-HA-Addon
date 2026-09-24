@@ -8,10 +8,11 @@ import requests
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
                               to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
-from routes.sources import ApiError, api_error_response, _restart_detection_if_running
+from routes.sources import ApiError, add_restart_to_response, api_error_response, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
 settings_bp.register_error_handler(Exception, api_error_response)
+settings_bp.after_request(add_restart_to_response)
 
 
 
