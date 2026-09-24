@@ -307,7 +307,7 @@ class AudioDetector:
                         'labels': ev['labels'],
                         'group_slug': group['slug'],
                         'group_name': group['name'],
-                        'group_clap_counts': list(group.get('clap_counts', [1, 2])),
+                        'group_clap_counts': list(group['clap_counts']),   # garanti par normalize_group
                         'ignored': ev['ignored'],
                     })
                 except Exception as e:

@@ -96,26 +96,24 @@
     }
 
     function onBoxClick(e, src) {
-        {
-            var copy = e.target.closest('[data-copy]');
-            if (copy) { CT.copy(copy.getAttribute('data-copy')); return; }
-            var btn = e.target.closest('[data-group-action]');
-            if (!btn) return;
-            var slug = btn.closest('.group-card').getAttribute('data-slug');
-            var action = btn.getAttribute('data-group-action');
-            if (action === 'delete') {
-                CT.confirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function (ok) {
-                    if (!ok) return;
-                    CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug})
-                        .then(function () { return CT.refresh(); })
-                        .then(function () { CT.success('Groupe supprimé'); })
-                        .catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
-                });
-            } else if (action === 'cleanup') {
-                CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.key, group_slug: slug})
-                    .then(function (d) { return CT.refresh().then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
-                    .catch(function (err) { CT.error('Nettoyage impossible : ' + err.message); });
-            }
+        var copy = e.target.closest('[data-copy]');
+        if (copy) { CT.copy(copy.getAttribute('data-copy')); return; }
+        var btn = e.target.closest('[data-group-action]');
+        if (!btn) return;
+        var slug = btn.closest('.group-card').getAttribute('data-slug');
+        var action = btn.getAttribute('data-group-action');
+        if (action === 'delete') {
+            CT.confirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function (ok) {
+                if (!ok) return;
+                CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug})
+                    .then(function () { return CT.refresh(); })
+                    .then(function () { CT.success('Groupe supprimé'); })
+                    .catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
+            });
+        } else if (action === 'cleanup') {
+            CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.key, group_slug: slug})
+                .then(function (d) { return CT.refresh().then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
+                .catch(function (err) { CT.error('Nettoyage impossible : ' + err.message); });
         }
     }
 

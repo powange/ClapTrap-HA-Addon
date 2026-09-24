@@ -28,9 +28,6 @@
     CT.slug = function (s) {
         return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
     };
-    CT.fmt = function (n, digits) {
-        return Number(n || 0).toFixed(digits == null ? 2 : digits).replace('.', ',');
-    };
     CT.pct = function (n) { return Math.round((n || 0) * 100) + ' %'; };
     // Nom francais d'un son YAMNet (sounds_fr.js), le nom anglais a defaut.
     CT.soundLabel = function (label) { return (CT.SOUNDS_FR || {})[label] || label; };

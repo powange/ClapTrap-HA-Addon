@@ -53,7 +53,7 @@ _history_lock = threading.Lock()
 # indexe par URL, deux cameras a la meme URL partageaient leur gain et une URL
 # modifiee laissait une entree orpheline. Remis a zero a chaque session.
 _live_gains = {}       # {source_id: gain}
-_whitelist_lock = threading.Lock()  # mises a jour en direct des listes de sons
+_whitelist_lock = threading.Lock()  # relecture et application des reglages en direct
 # Onglets connectes (Socket.IO) : sans aucun, les retours en direct (niveau,
 # scores, sons, ~12 messages/s par source) ne sont pas emis.
 _clients = 0
@@ -268,7 +268,7 @@ class DetectionSession:
             return  # perdant de l'arbitrage : historique seulement
         _side_effects.submit(_run_side_effects, src['source_id'], src['entity_key'], base_payload,
                              data['score'], base_payload['clap_count'], base_payload['group_slug'],
-                             data.get('group_clap_counts') if data.get('group_clap_counts') is not None else [1, 2],
+                             data['group_clap_counts'],
                              self.webhooks.get(src['source_id'], ''))
 
     def _on_sound_seen(self, src, data):
@@ -326,24 +326,32 @@ class DetectionSession:
         return det
 
     def _apply_current_settings(self, src, det):
-        """Relit les reglages une fois le detecteur enregistre : un son coche
-        ou un reglage avance modifie pendant l'initialisation de YAMNet
-        (plusieurs secondes sur Pi) n'atteignait aucun detecteur et etait
-        ignore jusqu'au redemarrage suivant. Les routes enregistrent AVANT
-        d'appliquer en direct : ce qui n'a pas trouve le detecteur est ici."""
+        """Relit les reglages et les applique au detecteur d'une source :
+        groupes, sons deja vus, webhook, gain, reglages avances, exclusions.
+        Seule mise a jour en direct (routes, et demarrage : un reglage modifie
+        pendant l'initialisation de YAMNet n'atteignait aucun detecteur).
+        Lecture et application sous un meme verrou : pas d'ecrasement par une
+        mise a jour intercalee."""
+        sid = src['source_id']
         try:
-            with _whitelist_lock:  # lecture et application sans mise a jour intercalee
+            with _whitelist_lock:
                 settings = load_settings()
-                current = next((s for s in build_sources_from_settings(settings)
-                                if s['source_id'] == src['source_id']), None)
-                if current and current['groups']:
-                    det.set_groups(current['groups'])
-            p = detection_params_from_settings(settings)
-            det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
-            exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
-            with self._lock:
-                self.exclusions = exclusions
-            det.set_exclusions(exclusions)
+                current = next((s for s in build_sources_from_settings(settings) if s['source_id'] == sid), None)
+                if current:
+                    if current['groups']:
+                        det.set_groups(current['groups'])
+                    with self._lock:
+                        # Sons retires (« Vider la liste ») : redevenus decouvrables.
+                        self.seen[sid] = {l for g in current['groups'] for l in (g.get('whitelist') or {})}
+                        self.webhooks[sid] = current.get('webhook_url') or ''
+                    if 'gain' in current:
+                        _live_gains[sid] = float(current['gain'])
+                p = detection_params_from_settings(settings)
+                det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
+                exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
+                with self._lock:
+                    self.exclusions = exclusions
+                det.set_exclusions(exclusions)
         except Exception as e:
             logging.warning(f"Réglages non relus pour {src['label']}: {e}")
 
@@ -492,10 +500,8 @@ class DetectionSession:
                 runner = self._runners.get(sid)
                 if runner:
                     runner['src'].update(label=src['label'], name=src['name'], entity_key=src['entity_key'])
-                    with self._lock:
-                        self.webhooks[sid] = src.get('webhook_url') or ''
                     det = self.detectors.get(sid)
-                    if det is not None:
+                    if det is not None:   # sinon : relu a la fin de l'initialisation
                         self._apply_current_settings(runner['src'], det)
         with self._lock:
             self.sources = [r['src'] for r in self._runners.values()]
@@ -652,14 +658,6 @@ def clear_detection_history():
         _detection_history.clear()
 
 
-def update_source_webhook(source_id, url):
-    """Change le webhook d'une source (pris en compte au prochain clap)."""
-    if source_id:
-        s = _current()
-        if s is not None:
-            s.webhooks[source_id] = url or ''
-
-
 def update_source_gain(source_id, gain):
     """Gain d'une source RTSP ou VBAN, applique au bloc suivant (detection
     et test du son)."""
@@ -674,64 +672,6 @@ def live_gain(source_id, default):
 def get_detector(source_id):
     s = _current()
     return s.detectors.get(source_id) if s else None
-
-
-def push_groups(source_id, groups):
-    """Applique des groupes (format detecteur) a une source en cours."""
-    det = get_detector(source_id)
-    if det is not None and groups:
-        # Meme verrou que les autres mises a jour en direct et que la relecture
-        # des reglages au demarrage : sinon l'une pouvait ecraser l'autre.
-        with _whitelist_lock:
-            det.set_groups(groups)
-
-
-def set_seen_labels(source_id, labels):
-    s = _current()
-    if s is not None:
-        with s._lock:
-            if source_id in s.seen:
-                s.seen[source_id] = set(labels)
-
-
-def update_source_whitelist(source_id, label, enabled, group_slug=None):
-    """Active/desactive un label sur le detecteur en cours (sans redemarrage)."""
-    with _whitelist_lock:  # deux requetes simultanees perdaient une modification
-        return _update_source_whitelist(source_id, label, enabled, group_slug)
-
-
-def _update_source_whitelist(source_id, label, enabled, group_slug):
-    det = get_detector(source_id)
-    if det is None:
-        return False
-    groups = det.groups
-    for g in groups:
-        if not group_slug or g['slug'] == group_slug:
-            g['whitelist'][label] = bool(enabled)
-    s = _current()
-    if enabled and s is not None:
-        with s._lock:
-            s.seen.setdefault(source_id, set()).add(label)
-    det.set_groups(groups)
-    return True
-
-
-def update_global_exclusions(labels):
-    s = _current()
-    if s is None:
-        return
-    with s._lock:
-        s.exclusions = set(labels or [])
-    for det in list(s.detectors.values()):
-        det.set_exclusions(labels)
-
-
-def update_advanced_params(peak_cooldown=None, peak_ratio=None, delay=None):
-    s = _current()
-    detectors = list(s.detectors.values()) if s else []
-    for det in detectors:
-        det.set_params(window=delay, peak_cooldown=peak_cooldown, peak_ratio=peak_ratio)
-    logging.info(f"Paramètres avancés mis à jour sur {len(detectors)} détecteur(s)")
 
 
 # --- Sons "vus" (auto-decouverte) -----------------------------------------------

@@ -52,7 +52,7 @@ _off_timers = {}      # topic -> threading.Timer
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
 _pending_removal = set()    # object_ids a supprimer des que le broker est joignable
 _auth_failures = 0
-_warned_collisions = set()
+_warned_collisions = set()  # (cle, source en conflit) deja signales
 
 
 def _group_object_id(source_slug, group_slug, n):
@@ -478,71 +478,56 @@ def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset()):
     logging.info(f"Entités MQTT supprimées pour {info['slug']}")
 
 
-def _configured_sources(settings):
-    """(cle, libelle, groupes, disponible) de toutes les sources configurees."""
-    out = []
+def _all_sources(settings):
+    """(cle d'interface, cle d'entite, libelle, groupes, disponible) de toutes
+    les sources configurees, dans l'ordre de publication."""
     mic = settings.get('microphone') or {}
-    # Micro : publie des qu'il est configure, comme les autres sources (un
-    # micro desactive n'etait pas publie alors que l'interface affichait deja
-    # ses entity_id, et ses groupes supprimes restaient dans HA).
+    # Micro : publie des qu'il est configure, comme les autres sources.
     if mic.get('configured', True) is not False:
-        out.append((MIC_KEY, source_label('mic', mic),
-                    mic.get('sound_groups'), bool(mic.get('enabled', False))))
-    for src in settings.get('rtsp_sources', []) or []:
-        out.append((source_entity_key('rtsp', src), source_label('rtsp', src),
-                    src.get('sound_groups'), bool(src.get('enabled', False))))
-    seen = {}
-    for src in settings.get('saved_vban_sources', []) or []:
-        key = source_entity_key('vban', src)
-        if key in seen:
-            if key not in _warned_collisions:
-                _warned_collisions.add(key)
-                logging.warning(f"VBAN: « {src.get('name')} » et « {seen[key]} » donnent la même entité "
-                                f"({key}) : renommez l'une des deux sources")
-            continue
-        seen[key] = src.get('name')
-        out.append((key, source_label('vban', src),
-                    src.get('sound_groups'), bool(src.get('enabled', False))))
-    # Deux sources qui produiraient le meme object_id (VBAN « Salon » + groupe
-    # « Télé clap » et VBAN « Salon Télé » + groupe « Clap ») : la seconde
-    # ecraserait l'entite de la premiere. Elle n'est pas publiee.
-    claimed, kept = {}, []
-    for item in out:
-        key, label, groups = item[0], item[1], item[2]
-        objs = _object_ids({'slug': _make_slug(key), 'groups': _normalise_groups(groups)})
-        clash = next((claimed[o] for o in objs if o in claimed), None)
+        yield 'mic', MIC_KEY, source_label('mic', mic), mic.get('sound_groups'), bool(mic.get('enabled', False))
+    for kind, lst in (('rtsp', 'rtsp_sources'), ('vban', 'saved_vban_sources')):
+        for src in settings.get(lst, []) or []:
+            yield (f"{kind}:{src.get('id')}", source_entity_key(kind, src), source_label(kind, src),
+                   src.get('sound_groups'), bool(src.get('enabled', False)))
+
+
+def _resolve_sources(settings):
+    """Sources a publier et premiere collision (libelle ou None).
+
+    Une source dont la cle d'entite ou un object_id est deja revendique
+    (VBAN « Salon » + groupe « Télé clap » et VBAN « Salon Télé » + groupe
+    « Clap ») ecraserait l'entite d'une autre : elle n'est pas publiee, et les
+    routes refusent la modification qui la cree. Un seul parcours pour la
+    publication, le controle des routes et les entity_id affiches (il y en
+    avait trois, avec deux logiques de dedoublonnage).
+    """
+    claimed, keys, kept, collision = {}, {}, [], None
+    for ui_key, key, label, groups, available in _all_sources(settings):
+        norm = _normalise_groups(groups)
+        objs = _object_ids({'slug': _make_slug(key), 'groups': norm})
+        clash = keys.get(key) or next((claimed[o] for o in objs if o in claimed), None)
         if clash:
+            collision = collision or label
             if (key, clash) not in _warned_collisions:
                 _warned_collisions.add((key, clash))
                 logging.warning(f"Entités HA : « {label} » produirait les mêmes entités que « {clash} », "
                                 "non publiée : renommez la source ou le groupe")
             continue
+        keys[key] = label
         claimed.update({o: label for o in objs})
-        kept.append(item)
-    return kept
+        kept.append((ui_key, key, label, groups, available, norm))
+    return kept, collision
+
+
+def _configured_sources(settings):
+    """(cle, libelle, groupes, disponible) des sources a publier."""
+    return [(key, label, groups, available) for _, key, label, groups, available, _ in _resolve_sources(settings)[0]]
 
 
 def find_entity_collision(settings):
     """Libelle de la premiere source dont les entites en ecraseraient d'autres
-    (None si aucune) : les routes refusent la modification qui la cree."""
-    claimed = {}
-    for key, label, groups, _ in _configured_sources_raw(settings):
-        objs = _object_ids({'slug': _make_slug(key), 'groups': _normalise_groups(groups)})
-        for o in objs:
-            if o in claimed and claimed[o] != key:
-                return label
-        claimed.update({o: key for o in objs})
-    return None
-
-
-def _configured_sources_raw(settings):
-    mic = settings.get('microphone') or {}
-    if mic.get('configured', True) is not False:
-        yield MIC_KEY, source_label('mic', mic), mic.get('sound_groups'), None
-    for src in settings.get('rtsp_sources', []) or []:
-        yield source_entity_key('rtsp', src), source_label('rtsp', src), src.get('sound_groups'), None
-    for src in settings.get('saved_vban_sources', []) or []:
-        yield source_entity_key('vban', src), source_label('vban', src), src.get('sound_groups'), None
+    (None si aucune)."""
+    return _resolve_sources(settings)[1]
 
 
 def sync_sources(settings=None):
@@ -590,25 +575,15 @@ def cleanup_orphans():
 
 
 def entity_ids_for_settings(settings):
-    """entity_id de chaque groupe de chaque source configuree, calcules comme
-    a la publication : l'interface les affiche tels quels au lieu de les
-    recalculer (les deux calculs divergeaient sur les accents).
+    """entity_id de chaque groupe des sources publiees, calcules comme a la
+    publication (meme parcours) : l'interface les affiche tels quels, et une
+    source non publiee (collision) n'en affiche plus.
     Cles : "mic", "rtsp:<id>", "vban:<id>"."""
-    from settings_manager import clap_counts_of
     out = {}
-    mic = settings.get('microphone') or {}
-    items = []
-    if mic.get('configured', True) is not False:
-        items.append(('mic', 'mic', mic))
-    for src in settings.get('rtsp_sources', []) or []:
-        items.append((f"rtsp:{src.get('id')}", 'rtsp', src))
-    for src in settings.get('saved_vban_sources', []) or []:
-        items.append((f"vban:{src.get('id')}", 'vban', src))
-    for key, kind, src in items:
-        slug = _make_slug(source_entity_key(kind, src))
-        out[key] = {g.get('slug'): [f'binary_sensor.claptrap_{_group_object_id(slug, g.get("slug"), n)}'
-                                    for n in clap_counts_of(g)]
-                    for g in src.get('sound_groups') or [] if isinstance(g, dict) and g.get('slug')}
+    for ui_key, key, _, _, _, norm in _resolve_sources(settings)[0]:
+        slug = _make_slug(key)
+        out[ui_key] = {g_slug: [f'binary_sensor.claptrap_{_group_object_id(slug, g_slug, n)}' for n in g['clap_counts']]
+                       for g_slug, g in norm.items()}
     return out
 
 

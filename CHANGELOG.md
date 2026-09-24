@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.52.0
+
+### Simplifier le code
+
+- **Home Assistant** : un seul parcours des sources pour la publication, le
+  contrôle des collisions et les entity_id affichés (il y en avait trois,
+  avec deux logiques de dédoublonnage) ; une source non publiée n'affiche
+  plus d'entity_id ; avertissements de collision dans un seul ensemble.
+- **Mises à jour en direct** : une seule entrée (`_apply_live`, qui relit
+  les réglages pour chaque source en cours) remplace six fonctions
+  (`push_groups`, `update_source_whitelist`, `set_seen_labels`,
+  `update_global_exclusions`, `update_advanced_params`,
+  `update_source_webhook`) ; groupes, sons déjà vus, webhook, gain, réglages
+  avancés et exclusions sont relus sous un même verrou.
+- **Une synchronisation HA par modification** : renommer ou relancer une
+  source ne synchronise plus deux fois.
+- Code mort retiré : variables `new_slug`/`old_slug`, `CT.fmt`, bloc superflu
+  de la gestion des groupes, replis `[1, 2]` devenus inutiles.
+
 ## 6.51.0
 
 ### Performance

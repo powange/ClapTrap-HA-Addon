@@ -9,7 +9,7 @@ from settings_manager import (load_settings, save_settings, modify_settings, nor
                               to_bool, to_number, SettingsSaveError)
 from webhook import send_webhook
 from url_validator import mask_webhook_url
-from routes.sources import ApiError, add_restart_to_response, api_error_response, _restart_detection_if_running
+from routes.sources import ApiError, add_restart_to_response, api_error_response, _apply_live, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
 settings_bp.register_error_handler(Exception, api_error_response)
@@ -57,16 +57,7 @@ def update_advanced_settings():
         settings.setdefault('global', {}).update(values)
 
     modify_settings(_mut)
-    # Appliquer en temps réel sur les detectors actifs
-    try:
-        from classify import update_advanced_params
-        update_advanced_params(
-            peak_cooldown=values.get('peak_cooldown'),
-            peak_ratio=values.get('peak_ratio'),
-            delay=values.get('delay'),
-        )
-    except Exception as e:
-        logging.warning(f"Réglages avancés non appliqués en direct: {e}")
+    _apply_live()   # detecteurs actifs, sans relance
     return jsonify({'success': True})
 
 

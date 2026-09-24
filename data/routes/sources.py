@@ -93,6 +93,28 @@ def _check_entity_collision(settings):
                        "choisissez un autre nom", 409)
 
 
+def _apply_live():
+    """Applique a la detection en cours les reglages enregistres (groupes,
+    sons, webhook, gain, exclusions, reglages avances) : une seule entree au
+    lieu de six fonctions de mise a jour en direct. Les sources dont la
+    capture n'a pas change ne sont pas relancees."""
+    try:
+        from classify import apply_settings_if_running
+        with _restart_lock:
+            apply_settings_if_running()
+    except Exception as e:
+        logging.warning(f"Réglages non appliqués en direct: {e}")
+
+
+def _set_live_gain(source_id, gain):
+    """Gain lu en direct aussi par le test du son (detection arretee)."""
+    try:
+        from classify import update_source_gain
+        update_source_gain(source_id, gain)
+    except Exception as e:
+        logging.warning(f"Gain non appliqué en direct: {e}")
+
+
 def _after_change(restart):
     """Apres une modification de source : redemarrage de la detection (qui
     resynchronise les entites HA) ou simple synchronisation."""
@@ -291,18 +313,12 @@ def _update_rtsp(stream_id, data):
 
     # Effets en direct, APRES l'enregistrement (un redemarrage relit le disque).
     if 'gain' in data:
-        try:
-            from classify import update_source_gain
-            update_source_gain(_source_id_for('rtsp', stream_id), stream['gain'])
-        except Exception as e:
-            logging.warning(f"Gain RTSP non appliqué en direct: {e}")
-    if 'webhook_url' in data:
-        from classify import update_source_webhook
-        update_source_webhook(_source_id_for('rtsp', stream_id), stream['webhook_url'])
-    if 'name' in data:
-        _sync_ha_entities()
-    if state.get('restart'):
-        _restart_detection_if_running()
+        _set_live_gain(_source_id_for('rtsp', stream_id), stream['gain'])
+    if 'webhook_url' in data or 'gain' in data:
+        _apply_live()
+    if state.get('restart') or 'name' in data:
+        # Une seule synchronisation HA : la relance la fait deja.
+        _after_change(state.get('restart'))
     return stream
 
 
@@ -394,19 +410,12 @@ def _update_vban(vban_id, source):
         return dict(s)
 
     s = modify_settings(_mut)
-    if 'name' in source:
-        _sync_ha_entities()  # nom affiche des entites
     if 'gain' in source:
-        try:
-            from classify import update_source_gain
-            update_source_gain(_source_id_for('vban', s['id']), s['gain'])
-        except Exception as e:
-            logging.warning(f"Gain VBAN non appliqué en direct: {e}")
-    if 'webhook_url' in source:
-        from classify import update_source_webhook
-        update_source_webhook(_source_id_for('vban', s['id']), s['webhook_url'])
-    if state.get('restart'):
-        _restart_detection_if_running()
+        _set_live_gain(_source_id_for('vban', s['id']), s['gain'])
+    if 'webhook_url' in source or 'gain' in source:
+        _apply_live()
+    if state.get('restart') or 'name' in source:
+        _after_change(state.get('restart'))   # nom affiche des entites / relance
     return s
 
 
@@ -458,11 +467,7 @@ def update_sound_exclusions():
         return lst
 
     lst = modify_settings(_mut)
-    try:
-        from classify import update_global_exclusions
-        update_global_exclusions(lst)
-    except Exception as e:
-        logging.warning(f"Exclusions non appliquées en direct: {e}")
+    _apply_live()
     return jsonify({'success': True, 'excluded': sorted(lst)})
 
 
@@ -506,11 +511,6 @@ def _default_group(groups):
     return next((g for g in groups if isinstance(g, dict)), None)
 
 
-def _groups_payload(groups):
-    from clap_logic import normalize_group
-    return [normalize_group(g, idx) for idx, g in enumerate(groups or []) if isinstance(g, dict)]
-
-
 @sources_bp.route('/api/source/sound_whitelist/cleanup', methods=['POST'])
 def cleanup_source_sound_whitelist():
     """Retire tous les labels non coches (value=false) de la whitelist."""
@@ -552,16 +552,7 @@ def cleanup_source_sound_whitelist():
         return removed, remaining, list(groups)
 
     removed, remaining_labels, groups = modify_settings(_mut)
-
-    # Nettoyer aussi les seen labels du detecteur actif et lui pousser les groupes
-    source_id = _source_id_for(kind, source_key)
-    if source_id:
-        try:
-            from classify import set_seen_labels, push_groups
-            set_seen_labels(source_id, remaining_labels)
-            push_groups(source_id, _groups_payload(groups))
-        except Exception as e:
-            logging.warning(f"Nettoyage non appliqué au détecteur actif: {e}")
+    _apply_live()   # groupes et sons « deja vus » du detecteur actif
 
     return jsonify({'success': True, 'removed': removed, 'remaining': len(remaining_labels)})
 
@@ -610,26 +601,8 @@ def update_source_sound_whitelist():
         return target_slug
 
     target_slug = modify_settings(_mut)
-    source_id = _source_id_for(kind, source_key)
-    if source_id:
-        try:
-            from classify import update_source_whitelist
-            update_source_whitelist(source_id, label, enabled, group_slug=target_slug)
-        except Exception as e:
-            logging.warning(f"Whitelist non appliquée au détecteur actif: {e}")
+    _apply_live()
     return jsonify({'success': True, 'group_slug': target_slug})
-
-
-def _push_groups_to_detector(kind, source_key, groups):
-    """Recharge les groupes dans le detecteur actif si la detection tourne."""
-    try:
-        source_id = _source_id_for(kind, source_key)
-        if not source_id:
-            return
-        from classify import push_groups
-        push_groups(source_id, _groups_payload(groups))
-    except Exception as exc:
-        logging.warning(f"Groupes non appliqués au détecteur actif: {exc}")
 
 
 def _slugify_group(name, existing_slugs):
@@ -681,7 +654,7 @@ def create_source_sound_group():
 
     new_group, src = modify_settings(_mut)
     _sync_ha_entities()
-    _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
+    _apply_live()
     return jsonify({'success': True, 'group': new_group})
 
 
@@ -702,7 +675,6 @@ def update_source_sound_group():
         target = next((g for g in groups if isinstance(g, dict) and g.get('slug') == slug), None)
         if target is None:
             raise ApiError('groupe introuvable', 404)
-        new_slug = slug
         if 'name' in data:
             # Le slug (donc l'entity_id HA) reste STABLE : renommer un groupe
             # ne change que le nom affiche. Avant, l'entity_id suivait le nom
@@ -715,19 +687,15 @@ def update_source_sound_group():
             # Plus de nombres de claps = nouvelles entites : meme controle qu'a
             # la creation (une collision effacait l'entite d'une autre source).
             _check_entity_collision(settings)
-        return dict(target), new_slug, dict(src)
+        return dict(target)
 
-    target, new_slug, src = modify_settings(_mut)
+    target = modify_settings(_mut)
     if 'name' in data or 'ha_entities' in data:
         # Seuls le nom et les nombres de claps changent les entites : ne pas
         # republier toute la configuration MQTT a chaque cran du seuil.
         _sync_ha_entities()
-    _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
-    return jsonify({
-        'success': True, 'group': target,
-        'group_slug': new_slug,
-        'old_slug': slug if new_slug != slug else None,
-    })
+    _apply_live()
+    return jsonify({'success': True, 'group': target, 'group_slug': slug})
 
 
 @sources_bp.route('/api/source/sound_groups', methods=['DELETE'])
@@ -754,7 +722,7 @@ def delete_source_sound_group():
 
     src = modify_settings(_mut)
     _sync_ha_entities()
-    _push_groups_to_detector(kind, source_key, src.get('sound_groups'))
+    _apply_live()
     return jsonify({'success': True})
 
 
@@ -867,8 +835,7 @@ def _update_mic_fields(data):
         from audio_utils import set_pulse_volume
         set_pulse_volume(mic['pulse_name'], changes['volume'])
     if 'webhook_url' in changes:
-        from classify import update_source_webhook
-        update_source_webhook(_source_id_for('mic'), changes['webhook_url'])
+        _apply_live()
     if 'enabled' in changes:
         _sync_ha_entities()  # disponibilite des entites du micro
     if changes.get('auto_volume') is False:
