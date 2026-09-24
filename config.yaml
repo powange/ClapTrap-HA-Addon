@@ -1,6 +1,9 @@
 name: "ClapTrap"
-version: "6.42.0"
+version: "6.42.1"
 slug: "claptrap"
+# Image publiee par .github/workflows/builder.yaml (multi-architecture) : le
+# Supervisor la telecharge au lieu de la construire chez chaque utilisateur.
+image: "ghcr.io/powange/claptrap"
 description: "Application de détection d'applaudissements en temps réel utilisant YAMNet, compatible avec les flux audio locaux et RTSP"
 url: "https://github.com/powange/ClapTrap-HA-Addon"
 arch:

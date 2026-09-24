@@ -2,13 +2,9 @@
 # version (champ `version` de config.yaml) : ghcr.io/powange/{arch}-claptrap
 # et le manifeste multi-architecture ghcr.io/powange/claptrap.
 #
-# Tant que config.yaml n'a pas de cle `image:`, le Supervisor continue de
-# construire l'image chez chaque utilisateur. Pour passer aux images publiees :
-# 1. verifier qu'un premier passage de ce workflow a reussi ;
-# 2. rendre le paquet ghcr.io/powange/claptrap public (GitHub > Packages >
-#    claptrap > Package settings > Change visibility), ainsi que les paquets
-#    amd64-claptrap et aarch64-claptrap ;
-# 3. ajouter `image: "ghcr.io/powange/claptrap"` dans config.yaml.
+# config.yaml pointe sur ghcr.io/powange/claptrap : une version n'est
+# installable qu'une fois ce workflow termine pour elle (quelques minutes).
+
 name: Build
 
 on:

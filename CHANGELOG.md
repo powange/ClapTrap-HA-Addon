@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.42.1
+
+### Build et déploiement
+
+- **Images précompilées** : l'add-on est désormais téléchargé depuis
+  `ghcr.io/powange/claptrap` (amd64 et aarch64, publié par GitHub Actions)
+  au lieu d'être compilé sur chaque installation. Mises à jour bien plus
+  rapides, en particulier sur Raspberry Pi. Image publiée vérifiée
+  (classification YAMNet identique).
+
 ## 6.42.0
 
 ### Interface
