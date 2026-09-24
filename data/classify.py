@@ -18,9 +18,11 @@ import numpy as np
 import requests
 
 from audio_detector import AudioDetector
+from clap_logic import default_group, normalize_group
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
+from audio_utils import level_db
 from ha_entities import source_label, source_entity_key
-from settings_manager import load_settings, clap_counts_of
+from settings_manager import load_settings
 from url_validator import mask_url_credentials
 from vban_manager import get_vban_detector
 from webhook import send_webhook_async
@@ -28,7 +30,6 @@ from webhook import send_webhook_async
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 
 MODEL_PATH = "yamnet.tflite"
-DEFAULT_SOUND_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
 
 # Effets de bord d'une detection (evenement HA, MQTT, webhook) : executes hors
 # du thread d'inference. 1 worker : conserve l'ordre des evenements.
@@ -47,42 +48,22 @@ _session = None
 _session_lock = threading.Lock()
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
-# Reglages modifiables en direct (lus a chaque bloc / clap), conserves entre
-# les sessions pour que le test RTSP et les routes puissent les lire.
-_rtsp_gains = {}       # {rtsp_url: gain}
-_vban_gains = {}       # {source_id VBAN: gain}
+# Gain de chaque source (lu a chaque bloc), modifiable en direct par le
+# curseur, par la detection comme par le test du son. Indexe par source_id :
+# indexe par URL, deux cameras a la meme URL partageaient leur gain et une URL
+# modifiee laissait une entree orpheline. Remis a zero a chaque session.
+_live_gains = {}       # {source_id: gain}
 _whitelist_lock = threading.Lock()  # mises a jour en direct des listes de sons
-_source_webhooks = {}  # {source_id: url}
 
 
 # --- Construction des sources depuis les settings ------------------------------
 
 def _build_groups_for_source(source_settings, global_threshold):
-    """Convertit la config d'une source en liste de groupes pour le detecteur.
-
-    Repli retro : sound_whitelist + threshold + ha_entities en un groupe
-    "Clap" unique si la source n'a pas (encore) de groupes.
-    """
-    groups = source_settings.get('sound_groups') or []
-    if not groups:
-        groups = [{
-            'name': 'Clap', 'slug': 'clap',
-            'sound_whitelist': dict(source_settings.get('sound_whitelist') or DEFAULT_SOUND_WHITELIST),
-            'threshold': float(source_settings.get('threshold', global_threshold)),
-            'ha_entities': source_settings.get('ha_entities', [1, 2]),
-        }]
-    normalised = []
-    for idx, g in enumerate(groups):
-        if not isinstance(g, dict):
-            continue
-        normalised.append({
-            'name': g.get('name') or f'Groupe {idx + 1}',
-            'slug': g.get('slug') or f'group{idx + 1}',
-            'whitelist': dict(g.get('sound_whitelist') or g.get('whitelist') or {}),
-            'threshold': float(g.get('threshold', global_threshold)),
-            'clap_counts': clap_counts_of(g),
-        })
-    return normalised
+    """Groupes d'une source au format du detecteur (groupe « Clap » par
+    defaut si la source n'en a aucun)."""
+    groups = [normalize_group(g, idx, global_threshold)
+              for idx, g in enumerate(source_settings.get('sound_groups') or []) if isinstance(g, dict)]
+    return groups or [default_group(global_threshold)]
 
 
 def build_sources_from_settings(settings):
@@ -200,6 +181,9 @@ class DetectionSession:
             self.exclusions = set()
         self._last_live = {}  # (source_id, event) -> instant du dernier envoi
         self.source_status = {}  # source_id -> connecting|connected|reconnecting|error
+        self.webhooks = {s['source_id']: s.get('webhook_url') or '' for s in sources}
+        _live_gains.clear()
+        _live_gains.update({s['source_id']: float(s['gain']) for s in sources if 'gain' in s})
 
     def _set_status(self, source_id, status, error=None):
         self.source_status[source_id] = status
@@ -239,8 +223,7 @@ class DetectionSession:
     def _on_level(self, src, peak, gain_of=None):
         gain = gain_of() if gain_of else 1.0
         level = min(1.0, peak * gain)
-        db = max(-60.0, 20 * np.log10(level + 1e-10))
-        self._emit_live(src['source_id'], 'source_level', {'peak': round(level, 4), 'db': round(float(db), 1)})
+        self._emit_live(src['source_id'], 'source_level', {'peak': round(level, 4), 'db': level_db(level)})
 
     def _on_detection(self, src, data):
         base_payload = {
@@ -268,7 +251,7 @@ class DetectionSession:
         _side_effects.submit(_run_side_effects, src['source_id'], src['entity_key'], base_payload,
                              data['score'], base_payload['clap_count'], base_payload['group_slug'],
                              data.get('group_clap_counts') if data.get('group_clap_counts') is not None else [1, 2],
-                             _source_webhooks.get(src['source_id'], ''))
+                             self.webhooks.get(src['source_id'], ''))
 
     def _on_sound_seen(self, src, data):
         label = data.get('label')
@@ -291,9 +274,7 @@ class DetectionSession:
 
     def _create_detector(self, src):
         p = self.params
-        groups = list(src.get('groups') or []) or [{
-            'name': 'Clap', 'slug': 'clap', 'whitelist': dict(DEFAULT_SOUND_WHITELIST),
-            'threshold': p['score_threshold'], 'clap_counts': [1, 2]}]
+        groups = list(src.get('groups') or []) or [default_group(p['score_threshold'])]
         det = AudioDetector(MODEL_PATH)
         # 30 labels : un son de groupe classe 11e mais au-dessus de son seuil
         # etait invisible avec 10.
@@ -314,7 +295,6 @@ class DetectionSession:
             scores_callback=lambda scores: self._emit_live(
                 src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}))
         det.start()
-        _source_webhooks[src['source_id']] = src.get('webhook_url') or ''
         with self._lock:
             # L'initialisation de YAMNet peut durer plus que l'attente de
             # l'arret : si l'arret a ete demande entre-temps, fermer ce
@@ -387,19 +367,17 @@ class DetectionSession:
             reader, auto_volume = self._prepare_mic()
         elif kind == 'rtsp':
             url = src['rtsp_url']
-            _rtsp_gains[url] = src.get('gain', 10.0)
             reader = rtsp_source(url)
-            gain_of = lambda: _rtsp_gains.get(url, 10.0)
-            logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={_rtsp_gains[url]}x)")
+            gain_of = lambda: _live_gains.get(sid, 10.0)
+            logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={gain_of()}x)")
         else:
             listener = get_vban_detector()
             if listener is None:
                 logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
                 return
-            _vban_gains[sid] = src.get('gain', 1.0)
             reader = VbanSource(listener, src['ip'], src['stream_name'],
                                 on_idle=lambda idle, msg: on_status('error', msg) if idle else on_status('connected'))
-            gain_of = lambda: _vban_gains.get(sid, 1.0)
+            gain_of = lambda: _live_gains.get(sid, 1.0)
         with self._lock:
             self._readers.append(reader)
 
@@ -534,11 +512,6 @@ def is_running():
     return _current() is not None
 
 
-def get_current_source():
-    s = _current()
-    return s.label if s else None
-
-
 def get_status():
     s = _current()
     if s is None:
@@ -561,17 +534,20 @@ def clear_detection_history():
 def update_source_webhook(source_id, url):
     """Change le webhook d'une source (pris en compte au prochain clap)."""
     if source_id:
-        _source_webhooks[source_id] = url or ''
+        s = _current()
+        if s is not None:
+            s.webhooks[source_id] = url or ''
 
 
-def update_rtsp_gain(rtsp_url, gain):
-    _rtsp_gains[rtsp_url] = float(gain)
-    logging.info(f"Volume RTSP mis à jour: {mask_url_credentials(rtsp_url)} -> {gain}x")
+def update_source_gain(source_id, gain):
+    """Gain d'une source RTSP ou VBAN, applique au bloc suivant (detection
+    et test du son)."""
+    _live_gains[source_id] = float(gain)
+    logging.info(f"Gain mis à jour: {source_id} -> {gain}x")
 
 
-def update_vban_gain(source_id, gain):
-    _vban_gains[source_id] = float(gain)
-    logging.info(f"Volume VBAN mis à jour: {source_id} -> {gain}x")
+def live_gain(source_id, default):
+    return _live_gains.get(source_id, default)
 
 
 def get_detector(source_id):
@@ -613,21 +589,6 @@ def _update_source_whitelist(source_id, label, enabled, group_slug):
         with s._lock:
             s.seen.setdefault(source_id, set()).add(label)
     det.set_groups(groups)
-    return True
-
-
-def remove_source_whitelist_entry(source_id, label):
-    det = get_detector(source_id)
-    if det is not None:
-        with _whitelist_lock:
-            groups = det.groups
-            for g in groups:
-                g['whitelist'].pop(label, None)
-            det.set_groups(groups)
-    s = _current()
-    if s is not None:
-        with s._lock:
-            s.seen.get(source_id, set()).discard(label)
     return True
 
 

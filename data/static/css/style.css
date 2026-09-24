@@ -275,7 +275,6 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
     background: color-mix(in srgb, var(--accent) 35%, transparent); transition: width 0.15s linear;
 }
 .scorebar-fill.is-over { background: color-mix(in srgb, var(--accent) 75%, transparent); }
-.scorebar-mark { display: none; }
 .scorebar { touch-action: pan-y; }
 .scorebar .threshold {
     position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;

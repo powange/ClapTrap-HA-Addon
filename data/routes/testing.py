@@ -7,7 +7,6 @@ et n'emet qu'environ 10 niveaux par seconde.
 """
 
 import logging
-import math
 import threading
 import time
 import uuid
@@ -15,6 +14,7 @@ import uuid
 from flask import Blueprint, jsonify, request
 
 from audio_sources import mic_source, rtsp_source
+from audio_utils import level_db
 from settings_manager import load_settings
 from routes.sources import _resolve_pulse_name, api_error_response, ApiError
 
@@ -29,10 +29,6 @@ EMIT_INTERVAL = 0.1
 def init_testing(socketio):
     global _socketio
     _socketio = socketio
-
-
-def _db(peak):
-    return round(max(-60.0, 20 * math.log10(min(1.0, peak) + 1e-10)), 1)
 
 
 class _Test:
@@ -61,7 +57,7 @@ class _Test:
             return
         self._last_emit = now
         peak, self._peak = min(1.0, self._peak), 0.0
-        self.emit({'peak': round(peak, 4), 'db': _db(peak)})
+        self.emit({'peak': round(peak, 4), 'db': level_db(peak)})
 
     def expired(self):
         return time.monotonic() - self.started > TEST_MAX_SECONDS
@@ -171,21 +167,18 @@ def start_rtsp_test():
         raise ApiError('Gain invalide')
     if not rtsp_url:
         raise ApiError('URL RTSP requise')
-    # Securite : n'accepter que rtsp://. Sans ca, ffmpeg accepterait file://,
-    # http://, concat: etc. -> lecture de fichiers locaux / SSRF.
-    if '://' in rtsp_url:
-        if not rtsp_url.lower().startswith(('rtsp://', 'rtsps://')):
-            raise ApiError('Seul le protocole rtsp:// est autorisé')
-    else:
-        rtsp_url = 'rtsp://' + rtsp_url
-    # Gain lu en direct dans _rtsp_gains (mis a jour par le curseur) mais jamais
-    # ecrit ici : ce dict est partage avec la detection en cours.
-    from classify import _rtsp_gains
+    # Securite : n'accepter que rtsp:// (ffmpeg accepterait sinon file://,
+    # http://, concat:... : lecture de fichiers locaux, SSRF).
+    from settings_manager import normalize_rtsp_url
+    rtsp_url = normalize_rtsp_url(rtsp_url)
+    # Gain lu en direct (curseur de la carte), jamais ecrit ici.
+    from classify import live_gain
+    source_id = f"rtsp_{test_id}"
     test = _Test('rtsp', 'rtsp_level', {'id': test_id})
     _replace(test)
     test.thread = threading.Thread(
         target=_run_process,
-        args=(test, rtsp_source(rtsp_url), lambda: _rtsp_gains.get(rtsp_url, initial_gain)),
+        args=(test, rtsp_source(rtsp_url), lambda: live_gain(source_id, initial_gain)),
         daemon=True)
     test.thread.start()
     return jsonify({'success': True, 'token': test.token})
@@ -201,29 +194,29 @@ def stop_rtsp_test():
 @testing_bp.route('/api/vban/test/start', methods=['POST'])
 def start_vban_test():
     data = request.get_json(silent=True) or {}
-    ip = str(data.get('ip') or '').strip()
-    if not ip:
-        raise ApiError('IP requise')
+    vban_id = str(data.get('id') or '')
+    src = next((s for s in load_settings().get('saved_vban_sources') or [] if s.get('id') == vban_id), None)
+    if src is None:
+        raise ApiError('Source VBAN introuvable', 404)
+    ip = src.get('ip', '')
     from vban_manager import get_vban_detector
     detector = get_vban_detector()
     if detector is None:
         raise ApiError("L'écoute VBAN n'est pas disponible", 500)
-    # Gain : celui de la detection en cours s'il existe, sinon celui des
-    # reglages, lu UNE fois (avant : relu a chaque paquet, ~190 fois/s).
-    src = next((s for s in load_settings().get('saved_vban_sources') or []
-                if s.get('id') == data.get('id') or (not data.get('id') and s.get('ip') == ip)), {})
+    # Gain : celui du curseur s'il a change, sinon celui des reglages, lu une
+    # fois (avant : relu a chaque paquet, ~190 fois/s).
     stream_name = src.get('stream_name') or src.get('name') or ''
     saved_gain = float(src.get('gain', 1.0) or 1.0)
-    source_id = f"vban_{src.get('id')}" if src.get('id') else None
-    from classify import _vban_gains
+    source_id = f"vban_{vban_id}"
+    from classify import live_gain
 
-    test = _Test('vban', 'vban_level', {'ip': ip})
+    test = _Test('vban', 'vban_level', {'id': vban_id})
     _replace(test)
 
     def _tap(peak):
         if test.stop_event.is_set():
             return
-        test.level(peak * _vban_gains.get(source_id, saved_gain))
+        test.level(peak * live_gain(source_id, saved_gain))
 
     def _clear():
         detector.set_test_tap(None, None)

@@ -168,6 +168,7 @@
     <script>
         window.initialSettings = {{ settings|tojson }};
         window.initialDevices = {{ devices|tojson }};
+        window.advancedDefaults = {{ advanced_defaults|tojson }};
         window.basePath = {{ ingress_path|tojson }};
     </script>
     <script src="{{ url_for('static', filename='js/vendor/socket.io.min.js') }}"></script>

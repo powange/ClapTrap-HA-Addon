@@ -11,6 +11,33 @@ parametre (`now`) pour pouvoir tester la logique de facon deterministe.
 """
 
 
+DEFAULT_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
+
+
+def normalize_group(g, idx=0, default_threshold=0.5):
+    """Groupe au format du detecteur, depuis les reglages (sound_whitelist,
+    ha_entities) ou deja normalise (whitelist, clap_counts). Point unique :
+    la normalisation etait ecrite trois fois, avec des regles differentes
+    (nombres de claps filtres ou non). Une liste vide = aucune entite."""
+    counts = g.get('clap_counts')
+    if counts is None:
+        counts = g.get('ha_entities')
+    if counts is None:
+        counts = [1, 2]
+    return {
+        'slug': g.get('slug') or f'group{idx + 1}',
+        'name': g.get('name') or g.get('slug') or f'Groupe {idx + 1}',
+        'whitelist': dict(g.get('whitelist') or g.get('sound_whitelist') or {}),
+        'threshold': float(g.get('threshold', default_threshold)),
+        'clap_counts': [n for n in counts if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 4],
+    }
+
+
+def default_group(threshold=0.5):
+    return normalize_group({'slug': 'clap', 'name': 'Clap', 'whitelist': dict(DEFAULT_WHITELIST),
+                            'threshold': threshold})
+
+
 class ClapTracker:
     # Plancher absolu (signal brut, avant auto-gain) pour qu'un front compte
     # comme un pic.
@@ -65,19 +92,8 @@ class ClapTracker:
             self.peak_ratio = float(peak_ratio)
 
     def set_groups(self, groups, default_threshold=0.3):
-        normalised = []
-        for idx, g in enumerate(groups or []):
-            if not isinstance(g, dict):
-                continue
-            normalised.append({
-                'slug': g.get('slug') or f'group{idx + 1}',
-                'name': g.get('name') or g.get('slug') or f'Groupe {idx + 1}',
-                'whitelist': dict(g.get('whitelist') or g.get('sound_whitelist') or {}),
-                'threshold': float(g.get('threshold', default_threshold)),
-                'clap_counts': list(g['clap_counts'] if g.get('clap_counts') is not None
-                                    else g.get('ha_entities') if g.get('ha_entities') is not None else [1, 2]),
-            })
-        self.groups = normalised
+        self.groups = [normalize_group(g, idx, default_threshold)
+                       for idx, g in enumerate(groups or []) if isinstance(g, dict)]
 
     @property
     def min_threshold(self):

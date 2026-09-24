@@ -4,18 +4,10 @@
     var CT = window.CT;
     var esc = CT.esc;
 
-    function slugOfSource(src) {
-        if (src.kind === 'mic') return 'mic';
-        if (src.kind === 'rtsp') return CT.slug('rtsp_' + String(src.key).substring(0, 8));
-        return CT.slug('vban_' + (src.data.name || src.data.ip));
-    }
+    // entity_id calcules par le serveur (memes regles que la publication MQTT).
     function entitiesOf(src, g) {
         var key = src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key;
-        var fromServer = (CT.state.entityIds[key] || {})[g.slug];
-        if (fromServer) return fromServer;
-        return (Array.isArray(g.ha_entities) ? g.ha_entities : [1, 2]).map(function (n) {
-            return 'binary_sensor.claptrap_' + slugOfSource(src) + '_' + g.slug + '_' + n + (n === 1 ? 'clap' : 'claps');
-        });
+        return (CT.state.entityIds[key] || {})[g.slug] || [];
     }
 
     function groupHtml(src, g, isDefault, activeElsewhere) {
@@ -91,14 +83,8 @@
     }
 
     function putGroup(src, slug, body) {
-        return CT.api('PUT', '/api/source/sound_groups', Object.assign({kind: src.kind, source_key: src.apiKey, group_slug: slug}, body));
+        return CT.api('PUT', '/api/source/sound_groups', Object.assign({kind: src.kind, source_key: src.key, group_slug: slug}, body));
     }
-    function reloadGroups(src) {
-        return CT.reloadSettings().then(function () {
-            CT.renderSources();
-        });
-    }
-
     function bindGroups(box, src, groups) {
         // Delegation posee une seule fois : la boite est re-rendue sur place.
         box._ctx = {src: src};
@@ -120,14 +106,14 @@
             if (action === 'delete') {
                 CT.confirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function (ok) {
                     if (!ok) return;
-                    CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.apiKey, group_slug: slug})
-                        .then(function () { return reloadGroups(src); })
+                    CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug})
+                        .then(function () { return CT.refresh(); })
                         .then(function () { CT.success('Groupe supprimé'); })
                         .catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
                 });
             } else if (action === 'cleanup') {
-                CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.apiKey, group_slug: slug})
-                    .then(function (d) { return reloadGroups(src).then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
+                CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.key, group_slug: slug})
+                    .then(function (d) { return CT.refresh().then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
                     .catch(function (err) { CT.error('Nettoyage impossible : ' + err.message); });
             }
         }
@@ -164,7 +150,7 @@
                 cb.addEventListener('change', function () {
                     var label = cb.getAttribute('data-label');
                     var on = cb.checked;
-                    CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.apiKey, group_slug: slug,
+                    CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.key, group_slug: slug,
                                                                   label: label, enabled: on})
                         .then(function () {
                             (group.sound_whitelist = group.sound_whitelist || {})[label] = on;
@@ -187,8 +173,8 @@
         CT.prompt('Nom du nouveau groupe (ex. « Toc sur la table ») :', '', 'Créer').then(function (name) {
             name = (name || '').trim();
             if (!name) return;
-            CT.api('POST', '/api/source/sound_groups', {kind: src.kind, source_key: src.apiKey, name: name})
-                .then(function () { CT.state.openPanels[src.domId] = true; return reloadGroups(src); })
+            CT.api('POST', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, name: name})
+                .then(function () { CT.state.openPanels[src.domId] = true; return CT.refresh(); })
                 .then(function () { CT.success('Groupe « ' + name + ' » créé'); })
                 .catch(function (err) { CT.error('Création impossible : ' + err.message); });
         });

@@ -197,28 +197,26 @@
 
     // ---- Sources (modele commun a toutes les vues) ------------------------------
     // kind : mic | rtsp | vban
-    // key  : cle de l'API unifiee (/api/sources/<kind>/<key>)
-    // apiKey : cle des routes de groupes (device_index | id)
+    // key  : cle de l'API (/api/sources/<kind>/<key>, routes de groupes) : "mic" ou id
     // sourceId : identifiant emis par le serveur pendant la detection
     CT.sourceList = function () {
         var s = CT.state.settings || {};
         var out = [];
         var mic = s.microphone;
         if (mic && mic.configured !== false) {
-            out.push({kind: 'mic', key: 'mic', apiKey: String(mic.device_index || 0),
+            out.push({kind: 'mic', key: 'mic',
                       sourceId: 'mic', domId: 'src-mic',
                       name: mic.audio_source && mic.audio_source !== 'default' ? mic.audio_source : 'Micro par défaut',
                       enabled: !!mic.enabled, data: mic});
         }
         (s.rtsp_sources || []).forEach(function (r) {
-            out.push({kind: 'rtsp', key: r.id, apiKey: r.id, sourceId: 'rtsp_' + r.id,
+            out.push({kind: 'rtsp', key: r.id, sourceId: 'rtsp_' + r.id,
                       domId: 'src-rtsp-' + CT.slug(r.id), name: r.name || 'Caméra', enabled: !!r.enabled, data: r});
         });
         (s.saved_vban_sources || []).forEach(function (v) {
             // Id propre a chaque flux (deux flux d'une meme IP etaient confondus).
-            var vid = v.id || v.ip;
-            out.push({kind: 'vban', key: vid, apiKey: vid, sourceId: 'vban_' + vid,
-                      domId: 'src-vban-' + CT.slug(vid), name: v.name || v.ip,
+            out.push({kind: 'vban', key: v.id, sourceId: 'vban_' + v.id,
+                      domId: 'src-vban-' + CT.slug(v.id), name: v.name || v.ip,
                       enabled: !!v.enabled, data: v});
         });
         return out;
@@ -229,7 +227,7 @@
     CT.kindLabel = {mic: 'Micro', rtsp: 'Caméra', vban: 'VBAN'};
 
     CT.patchSource = function (src, body) {
-        return CT.api('PATCH', '/api/sources/' + src.kind + '/' + src.key.split('/').map(encodeURIComponent).join('/'), body);
+        return CT.api('PATCH', '/api/sources/' + src.kind + '/' + encodeURIComponent(src.key), body);
     };
 
     // ---- Theme : celui de Home Assistant ------------------------------------------
@@ -289,6 +287,31 @@
     CT.reloadSettings = function () {
         return Promise.all([CT.api('GET', '/api/settings'), CT.reloadEntityIds()])
             .then(function (r) { CT.state.settings = r[0]; return r[0]; });
+    };
+    // Recharger les reglages puis reconstruire la page (une seule facon de le
+    // faire, il y en avait trois).
+    CT.refresh = function () {
+        return CT.reloadSettings().then(function () { CT.render(); });
+    };
+    // Liste des micros : options du <select> et corps de requete, communs a la
+    // carte du micro et a l'assistant (ecrits trois fois auparavant).
+    CT.deviceOptions = function (current) {
+        var devices = CT.state.devices || [];
+        current = current || 'default';
+        var html = '<option value="default"' + (current === 'default' ? ' selected' : '') + '>Micro par défaut du système</option>';
+        if (current !== 'default' && !devices.some(function (d) { return d.name === current; })) {
+            html += '<option value="current" selected>' + CT.esc(current) + ' (non détecté)</option>';
+        }
+        devices.forEach(function (d, i) {
+            html += '<option value="dev:' + i + '"' + (d.name === current ? ' selected' : '') + '>' + CT.esc(d.name) + '</option>';
+        });
+        return html;
+    };
+    CT.deviceFromOption = function (value, mic) {
+        if (value === 'default') return {index: 0, name: 'default', pulse_name: ''};
+        if (value === 'current' && mic) return {index: mic.device_index || 0, name: mic.audio_source, pulse_name: mic.pulse_name || ''};
+        var dev = (CT.state.devices || [])[parseInt(String(value).replace('dev:', ''), 10)];
+        return dev ? {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''} : null;
     };
     CT.reloadDevices = function () {
         return CT.api('GET', '/api/audio-sources').then(function (d) {
@@ -407,17 +430,18 @@
             return {key: 'rtsp_' + src.key, domId: src.domId, startUrl: '/api/rtsp/test/start', stopUrl: '/api/rtsp/test/stop',
                     body: {id: src.key, url: url || src.data.url, gain: gain || src.data.gain || 10}};
         }
-        return {key: 'vban_' + src.data.ip, domId: src.domId, startUrl: '/api/vban/test/start', stopUrl: '/api/vban/test/stop',
-                body: {ip: src.data.ip, id: src.data.id || null}};
+        return {key: 'vban_' + src.key, domId: src.domId, startUrl: '/api/vban/test/start', stopUrl: '/api/vban/test/stop',
+                body: {id: src.key}};
     };
     function onTestLevel(key, data) {
         var t = CT.state.testing;
         if (!t || t.key !== key) return;
         if (t.token && data.token && data.token !== t.token) return;  // ancien test
         if (data.error) { CT.stopTest('Test interrompu : ' + data.error); return; }
-        if (CT.onTestLevel) CT.onTestLevel(t, data);
+        // Un test peut avoir son propre affichage (assistant), sinon la carte.
+        if (t.onLevel) t.onLevel(data); else if (CT.onTestLevel) CT.onTestLevel(t, data);
     }
     CT.on('mic_level', function (d) { onTestLevel('mic', d || {}); });
     CT.on('rtsp_level', function (d) { d = d || {}; onTestLevel('rtsp_' + (d.id || ''), d); });
-    CT.on('vban_level', function (d) { d = d || {}; onTestLevel('vban_' + (d.ip || ''), d); });
+    CT.on('vban_level', function (d) { d = d || {}; onTestLevel('vban_' + (d.id || ''), d); });
 })();

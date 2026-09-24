@@ -136,10 +136,12 @@ _slugify = ascii_slug
 def clap_counts_of(group, fallback=(1, 2)):
     """Nombres de claps exposes a HA pour un groupe. Une liste VIDE veut dire
     « aucune entite » : `a or b or [1, 2]` la remplacait par 1 et 2 claps."""
-    for key in ('clap_counts', 'ha_entities'):
-        if key in group and group[key] is not None:
-            return [n for n in group[key] if isinstance(n, int) and 1 <= n <= 4]
-    return list(fallback)
+    if group.get('clap_counts') is None and group.get('ha_entities') is None:
+        return list(fallback)
+    from clap_logic import normalize_group
+    return normalize_group(group)['clap_counts']
+
+
 _VALID_SLUG = __import__('re').compile(r'^[a-z0-9_]+$')
 
 

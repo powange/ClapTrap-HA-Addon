@@ -10,9 +10,8 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import audio
 from mediapipe.tasks.python.components import containers
 
+from audio_utils import BLOCK_SAMPLES
 from clap_logic import ClapTracker
-
-BLOCK_SAMPLES = 1600  # 100 ms a 16 kHz
 
 
 class AudioDetector:
@@ -95,8 +94,6 @@ class AudioDetector:
         logging.info(f"Classificateur audio initialisé (max_results={max_results})")
 
     def start(self):
-        if not self.classifier:
-            self.initialize()
         # Timestamps monotones exiges par MediaPipe
         self._timestamp_ms = int(time.time() * 1000)
         self.running = True

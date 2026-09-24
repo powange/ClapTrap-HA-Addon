@@ -10,6 +10,7 @@ from collections import namedtuple
 import numpy as np
 from scipy.signal import resample_poly
 
+from audio_utils import BLOCK_SAMPLES
 from settings_manager import load_settings as _load_settings_from_manager
 
 # Index de sample rate VBAN (octet 4, bits 0-4) -> Hz
@@ -26,7 +27,6 @@ VBAN_CODEC_PCM = 0x00        # octet 7, bits 4-7
 VBAN_DATATYPES = {1: (2, 'INT16'), 2: (3, 'INT24'), 3: (4, 'INT32'),
                   4: (4, 'FLOAT32'), 5: (8, 'FLOAT64')}
 
-EMIT_SAMPLES = 1600  # 100 ms a 16 kHz : taille de bloc attendue par le detecteur
 SOURCE_TIMEOUT = 5   # s sans paquet avant de retirer une source de la decouverte
 
 VBANHeader = namedtuple('VBANHeader', 'name sample_rate channels datatype')
@@ -397,9 +397,9 @@ class VBANDetector:
 
         out = np.concatenate((stream['out'], audio))
         chunks = []
-        while len(out) >= EMIT_SAMPLES:
-            chunks.append(out[:EMIT_SAMPLES])
-            out = out[EMIT_SAMPLES:]
+        while len(out) >= BLOCK_SAMPLES:
+            chunks.append(out[:BLOCK_SAMPLES])
+            out = out[BLOCK_SAMPLES:]
         stream['out'] = out
 
         callback = stream['callback']
@@ -425,15 +425,6 @@ class VBANDetector:
         t = getattr(self, '_listen_thread', None)
         if t and t.is_alive():
             t.join(timeout=1.0)
-
-    def cleanup(self):
-        """Arrête l'écoute et nettoie les ressources"""
-        self.stop_listening()
-
-    def get_active_sources(self):
-        """Retourne un dictionnaire des sources actives"""
-        with self._lock:
-            return dict(self.sources)
 
     def clean_vban_name(self, raw_name):
         """Nettoie le nom VBAN en retirant les caractères non désirés"""

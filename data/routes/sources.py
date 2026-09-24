@@ -4,7 +4,7 @@ import logging
 import threading
 import uuid
 
-from settings_manager import (load_settings, modify_settings, SettingsSaveError, clap_counts_of,
+from settings_manager import (load_settings, modify_settings, SettingsSaveError,
                               to_bool, to_number, to_clap_counts, to_webhook)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
@@ -49,7 +49,7 @@ def _json():
     return data
 
 
-def _source_id_for(kind, source_key):
+def _source_id_for(kind, source_key=None):
     """Donne l'ID runtime (utilise par classify) a partir de (kind, source_key).
 
     Doit coller EXACTEMENT a ce que classify.run_*_source construit :
@@ -180,17 +180,6 @@ def _find_vban_by_id(settings, vban_id):
     raise ApiError('Source non trouvée', 404)
 
 
-def _find_vban(settings, ip, name=None, stream_name=None):
-    for s in settings.get('saved_vban_sources', []) or []:
-        if s.get('ip') != ip:
-            continue
-        if name is not None and s.get('name') == name:
-            return s
-        if stream_name is not None and (s.get('stream_name') or s.get('name')) == stream_name:
-            return s
-    raise ApiError('Source non trouvée', 404)
-
-
 @sources_bp.route('/api/audio-sources', methods=['GET'])
 def get_audio_sources():
     audio_sources = [
@@ -201,11 +190,6 @@ def get_audio_sources():
 
 
 # --- RTSP --------------------------------------------------------------------
-
-@sources_bp.route('/api/rtsp/streams', methods=['GET'])
-def get_rtsp_streams():
-    return jsonify(load_settings().get('rtsp_sources', []))
-
 
 @sources_bp.route('/api/rtsp/stream', methods=['POST'])
 def add_rtsp_stream():
@@ -231,11 +215,6 @@ def add_rtsp_stream():
     if new_stream['enabled'] and new_stream['url']:
         _restart_detection_if_running()
     return jsonify({'success': True, 'stream': new_stream})
-
-
-@sources_bp.route('/api/rtsp/stream/<stream_id>', methods=['PUT'])
-def update_rtsp_stream(stream_id):
-    return jsonify({'success': True, 'stream': _update_rtsp(stream_id, _json())})
 
 
 def _update_rtsp(stream_id, data):
@@ -268,8 +247,8 @@ def _update_rtsp(stream_id, data):
     # Effets en direct, APRES l'enregistrement (un redemarrage relit le disque).
     if 'gain' in data:
         try:
-            from classify import update_rtsp_gain
-            update_rtsp_gain(stream.get('url', ''), stream['gain'])
+            from classify import update_source_gain
+            update_source_gain(_source_id_for('rtsp', stream_id), stream['gain'])
         except Exception as e:
             logging.warning(f"Gain RTSP non appliqué en direct: {e}")
     if 'webhook_url' in data:
@@ -300,19 +279,6 @@ def delete_rtsp_stream(stream_id):
 
 
 # --- VBAN --------------------------------------------------------------------
-
-@sources_bp.route('/api/vban/sources', methods=['GET'])
-def get_vban_sources():
-    detector = get_vban_detector()
-    if not detector:
-        return jsonify({'success': False, 'error': 'Impossible d\'initialiser la découverte VBAN'}), 500
-    return jsonify(detector.get_sources(timeout=1.0))
-
-
-@sources_bp.route('/api/vban/saved-sources', methods=['GET'])
-def get_saved_vban_sources():
-    return jsonify(load_settings().get('saved_vban_sources', []))
-
 
 @sources_bp.route('/api/vban/save', methods=['POST'])
 def save_vban_source():
@@ -354,32 +320,15 @@ def save_vban_source():
     return jsonify({'success': True, 'source': new_source})
 
 
-@sources_bp.route('/api/vban/remove', methods=['DELETE'])
-def remove_vban_source():
-    data = _json()
-    ip = data.get('ip')
-    stream_name = data.get('stream_name') or data.get('name')
-    if not ip or not stream_name:
-        raise ApiError('Données manquantes')
-
+@sources_bp.route('/api/vban/<vban_id>', methods=['DELETE'])
+def remove_vban_source(vban_id):
     def _mut(settings):
-        src = _find_vban(settings, ip, stream_name=stream_name)
+        src = _find_vban_by_id(settings, vban_id)
         settings['saved_vban_sources'] = [s for s in settings['saved_vban_sources'] if s is not src]
-        return dict(src)
 
-    removed = modify_settings(_mut)
+    modify_settings(_mut)
     _sync_ha_entities()
     _restart_detection_if_running()
-    return jsonify({'success': True})
-
-
-@sources_bp.route('/api/vban/update', methods=['PUT'])
-def update_vban_source():
-    source = _json()
-    if 'ip' not in source or 'name' not in source:
-        raise ApiError('Données manquantes')
-    s = _find_vban(load_settings(), source['ip'], name=source['name'])
-    _update_vban(s['id'], source)
     return jsonify({'success': True})
 
 
@@ -410,8 +359,8 @@ def _update_vban(vban_id, source):
         _sync_ha_entities()  # nom affiche des entites
     if 'gain' in source:
         try:
-            from classify import update_vban_gain
-            update_vban_gain(_source_id_for('vban', s['id']), s['gain'])
+            from classify import update_source_gain
+            update_source_gain(_source_id_for('vban', s['id']), s['gain'])
         except Exception as e:
             logging.warning(f"Gain VBAN non appliqué en direct: {e}")
     if 'webhook_url' in source:
@@ -491,10 +440,6 @@ def _find_source_dict(settings, kind, source_key):
         for s in settings.get('saved_vban_sources', []):
             if s.get('id') == source_key:
                 return s
-        # Compat : anciens appels par IP
-        for s in settings.get('saved_vban_sources', []):
-            if not s.get('id') and s.get('ip') == source_key:
-                return s
     return None
 
 
@@ -523,18 +468,8 @@ def _default_group(groups):
 
 
 def _groups_payload(groups):
-    payload = []
-    for g in groups or []:
-        if not isinstance(g, dict):
-            continue
-        payload.append({
-            'slug': g.get('slug', 'clap'),
-            'name': g.get('name', 'Clap'),
-            'whitelist': dict(g.get('sound_whitelist') or {}),
-            'threshold': float(g.get('threshold', 0.5)),
-            'clap_counts': clap_counts_of(g),
-        })
-    return payload
+    from clap_logic import normalize_group
+    return [normalize_group(g, idx) for idx, g in enumerate(groups or []) if isinstance(g, dict)]
 
 
 @sources_bp.route('/api/source/sound_whitelist/cleanup', methods=['POST'])
@@ -583,34 +518,6 @@ def cleanup_source_sound_whitelist():
             logging.warning(f"Nettoyage non appliqué au détecteur actif: {e}")
 
     return jsonify({'success': True, 'removed': removed, 'remaining': len(remaining_labels)})
-
-
-@sources_bp.route('/api/source/sound_whitelist', methods=['DELETE'])
-def delete_source_sound_whitelist_entry():
-    """Retire un label de la sound_whitelist d'une source.
-
-    Body: {kind, source_key, label}
-    """
-    data = _json()
-    kind = _require_kind(data, 'label')
-    source_key = data.get('source_key')
-    label = data.get('label')
-
-    def _mut(settings):
-        source_dict = _require_source(settings, kind, source_key)
-        for g in source_dict.get('sound_groups', []) or []:
-            if isinstance(g, dict):
-                (g.get('sound_whitelist') or {}).pop(label, None)
-
-    modify_settings(_mut)
-    source_id = _source_id_for(kind, source_key)
-    if source_id:
-        try:
-            from classify import remove_source_whitelist_entry
-            remove_source_whitelist_entry(source_id, label)
-        except Exception as e:
-            logging.warning(f"Retrait non appliqué au détecteur actif: {e}")
-    return jsonify({'success': True})
 
 
 @sources_bp.route('/api/source/sound_whitelist', methods=['PUT'])
@@ -675,14 +582,6 @@ def _push_groups_to_detector(kind, source_key, groups):
         push_groups(source_id, _groups_payload(groups))
     except Exception as exc:
         logging.warning(f"Groupes non appliqués au détecteur actif: {exc}")
-
-
-@sources_bp.route('/api/source/sound_groups', methods=['GET'])
-def list_source_sound_groups():
-    """Liste les groupes d'une source. Query: ?kind=&source_key=."""
-    kind = _require_kind(request.args)
-    src = _require_source(load_settings(), kind, request.args.get('source_key'))
-    return jsonify({'groups': src.get('sound_groups', []) or []})
 
 
 def _slugify_group(name, existing_slugs):
@@ -846,111 +745,11 @@ def delete_microphone():
     return jsonify({'success': True})
 
 
-@sources_bp.route('/api/microphone/device', methods=['PUT'])
-def update_microphone_device():
-    """Change le micro utilise. N'ecrit QUE les champs du device : avant,
-    l'UI renvoyait toute la section microphone telle qu'au chargement de la
-    page et ecrasait auto-start, webhook, groupes..."""
-    data = _json()
-    audio_source = str(data.get('audio_source') or 'default')
-    device_index = to_number(data.get('device_index', 0), 'device_index', 0, 10000, integer=True)
-    pulse_name = str(data.get('pulse_name') or '')
-
-    def _mut(settings):
-        mic = settings.setdefault('microphone', {})
-        changed = (mic.get('audio_source'), mic.get('device_index'), mic.get('pulse_name')) != \
-            (audio_source, device_index, pulse_name)
-        mic['audio_source'] = audio_source
-        mic['device_index'] = device_index
-        mic['pulse_name'] = pulse_name
-        return changed, bool(mic.get('enabled'))
-
-    changed, enabled = modify_settings(_mut)
-    if changed and enabled:
-        _restart_detection_if_running()
-    return jsonify({'success': True})
-
-
-@sources_bp.route('/api/microphone/webhook', methods=['PUT'])
-def update_microphone_webhook():
-    webhook_url = to_webhook(_json().get('webhook_url'))
-    mic = _update_mic('webhook_url', webhook_url)
-    from classify import update_source_webhook
-    update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), webhook_url)
-    return jsonify({'success': True})
-
-
-@sources_bp.route('/api/microphone/threshold', methods=['PUT'])
-def update_microphone_threshold():
-    threshold = max(0.0, min(1.0, to_number(_json().get('threshold', 0.5), 'threshold')))
-    _update_mic('threshold', threshold)
-    return jsonify({'success': True, 'threshold': threshold})
-
-
-@sources_bp.route('/api/microphone/enabled', methods=['PUT'])
-def update_microphone_enabled():
-    # to_bool : "false" (chaine) valait True avec l'ancien stockage brut.
-    enabled = to_bool(_json().get('enabled'), 'enabled')
-    _update_mic('enabled', enabled)
-    _restart_detection_if_running()
-    return jsonify({'success': True})
-
-
 @sources_bp.route('/api/microphone/auto-start', methods=['PUT'])
 def toggle_auto_start():
     enabled = to_bool(_json().get('enabled', False), 'enabled')
     _update_mic('auto_start', enabled)
     return jsonify({'success': True, 'auto_start': enabled})
-
-
-@sources_bp.route('/api/microphone/volume', methods=['PUT'])
-def update_microphone_volume():
-    if load_settings().get('microphone', {}).get('auto_volume'):
-        raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
-    data = _json()
-    volume = int(max(0, min(150, to_number(data.get('volume', 100), 'volume'))))
-    mic = _update_mic('volume', volume)
-
-    # Utiliser le pulse_name du frontend si fourni, sinon celui sauvegardé
-    pulse_name = data.get('pulse_name') or mic.get('pulse_name', '')
-    if pulse_name:
-        try:
-            from audio_utils import set_pulse_volume
-            set_pulse_volume(pulse_name, volume)
-            logging.info(f"Volume PulseAudio mis à {volume}% pour {pulse_name}")
-        except Exception as e:
-            logging.warning(f"Impossible de régler le volume PulseAudio: {e}")
-    return jsonify({'success': True, 'volume': volume})
-
-
-@sources_bp.route('/api/microphone/ha-entities', methods=['PUT'])
-def update_microphone_ha_entities():
-    ha_entities = to_clap_counts(_json().get('ha_entities', [1, 2]))
-    mic = _update_mic('ha_entities', ha_entities)
-    _sync_ha_entities()
-    return jsonify({'success': True, 'ha_entities': ha_entities})
-
-
-@sources_bp.route('/api/microphone/auto-volume', methods=['PUT'])
-def toggle_auto_volume():
-    enabled = to_bool(_json().get('enabled', False), 'enabled')
-    _set_auto_volume(enabled)
-    return jsonify({'success': True, 'auto_volume': enabled})
-
-
-def _set_auto_volume(enabled):
-    """Le volume automatique vit avec la session de detection, qui lui
-    fournit le niveau du micro : on enregistre le reglage et on redemarre la
-    detection si elle tourne. Avant, il etait demarre ici sans source de niveau
-    (inactif mais bloquant le reglage manuel) puis arrete par la fin de session
-    alors que le reglage restait "active"."""
-    if enabled and not _resolve_pulse_name(load_settings()):
-        raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
-    _update_mic('auto_volume', enabled)
-    if not enabled:
-        from auto_volume import auto_volume_mgr
-        auto_volume_mgr.stop()
-    _restart_detection_if_running()
 
 
 # --- API unifiee -------------------------------------------------------------
@@ -1019,7 +818,7 @@ def _update_mic_fields(data):
         set_pulse_volume(mic['pulse_name'], changes['volume'])
     if 'webhook_url' in changes:
         from classify import update_source_webhook
-        update_source_webhook(_source_id_for('mic', mic.get('device_index', 0)), changes['webhook_url'])
+        update_source_webhook(_source_id_for('mic'), changes['webhook_url'])
     if 'enabled' in changes:
         _sync_ha_entities()  # disponibilite des entites du micro
     if changes.get('auto_volume') is False:
@@ -1048,9 +847,6 @@ def patch_source(kind, key):
     if kind == 'rtsp':
         return jsonify({'success': True, 'source': _update_rtsp(key, data)})
     if kind == 'vban':
-        if '/' in key:  # compat : ancienne cle <ip>/<nom>
-            ip, _, name = key.partition('/')
-            key = _find_vban(load_settings(), ip, name=name)['id']
         return jsonify({'success': True, 'source': _update_vban(key, data)})
     if kind == 'mic':
         return jsonify({'success': True, 'source': _update_mic_fields(data)})

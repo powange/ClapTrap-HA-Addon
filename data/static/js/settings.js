@@ -2,7 +2,7 @@
 (function () {
     'use strict';
     var CT = window.CT;
-    var DEFAULTS = {delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3.0};
+    var DEFAULTS = window.advancedDefaults || {};  // DEFAULT_SETTINGS du serveur
     var FIELDS = {delay: 'adv-delay', peak_cooldown: 'adv-cooldown', peak_ratio: 'adv-ratio'};
 
     function fillAdvanced(force) {

@@ -1,17 +1,16 @@
 import atexit
 import logging
 import os
-import re
 import secrets
 import signal
 import sys
 import threading
 import time
 
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, send_file
 from flask_socketio import SocketIO
 
-from settings_manager import load_settings
+from settings_manager import load_settings, DEFAULT_SETTINGS
 from vban_manager import init_vban_detector, cleanup_vban_detector
 from audio_utils import get_audio_input_devices
 
@@ -165,57 +164,35 @@ def index():
     return render_template('index.html',
                            settings=load_settings(),
                            devices=get_audio_input_devices(),
-                           debug=app.debug,
+                           # Valeurs par defaut du comptage : l'interface les recopiait en dur.
+                           advanced_defaults={k: DEFAULT_SETTINGS['global'][k]
+                                              for k in ('delay', 'peak_cooldown', 'peak_ratio')},
                            ingress_path=request.script_root,
                            cache_bust=int(time.time()))
 
 
-@app.route('/css/<version>/<path:filename>')
-def serve_versioned_css(version, filename):
-    """Sert le CSS avec la version dans le chemin (bypass service worker cache)."""
+def _versioned(folder, filename, mimetype):
+    """Fichier statique dont le chemin contient la version (cache long,
+    contourne le cache du service worker de Home Assistant)."""
     from werkzeug.utils import safe_join
     # safe_join rejette les traversees de repertoire (../) -> None.
-    file_path = safe_join(app.static_folder, 'css', filename)
-    if not file_path or not os.path.exists(file_path):
+    file_path = safe_join(app.static_folder, folder, filename)
+    if not file_path or not os.path.isfile(file_path):
         return 'Not found', 404
-    with open(file_path, 'r') as f:
-        content = f.read()
-    response = app.response_class(content, mimetype='text/css')
+    response = send_file(file_path, mimetype=mimetype)
     response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
     return response
+
+
+@app.route('/css/<version>/<path:filename>')
+def serve_versioned_css(version, filename):
+    return _versioned('css', filename, 'text/css')
+
 
 @app.route('/js/<version>/<path:filename>')
 def serve_versioned_js(version, filename):
-    """Sert les modules JS avec la version dans le chemin (bypass service worker cache).
-    Réécrit les imports relatifs pour pointer vers le même chemin versionné."""
-    from werkzeug.utils import safe_join
-    file_path = safe_join(app.static_folder, 'js', 'modules', filename)
-    if not file_path or not os.path.exists(file_path):
-        # Essayer dans js/ directement
-        file_path = safe_join(app.static_folder, 'js', filename)
-    if not file_path or not os.path.exists(file_path):
-        return 'Not found', 404
+    return _versioned('js', filename, 'application/javascript')
 
-    with open(file_path, 'r') as f:
-        content = f.read()
-
-    # Réécrire les imports relatifs : ./modules/foo.js ou ./foo.js -> chemin versionné absolu
-    base = request.script_root + f'/js/{version}'
-    content = re.sub(
-        r"""from\s+['"]\.\/modules\/([^'"]+)['"]""",
-        lambda m: f"from '{base}/{m.group(1)}'",
-        content
-    )
-    content = re.sub(
-        r"""from\s+['"]\.\/([^'"]+)['"]""",
-        lambda m: f"from '{base}/{m.group(1)}'",
-        content
-    )
-
-    response = app.response_class(content, mimetype='application/javascript')
-    # Le chemin contient la version, donc on peut cacher longtemps
-    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-    return response
 
 # --- Register Blueprints ---
 from routes.detection import detection_bp, init_detection

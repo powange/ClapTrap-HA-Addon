@@ -12,6 +12,15 @@ import time
 
 import requests
 
+SAMPLE_RATE = 16000   # frequence attendue par YAMNet
+BLOCK_SAMPLES = 1600  # 100 ms a 16 kHz : un bloc = un pas de detection
+
+
+def level_db(peak):
+    """Niveau d'un pic (0..1) en dB, borne a -60 dB (VU-metres)."""
+    import math
+    return round(max(-60.0, 20 * math.log10(min(1.0, max(0.0, peak)) + 1e-10)), 1)
+
 
 def set_pulse_volume(pulse_name, volume_percent):
     """Règle le volume d'une source PulseAudio via pactl."""

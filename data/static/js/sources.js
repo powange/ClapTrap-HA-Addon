@@ -31,7 +31,7 @@
             '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) + '</span>' +
             '<span class="clap-badge" hidden></span>' +
             '<span class="group-live-score" title="Score actuel">0 %</span></div>' +
-            '<div class="scorebar"><div class="scorebar-fill"></div><div class="scorebar-mark" style="left:' + (t * 100) + '%"></div>' +
+            '<div class="scorebar"><div class="scorebar-fill"></div>' +
             '<input type="range" class="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
             '<canvas class="spark" width="320" height="40" aria-hidden="true"></canvas>' +
@@ -43,13 +43,7 @@
         var d = src.data, html = '';
         if (src.kind === 'mic') {
             var devices = CT.state.devices || [];
-            var current = d.audio_source || 'default';
-            var found = devices.some(function (dev) { return dev.name === current; });
-            var opts = '<option value="default"' + (current === 'default' ? ' selected' : '') + '>Micro par défaut du système</option>';
-            if (!found && current !== 'default') opts += '<option value="current" selected>' + esc(current) + ' (non détecté)</option>';
-            devices.forEach(function (dev, i) {
-                opts += '<option value="dev:' + i + '"' + (dev.name === current ? ' selected' : '') + '>' + esc(dev.name) + '</option>';
-            });
+            var opts = CT.deviceOptions(d.audio_source);
             var vol = d.volume != null ? d.volume : 100;
             html += field('Périphérique', '<select class="input" data-field="device" id="' + src.domId + '-device">' + opts + '</select>' +
                 (devices.length ? '' : '<p class="hint">Aucun micro détecté par Home Assistant (Paramètres › Système › Matériel).</p>'), src.domId + '-device') +
@@ -170,8 +164,6 @@
             var el = card.querySelector('[data-role="status"]');
             el.className = 'source-status status-' + st.cls;
             el.querySelector('.status-text').textContent = st.text;
-            var listening = st.cls === 'ok' || st.cls === 'warn';
-            card.classList.toggle('is-listening', listening && CT.state.status.running);
             if (!CT.state.status.running && !(CT.state.testing && CT.state.testing.domId === src.domId)) {
                 setMeter(card, null);
             }
@@ -182,7 +174,7 @@
     function refreshAfter(promise, okMessage) {
         return promise.then(function (d) {
             if (okMessage) CT.success(okMessage);
-            return CT.reloadSettings().then(function () { CT.render(); return d; });
+            return CT.refresh().then(function () { return d; });
         });
     }
 
@@ -239,7 +231,6 @@
             var prev = slider.value;
             slider.addEventListener('input', function () {
                 row.querySelector('.threshold-value').textContent = CT.pct(slider.value);
-                row.querySelector('.scorebar-mark').style.left = (slider.value * 100) + '%';
                 var live = (CT.state.live[src.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
                 drawSpark(row.querySelector('canvas'), live, parseFloat(slider.value), Date.now() / 1000);
             });
@@ -252,7 +243,7 @@
             });
             function save() {
                 var slug = row.getAttribute('data-slug');
-                CT.api('PUT', '/api/source/sound_groups', {kind: src.kind, source_key: src.apiKey, group_slug: slug,
+                CT.api('PUT', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug,
                                                            threshold: parseFloat(slider.value)})
                     .then(function () {
                         prev = slider.value;
@@ -290,7 +281,7 @@
             input.addEventListener('change', function () {
                 var body = {};
                 if (name === 'device') {
-                    var dev = selectedDevice(input, src);
+                    var dev = CT.deviceFromOption(input.value, src.data);
                     if (!dev) return;
                     body.device = dev;
                 } else if (input.type === 'checkbox') {
@@ -309,7 +300,7 @@
                         if (vol) vol.disabled = input.checked;
                     }
                     if (['name', 'url', 'device'].indexOf(name) !== -1) {
-                        return CT.reloadSettings().then(function () { CT.render(); CT.success('Enregistré'); });
+                        return CT.refresh().then(function () { CT.success('Enregistré'); });
                     }
                     // Y compris pendant un test (qui lit le gain en direct) : la
                     // valeur n'etait pas recopiee et revenait au rendu suivant.
@@ -336,22 +327,12 @@
         });
     }
 
-    function selectedDevice(select, src) {
-        if (select.value === 'default') return {index: 0, name: 'default', pulse_name: ''};
-        if (select.value === 'current') {
-            return {index: src.data.device_index || 0, name: src.data.audio_source, pulse_name: src.data.pulse_name || ''};
-        }
-        var dev = (CT.state.devices || [])[parseInt(select.value.replace('dev:', ''), 10)];
-        return dev ? {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''} : null;
-    }
-
     function deleteSource(src) {
         CT.confirm('Supprimer « ' + src.name + ' » ? Ses entités Home Assistant seront retirées.').then(function (ok) {
             if (!ok) return;
             var req = src.kind === 'mic' ? CT.api('DELETE', '/api/microphone')
                 : src.kind === 'rtsp' ? CT.api('DELETE', '/api/rtsp/stream/' + encodeURIComponent(src.key))
-                : CT.api('DELETE', '/api/vban/remove', {ip: src.data.ip, name: src.data.name,
-                                                         stream_name: src.data.stream_name || src.data.name});
+                : CT.api('DELETE', '/api/vban/' + encodeURIComponent(src.key));
             if (CT.state.testing && CT.state.testing.domId === src.domId) CT.stopTest();
             refreshAfter(CT.withRestart(req, src.enabled), 'Source supprimée').catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
         });

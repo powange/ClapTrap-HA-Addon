@@ -32,7 +32,7 @@
         release = null;
         // Toujours recharger : un ajout termine apres la fermeture (ou un micro
         // ajoute dont le reglage a echoue) doit apparaitre dans la grille.
-        var done = CT.reloadSettings().then(CT.render).catch(function () {});
+        var done = CT.refresh().catch(function () {});
         // Rendre le focus au bouton "Ajouter" une fois la grille reconstruite.
         done.then(function () { if (rel) rel(); });
     }
@@ -90,26 +90,24 @@
     // ---- Etape 2 : parametres -----------------------------------------------------
     function stepMic() {
         setStep(2, 'Choisir le micro');
-        var devices = CT.state.devices || [];
         body.innerHTML = '<div class="field"><label class="field-label" for="wz-device">Périphérique</label>' +
-            '<select class="input" id="wz-device"><option value="default">Micro par défaut du système</option>' +
-            devices.map(function (d, i) { return '<option value="' + i + '">' + esc(d.name) + '</option>'; }).join('') + '</select>' +
-            (devices.length ? '' : '<p class="hint">Aucun micro détecté par Home Assistant : le micro par défaut sera utilisé.</p>') +
+            '<select class="input" id="wz-device">' + CT.deviceOptions('default') + '</select>' +
+            '<p class="hint" id="wz-nodev"' + ((CT.state.devices || []).length ? ' hidden' : '') + '>Aucun micro détecté par Home Assistant : le micro par défaut sera utilisé.</p>' +
             '</div>' + actions('Ajouter le micro');
         CT.focusFirst(body);
         // Un micro branche depuis l'ouverture de la page apparait.
         CT.reloadDevices().then(function () {
             var sel = CT.$('#wz-device');
-            if (!sel || (CT.state.devices || []).length === devices.length) return;
-            devices = CT.state.devices;
-            sel.innerHTML = '<option value="default">Micro par défaut du système</option>' +
-                devices.map(function (d, i) { return '<option value="' + i + '">' + esc(d.name) + '</option>'; }).join('');
+            if (!sel) return;
+            var v = sel.value;
+            sel.innerHTML = CT.deviceOptions('default');
+            sel.value = v;
+            CT.$('#wz-nodev').hidden = (CT.state.devices || []).length > 0;
         });
         wire(stepType, function (mine) {
-            var v = CT.$('#wz-device').value;
-            var dev = v === 'default' ? {index: 0, name: 'default', pulse_name: ''} : devices[parseInt(v, 10)];
+            var dev = CT.deviceFromOption(CT.$('#wz-device').value) || CT.deviceFromOption('default');
             return CT.api('POST', '/api/microphone')
-                .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {device: {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''}}); })
+                .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {device: dev}); })
                 .then(function () { return CT.patchSource({kind: 'mic', key: 'mic'}, {enabled: true}); })
                 .then(function () { return CT.reloadSettings(); })
                 .then(function () {
@@ -170,7 +168,7 @@
     function refreshVban() {
         var list = CT.$('#wz-vban-list');
         list.innerHTML = '<p class="hint">Recherche…</p>';
-        fetch(CT.basePath + '/refresh_vban_sources').then(function (r) { return r.json(); }).then(function (d) {
+        CT.api('GET', '/refresh_vban_sources').then(function (d) {
             var sources = d.sources || [];
             if (!sources.length) {
                 list.innerHTML = '<p class="hint">Aucun flux VBAN détecté. Vérifiez que l\'émetteur diffuse vers l\'adresse de Home Assistant (port 6980), ou ajoutez-le à la main.</p>';
@@ -247,28 +245,19 @@
         body.querySelector('[data-w="done"]').focus();
         var test = CT.testFor(created);
         test.domId = 'wizard';
+        test.onLevel = function (data) {
+            var m = CT.$('#wz-meter');
+            if (!m) return;
+            CT.setMeterFill(m.querySelector('.meter-fill'), CT.dbToPct(data.db));
+            m.querySelector('.meter-label').textContent = Math.round(data.db) + ' dB';
+        };
         CT.startTest(test).catch(function (err) {
             CT.$('#wz-hint').textContent = 'Test du son impossible : ' + err.message;
         });
     }
-    var previousOnTestLevel = null;
-    function hookTestLevel() {
-        previousOnTestLevel = CT.onTestLevel;
-        CT.onTestLevel = function (test, data) {
-            if (test.domId === 'wizard') {
-                var m = CT.$('#wz-meter');
-                if (!m) return;
-                CT.setMeterFill(m.querySelector('.meter-fill'), CT.dbToPct(data.db));
-                m.querySelector('.meter-label').textContent = Math.round(data.db) + ' dB';
-                return;
-            }
-            if (previousOnTestLevel) previousOnTestLevel(test, data);
-        };
-    }
 
     CT.openWizard = open;
     CT.initWizard = function () {
-        hookTestLevel();
         var back = document.getElementById('wizard');
         back.addEventListener('click', function (e) { if (e.target === back) close(); });
         back.querySelector('[data-w="close"]').addEventListener('click', close);

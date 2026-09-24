@@ -1,5 +1,34 @@
 # Changelog
 
+## 6.45.0
+
+### Simplifier le code
+
+- **Routes héritées supprimées** (plus appelées par l'interface) :
+  `GET /api/rtsp/streams`, `PUT /api/rtsp/stream/<id>`, `/api/vban/sources`,
+  `/api/vban/saved-sources`, `/api/vban/update`, `DELETE
+  /api/source/sound_whitelist`, `GET /api/source/sound_groups`, les
+  `PUT /api/microphone/*` sauf `auto-start`, `/api/settings/save` et
+  `/api/ha/entities`. Utiliser `PATCH /api/sources/<type>/<id>` et les routes
+  de groupes.
+- **VBAN par identifiant partout** : suppression (`DELETE /api/vban/<id>`),
+  test du son et routes de groupes ; plus de compatibilité par IP ou
+  « ip/nom ».
+- **État de la détection** : gains indexés par identifiant de source (et non
+  plus par URL : deux caméras à la même URL partageaient leur gain), webhooks
+  portés par la session.
+- **Une seule normalisation des groupes de sons** (écrite trois fois avec des
+  règles différentes) ; groupe « Clap » par défaut, taille de bloc et calcul
+  en dB définis une fois.
+- **Webhooks** : une validation d'URL et une session HTTP partagée.
+- **Interface** : liste des micros, « recharger puis afficher » et valeurs
+  par défaut du comptage (fournies par le serveur) factorisés ; plus de
+  recalcul des entity_id en JavaScript ; l'assistant ne remplace plus
+  l'affichage du niveau à chaud ; plus d'appel `fetch` direct.
+- **Code mort retiré** : service des modules JS par réécriture d'imports,
+  `describe()`, `get_active_sources`, boucle d'attente de l'écoute VBAN,
+  `get_current_source`, marqueur de seuil masqué, classe CSS sans style…
+
 ## 6.44.0
 
 ### Simplifier l'usage

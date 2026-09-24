@@ -7,14 +7,12 @@ import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
                               to_bool, to_number, SettingsSaveError, SETTINGS_FILE)
-from webhook import WebhookManager
+from webhook import send_webhook
 from routes.sources import api_error_response, _restart_detection_if_running
 
 settings_bp = Blueprint('settings', __name__)
 settings_bp.register_error_handler(Exception, api_error_response)
 
-# Singleton WebhookManager (réutilise le pool de connexions HTTP)
-_webhook_manager = WebhookManager()
 
 
 @settings_bp.route('/api/settings', methods=['GET'])
@@ -22,18 +20,6 @@ def get_settings():
     """Reglages enregistres : l'UI se resynchronise apres une reconnexion
     ou quand un autre onglet a modifie la configuration."""
     return jsonify(load_settings())
-
-
-@settings_bp.route('/api/settings/save', methods=['POST'])
-def save_settings_api():
-    settings = request.get_json(silent=True)
-    if not settings:
-        return jsonify({'success': False, 'error': 'Aucun paramètre fourni'}), 400
-    normalize_settings(settings)  # ValueError -> 400 avec le champ fautif
-    success, message = save_settings(settings)
-    if not success:
-        raise SettingsSaveError(message)
-    return jsonify({'success': True, 'message': message})
 
 
 @settings_bp.route('/api/settings/debug', methods=['PUT'])
@@ -106,15 +92,6 @@ def cleanup_ha_entities():
 def get_entity_ids():
     from ha_entities import entity_ids_for_settings
     return jsonify(entity_ids_for_settings(load_settings()))
-
-
-@settings_bp.route('/api/ha/entities', methods=['GET'])
-def get_ha_entities():
-    try:
-        from ha_entities import get_entities_info
-        return jsonify(get_entities_info())
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @settings_bp.route('/api/settings/export', methods=['GET'])
@@ -197,7 +174,7 @@ def test_webhook():
         'ignored': False,
     }
     try:
-        response = _webhook_manager.send_webhook(url, payload, follow_redirects=False)
+        response = send_webhook(url, payload, follow_redirects=False)
     except requests.exceptions.HTTPError as e:
         status = getattr(e.response, 'status_code', '?')
         return jsonify({'success': False, 'error': f'Le serveur a répondu HTTP {status}'}), 502

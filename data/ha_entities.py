@@ -602,23 +602,6 @@ def entity_ids_for_settings(settings):
     return out
 
 
-def get_entities_info():
-    """Entites HA enregistrees par source (regroupees par groupe)."""
-    result = {}
-    with _lock:
-        items = list(_source_info.items())
-    for source_id, info in items:
-        groups_payload = [{
-            'slug': g_slug,
-            'name': g_info.get('name', g_slug),
-            'entities': [f'binary_sensor.claptrap_{_group_object_id(info["slug"], g_slug, n)}'
-                         for n in g_info.get('clap_counts', [1, 2])],
-        } for g_slug, g_info in info.get('groups', {}).items()]
-        result[source_id] = {'label': info['label'], 'groups': groups_payload}
-    result['_global'] = {'label': 'Detection', 'entities': ['binary_sensor.claptrap_detection']}
-    return result
-
-
 def update_detection_state(running, sources=None):
     """Met a jour binary_sensor.claptrap_detection."""
     _detection['running'] = bool(running)

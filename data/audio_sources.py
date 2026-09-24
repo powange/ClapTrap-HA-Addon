@@ -17,10 +17,9 @@ import time
 
 import numpy as np
 
-from audio_utils import drain_stderr, terminate_process
+from audio_utils import BLOCK_SAMPLES, drain_stderr, terminate_process
 from url_validator import mask_url_credentials
 
-BLOCK_SAMPLES = 1600
 
 
 class ProcessSource:
@@ -34,9 +33,6 @@ class ProcessSource:
         # Derniere ligne d'erreur du process (ex. "401 Unauthorized") : sans
         # elle, un mot de passe faux n'apparaissait que comme "flux interrompu".
         self.last_error = ''
-
-    def describe(self):
-        return self.sanitize(' '.join(self.cmd))
 
     def iter_blocks(self, stop_event):
         """Lance le process et produit ses blocs jusqu'a EOF (process mort,
@@ -130,10 +126,7 @@ class VbanSource:
         # 5 s, soit jusqu'a 5 s de retard de detection si l'inference traine).
         self._queue = queue.Queue(maxsize=10)
 
-    def describe(self):
-        return self.name
-
-    def _on_chunk(self, chunk, timestamp):
+    def _on_chunk(self, chunk, _timestamp=None):
         try:
             self._queue.put_nowait(chunk)
         except queue.Full:
