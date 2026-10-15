@@ -610,6 +610,39 @@ def update_source_sound_whitelist():
     return jsonify({'success': True, 'group_slug': target_slug})
 
 
+def _check_unique_group_name(groups, name, exclude=None):
+    """Deux groupes d'une source ne portent pas le meme nom (casse ignoree)."""
+    want = name.strip().casefold()
+    for g in groups:
+        if isinstance(g, dict) and g is not exclude and str(g.get('name') or g.get('slug') or '').strip().casefold() == want:
+            raise ApiError(f'Un groupe « {g.get("name") or g.get("slug")} » existe déjà sur cette source', 409)
+
+
+def _rename_entity_slug(groups, target):
+    """Renommage : les entity_id suivent le nouveau nom (`entity_slug`), le
+    slug (unique_id, topics, webhook) ne change pas. Le renommage dans le
+    registre de HA (historique et personnalisations conserves) est note dans
+    `_renamed_from` (ids encore possibles dans HA, separes par des espaces)
+    jusqu'a ce qu'il soit fait. Renvoie True si les entity_id changent."""
+    current = target.get('entity_slug') or target['slug']
+    # Ids pris par les autres groupes, y compris ceux qu'ils ont encore dans
+    # HA (renommage en attente) : deux groupes ne visent jamais le meme id.
+    others = set()
+    for g in groups:
+        if isinstance(g, dict) and g is not target:
+            others.add(g.get('entity_slug') or g.get('slug'))
+            others.update((g.get('_renamed_from') or '').split())
+    new = _slugify_group(target['name'], others)
+    if new == current:
+        return False
+    previous = [s for s in (target.get('_renamed_from') or '').split() if s != new]
+    if current not in previous:
+        previous.append(current)
+    target['_renamed_from'] = ' '.join(previous)
+    target['entity_slug'] = new
+    return True
+
+
 def _slugify_group(name, existing_slugs):
     """Genere un slug unique a partir du nom."""
     from settings_manager import ascii_slug
@@ -638,7 +671,9 @@ def create_source_sound_group():
     def _mut(settings):
         src = _require_source(settings, kind, source_key)
         groups = src.setdefault('sound_groups', [])
-        existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)}
+        _check_unique_group_name(groups, name)
+        existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)} | \
+            {g.get('entity_slug') for g in groups if isinstance(g, dict) and g.get('entity_slug')}
         # Groupe vide : ses sons s'ajoutent en activant « Ajouter les sons
         # entendus » (auto_add_sounds) pendant la detection.
         new_group = {
@@ -677,12 +712,15 @@ def update_source_sound_group():
         if target is None:
             raise ApiError('groupe introuvable', 404)
         if 'name' in data:
-            # Le slug (donc l'entity_id HA) reste STABLE : renommer un groupe
-            # ne change que le nom affiche. Avant, l'entity_id suivait le nom
-            # et les automations cassaient a chaque renommage.
-            if not isinstance(data['name'], str):
-                raise ApiError('Nom du groupe : texte attendu')
-            target['name'] = _source_name(data['name'], target.get('name', slug))
+            if not isinstance(data['name'], str) or not data['name'].strip():
+                raise ApiError('Nom du groupe : texte non vide attendu')
+            new_name = _source_name(data['name'], target.get('name', slug))
+            if new_name != target.get('name'):
+                # Meme nom renvoye (entite text, assistant) : rien ne change,
+                # surtout pas les entity_id.
+                _check_unique_group_name(groups, new_name, exclude=target)
+                target['name'] = new_name
+                state['renamed'] = _rename_entity_slug(groups, target)
         if 'threshold' in data:
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'auto_add_sounds' in data:
@@ -693,14 +731,20 @@ def update_source_sound_group():
         if 'count_mode' in data:
             from settings_manager import to_count_mode
             target['count_mode'] = to_count_mode(data['count_mode'])
-        if 'ha_entities' in data:
-            target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
-            # Plus de nombres de claps = nouvelles entites : meme controle qu'a
-            # la creation (une collision effacait l'entite d'une autre source).
+        if 'ha_entities' in data or state.get('renamed'):
+            if 'ha_entities' in data:
+                target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
+            # Plus de nombres de claps ou nouveaux entity_id : meme controle
+            # qu'a la creation (une collision effacait l'entite d'une autre source).
             _check_entity_collision(settings)
         return dict(target)
 
+    state = {}
     target = modify_settings(_mut)
+    if state.get('renamed'):
+        # Entites renommees dans le registre de HA (historique conserve).
+        import ha_registry
+        ha_registry.schedule_reconcile()
     if 'name' in data or 'ha_entities' in data:
         # Seuls le nom et les nombres de claps changent les entites : ne pas
         # republier toute la configuration MQTT a chaque cran du seuil.

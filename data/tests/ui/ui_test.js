@@ -135,6 +135,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   change($('#src-mic .group-card[data-slug="clap"] .chip input[data-label="Speech"]'), true); await tick();
   ok('15. cocher un son', lastCall('PUT', '/api/source/sound_whitelist')[2].label === 'Speech');
   const nameInput = $('#src-mic .group-card[data-slug="toc"] .group-name'); change(nameInput, 'Toc table'); await tick();
+  ok('+  renommer : confirmation (entités renommées dans HA)', /entités Home Assistant du groupe seront renommées/.test($('.modal-message').textContent));
+  $('.modal-backdrop [data-r="ok"]').click(); await tick(3);
   ok('15. renommer un groupe', lastCall('PUT', '/api/source/sound_groups')[2].name === 'Toc table');
   ok('15. groupe principal non supprimable', !$('#src-mic .group-card[data-slug="clap"] [data-group-action="delete"]') && !!$('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]'));
   $('#src-mic .group-card[data-slug="clap"] [data-group-action="cleanup"]').click(); await tick(3);
