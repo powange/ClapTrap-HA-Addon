@@ -40,6 +40,8 @@
         return '<section class="group-card" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-head">' +
                 '<input type="text" class="input group-name" data-role="group-name" value="' + esc(g.name || g.slug) + '" aria-label="Nom du groupe">' +
+                '<label class="switch-inline"><input type="checkbox" role="switch" data-role="group-enabled"' + (g.enabled !== false ? ' checked' : '') +
+                    ' aria-label="Groupe ' + esc(g.name || g.slug) + ' actif"> Actif</label>' +
                 (isDefault ? '<span class="pill">Groupe principal</span>'
                            : '<button type="button" class="btn-link danger" data-group-action="delete">Supprimer le groupe</button>') +
             '</div>' +
@@ -147,6 +149,17 @@
                         })
                         .catch(function (err) { cb.checked = !cb.checked; CT.error('Entités non enregistrées : ' + err.message); });
                 });
+            });
+            var enabledSw = cardEl.querySelector('[data-role="group-enabled"]');
+            enabledSw.addEventListener('change', function () {
+                var on = enabledSw.checked;
+                putGroup(src, slug, {enabled: on})
+                    .then(function () {
+                        group.enabled = on;
+                        CT.success(on ? 'Groupe activé' : 'Groupe désactivé : il ne se déclenche plus');
+                        CT.renderWhenIdle();
+                    })
+                    .catch(function (err) { enabledSw.checked = !on; CT.error('Réglage non enregistré : ' + err.message); });
             });
             var auto = cardEl.querySelector('[data-role="auto-add"]');
             auto.addEventListener('change', function () {

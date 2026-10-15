@@ -104,14 +104,8 @@ def export_settings():
     data = load_settings()
     shareable = request.args.get('secrets', '1') in ('0', 'false', 'no')
     if shareable:
-        from url_validator import mask_url_credentials, mask_webhook_url
-        sources = [data.get('microphone') or {}] + list(data.get('rtsp_sources') or []) + \
-            list(data.get('saved_vban_sources') or [])
-        for src in sources:
-            if src.get('webhook_url'):
-                src['webhook_url'] = mask_webhook_url(src['webhook_url'])
-            if src.get('url'):
-                src['url'] = mask_url_credentials(src['url'])
+        from settings_manager import shareable_settings
+        data = shareable_settings(data)
         data['_shareable'] = True   # refuse a l'import
     name = 'claptrap-settings-partage.json' if shareable else 'claptrap-settings.json'
     return Response(json.dumps(data, indent=4, ensure_ascii=False), mimetype='application/json',

@@ -71,9 +71,12 @@ def client_connected(delta):
 def _build_groups_for_source(source_settings, global_threshold):
     """Groupes d'une source au format du detecteur (groupe « Clap » par
     defaut si la source n'en a aucun)."""
-    groups = [normalize_group(g, idx, global_threshold)
-              for idx, g in enumerate(source_settings.get('sound_groups') or []) if isinstance(g, dict)]
-    return groups or [default_group(global_threshold)]
+    configured = [g for g in (source_settings.get('sound_groups') or []) if isinstance(g, dict)]
+    if not configured:
+        return [default_group(global_threshold)]
+    # Groupes desactives (interface ou Home Assistant) : ignores par la detection.
+    return [normalize_group(g, idx, global_threshold)
+            for idx, g in enumerate(configured) if g.get('enabled', True) is not False]
 
 
 def build_sources_from_settings(settings):
@@ -295,12 +298,14 @@ class DetectionSession:
 
     def _create_detector(self, src, stop=None):
         p = detection_params_from_settings(load_settings())
-        groups = list(src.get('groups') or []) or [default_group(p['score_threshold'])]
+        # Liste vide possible : tous les groupes de la source sont desactives.
+        groups = list(src.get('groups') or [])
         det = AudioDetector(MODEL_PATH)
         # 30 labels : un son de groupe classe 11e mais au-dessus de son seuil
         # etait invisible avec 10.
         det.initialize(max_results=30,
-                       score_threshold=min(g.get('threshold', p['score_threshold']) for g in groups),
+                       score_threshold=min((g.get('threshold', p['score_threshold']) for g in groups),
+                                           default=p['score_threshold']),
                        clap_window=p['delay'], peak_cooldown=p['peak_cooldown'],
                        peak_ratio=p['peak_ratio'])
         det.set_groups(groups)
@@ -314,7 +319,8 @@ class DetectionSession:
                 src['source_id'], 'labels', {'source': src['source_id'], 'detected': labels}, interval=0.5),
             sound_seen_callback=lambda d: self._on_sound_seen(src, d),
             scores_callback=lambda scores: self._emit_live(
-                src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}))
+                src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}),
+            analysis_callback=lambda top, scores: _publish_analysis(src['entity_key'], top, scores))
         det.start()
         with self._lock:
             # L'initialisation de YAMNet peut durer plus que l'attente de
@@ -345,8 +351,7 @@ class DetectionSession:
                     built = {s['source_id']: s for s in build_sources_from_settings(settings)}
                 current = built.get(sid)
                 if current:
-                    if current['groups']:
-                        det.set_groups(current['groups'])
+                    det.set_groups(current['groups'])
                     known = _discovery_seen(current['groups'])
                     with self._lock:
                         # Sons retires (« Vider la liste ») : redevenus decouvrables ;
@@ -716,6 +721,12 @@ def live_gain(source_id, default):
 
 
 # --- Sons "vus" (auto-decouverte) -----------------------------------------------
+
+def _publish_analysis(entity_key, top, scores):
+    """Derniere analyse d'une source vers ses capteurs de diagnostic HA."""
+    from ha_control import on_analysis
+    on_analysis(entity_key, top, scores)
+
 
 def _discovery_seen(groups):
     """Sons deja connus pour l'auto-decouverte : ceux presents dans TOUS les

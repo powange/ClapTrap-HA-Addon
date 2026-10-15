@@ -28,3 +28,14 @@ def test_http_errors_json_and_cleanup_waits(settings_dir, monkeypatch):
     assert done == [1]
     first.join()
     appmod._cleaned = True   # pas de vrai nettoyage a la sortie de pytest
+
+
+def test_internal_api_passes_ingress_filter(settings_dir, monkeypatch):
+    """Commandes venues de HA (ha_control) : routes appelees en interne, a
+    travers le filtre ingress actif comme en production."""
+    import app as appmod
+    monkeypatch.setattr(appmod.app.wsgi_app, 'enabled', True)
+    status, data = appmod._internal_api('GET', '/api/settings')
+    assert status == 200 and 'microphone' in data
+    status, data = appmod._internal_api('PUT', '/api/settings/advanced', {'delay': 99})
+    assert status == 400 and data['success'] is False

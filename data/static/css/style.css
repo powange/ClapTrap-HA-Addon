@@ -266,6 +266,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 
 .groups-live { display: flex; flex-direction: column; gap: 14px; }
 .group-live { display: flex; flex-direction: column; gap: 6px; }
+.group-live.is-off { opacity: 0.55; }
 .group-live-head { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 .group-live-name { font-weight: 600; flex: 1; }
 .group-live-score { font: 600 0.8rem var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }

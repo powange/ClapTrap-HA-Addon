@@ -385,6 +385,38 @@ def is_degraded():
     return _degraded
 
 
+# Fonctions appelees apres chaque ecriture (entites de reglage HA). Elles
+# doivent rendre la main vite : elles tournent sous le verrou des reglages.
+_change_listeners = []
+
+
+def add_change_listener(fn):
+    _change_listeners.append(fn)
+
+
+def _notify_change():
+    for fn in list(_change_listeners):
+        try:
+            fn()
+        except Exception as e:
+            logging.debug(f"Notification de changement des réglages: {e}")
+
+
+def shareable_settings(data):
+    """Copie des reglages sans secrets : identifiants RTSP et chemins de
+    webhook (le secret d'un webhook Home Assistant) masques."""
+    from url_validator import mask_url_credentials, mask_webhook_url
+    data = copy.deepcopy(data)
+    sources = [data.get('microphone') or {}] + list(data.get('rtsp_sources') or []) + \
+        list(data.get('saved_vban_sources') or [])
+    for src in sources:
+        if src.get('webhook_url'):
+            src['webhook_url'] = mask_webhook_url(src['webhook_url'])
+        if src.get('url'):
+            src['url'] = mask_url_credentials(src['url'])
+    return data
+
+
 def _commit(settings):
     """Ecrit `settings` tel quel (sous _lock) et met le cache a jour."""
     global _cache, _cache_time, _degraded, _unsaved
@@ -398,6 +430,7 @@ def _commit(settings):
         _degraded = False
     _write_atomic(settings)
     _cache = copy.deepcopy(settings)
+    _notify_change()
     _cache_time = time.time()
 
 
@@ -609,8 +642,9 @@ def _norm_groups(src, path):
             g['ha_entities'] = to_clap_counts(g.pop('clap_counts'), f"{gp}.clap_counts")
         if 'ha_entities' in g:
             g['ha_entities'] = to_clap_counts(g['ha_entities'], f"{gp}.ha_entities")
-        if 'auto_add_sounds' in g:
-            g['auto_add_sounds'] = to_bool(g['auto_add_sounds'], f"{gp}.auto_add_sounds")
+        for flag in ('auto_add_sounds', 'enabled'):
+            if flag in g:
+                g[flag] = to_bool(g[flag], f"{gp}.{flag}")
         wl = g.get('sound_whitelist')
         if wl is not None:
             if not isinstance(wl, dict):

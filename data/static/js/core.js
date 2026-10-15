@@ -431,6 +431,8 @@
     CT.on = function (event, handler) { if (CT.socket) CT.socket.on(event, handler); };
     (function () {
         var connectedOnce = false;
+        // Reglage modifie depuis Home Assistant (entite, commande MQTT).
+        CT.on('settings_changed', function () { CT.resync(); });
         CT.on('connect', function () {
             if (connectedOnce) CT.resync();
             connectedOnce = true;

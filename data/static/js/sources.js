@@ -28,8 +28,10 @@
 
     function liveGroupHtml(src, g) {
         var t = g.threshold != null ? g.threshold : 0.5;
-        return '<div class="group-live" data-slug="' + esc(g.slug) + '">' +
-            '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) + '</span>' +
+        var off = g.enabled === false;   // desactive (interface ou Home Assistant)
+        return '<div class="group-live' + (off ? ' is-off' : '') + '" data-slug="' + esc(g.slug) + '">' +
+            '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) +
+            (off ? ' <span class="pill">désactivé</span>' : '') + '</span>' +
             '<span class="clap-badge" hidden></span>' +
             '<span class="group-live-score" title="Score actuel">0 %</span></div>' +
             '<div class="scorebar"><div class="scorebar-fill"></div>' +

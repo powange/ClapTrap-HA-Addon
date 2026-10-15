@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.55.0
+
+### Piloter ClapTrap depuis Home Assistant
+
+- **Réglages exposés dans HA** (MQTT discovery) : seuil de chaque groupe
+  (`number`, en %), groupe actif et source activée (`switch`), démarrage et
+  arrêt de la détection (`switch.claptrap_detection`). Une modification dans
+  HA est enregistrée et appliquée aussitôt ; une modification dans
+  l'interface est republiée dans HA.
+- **Capteurs de diagnostic** : dernier score de chaque groupe (même sous le
+  seuil), dernière classe YAMNet reconnue et les 3 classes les plus
+  probables par source, configuration complète en attributs (mis à jour au
+  plus toutes les 2 s, hors silence).
+- **Commandes MQTT** (`claptrap/command`, service `mqtt.publish`) pour
+  ajouter, modifier ou supprimer sources, groupes et sons : un assistant IA
+  relié à HA peut régler ClapTrap. Mêmes vérifications que l'interface,
+  résultat dans `sensor.claptrap_derniere_commande`.
+- **Groupe désactivable** (interface et HA) : un groupe désactivé ne se
+  déclenche plus, ses entités sont conservées.
+
 ## 6.54.0
 
 ### Sons d'un groupe
