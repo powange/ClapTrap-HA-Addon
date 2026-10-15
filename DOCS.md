@@ -202,11 +202,21 @@ nouveau nom. Renommer « Siffler » en « Snap » renomme
 l'activation, le score, le nom et les sons. ClapTrap renomme les entités
 existantes dans Home Assistant (comme un renommage dans Paramètres ›
 Entités) : l'historique, les statistiques et les personnalisations (pièce,
-icône) sont conservés, et les réglages du groupe ne changent pas. Une ligne
-du journal donne chaque correspondance « ancien → nouveau » : **adaptez vos
-automatisations**, HA ne les met pas à jour. Une entité dont vous avez choisi
-l'id dans HA garde cet id. Si HA est injoignable, le renommage est fait dès
-qu'il le redevient. L'identifiant interne du groupe (`group_slug` du webhook
+icône) sont conservés, et les réglages du groupe ne changent pas.
+
+**Home Assistant ne met pas à jour les automatisations, scripts, scènes et
+tableaux de bord qui citent les anciens entity_id** : adaptez-les après le
+renommage. La fenêtre de confirmation de l'interface liste les
+automatisations, scripts et scènes concernés ; le journal de l'add-on (et
+`sensor.claptrap_derniere_commande`) donne chaque correspondance
+`ancien -> nouveau`, les éléments à adapter et un bilan (renommées, déjà à
+jour, conservées, conflits, introuvables). Les tableaux de bord ne sont pas
+listés : vérifiez-les aussi.
+
+Une entité dont vous avez choisi l'id dans HA garde cet id ; un nouvel id
+déjà pris par une autre entité n'est jamais écrasé (pas de doublon `_2`).
+Relancer un renommage déjà fait (par exemple à la main dans HA) ne change
+rien. Si HA est injoignable, le renommage est fait dès qu'il le redevient. L'identifiant interne du groupe (`group_slug` du webhook
 et de l'événement `claptrap_clap`) ne change pas. Deux groupes d'une même
 source ne peuvent pas porter le même nom.
 

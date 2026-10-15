@@ -137,11 +137,32 @@
             nameInput.addEventListener('change', function () {
                 var name = nameInput.value.trim();
                 if (!name || name === group.name) { nameInput.value = group.name; return; }
-                // Les entity_id suivent le nom : prevenir avant.
-                CT.dialog('Renommer « ' + (group.name || slug) + ' » en « ' + name + ' » ? Les entités Home Assistant du groupe ' +
-                          'seront renommées d\'après le nouveau nom (historique conservé) : pensez à adapter vos automatisations.',
-                          {okLabel: 'Renommer'})
+                if (nameInput._renaming) return;   // deuxieme « change » pendant la recherche
+                nameInput._renaming = true;
+                nameInput.readOnly = true;
+                // Les entity_id suivent le nom : prevenir avant, avec ce que HA
+                // ne mettra pas a jour (automatisations, scripts, scenes).
+                var q = '?kind=' + encodeURIComponent(src.kind) + '&source_key=' + encodeURIComponent(src.key) +
+                        '&group_slug=' + encodeURIComponent(slug);
+                CT.api('GET', '/api/source/sound_groups/usage' + q).catch(function () { return {available: false}; })
+                    .then(function (u) {
+                        var msg = 'Renommer « ' + (group.name || slug) + ' » en « ' + name + ' » ? Les entités Home Assistant du groupe ' +
+                            'seront renommées d\'après le nouveau nom (historique conservé). Home Assistant ne met pas à jour ' +
+                            'les automatisations, scripts et scènes qui les utilisent.';
+                        if (u && u.items && u.items.length) {
+                            msg += '\n\nÀ adapter après le renommage :\n' + u.items.map(function (i) {
+                                return '• ' + i.type + ' « ' + i.nom + ' »';
+                            }).join('\n');
+                        } else if (u && u.available) {
+                            msg += '\n\nAucune automatisation, aucun script ni aucune scène ne les utilise.';
+                        } else {
+                            msg += '\n\nPensez à adapter vos automatisations (liste dans le journal de l\'add-on).';
+                        }
+                        return CT.dialog(msg, {okLabel: 'Renommer'});
+                    })
                     .then(function (ok) {
+                        nameInput._renaming = false;
+                        nameInput.readOnly = false;
                         if (!ok) { nameInput.value = group.name; return; }
                         var before = group.entity_slug || slug;
                         return putGroup(src, slug, {name: name}).then(function (d) {

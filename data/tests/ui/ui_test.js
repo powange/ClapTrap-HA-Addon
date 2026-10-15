@@ -30,6 +30,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/detection/stop') status = { running: false, sources: [] };
       else if (url.startsWith('/api/sources/') && method === 'PATCH') res = { success: true, source: {}, ...(w.__restart ? { restart: w.__restart } : {}) };
       else if (url === '/api/microphone' && method === 'DELETE') { settings.microphone.configured = false; }
+      else if (url.startsWith('/api/source/sound_groups/usage')) res = { success: true, available: true, items: [{ id: 'automation.lumiere', nom: 'Lumière salon', type: 'automatisation', entites: [] }] };
       else if (url === '/api/calibration/start') res = { success: true, active: true };
       else if (url === '/api/calibration/record') res = { success: true, attacks: 2, sustains: 2, clipped: false, top: [{ classe: 'Clapping', score: 0.85 }] };
       else if (url === '/api/calibration/analyze') res = { success: true, gain: { field: 'volume', current: 80, proposed: 100, change: true }, warnings: [],
@@ -135,7 +136,9 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   change($('#src-mic .group-card[data-slug="clap"] .chip input[data-label="Speech"]'), true); await tick();
   ok('15. cocher un son', lastCall('PUT', '/api/source/sound_whitelist')[2].label === 'Speech');
   const nameInput = $('#src-mic .group-card[data-slug="toc"] .group-name'); change(nameInput, 'Toc table'); await tick();
+  await tick(2);
   ok('+  renommer : confirmation (entités renommées dans HA)', /entités Home Assistant du groupe seront renommées/.test($('.modal-message').textContent));
+  ok('+  renommer : automatisations à adapter listées', /automatisation « Lumière salon »/.test($('.modal-message').textContent));
   $('.modal-backdrop [data-r="ok"]').click(); await tick(3);
   ok('15. renommer un groupe', lastCall('PUT', '/api/source/sound_groups')[2].name === 'Toc table');
   ok('15. groupe principal non supprimable', !$('#src-mic .group-card[data-slug="clap"] [data-group-action="delete"]') && !!$('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]'));

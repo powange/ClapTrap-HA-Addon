@@ -610,6 +610,22 @@ def update_source_sound_whitelist():
     return jsonify({'success': True, 'group_slug': target_slug})
 
 
+@sources_bp.route('/api/source/sound_groups/usage', methods=['GET'])
+def sound_group_usage():
+    """Automatisations, scripts et scenes de HA qui utilisent les entites
+    d'un groupe (a adapter s'il est renomme). Query : kind, source_key,
+    group_slug. `available` : false si HA n'a pas pu etre interroge."""
+    import ha_registry
+    kind = request.args.get('kind')
+    source_key = request.args.get('source_key')
+    slug = request.args.get('group_slug')
+    settings = load_settings()
+    _require_source(settings, kind, source_key)
+    ui_key = 'mic' if kind == 'mic' else f'{kind}:{source_key}'
+    items = ha_registry.group_usage(settings, ui_key, slug)
+    return jsonify({'success': True, 'available': items is not None, 'items': items or []})
+
+
 def _check_unique_group_name(groups, name, exclude=None):
     """Deux groupes d'une source ne portent pas le meme nom (casse ignoree)."""
     want = name.strip().casefold()
