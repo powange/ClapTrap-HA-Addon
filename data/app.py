@@ -232,11 +232,13 @@ from routes.detection import detection_bp, init_detection
 from routes.sources import sources_bp, init_sources
 from routes.settings_routes import settings_bp
 from routes.testing import testing_bp, init_testing
+from routes.calibration import calibration_bp
 
 app.register_blueprint(detection_bp)
 app.register_blueprint(sources_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(testing_bp)
+app.register_blueprint(calibration_bp)
 
 
 @app.errorhandler(HTTPException)

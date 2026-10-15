@@ -89,12 +89,42 @@ du groupe, non cochés, les sons que la source entend pendant la détection :
 cochez ceux qui doivent déclencher le groupe, puis désactivez-le une fois la
 liste faite. Un nouveau groupe démarre vide.
 
+**Comptage** (par groupe) : « claps, coups » compte les attaques nettes (un
+clap = un pic) ; « sons tenus » convient aux sifflements et aux sons qui
+montent doucement : tant que le son dure, un nouveau pic est compté toutes
+les 0,3 s (un sifflement d'une seconde compte environ 3).
+
 Un son ne peut être coché que dans un groupe par source. Si plusieurs groupes
 reconnaissent le même événement sonore, seul celui qui a le meilleur score
 déclenche ses entités (les autres sont notés « ignoré » dans l'historique).
 
 **Sons ignorés partout** (onglet Réglages) : ces sons ne déclenchent aucun
 groupe, sur aucune source.
+
+## Calibrer une source
+
+Menu **⋯** de la carte › **Calibrer…** : un assistant règle la source à partir
+de vos propres bruits.
+
+1. Cochez les groupes à calibrer, ou saisissez le nom d'un nouveau bruit
+   (un groupe sera créé), avec le nombre de pics faits à chaque essai
+   (2 pour « 2 claps »).
+2. Pour chaque bruit, faites les essais demandés (5 par défaut, 4 s chacun),
+   puis quelques secondes du bruit de fond habituel de la pièce. Pendant le
+   calibrage, la source ne déclenche rien.
+3. ClapTrap propose :
+   - le **gain** de la source (ou le volume du micro), appliqué automatiquement
+     pour que le bruit le plus fort soit net sans saturer ;
+   - pour chaque groupe, les **sons** à cocher et à retirer (un son présent
+     aussi dans les essais d'un autre groupe est écarté), le **seuil** qui
+     reconnaît ses essais sans se déclencher sur les autres, et le **mode de
+     comptage** qui retrouve le nombre de pics attendu ;
+   - la reconnaissance et les fausses détections avant / après, mesurées sur
+     les mêmes essais.
+4. **Appliquer** enregistre les réglages choisis.
+
+La détection est démarrée le temps du calibrage si elle était arrêtée. Le
+calibrage se pilote aussi par commandes MQTT (voir plus bas).
 
 ## Entités Home Assistant
 
@@ -188,12 +218,17 @@ data:
 | `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume` |
 | `delete_source` | `source` |
 | `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`) |
-| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds` |
+| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques` ou `tenus`) |
 | `delete_group` | `source`, `group` (le premier groupe est protégé) |
 | `set_sound` | `source`, `group`, `label` (classe YAMNet, ex. `Whistling`), `enabled` |
 | `clear_unchecked_sounds` | `source`, `group` |
 | `set_exclusion` | `label`, `excluded` |
 | `set_advanced` | `delay`, `peak_cooldown`, `peak_ratio` |
+| `calibration_start` | `source` : commence le calibrage |
+| `calibration_record` | `target` (groupe existant, nouveau nom ou `fond`), `expected` (pics par essai), `duration` (s, 4) : une prise, à jouer dès l'envoi |
+| `calibration_analyze` | — : propositions (gain, sons, seuil, comptage, reconnaissance avant / après) |
+| `calibration_apply` | `gain` (true), `groups` (noms) : applique et termine |
+| `calibration_cancel`, `calibration_status` | abandonner ; état et prises enregistrées |
 
 `source` accepte `mic`, `rtsp:<id>`, `vban:<id>`, la clé d'entité (ex.
 `vban_atomsalon`) ou le nom de la source ; `group`, l'identifiant ou le nom

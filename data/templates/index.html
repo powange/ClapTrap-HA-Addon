@@ -192,6 +192,19 @@
         </div>
     </div>
 
+    <!-- Calibrage d'une source -->
+    <div class="modal-backdrop" id="calibration" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="calibration-title">
+            <div class="modal-head">
+                <h2 id="calibration-title">Calibrer</h2>
+                <button type="button" class="btn-icon" data-c="close" aria-label="Fermer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+            <div data-role="calibration-body"></div>
+        </div>
+    </div>
+
     <div class="toasts" id="toasts" aria-live="polite"></div>
     <div class="sr-only" id="announcer" aria-live="polite"></div>
 
@@ -208,6 +221,7 @@
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/groups.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/sources.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/wizard.js"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/settings.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/app.js"></script>
 </body>

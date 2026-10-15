@@ -113,6 +113,7 @@
                 '<div class="menu-list" role="menu" hidden>' +
                     '<button type="button" role="menuitem" data-action="test">Tester le son</button>' +
                     '<button type="button" role="menuitem" data-action="open-settings">Réglages de la source</button>' +
+                    '<button type="button" role="menuitem" data-action="calibrate">Calibrer…</button>' +
                     '<button type="button" role="menuitem" class="danger" data-action="delete">Supprimer…</button>' +
                 '</div></div>' +
             '</header>' +
@@ -211,6 +212,10 @@
                 var det = card.querySelector('details');
                 det.open = true;
                 det.querySelector('summary').focus();
+            } else if (action === 'calibrate') {
+                closeMenu();
+                if (!src.enabled) { CT.error('Activez la source avant de la calibrer.'); return; }
+                if (CT.openCalibration) CT.openCalibration(src);
             } else if (action === 'delete') { closeMenu(); deleteSource(src); }
             else if (action === 'test-webhook') { testWebhook(card, src); }
             else if (action === 'reveal-url') {

@@ -53,6 +53,7 @@ _history_lock = threading.Lock()
 # indexe par URL, deux cameras a la meme URL partageaient leur gain et une URL
 # modifiee laissait une entree orpheline. Remis a zero a chaque session.
 _live_gains = {}       # {source_id: gain}
+_muted_sources = set()  # sources en calibrage : detections sans effet
 _whitelist_lock = threading.Lock()  # relecture et application des reglages en direct
 # Onglets connectes (Socket.IO) : sans aucun, les retours en direct (niveau,
 # scores, sons, ~12 messages/s par source) ne sont pas emis.
@@ -250,6 +251,8 @@ class DetectionSession:
         self._emit_live(src['source_id'], 'source_level', {'peak': round(level, 4), 'db': level_db(level)})
 
     def _on_detection(self, src, data):
+        if src['source_id'] in _muted_sources:
+            return   # calibrage en cours : pas d'entite, d'evenement ni de webhook
         base_payload = {
             'source_id': src['source_id'],
             # Pour filtrer dans une automation sans connaitre l'id interne :
@@ -278,6 +281,8 @@ class DetectionSession:
                              self.webhooks.get(src['source_id'], ''))
 
     def _on_sound_seen(self, src, data):
+        if src['source_id'] in _muted_sources:
+            return   # calibrage : les bruits joues n'entrent pas dans les listes
         label = data.get('label')
         source_id = src['source_id']
         with self._lock:
@@ -707,6 +712,17 @@ def get_detection_history():
 def clear_detection_history():
     with _history_lock:
         _detection_history.clear()
+
+
+def mute_source(source_id, muted):
+    """Calibrage : les bruits joues a repetition ne declenchent rien."""
+    (_muted_sources.add if muted else _muted_sources.discard)(source_id)
+
+
+def detector_for(source_id):
+    """Detecteur en cours d'une source (None si elle n'ecoute pas)."""
+    session = _current()
+    return session.detectors.get(source_id) if session else None
 
 
 def update_source_gain(source_id, gain):

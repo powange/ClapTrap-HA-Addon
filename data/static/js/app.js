@@ -5,6 +5,7 @@
     function start() {
         CT.initStatusbar();
         CT.initWizard();
+        CT.initCalibration();
         CT.initSettings();
         CT.render();
         CT.reloadEntityIds().then(function () { CT.render(); });

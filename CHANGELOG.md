@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.56.0
+
+### Calibrer une source
+
+- **Assistant de calibrage** (menu ⋯ › Calibrer…, et commandes MQTT
+  `calibration_*`) : on joue plusieurs fois chaque bruit (groupes existants
+  ou nouveau bruit, qui crée un groupe), puis le bruit de fond. ClapTrap règle
+  automatiquement le gain de la source (ou le volume du micro), et propose
+  pour chaque groupe les sons à cocher ou retirer, le seuil et le mode de
+  comptage, avec la reconnaissance et les fausses détections avant / après.
+  Pendant le calibrage, la source ne déclenche rien.
+
+### Détection
+
+- **Mode de comptage « sons tenus »** par groupe (interface, HA, import) :
+  un sifflement compte un pic toutes les 0,3 s tant qu'il dure, comme avant
+  la 6.37. Depuis la 6.37, seul un front net comptait : les groupes de
+  sifflements à 3 ou 4 « claps » ne se déclenchaient plus.
+- **Horloge des résultats YAMNet corrigée** (régression de la 6.53) :
+  MediaPipe rend un résultat par fenêtre de 975 ms, horodaté au début de la
+  fenêtre ; un résultat sur quatre était daté ~0,9 s trop tôt (environ 20 %
+  des claps perdus ou mal comptés). Il est désormais daté à la fin de sa
+  fenêtre.
+- Le dernier résultat rendu à l'arrêt du classifieur (fenêtre complétée de
+  silence) est ignoré.
+
 ## 6.55.0
 
 ### Piloter ClapTrap depuis Home Assistant

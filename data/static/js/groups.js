@@ -52,6 +52,9 @@
                 '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
                 '<label class="switch-inline"><input type="checkbox" role="switch" data-role="auto-add"' + (g.auto_add_sounds ? ' checked' : '') +
                     '> Ajouter les sons entendus</label>' +
+                '<label class="field-row-inline">Comptage <select class="input" data-role="count-mode" aria-label="Comptage du groupe ' + esc(g.name || g.slug) + '">' +
+                    '<option value="attaques"' + (g.count_mode !== 'tenus' ? ' selected' : '') + '>claps, coups (attaques nettes)</option>' +
+                    '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>sons tenus (sifflement)</option></select></label>' +
                 (labels.length > 8 ? '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
                     esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
                 '<div class="chips">' + (chips || '<p class="hint">' + (g.auto_add_sounds
@@ -160,6 +163,13 @@
                         CT.renderWhenIdle();
                     })
                     .catch(function (err) { enabledSw.checked = !on; CT.error('Réglage non enregistré : ' + err.message); });
+            });
+            var mode = cardEl.querySelector('[data-role="count-mode"]');
+            mode.addEventListener('change', function () {
+                var value = mode.value, before = group.count_mode || 'attaques';
+                putGroup(src, slug, {count_mode: value})
+                    .then(function () { group.count_mode = value; CT.markSaved(mode, 'Comptage enregistré'); })
+                    .catch(function (err) { mode.value = before; CT.error('Réglage non enregistré : ' + err.message); });
             });
             var auto = cardEl.querySelector('[data-role="auto-add"]');
             auto.addEventListener('change', function () {
