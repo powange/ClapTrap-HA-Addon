@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.58.0
+
+### Renommer un groupe depuis Home Assistant
+
+- **`text.claptrap_<source>_<groupe>_nom`** (config) : renommer un groupe
+  depuis HA (ou un assistant IA). Nom non vide, 80 caractères au plus,
+  unique dans la source ; en cas de refus, l'ancien nom est republié et
+  l'erreur journalisée et visible dans « Dernière commande ». Le renommage
+  apparaît aussitôt dans l'interface, et inversement.
+- **Les entity_id suivent le nom du groupe** : renommer « Siffler » en
+  « Snap » donne `…_snap_3claps`, `…_snap_seuil`, etc. ClapTrap renomme les
+  entités existantes dans le registre de HA : historique, statistiques et
+  personnalisations conservés, réglages du groupe inchangés, `unique_id` et
+  `group_slug` (webhook, événement) inchangés. Chaque correspondance
+  « ancien → nouveau » est journalisée ; un id choisi à la main dans HA est
+  conservé ; si HA est injoignable, le renommage est retenté.
+- L'interface demande confirmation avant de renommer un groupe ; deux
+  groupes d'une source ne peuvent plus porter le même nom.
+- **`sensor.claptrap_<source>_<groupe>_sons`** (diagnostic) : nombre de sons
+  cochés, et leur liste en attribut.
+
 ## 6.57.0
 
 ### Interface

@@ -136,10 +136,27 @@
             });
             nameInput.addEventListener('change', function () {
                 var name = nameInput.value.trim();
-                if (!name) { nameInput.value = group.name; return; }
-                putGroup(src, slug, {name: name})
-                    .then(function () { group.name = name; CT.renderWhenIdle(); })
-                    .catch(function (err) { nameInput.value = group.name; CT.error('Renommage impossible : ' + err.message); });
+                if (!name || name === group.name) { nameInput.value = group.name; return; }
+                // Les entity_id suivent le nom : prevenir avant.
+                CT.dialog('Renommer « ' + (group.name || slug) + ' » en « ' + name + ' » ? Les entités Home Assistant du groupe ' +
+                          'seront renommées d\'après le nouveau nom (historique conservé) : pensez à adapter vos automatisations.',
+                          {okLabel: 'Renommer'})
+                    .then(function (ok) {
+                        if (!ok) { nameInput.value = group.name; return; }
+                        var before = group.entity_slug || slug;
+                        return putGroup(src, slug, {name: name}).then(function (d) {
+                            group.name = name;
+                            var after = (d && d.group && d.group.entity_slug) || before;
+                            group.entity_slug = after;
+                            CT.success(after !== before ? 'Groupe renommé ; ses entités sont renommées dans Home Assistant'
+                                                        : 'Groupe renommé');
+                            // Apres le renommage enregistre : un echec ici n'est pas un echec du renommage.
+                            CT.reloadEntityIds().then(function () {
+                                CT.renderGroupsManage(box.closest('.source-card'), src);
+                                CT.renderWhenIdle();
+                            }).catch(function () {});
+                        }, function (err) { nameInput.value = group.name; CT.error('Renommage impossible : ' + err.message); });
+                    });
             });
             CT.$$('[data-clap]', cardEl).forEach(function (cb) {
                 cb.addEventListener('change', function () {

@@ -206,6 +206,8 @@ def _on_message(client, userdata, msg):
             # Message de naissance de HA (redemarrage de HA) : republier.
             logging.info("Home Assistant redémarré : republication des entités")
             threading.Thread(target=republish_all, daemon=True).start()
+            import ha_registry
+            ha_registry.schedule_reconcile(10.0)   # renommages en attente (HA de nouveau joignable)
         return
     a = re.match(r'^claptrap/([^/]+)/availability$', msg.topic)
     if a:
@@ -237,6 +239,8 @@ def _after_connect():
     from ha_control import clear_topics
     clear_topics(pending_topics)
     republish_all()
+    import ha_registry
+    ha_registry.schedule_reconcile(10.0)   # renommages d'entites restes en attente
     # Laisser arriver les configs retenues avant de chercher les orphelines.
     time.sleep(3)
     cleanup_orphans()
@@ -329,13 +333,15 @@ def _friendly_name(display, g_name, n):
     return f'{display} {g_name} {n} clap{"s" if n > 1 else ""}'
 
 
-def _entity_config(obj, name, source_slug):
+def _entity_config(obj, name, source_slug, entity_obj=None):
+    """`obj` (slug du groupe) : unique_id et topics, stables ; `entity_obj`
+    (nom du groupe) : entity_id propose a la creation."""
     return {
         'name': name,
         'unique_id': f'claptrap_{obj}',
         # object_id est supprime depuis HA 2026.4 (ignore) : sans
         # default_entity_id, l'entity_id etait derive du nom.
-        'default_entity_id': f'binary_sensor.claptrap_{obj}',
+        'default_entity_id': f'binary_sensor.claptrap_{entity_obj or obj}',
         'state_topic': f'claptrap/{obj}/state',
         'availability': [
             {'topic': AVAILABILITY_TOPIC},
@@ -357,7 +363,8 @@ def _publish_source(info):
         for n in g_info['clap_counts']:
             obj = _group_object_id(slug, g_slug, n)
             _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/{obj}/config",
-                          _entity_config(obj, _friendly_name(info['label'], g_info['name'], n), slug),
+                          _entity_config(obj, _friendly_name(info['label'], g_info['name'], n), slug,
+                                         _group_object_id(slug, g_info.get('entity_slug') or g_slug, n)),
                           retain=True)
             _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
     _mqtt_publish(f'claptrap/{slug}/availability',
@@ -439,12 +446,34 @@ def _normalise_groups(groups):
         if not isinstance(g, dict):
             continue
         slug = g.get('slug') or f'group{idx + 1}'
-        out[slug] = {'name': g.get('name') or slug, 'clap_counts': clap_counts_of(g)}
-    return out or {'clap': {'name': 'Clap', 'clap_counts': [1, 2]}}
+        out[slug] = {'name': g.get('name') or slug, 'clap_counts': clap_counts_of(g),
+                     'entity_slug': g.get('entity_slug') or slug}
+    return out or {'clap': {'name': 'Clap', 'clap_counts': [1, 2], 'entity_slug': 'clap'}}
 
 
 def _object_ids(info):
     return {_group_object_id(info['slug'], g_slug, n)
+            for g_slug, g in info['groups'].items() for n in g['clap_counts']}
+
+
+def group_entity_ids(source_slug, g_slug, g_info, entity_slug=None):
+    """[(unique_id, entity_id propose)] de toutes les entites d'un groupe
+    (claps, reglages, diagnostic), pour un `entity_slug` donne (par defaut
+    celui du groupe). Source unique des formats d'identifiants."""
+    es = entity_slug or g_info.get('entity_slug') or g_slug
+    g = dict(g_info, entity_slug=es)
+    out = [(f'claptrap_{_group_object_id(source_slug, g_slug, n)}',
+            f'binary_sensor.claptrap_{_group_object_id(source_slug, es, n)}') for n in g['clap_counts']]
+    from ha_control import source_entities
+    for component, obj, cfg in source_entities({'slug': source_slug, 'label': '', 'groups': {g_slug: g}}):
+        if obj.startswith(f'{source_slug}_{g_slug}_'):
+            out.append((cfg['unique_id'], cfg['default_entity_id']))
+    return out
+
+
+def _entity_object_ids(info):
+    """Fins d'entity_id proposees (suivent le nom des groupes)."""
+    return {_group_object_id(info['slug'], g.get('entity_slug') or g_slug, n)
             for g_slug, g in info['groups'].items() for n in g['clap_counts']}
 
 
@@ -536,15 +565,17 @@ def _resolve_sources(settings):
     claimed, keys, kept, collisions = {}, {}, [], []
     for ui_key, key, label, groups, available in _all_sources(settings):
         norm = _normalise_groups(groups)
-        objs = _object_ids({'slug': _make_slug(key), 'groups': norm})
+        info = {'slug': _make_slug(key), 'groups': norm}
+        # unique_id et entity_id : deux groupes renommes peuvent viser le meme id.
+        objs = _object_ids(info) | {'id:' + o for o in _entity_object_ids(info)}
         clash = keys.get(key) or next((claimed[o] for o in objs if o in claimed), None)
         if clash:
             collisions.append(label)
             if (key, clash) not in _warned_collisions:
                 _warned_collisions.add((key, clash))
                 logging.warning(f"Entités HA : « {label} » produirait les mêmes entités que « {clash} », "
-                                "non publiée : supprimez puis recréez le groupe (ou la source) sous un autre "
-                                "nom (renommer ne change pas l'identifiant)")
+                                "non publiée : renommez l'un des groupes (ou supprimez puis recréez la source "
+                                "sous un autre nom)")
             continue
         keys[key] = label
         claimed.update({o: label for o in objs})
@@ -638,7 +669,8 @@ def entity_ids_for_settings(settings):
     out = {}
     for ui_key, key, _, _, _, norm in _resolve_sources(settings)[0]:
         slug = _make_slug(key)
-        out[ui_key] = {g_slug: [f'binary_sensor.claptrap_{_group_object_id(slug, g_slug, n)}' for n in g['clap_counts']]
+        out[ui_key] = {g_slug: [f'binary_sensor.claptrap_{_group_object_id(slug, g["entity_slug"], n)}'
+                                for n in g['clap_counts']]
                        for g_slug, g in norm.items()}
     return out
 

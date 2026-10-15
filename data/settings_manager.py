@@ -657,6 +657,17 @@ def _norm_groups(src, path):
                 g[flag] = to_bool(g[flag], f"{gp}.{flag}")
         if 'count_mode' in g:
             g['count_mode'] = to_count_mode(g['count_mode'], f"{gp}.count_mode")
+        # Identifiant des entity_id (suit le nom du groupe ; le slug, lui,
+        # porte les unique_id et ne change jamais) et renommage HA en attente.
+        if 'entity_slug' in g and (not isinstance(g['entity_slug'], str) or not _VALID_SLUG.match(g['entity_slug'])):
+            g.pop('entity_slug')
+        if '_renamed_from' in g:
+            prev = g['_renamed_from'].split() if isinstance(g['_renamed_from'], str) else []
+            prev = [p for p in prev if _VALID_SLUG.match(p)]
+            if prev:
+                g['_renamed_from'] = ' '.join(prev)
+            else:
+                g.pop('_renamed_from')
         wl = g.get('sound_whitelist')
         if wl is not None:
             if not isinstance(wl, dict):

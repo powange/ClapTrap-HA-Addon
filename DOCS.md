@@ -182,6 +182,8 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `switch.claptrap_<source>_source_active` | source activée |
 | `switch.claptrap_detection` | démarrer ou arrêter la détection |
 | `sensor.claptrap_<source>_<groupe>_score` | dernier score du groupe, même sous le seuil (diagnostic) |
+| `text.claptrap_<source>_<groupe>_nom` | nom du groupe (modifiable : voir « Renommer un groupe ») |
+| `sensor.claptrap_<source>_<groupe>_sons` | nombre de sons (classes YAMNet) cochés ; attributs : leur liste, le nombre de sons non cochés, le mode de comptage (diagnostic) |
 | `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes, sons cochés, entités, liste des commandes |
@@ -191,6 +193,22 @@ Une modification faite dans HA est enregistrée dans les réglages de l'add-on
 et appliquée aussitôt ; une modification faite dans l'interface est
 republiée dans HA. Les capteurs de diagnostic sont mis à jour au plus toutes
 les 2 secondes par source, et seulement quand une valeur change.
+
+**Renommer un groupe** (interface, `text.claptrap_<source>_<groupe>_nom` ou
+commande `update_group` avec `name`) : les entity_id du groupe suivent son
+nouveau nom. Renommer « Siffler » en « Snap » renomme
+`binary_sensor.claptrap_vban_atomsalon_siffler_3claps` en
+`binary_sensor.claptrap_vban_atomsalon_snap_3claps`, de même pour le seuil,
+l'activation, le score, le nom et les sons. ClapTrap renomme les entités
+existantes dans Home Assistant (comme un renommage dans Paramètres ›
+Entités) : l'historique, les statistiques et les personnalisations (pièce,
+icône) sont conservés, et les réglages du groupe ne changent pas. Une ligne
+du journal donne chaque correspondance « ancien → nouveau » : **adaptez vos
+automatisations**, HA ne les met pas à jour. Une entité dont vous avez choisi
+l'id dans HA garde cet id. Si HA est injoignable, le renommage est fait dès
+qu'il le redevient. L'identifiant interne du groupe (`group_slug` du webhook
+et de l'événement `claptrap_clap`) ne change pas. Deux groupes d'une même
+source ne peuvent pas porter le même nom.
 
 **Commandes** : pour ajouter, modifier ou supprimer des sources, des groupes
 ou des sons, publiez un JSON sur le topic `claptrap/command` (service
@@ -325,6 +343,7 @@ Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 | 6.45 | Routes d'API héritées supprimées (`GET /api/rtsp/streams`, `PUT /api/rtsp/stream/<id>`, `/api/vban/update`, `/api/vban/sources`, `/api/vban/saved-sources`, `PUT /api/microphone/*` sauf `auto-start`, `/api/settings/save`, `/api/ha/entities`…) ; sources VBAN désignées par leur identifiant (`DELETE /api/vban/<id>`) | Scripts utilisant l'API : passer par `PATCH /api/sources/<type>/<id>` et les routes de groupes. |
 | 6.47 | Au-delà de 4 claps, aucune entité n'est déclenchée (c'était « 4 claps ») | Rien. |
 | 6.48 | Un export « sans secrets » est refusé à l'import | Importer une sauvegarde complète (« Exporter »). |
+| 6.58 | Renommer un groupe renomme ses entity_id dans HA (historique conservé) | Après un renommage, adapter les automatisations (correspondances dans le journal). |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).

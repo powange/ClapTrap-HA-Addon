@@ -35,7 +35,10 @@ RESULT_TOPIC = 'claptrap/command/result'
 CONFIG_TOPIC = 'claptrap/configuration'
 DETECTION_SET_TOPIC = 'claptrap/detection/set'
 SUBSCRIPTIONS = (COMMAND_TOPIC, DETECTION_SET_TOPIC, 'claptrap/+/source_active/set',
-                 'claptrap/+/+/seuil/set', 'claptrap/+/+/groupe_actif/set')
+                 'claptrap/+/+/seuil/set', 'claptrap/+/+/groupe_actif/set', 'claptrap/+/+/nom/set')
+# Entites de reglage et de diagnostic de chaque groupe : (composant, suffixe).
+GROUP_ENTITIES = (('number', 'seuil'), ('switch', 'groupe_actif'), ('sensor', 'score'),
+                  ('text', 'nom'), ('sensor', 'sons'))
 ANALYSIS_INTERVAL = 2.0   # s entre deux mises a jour des capteurs d'une source
 STATES_DELAY = 0.3        # regroupement des republications apres une ecriture
 
@@ -93,11 +96,13 @@ def init(api_caller, notify_ui=None):
 
 # ===== Entites de reglage ===================================================
 
-def _base_config(component, obj, name, **extra):
+def _base_config(component, obj, name, entity_obj=None, **extra):
+    """`obj` : unique_id (stable) ; `entity_obj` : entity_id propose (suit le
+    nom du groupe, renomme dans le registre de HA par ha_registry)."""
     cfg = {
         'name': name,
         'unique_id': f'claptrap_{obj}',
-        'default_entity_id': f'{component}.claptrap_{obj}',
+        'default_entity_id': f'{component}.claptrap_{entity_obj or obj}',
         'availability_topic': ha.AVAILABILITY_TOPIC,
         'device': ha._device_block(),
         'origin': ha._origin_block(),
@@ -130,25 +135,37 @@ def source_entities(info):
             entity_category='diagnostic', icon='mdi:format-list-numbered')),
     ]
     for g_slug, g in info['groups'].items():
-        base = f'{slug}_{g_slug}'
+        base, ebase = f'{slug}_{g_slug}', f"{slug}_{g.get('entity_slug') or g_slug}"
         name = f"{label} {g['name']}"
+        topic = f'claptrap/{slug}/{g_slug}'
         out += [
             ('number', f'{base}_seuil', _base_config(
-                'number', f'{base}_seuil', f'{name} seuil',
-                command_topic=f'claptrap/{slug}/{g_slug}/seuil/set', state_topic=f'claptrap/{slug}/{g_slug}/seuil',
+                'number', f'{base}_seuil', f'{name} seuil', f'{ebase}_seuil',
+                command_topic=f'{topic}/seuil/set', state_topic=f'{topic}/seuil',
                 min=0, max=100, step=1, unit_of_measurement='%', mode='slider',
                 entity_category='config', icon='mdi:tune-vertical')),
             ('switch', f'{base}_groupe_actif', _base_config(
-                'switch', f'{base}_groupe_actif', f'{name} actif',
-                command_topic=f'claptrap/{slug}/{g_slug}/groupe_actif/set',
-                state_topic=f'claptrap/{slug}/{g_slug}/groupe_actif',
+                'switch', f'{base}_groupe_actif', f'{name} actif', f'{ebase}_groupe_actif',
+                command_topic=f'{topic}/groupe_actif/set', state_topic=f'{topic}/groupe_actif',
                 payload_on='ON', payload_off='OFF', entity_category='config', icon='mdi:toggle-switch-outline')),
             ('sensor', f'{base}_score', _base_config(
-                'sensor', f'{base}_score', f'{name} score',
+                'sensor', f'{base}_score', f'{name} score', f'{ebase}_score',
                 state_topic=analyse, unit_of_measurement='%',
                 value_template=('{% set s = value_json.groupes.get("' + g_slug + '") %}'
                                 '{{ (s * 100) | round(0) if s is not none else none }}'),
                 entity_category='diagnostic', icon='mdi:gauge')),
+            # Renommer le groupe depuis HA (entity_id renommes, historique conserve).
+            ('text', f'{base}_nom', _base_config(
+                'text', f'{base}_nom', f'{name} nom', f'{ebase}_nom',
+                command_topic=f'{topic}/nom/set', state_topic=f'{topic}/nom',
+                min=1, max=80, mode='text', entity_category='config', icon='mdi:rename')),
+            ('sensor', f'{base}_sons', _base_config(
+                'sensor', f'{base}_sons', f'{name} sons', f'{ebase}_sons',
+                state_topic=f'{topic}/sons', value_template='{{ value_json.nombre }}',
+                json_attributes_topic=f'{topic}/sons',
+                json_attributes_template='{{ {"sons": value_json.sons, "sons_non_coches": value_json.non_coches, '
+                                         '"comptage": value_json.comptage} | tojson }}',
+                entity_category='diagnostic', icon='mdi:playlist-music')),
         ]
     return out
 
@@ -162,9 +179,8 @@ def control_topics(info):
               f'{p}/sensor/claptrap/{slug}_top3/config', f'claptrap/{slug}/source_active', f'claptrap/{slug}/analyse'}
     for g_slug in info['groups']:
         base = f'{slug}_{g_slug}'
-        topics |= {f'{p}/number/claptrap/{base}_seuil/config', f'{p}/switch/claptrap/{base}_groupe_actif/config',
-                   f'{p}/sensor/claptrap/{base}_score/config', f'claptrap/{slug}/{g_slug}/seuil',
-                   f'claptrap/{slug}/{g_slug}/groupe_actif'}
+        topics |= {f'{p}/{c}/claptrap/{base}_{suffix}/config' for c, suffix in GROUP_ENTITIES}
+        topics |= {f'claptrap/{slug}/{g_slug}/{t}' for t in ('seuil', 'groupe_actif', 'nom', 'sons')}
     return topics
 
 
@@ -284,6 +300,12 @@ def publish_states(settings=None):
             _publish_state(f"claptrap/{slug}/{g['slug']}/seuil", round(float(threshold) * 100))
             _publish_state(f"claptrap/{slug}/{g['slug']}/groupe_actif",
                            'OFF' if g.get('enabled', True) is False else 'ON')
+            _publish_state(f"claptrap/{slug}/{g['slug']}/nom", g.get('name') or g['slug'])
+            wl = g.get('sound_whitelist') or {}
+            checked = sorted(label for label, on in wl.items() if on)
+            _publish_state(f"claptrap/{slug}/{g['slug']}/sons", {
+                'nombre': len(checked), 'sons': checked, 'non_coches': len(wl) - len(checked),
+                'comptage': g.get('count_mode', 'attaques')})
     _publish_state(CONFIG_TOPIC, _configuration_payload(settings, sources))
 
 
@@ -440,6 +462,9 @@ def _entity_call(what, request):
 
 
 def _entity_failed(what, status, error):
+    # Valeur refusee (nom deja pris, seuil hors bornes...) : la valeur reelle
+    # est republiee, HA revient a l'ancienne.
+    logging.warning(f"Commande HA « {what} » refusée : {error} (valeur précédente republiée)")
     _publish_result({'action': what, 'success': False, 'status': status, 'error': error})
     reset_published()
     schedule_states()
@@ -461,6 +486,8 @@ def _entity_command(topic, text):
             body['threshold'] = float(text) / 100
         elif parts[3] == 'groupe_actif':
             body['enabled'] = _on(text)
+        elif parts[3] == 'nom':
+            body['name'] = text
         else:
             return
         _entity_call(parts[3], ('PUT', '/api/source/sound_groups', body))
