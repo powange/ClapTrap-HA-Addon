@@ -94,6 +94,8 @@ def settings_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, 'SETTINGS_TEMP', str(tmp_path / 'settings.json.tmp'))
     monkeypatch.setattr(sm, '_cache', None)
     monkeypatch.setattr(sm, '_cache_time', 0)
+    # Pas de republication HA en arriere-plan (enregistree par l'import d'app.py).
+    monkeypatch.setattr(sm, '_change_listeners', [])
     yield sm
 
 
@@ -109,11 +111,13 @@ class FakeMqtt:
     def subscribe(self, topic):
         pass
 
-    def configs(self):
-        return [t for t, p, r in self.published if t.endswith('/config') and p]
+    # Entites clap (binary_sensor) ; les entites de reglage (ha_control) ont
+    # leurs propres tests.
+    def configs(self, component='binary_sensor'):
+        return [t for t, p, r in self.published if t.endswith('/config') and p and f'/{component}/' in t]
 
-    def deleted(self):
-        return [t for t, p, r in self.published if t.endswith('/config') and p == '']
+    def deleted(self, component='binary_sensor'):
+        return [t for t, p, r in self.published if t.endswith('/config') and p == '' and f'/{component}/' in t]
 
 
 @pytest.fixture
@@ -126,6 +130,11 @@ def mqtt(monkeypatch):
     monkeypatch.setattr(ha, '_discovered', set())
     monkeypatch.setattr(ha, '_availability_seen', set())
     monkeypatch.setattr(ha, '_pending_removal', set())
+    monkeypatch.setattr(ha, '_pending_topics', set())
+    monkeypatch.setattr(ha, '_discovered_ctrl', set())
+    import ha_control
+    monkeypatch.setattr(ha_control, '_published', {})
+    monkeypatch.setattr(ha_control, '_analysis_last', {})
     monkeypatch.setattr(ha, '_expected_keys', None)
     monkeypatch.setattr(ha, '_warned_collisions', set())
     ha._mqtt_connected.set()

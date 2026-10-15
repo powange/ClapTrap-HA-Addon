@@ -9,6 +9,8 @@ Entites par source et par groupe de sons :
 Entite globale :
 - binary_sensor.claptrap_detection : ON quand la detection tourne
 
+Entites de reglage et de diagnostic, et commandes MQTT : voir ha_control.py.
+
 Disponibilite : chaque entite depend de `claptrap/availability` (LWT du
 client : passe a "offline" si l'add-on s'arrete ou plante) et de la
 disponibilite de sa source (`claptrap/<source>/availability`), "online"
@@ -33,7 +35,7 @@ import requests
 MQTT_TOPIC_PREFIX = "homeassistant"
 AVAILABILITY_TOPIC = "claptrap/availability"
 HA_STATUS_TOPIC = f"{MQTT_TOPIC_PREFIX}/status"
-DISCOVERY_WILDCARD = f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/+/config"
+DISCOVERY_WILDCARD = f"{MQTT_TOPIC_PREFIX}/+/claptrap/+/config"
 MIC_KEY = "mic"
 CLAP_PULSE_SECONDS = 2  # duree de l'etat ON d'une entite clap
 
@@ -47,10 +49,12 @@ _mqtt_client = None
 _mqtt_connected = threading.Event()
 _mqtt_started = False
 _discovered = set()   # object_ids claptrap vus (retenus) sur le broker
+_discovered_ctrl = set()  # topics de config des entites de reglage vus sur le broker
 _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage des orphelines
 _off_timers = {}      # topic -> threading.Timer
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
 _pending_removal = set()    # object_ids a supprimer des que le broker est joignable
+_pending_topics = set()     # topics de config (entites de reglage) a vider de meme
 _auth_failures = 0
 _warned_collisions = set()  # (cle, source en conflit) deja signales
 
@@ -179,6 +183,9 @@ def _on_connect(client, userdata, flags, rc, *args):
     client.subscribe(HA_STATUS_TOPIC)
     client.subscribe(DISCOVERY_WILDCARD)
     client.subscribe('claptrap/+/availability')
+    from ha_control import SUBSCRIPTIONS
+    for topic in SUBSCRIPTIONS:
+        client.subscribe(topic)
     # Republication complete : le broker a pu perdre ses messages retenus, et
     # tout ce qui a ete publie pendant la coupure est perdu (QoS 0).
     threading.Thread(target=_after_connect, daemon=True).start()
@@ -190,6 +197,10 @@ def _on_disconnect(client, userdata, *args):
 
 
 def _on_message(client, userdata, msg):
+    if msg.topic.startswith('claptrap/') and (msg.topic.endswith('/set') or msg.topic == 'claptrap/command'):
+        from ha_control import handle_message
+        handle_message(msg.topic, msg.payload, retained=bool(getattr(msg, 'retain', False)))
+        return
     if msg.topic == HA_STATUS_TOPIC:
         if msg.payload.decode(errors='ignore') == 'online':
             # Message de naissance de HA (redemarrage de HA) : republier.
@@ -204,13 +215,14 @@ def _on_message(client, userdata, msg):
             else:
                 _availability_seen.discard(a.group(1))
         return
-    m = re.match(r'^homeassistant/binary_sensor/claptrap/([^/]+)/config$', msg.topic)
+    m = re.match(r'^homeassistant/([^/]+)/claptrap/([^/]+)/config$', msg.topic)
     if m:
+        target, item = (_discovered, m.group(2)) if m.group(1) == 'binary_sensor' else (_discovered_ctrl, msg.topic)
         with _lock:
             if msg.payload:
-                _discovered.add(m.group(1))
+                target.add(item)
             else:
-                _discovered.discard(m.group(1))
+                target.discard(item)
 
 
 def _after_connect():
@@ -218,8 +230,12 @@ def _after_connect():
     with _lock:
         pending = set(_pending_removal)
         _pending_removal.clear()
+        pending_topics = set(_pending_topics)
+        _pending_topics.clear()
     for obj in pending:
         _unpublish_object(obj)
+    from ha_control import clear_topics
+    clear_topics(pending_topics)
     republish_all()
     # Laisser arriver les configs retenues avant de chercher les orphelines.
     time.sleep(3)
@@ -346,6 +362,8 @@ def _publish_source(info):
             _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
     _mqtt_publish(f'claptrap/{slug}/availability',
                   'online' if _is_available(info) else 'offline', retain=True)
+    from ha_control import publish_source
+    publish_source(info)
 
 
 def _is_available(info):
@@ -391,6 +409,8 @@ def _publish_detection():
     }, retain=True)
     _mqtt_publish('claptrap/detection/state', 'ON' if _detection['running'] else 'OFF', retain=True)
     _mqtt_publish('claptrap/detection/attributes', {'sources': _detection['sources']}, retain=True)
+    from ha_control import publish_globals
+    publish_globals()
 
 
 def republish_all():
@@ -405,6 +425,9 @@ def republish_all():
         _publish_detection()
         for info in infos:
             _publish_source(info)
+        import ha_control
+        ha_control.reset_published()
+        ha_control.publish_states()
 
 
 def _normalise_groups(groups):
@@ -445,18 +468,23 @@ def register_source(source_id, label=None, groups=None, available=None):
         }
         # Re-ajoutee pendant une coupure du broker : annuler sa suppression en
         # attente (effacee puis recreee a la reconnexion, personnalisations perdues).
+        from ha_control import control_topics
         _pending_removal.difference_update(_object_ids(info))
+        _pending_topics.difference_update(control_topics(info))
         if existing == info:
             return
         removed = _object_ids(existing) - _object_ids(info) if existing else set()
+        removed_topics = control_topics(existing) - control_topics(info) if existing else set()
         _source_info[source_id] = info
     for obj in removed:
         _unpublish_object(obj)
+    from ha_control import clear_topics
+    clear_topics(removed_topics)
     _publish_source(info)
     logging.info(f"Entités HA: claptrap_{info['slug']} groupes={list(norm_groups.keys())} ({info['label']})")
 
 
-def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset()):
+def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset(), keep_topics=frozenset()):
     """Supprime toutes les entites d'une source (source supprimee), sauf les
     object_ids `keep` revendiques par une source conservee (sinon une
     collision effacait l'entite que l'autre source venait de publier)."""
@@ -464,14 +492,19 @@ def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset()):
         info = _source_info.pop(source_id, None)
     if not info:
         return
+    from ha_control import control_topics
     objs = _object_ids(info) - set(keep)
+    topics = control_topics(info) - set(keep_topics)
     if not _mqtt_connected.is_set():
         # Broker injoignable : sans cela, la suppression etait perdue et les
         # entites restaient pour toujours. Elle sera faite a la reconnexion.
         with _lock:
             _pending_removal.update(objs)
+            _pending_topics.update(topics)
     for obj in objs:
         _unpublish_object(obj)
+    from ha_control import clear_topics
+    clear_topics(topics)
     if info['slug'] not in keep_slugs:
         _mqtt_publish(f"claptrap/{info['slug']}/availability", '', retain=True)
     logging.info(f"Entités MQTT supprimées pour {info['slug']}")
@@ -560,8 +593,10 @@ def sync_sources(settings=None):
             kept = [_source_info[k] for k in _expected_keys if k in _source_info]
             keep = set().union(*(_object_ids(i) for i in kept)) if kept else set()
             keep_slugs = {i['slug'] for i in kept}
+            from ha_control import control_topics
+            keep_topics = set().union(*(control_topics(i) for i in kept)) if kept else set()
         for key in stale:
-            unregister_source(key, keep=keep, keep_slugs=keep_slugs)
+            unregister_source(key, keep=keep, keep_slugs=keep_slugs, keep_topics=keep_topics)
 
 
 def cleanup_orphans():
@@ -575,10 +610,18 @@ def cleanup_orphans():
         for info in _source_info.values():
             keep |= _object_ids(info)
         orphans = [obj for obj in _discovered if obj not in keep]
+        from ha_control import control_topics, global_object_ids
+        keep_topics = {f'{MQTT_TOPIC_PREFIX}/{c}/claptrap/{o}/config' for c, o in global_object_ids()}
+        for info in _source_info.values():
+            keep_topics |= control_topics(info)
+        orphan_topics = [t for t in _discovered_ctrl if t not in keep_topics]
         known_slugs = {info['slug'] for info in _source_info.values()}
         stale_availability = [slug for slug in _availability_seen if slug not in known_slugs]
     for obj in orphans:
         _unpublish_object(obj)
+    from ha_control import clear_topics
+    clear_topics(orphan_topics)
+    orphans += [t.split('/')[3] for t in orphan_topics]
     # Topics de disponibilite retenus des sources disparues : les effacer aussi.
     for slug in stale_availability:
         _mqtt_publish(f'claptrap/{slug}/availability', '', retain=True)

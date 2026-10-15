@@ -139,6 +139,70 @@ actions:
 **Supprimer les entités orphelines** (onglet Réglages) retire les entités
 ClapTrap qui ne correspondent plus à aucune source.
 
+## Piloter ClapTrap depuis Home Assistant
+
+Les réglages sont aussi exposés dans Home Assistant : tableaux de bord,
+automatisations ou assistant IA (par un serveur MCP qui sait appeler les
+services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
+
+| Entité | Rôle |
+|---|---|
+| `number.claptrap_<source>_<groupe>_seuil` | seuil de confiance du groupe, en % (modifiable) |
+| `switch.claptrap_<source>_<groupe>_groupe_actif` | groupe actif ; désactivé, il ne se déclenche plus (ses entités restent) |
+| `switch.claptrap_<source>_source_active` | source activée |
+| `switch.claptrap_detection` | démarrer ou arrêter la détection |
+| `sensor.claptrap_<source>_<groupe>_score` | dernier score du groupe, même sous le seuil (diagnostic) |
+| `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe |
+| `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
+| `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes, sons cochés, entités, liste des commandes |
+| `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat |
+
+Une modification faite dans HA est enregistrée dans les réglages de l'add-on
+et appliquée aussitôt ; une modification faite dans l'interface est
+republiée dans HA. Les capteurs de diagnostic sont mis à jour au plus toutes
+les 2 secondes par source, et seulement quand une valeur change.
+
+**Commandes** : pour ajouter, modifier ou supprimer des sources, des groupes
+ou des sons, publiez un JSON sur le topic `claptrap/command` (service
+`mqtt.publish`). Le résultat apparaît dans `sensor.claptrap_derniere_commande`
+(et sur `claptrap/command/result`, secrets masqués). Les mêmes vérifications
+que dans l'interface s'appliquent ; les commandes sont exécutées une par une,
+dans l'ordre. Publiez-les sans `retain` : une commande retenue est ignorée.
+
+```yaml
+action: mqtt.publish
+data:
+  topic: claptrap/command
+  payload: >-
+    {"action": "update_group", "source": "AtomSalon", "group": "Siffler",
+     "threshold": 0.35}
+```
+
+| Action | Champs |
+|---|---|
+| `help`, `get_settings` | liste des commandes ; réglages complets (secrets masqués) |
+| `start_detection`, `stop_detection` | — |
+| `add_rtsp` | `name`, `url`, `enabled` |
+| `add_vban` | `name`, `ip`, `port` (6980), `stream_name`, `enabled` |
+| `add_microphone` | `device`, `enabled` |
+| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume` |
+| `delete_source` | `source` |
+| `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`) |
+| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds` |
+| `delete_group` | `source`, `group` (le premier groupe est protégé) |
+| `set_sound` | `source`, `group`, `label` (classe YAMNet, ex. `Whistling`), `enabled` |
+| `clear_unchecked_sounds` | `source`, `group` |
+| `set_exclusion` | `label`, `excluded` |
+| `set_advanced` | `delay`, `peak_cooldown`, `peak_ratio` |
+
+`source` accepte `mic`, `rtsp:<id>`, `vban:<id>`, la clé d'entité (ex.
+`vban_atomsalon`) ou le nom de la source ; `group`, l'identifiant ou le nom
+du groupe. Un champ `id` facultatif est recopié dans le résultat.
+
+Toute personne ou application qui peut publier sur le broker MQTT peut
+ainsi modifier ClapTrap, comme elle peut déjà commander les autres
+appareils MQTT : réservez l'accès au broker aux comptes de confiance.
+
 ## Événement `claptrap_clap`
 
 Chaque détection émet aussi l'événement `claptrap_clap`, souvent plus simple

@@ -663,7 +663,7 @@ def update_source_sound_group():
     """Met a jour les meta-donnees d'un groupe.
 
     Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?,
-           auto_add_sounds?}
+           auto_add_sounds?, enabled?}
     """
     data = _json()
     kind = _require_kind(data, 'group_slug')
@@ -687,6 +687,9 @@ def update_source_sound_group():
             target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
         if 'auto_add_sounds' in data:
             target['auto_add_sounds'] = to_bool(data['auto_add_sounds'], 'auto_add_sounds')
+        if 'enabled' in data:
+            # Groupe desactive : ignore par la detection, entites conservees.
+            target['enabled'] = to_bool(data['enabled'], 'enabled')
         if 'ha_entities' in data:
             target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
             # Plus de nombres de claps = nouvelles entites : meme controle qu'a

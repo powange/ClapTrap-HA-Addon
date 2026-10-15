@@ -323,6 +323,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   change($('#src-mic .group-card[data-slug="clap"] [data-role="auto-add"]'), true); await tick(2);
   const autoPut = lastCall('PUT', '/api/source/sound_groups');
   ok('+  activer l\'ajout des sons entendus (serveur)', !!autoPut && autoPut[2].group_slug === 'clap' && autoPut[2].auto_add_sounds === true);
+  // --- lot 6.55 : groupe actif / desactive
+  const enSw = $('#src-mic .group-card[data-slug="clap"] [data-role="group-enabled"]');
+  ok('+  interrupteur « Actif » par groupe', !!enSw && enSw.checked);
+  change(enSw, false); await tick(2);
+  const enPut = lastCall('PUT', '/api/source/sound_groups');
+  ok('+  désactiver un groupe (serveur)', !!enPut && enPut[2].group_slug === 'clap' && enPut[2].enabled === false);
+  CT.state.settings.microphone.sound_groups[0].enabled = false; CT.render();
+  ok('+  groupe désactivé signalé sur la carte', !!$('#src-mic .group-live.is-off[data-slug="clap"]'));
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

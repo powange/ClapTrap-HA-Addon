@@ -66,12 +66,13 @@ class AudioDetector:
         self._labels_callback = None
         self._sound_seen_callback = None
         self._scores_callback = None
+        self._analysis_callback = None
 
     # --- Configuration ------------------------------------------------------
 
     def configure(self, source_id, label=None, detection_callback=None,
                   labels_callback=None, sound_seen_callback=None,
-                  scores_callback=None):
+                  scores_callback=None, analysis_callback=None):
         self.source_id = source_id
         self.label = label or source_id
         self._detection_callback = detection_callback
@@ -79,6 +80,9 @@ class AudioDetector:
         self._sound_seen_callback = sound_seen_callback
         # Retour en direct pour l'interface : meilleur score de chaque groupe.
         self._scores_callback = scores_callback
+        # Diagnostic Home Assistant : 3 classes les plus probables (meme sous
+        # le seuil) et score de chaque groupe, a chaque resultat.
+        self._analysis_callback = analysis_callback
 
     def set_groups(self, groups):
         """Groupes de sons (modifiables en direct). Le seuil d'auto-decouverte
@@ -278,6 +282,13 @@ class AudioDetector:
                     self._scores_callback(group_scores)
                 except Exception:
                     pass
+            if self._analysis_callback:
+                try:
+                    top = sorted((c for c in categories if c[0] not in exclusions),
+                                 key=lambda c: c[1], reverse=True)[:3]
+                    self._analysis_callback(top, group_scores)
+                except Exception as e:
+                    logging.debug(f"analysis: {e}")
 
             # Callbacks HORS verrou (E/S : socketio, MQTT, HTTP).
             if self._sound_seen_callback:

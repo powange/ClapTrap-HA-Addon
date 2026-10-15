@@ -14,6 +14,7 @@ from flask_socketio import SocketIO
 from settings_manager import load_settings, DEFAULT_SETTINGS
 from vban_manager import init_vban_detector, cleanup_vban_detector
 from audio_utils import get_audio_input_devices
+import ha_control
 
 # Configuration du logging
 logging.basicConfig(
@@ -249,6 +250,19 @@ def _api_http_error(e):
 init_detection(socketio)
 init_sources(socketio)
 init_testing(socketio)
+
+
+def _internal_api(method, path, body=None):
+    """Appel de l'API depuis Home Assistant (commandes MQTT, ha_control) :
+    memes routes, donc memes validations et memes effets que l'interface.
+    Adresse de l'ingress : seule acceptee par IngressOnlyMiddleware."""
+    with app.test_client() as client:
+        resp = client.open(path, method=method, json=body,
+                           environ_base={'REMOTE_ADDR': next(iter(IngressOnlyMiddleware.ALLOWED))})
+        return resp.status_code, resp.get_json(silent=True) or {}
+
+
+ha_control.init(_internal_api, notify_ui=lambda: socketio.emit('settings_changed'))
 
 
 def _auto_start_if_configured():
