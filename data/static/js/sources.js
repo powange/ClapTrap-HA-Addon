@@ -101,7 +101,6 @@
 
     function cardHtml(src) {
         var groups = groupsOf(src);
-        var open = CT.state.openPanels[src.domId] ? ' open' : '';
         return '<article class="card source-card' + (src.enabled ? '' : ' is-disabled') + '" id="' + src.domId + '">' +
             '<header class="card-head">' +
                 '<span class="tag tag-' + src.kind + '">' + CT.kindLabel[src.kind] + '</span>' +
@@ -121,17 +120,31 @@
             '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
             '<p class="live-line" data-role="live">' + (src.enabled ? 'En attente de sons…' : 'Source désactivée') + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
-            '<details class="source-settings" data-role="settings"' + open + '><summary>Réglages de la source</summary>' +
-            '<div class="settings-body">' + settingsHtml(src) + '</div></details>' +
+            '<button type="button" class="btn btn-ghost source-settings-open" data-action="open-settings">Réglages de la source</button>' +
+            // Fenetre (<dialog>) DANS la carte : les champs gardent leurs
+            // gestionnaires (delegation sur la carte) ; le navigateur gere le
+            // premier plan, l'inertie du reste de la page et Echap.
+            '<dialog class="modal source-settings" data-role="settings" aria-labelledby="' + src.domId + '-settings-title">' +
+                '<div class="modal-head"><h2 id="' + src.domId + '-settings-title">Réglages · ' + esc(src.name) + '</h2>' +
+                '<button type="button" class="btn-icon" data-action="close-settings" aria-label="Fermer les réglages">' +
+                '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>' +
+                // VU-metre recopie dans la fenetre : celui de la carte est sous le fond.
+                '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
+                '<div class="settings-body">' + settingsHtml(src) + '</div></dialog>' +
             '</article>';
     }
 
     CT.renderSources = function () {
         var grid = document.getElementById('sources-grid');
         if (!grid) return;
-        CT.$$('details.source-settings', grid).forEach(function (d) {
+        // Rendu force pendant que des reglages sont ouverts (rare : les rendus
+        // differes attendent leur fermeture) : fermer proprement (messages
+        // rendus au <body>), puis rouvrir apres le rendu.
+        CT.$$('dialog.source-settings', grid).forEach(function (d) {
             var card = d.closest('.source-card');
-            if (card) CT.state.openPanels[card.id] = d.open;
+            if (!card) return;
+            CT.state.openPanels[card.id] = d.open;
+            if (d.open) { d._silent = true; closeSettings(card); }
         });
         var sources = CT.sourceList();
         grid.innerHTML = sources.map(cardHtml).join('') +
@@ -148,6 +161,8 @@
             var card = document.getElementById(src.domId);
             bindCard(card, src);
             if (CT.renderGroupsManage) CT.renderGroupsManage(card, src);
+            // Fenetre de reglages ouverte avant le rendu : rouverte.
+            if (CT.state.openPanels[src.domId]) openSettings(card, src, true);
         });
         CT.$('#add-source').addEventListener('click', function () { if (CT.openWizard) CT.openWizard(); });
         // Scores et courbes conserves d'un rendu a l'autre (ils repartaient a
@@ -207,12 +222,9 @@
             if (!btn || !card.contains(btn)) return;
             var action = btn.getAttribute('data-action');
             if (action === 'test') { closeMenu(); toggleTest(src, card); }
-            else if (action === 'open-settings') {
-                closeMenu();
-                var det = card.querySelector('details');
-                det.open = true;
-                det.querySelector('summary').focus();
-            } else if (action === 'calibrate') {
+            else if (action === 'open-settings') { closeMenu(); openSettings(card, src); }
+            else if (action === 'close-settings') { closeSettings(card); }
+            else if (action === 'calibrate') {
                 closeMenu();
                 if (!src.enabled) { CT.error('Activez la source avant de la calibrer.'); return; }
                 if (CT.openCalibration) CT.openCalibration(src);
@@ -323,16 +335,50 @@
             });
         });
 
-        card.querySelector('details').addEventListener('toggle', function (e) {
-            CT.state.openPanels[card.id] = e.target.open;
-            if (e.target.open && src.kind === 'mic') {
-                // Un micro branche apres l'ouverture de la page apparait.
-                var before = JSON.stringify(CT.state.devices);
-                CT.reloadDevices().then(function () {
-                    if (JSON.stringify(CT.state.devices) !== before && !CT.isEditing()) CT.render();
-                });
-            }
+        var dlg = card.querySelector('dialog.source-settings');
+        dlg.addEventListener('close', function () {
+            var toasts = document.getElementById('toasts');
+            if (toasts && dlg.contains(toasts)) document.body.appendChild(toasts);
+            if (dlg._silent) { dlg._silent = false; return; }
+            CT.state.openPanels[card.id] = false;
+            var opener = card.querySelector('.source-settings-open');
+            if (opener) opener.focus();
         });
+        // Clic sur le fond : hors du rectangle de la fenetre (un clic dans sa
+        // marge, ou un curseur relache dehors, vise aussi l'element <dialog>).
+        dlg.addEventListener('click', function (e) {
+            if (e.target !== dlg || !e.clientX && !e.clientY) return;
+            var r = dlg.getBoundingClientRect();
+            if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeSettings(card);
+        });
+    }
+
+    function openSettings(card, src, rerender) {
+        var dlg = card.querySelector('dialog.source-settings');
+        if (!dlg || dlg.open) return;
+        if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+        CT.state.openPanels[card.id] = true;
+        // Messages au premier plan, lisibles et annonces (le reste de la page
+        // est inerte pendant la fenetre).
+        var toasts = document.getElementById('toasts');
+        if (toasts) dlg.appendChild(toasts);
+        // Focus sur « Fermer » (et non sur un champ : le rendu de la grille
+        // attendrait la fin de cette « saisie »).
+        if (!rerender) dlg.querySelector('[data-action="close-settings"]').focus();
+        if (!rerender && src.kind === 'mic') {
+            // Un micro branche apres l'ouverture de la page apparait.
+            var before = JSON.stringify(CT.state.devices);
+            CT.reloadDevices().then(function () {
+                if (JSON.stringify(CT.state.devices) !== before && !CT.isEditing()) CT.render();
+            });
+        }
+    }
+
+    function closeSettings(card) {
+        var dlg = card.querySelector('dialog.source-settings');
+        if (!dlg || !dlg.open) return;
+        if (typeof dlg.close === 'function') dlg.close();
+        else { dlg.removeAttribute('open'); dlg.dispatchEvent(new Event('close')); }
     }
 
     function deleteSource(src) {
@@ -384,12 +430,13 @@
         if (card) setMeter(card, data.db, 'Test');
     };
     function setMeter(card, db, prefix) {
-        var fill = card.querySelector('.meter-fill');
-        var label = card.querySelector('[data-role="meter-label"]');
-        if (!fill) return;
-        if (db == null) { CT.setMeterFill(fill, 0); label.textContent = '—'; return; }
-        CT.setMeterFill(fill, CT.dbToPct(db));
-        label.textContent = (prefix ? prefix + ' · ' : '') + Math.round(db) + ' dB';
+        // Carte et fenetre de reglages (gain regle en regardant le niveau).
+        CT.$$('[data-role="meter"]', card).forEach(function (m) {
+            var fill = m.querySelector('.meter-fill'), label = m.querySelector('[data-role="meter-label"]');
+            if (db == null) { CT.setMeterFill(fill, 0); label.textContent = '—'; return; }
+            CT.setMeterFill(fill, CT.dbToPct(db));
+            label.textContent = (prefix ? prefix + ' · ' : '') + Math.round(db) + ' dB';
+        });
     }
 
     // Un seul ecouteur global ferme les menus ouverts (pas un par rendu de carte).

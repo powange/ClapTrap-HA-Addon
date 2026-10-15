@@ -90,7 +90,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   change($('#src-rtsp-abc_123 [data-action="toggle"]'), false); await tick(3);
   ok('10. activer/désactiver (API unifiée)', lastCall('PATCH', /\/api\/sources\/rtsp\/abc-123/)[2].enabled === false);
   // 11 : micro
-  $('#src-mic details').open = true;
+  $('#src-mic [data-action="open-settings"]').click(); await tick();
+  ok('+  réglages de la source dans une fenêtre', $('#src-mic dialog.source-settings').open === true);
   change($('#src-mic [data-field="device"]'), 'dev:1'); await tick(3);
   ok('11. choix du micro (device seul)', JSON.stringify(lastCall('PATCH', '/api/sources/mic/mic')[2]) === JSON.stringify({ device: { index: 5, name: 'A|B', pulse_name: 'x' } }));
   change($('#src-mic [data-field="volume"]'), '90'); await tick();
@@ -103,6 +104,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#src-mic [data-action="test"]').click(); await tick();
   emit('mic_level', { db: -12 }); await tick();
   ok('11. test du micro + VU', !!lastCall('POST', '/api/mic/test/start') && /Test · -12 dB/.test($('#src-mic [data-role="meter-label"]').textContent));
+  ok('+  VU-mètre aussi dans la fenêtre de réglages', /Test · -12 dB/.test($('#src-mic dialog.source-settings [data-role="meter-label"]').textContent));
+  $('#src-mic [data-action="close-settings"]').click(); await tick(2);
   // 12 : rtsp
   change($('#src-rtsp-abc_123 [data-field="url"]'), 'rtsp://cam/2'); await tick(3);
   ok('12. URL RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].url === 'rtsp://cam/2');
@@ -120,6 +123,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   vb.querySelector('[data-action="test"]').click(); await tick();
   ok('13. test VBAN (par id)', JSON.stringify(lastCall('POST', '/api/vban/test/start')[2]) === JSON.stringify({ id: 'vb-1' }));
   // 14 : entites + copier
+  $('#src-mic [data-action="open-settings"]').click(); await tick();
   const ent = $$('#src-mic .entity-list code').map(c => c.textContent);
   ok('14. entités HA par groupe', ent.includes('binary_sensor.claptrap_mic_clap_1clap') && ent.includes('binary_sensor.claptrap_mic_clap_2claps'));
   // 15 : groupes
@@ -137,7 +141,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('15. retirer les sons non cochés', !!lastCall('POST', '/api/source/sound_whitelist/cleanup'));
   $('#src-mic [data-action="add-group"]').click(); await tick();
   $('.modal #dlg-input').value = 'Snap'; $('.modal [data-r="ok"]').click(); await tick(4);
-  ok('15. nouveau groupe (sans rechargement)', lastCall('POST', '/api/source/sound_groups')[2].name === 'Snap' && !!$('#src-mic .group-live[data-slug="snap"]'));
+  ok('15. nouveau groupe (sans rechargement)', lastCall('POST', '/api/source/sound_groups')[2].name === 'Snap' && !!$('#src-mic dialog .group-card[data-slug="snap"]'));
   emit('sound_seen', { source_id: 'mic', label: 'Dog' }); await tick();
   ok('15. auto-découverte d\'un son (groupe avec « Ajouter les sons entendus »)', !!$('#src-mic .chip input[data-label="Dog"]'));
   $('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]').click(); await tick();
@@ -148,6 +152,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('16. webhook enregistré', lastCall('PATCH', '/api/sources/mic/mic')[2].webhook_url === 'http://homeassistant:8123/api/webhook/x');
   $('#src-mic [data-action="test-webhook"]').click(); await tick();
   ok('16. tester le webhook', lastCall('POST', '/api/webhook/test')[2].url === 'http://homeassistant:8123/api/webhook/x');
+  $('#src-mic [data-action="close-settings"]').click(); await tick(2);
+  ok('+  groupe créé visible sur la carte après fermeture', !!$('#src-mic .group-live[data-slug="snap"]'));
   // 10 : suppression avec confirmation
   $('#src-rtsp-abc_123 [data-action="delete"]').click(); await tick();
   ok('10. confirmation de suppression', /Supprimer « /.test($('.modal-message').textContent));
@@ -356,6 +362,27 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#calibration [data-c="apply"]').click(); await tick(4);
   const ap = lastCall('POST', '/api/calibration/apply');
   ok('+  calibrage : appliqué', !!ap && ap[2].gain === true && ap[2].groups.length >= 1 && $('#calibration').hidden);
+  // --- lot 6.57 : reglages de la source en fenetre
+  const dlg = () => $('#src-mic dialog.source-settings');
+  if (!dlg().open) { $('#src-mic .source-settings-open').click(); await tick(); }
+  $('#src-mic [data-action="close-settings"]').click();
+  await tick();
+  ok('+  fenêtre de réglages fermée', !dlg().open && d.activeElement === $('#src-mic .source-settings-open'));
+  $('#src-mic .source-settings-open').click(); await tick();
+  CT.render(); await tick();
+  ok('+  fenêtre de réglages gardée ouverte après un rendu', dlg().open === true);
+  $('#src-mic [data-group-action="delete"]').click();
+  await tick();
+  ok('+  confirmation ouverte dans la fenêtre de réglages', !!dlg().querySelector('.modal-backdrop'));
+  const cancel = dlg().querySelector('.modal-backdrop [data-r="cancel"]');
+  if (cancel) cancel.click();
+  await tick();
+  ok('+  messages au premier plan pendant les réglages', dlg().contains($('#toasts')));
+  const cardOpen = $('#src-mic');
+  await CT.refresh(); await tick();
+  ok('+  grille non reconstruite pendant les réglages', $('#src-mic') === cardOpen && dlg().open);
+  $('#src-mic [data-action="close-settings"]').click(); await tick(2);
+  ok('+  messages rendus à la page et grille à jour après fermeture', $('#toasts').parentNode === d.body && $('#src-mic') !== cardOpen);
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

@@ -304,15 +304,11 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 .threshold-value { font-variant-numeric: tabular-nums; }
 
 /* Reglages de la source */
-.source-settings { border-top: 1px solid var(--line); margin: 0 -16px -16px; }
-.source-settings > summary {
-    display: flex; align-items: center; min-height: 48px; padding: 0 16px; cursor: pointer;
-    font-weight: 600; color: var(--ink-2); list-style: none;
-}
-.source-settings > summary::-webkit-details-marker { display: none; }
-.source-settings > summary::after { content: "▾"; margin-left: auto; transition: transform 0.15s; }
-.source-settings[open] > summary::after { transform: rotate(180deg); }
-.settings-body { display: flex; flex-direction: column; gap: 16px; padding: 4px 16px 16px; }
+.source-settings-open { align-self: flex-start; }
+dialog.source-settings { border: 0; max-width: 640px; width: calc(100% - 32px); margin: auto; }
+dialog.source-settings:not([open]) { display: none; }
+dialog.source-settings::backdrop { background: rgba(0, 0, 0, 0.5); }
+.settings-body { display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .field-label { font-weight: 600; font-size: 0.85rem; color: var(--ink); padding: 0; }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
