@@ -115,13 +115,13 @@
             CT.confirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function (ok) {
                 if (!ok) return;
                 CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug})
-                    .then(function () { return CT.refresh(); })
+                    .then(function () { return refreshGroups(src); })
                     .then(function () { CT.success('Groupe supprimé'); })
                     .catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
             });
         } else if (action === 'cleanup') {
             CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.key, group_slug: slug})
-                .then(function (d) { return CT.refresh().then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
+                .then(function (d) { return refreshGroups(src).then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
                 .catch(function (err) { CT.error('Nettoyage impossible : ' + err.message); });
         }
     }
@@ -205,12 +205,22 @@
         });
     }
 
+    // Recharger puis, si les reglages de la source sont ouverts (la grille
+    // attend alors leur fermeture), mettre a jour les groupes sur place.
+    function refreshGroups(src) {
+        return CT.refresh().then(function () {
+            var card = document.getElementById(src.domId);
+            var fresh = CT.findSource(function (s) { return s.domId === src.domId; });
+            if (card && fresh && card.querySelector('dialog.source-settings[open]')) CT.renderGroupsManage(card, fresh);
+        });
+    }
+
     CT.addGroup = function (src) {
         CT.prompt('Nom du nouveau groupe (ex. « Toc sur la table ») :', '', 'Créer').then(function (name) {
             name = (name || '').trim();
             if (!name) return;
             CT.api('POST', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, name: name})
-                .then(function () { CT.state.openPanels[src.domId] = true; return CT.refresh(); })
+                .then(function () { return refreshGroups(src); })
                 .then(function () { CT.success('Groupe « ' + name + ' » créé'); })
                 .catch(function (err) { CT.error('Création impossible : ' + err.message); });
         });
@@ -229,6 +239,8 @@
             if (!(d.label in g.sound_whitelist)) { g.sound_whitelist[d.label] = false; changed = true; }
         });
         var card = document.getElementById(src.domId);
-        if (changed && card && !CT.isEditing()) CT.renderGroupsManage(card, src);
+        // Mise a jour sur place, y compris fenetre de reglages ouverte
+        // (c'est la qu'on regarde les sons arriver), sauf pendant une saisie.
+        if (changed && card && !CT.isTyping()) CT.renderGroupsManage(card, src);
     });
 })();

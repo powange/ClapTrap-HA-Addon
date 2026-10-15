@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.57.0
+
+### Interface
+
+- **Réglages de la source dans une fenêtre** : le bouton « Réglages de la
+  source » (et le menu ⋯) ouvre les réglages (périphérique, gain, webhook,
+  groupes de sons) dans une fenêtre au lieu de les déplier dans la carte,
+  devenue trop longue. Échap, le bouton Fermer ou un clic à côté la ferment ;
+  les confirmations (supprimer un groupe, nouveau groupe) et les messages
+  s'affichent par-dessus.
+- La fenêtre reprend le VU-mètre de la source (régler le gain en regardant
+  le niveau) et affiche en direct les sons entendus dans les groupes. La
+  grille n'est plus reconstruite pendant que la fenêtre est ouverte (pas de
+  retour en haut ni de confirmation perdue) : elle se met à jour à la
+  fermeture.
+
 ## 6.56.0
 
 ### Calibrer une source

@@ -8,7 +8,7 @@
         CT.initCalibration();
         CT.initSettings();
         CT.render();
-        CT.reloadEntityIds().then(function () { CT.render(); });
+        CT.reloadEntityIds().then(function () { CT.renderWhenIdle(); });
         CT.reloadStatus().then(CT.renderStatus).catch(function () {});
         if (!CT.socket) CT.error('Connexion temps réel indisponible : rechargez la page.');
     }

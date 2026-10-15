@@ -112,7 +112,10 @@
     // reste de la page est rendu inerte.
     CT.trapFocus = function (container, onClose, returnFocus) {
         var previous = document.activeElement;
-        var outside = CT.$$('body > header, body > main, body > .skip-link');
+        // Sauf l'ancetre de la fenetre (confirmation ouverte dans les reglages
+        // d'une source, eux-memes dans <main>).
+        var outside = CT.$$('body > header, body > main, body > .skip-link')
+            .filter(function (el) { return !el.contains(container); });
         outside.forEach(function (el) { el.inert = true; el.setAttribute('aria-hidden', 'true'); });
         function onKey(e) {
             if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
@@ -153,7 +156,9 @@
             back.querySelector('[data-r="ok"]').textContent = opts.okLabel || 'OK';
             var input = back.querySelector('#dlg-input');
             if (input) input.value = opts.value || '';
-            document.body.appendChild(back);
+            // Fenetre native ouverte (reglages d'une source) : le reste de la
+            // page est inerte, la confirmation doit s'ouvrir DEDANS.
+            (document.querySelector('dialog[open]') || document.body).appendChild(back);
             var modal = back.querySelector('.modal');
             var release = CT.trapFocus(modal, function () { close(false); });
             function close(ok) {
@@ -326,10 +331,18 @@
         });
     };
     // Ne pas reconstruire la page pendant une saisie : on perdrait le texte.
-    CT.isEditing = function () {
+    // Saisie en cours dans un champ (hors assistant) : pas de rendu qui
+    // l'effacerait.
+    CT.isTyping = function () {
         var a = document.activeElement;
         return !!(a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.type !== 'range' && a.type !== 'checkbox' &&
-                  a.type !== 'file' && !a.closest('.modal'));
+                  a.type !== 'file' && !a.closest('.modal:not(.source-settings)'));
+    };
+    // Rendu complet de la grille a reporter : saisie en cours, ou reglages
+    // d'une source ouverts (fenetre dans la carte : elle serait detruite,
+    // avec son defilement et ses confirmations) ; fait a la fermeture.
+    CT.isEditing = function () {
+        return !!document.querySelector('dialog.source-settings[open]') || CT.isTyping();
     };
     // Rendu avec restauration du focus : chaque action reconstruisait la
     // grille et renvoyait l'utilisateur clavier en haut de la page.
