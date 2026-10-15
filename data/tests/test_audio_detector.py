@@ -92,22 +92,40 @@ def test_agc_stays_up_on_isolated_weak_clap(fake_classifier):
     assert np.abs(clf.blocks[-1]).max() < 1.0   # son fort : pas d'ecretage
 
 
-def test_results_dated_on_analysed_block(fake_classifier):
-    """Resultat MediaPipe differe : date sur le bloc analyse (son horodatage),
-    pas sur le dernier bloc recu."""
+def test_results_dated_at_end_of_yamnet_window(fake_classifier):
+    """MediaPipe 1.0 (mesure) : un resultat par fenetre de 975 ms, horodate au
+    DEBUT de la fenetre. Il est date a la fin de celle-ci, sur l'horloge audio,
+    meme s'il arrive apres d'autres blocs (rafale)."""
     det, clf, _ = make(fake_classifier)
     det.process_audio(block(0.002, 0.001))
     ts_first = det._timestamp_ms
-    first_clock = det._ts_clock[ts_first]
-    for _ in range(10):
+    for _ in range(15):
         det.process_audio(block(0.002, 0.001))
     seen = []
     orig = det.tracker.on_classification
     det.tracker.on_classification = lambda cats, now: seen.append(now) or orig(cats, now)
     import types
     cat = types.SimpleNamespace(category_name='Speech', score=0.9)
-    det._handle_result(types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])]), ts_first)
-    assert seen == [first_clock] and first_clock < det._clock_end
+    res = types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])])
+    det._handle_result(res, ts_first)
+    # fin de fenetre = 975 ms apres le debut du premier bloc
+    start_clock = det._ts_clock[ts_first] - 0.1
+    assert abs(seen[0] - (start_clock + 0.975)) < 1e-6 and seen[0] < det._clock_end
+    # fenetre pas encore complete (faux classifieur synchrone) : fin du dernier bloc
+    det._handle_result(res, det._timestamp_ms)
+    assert seen[1] == det._clock_end
+
+
+def test_no_result_after_stop(fake_classifier):
+    """close() rappelle encore le callback avec une fenetre completee de silence."""
+    det, clf, _ = make(fake_classifier)
+    calls = []
+    det.tracker.on_classification = lambda cats, now: calls.append(now) or []
+    det.running = False
+    import types
+    cat = types.SimpleNamespace(category_name='Silence', score=0.8)
+    det._handle_result(types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])]), 10 ** 15)
+    assert calls == []
 
 
 def test_skip_audio_advances_clock(fake_classifier):

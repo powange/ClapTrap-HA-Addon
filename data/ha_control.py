@@ -63,12 +63,20 @@ ACTIONS = {
     'update_source': '{source, name?, url?, enabled?, gain?, webhook_url?, device?, volume?, auto_volume?}.',
     'delete_source': '{source} : supprime une source et ses entités.',
     'add_group': '{source, name, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons.',
-    'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?}.',
+    'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?, '
+                    'count_mode?("attaques"|"tenus")}.',
     'delete_group': '{source, group} (le premier groupe est protégé).',
     'set_sound': '{source, group, label, enabled} : coche ou décoche une classe YAMNet dans un groupe.',
     'clear_unchecked_sounds': '{source, group} : retire les sons non cochés.',
     'set_exclusion': '{label, excluded} : ignore une classe YAMNet partout.',
     'set_advanced': '{delay?, peak_cooldown?, peak_ratio?} : réglages avancés.',
+    'calibration_start': '{source} : commence le calibrage (détection démarrée si besoin, source en sourdine).',
+    'calibration_record': '{target, expected?, duration?(s, 4)} : une prise ; jouez le bruit du groupe target '
+                          '(existant ou nouveau nom) ou « fond » dès l\'envoi. expected : nombre de pics attendus.',
+    'calibration_analyze': 'Propose gain, sons, seuil et comptage de chaque groupe (reconnaissance avant/après).',
+    'calibration_apply': '{gain?(true), groups?([noms])} : applique la proposition et termine.',
+    'calibration_cancel': 'Abandonne le calibrage sans rien modifier.',
+    'calibration_status': 'Calibrage en cours et prises enregistrées.',
 }
 SOURCE_HELP = ('source : "mic", "rtsp:<id>", "vban:<id>", clé d\'entité (ex. "vban_salon") ou nom ; '
                'group : slug ou nom du groupe.')
@@ -297,6 +305,7 @@ def _configuration_payload(settings, sources=None):
                 'sounds': sorted(l for l, on in (g.get('sound_whitelist') or {}).items() if on),
                 'unchecked_sounds': len([l for l, on in (g.get('sound_whitelist') or {}).items() if not on]),
                 'auto_add_sounds': bool(g.get('auto_add_sounds')),
+                'count_mode': g.get('count_mode', 'attaques'),
                 'ha_entities': (entity_ids.get(ui_key) or {}).get(g['slug'], []),
             })
         details_sources.append({'source': ui_key, 'type': kind, 'name': label, 'entity_key': slug,
@@ -552,7 +561,7 @@ def _api_or_raise(method, path, body=None):
 
 
 _SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'webhook_url', 'device', 'volume', 'auto_volume')
-_GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds')
+_GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode')
 
 
 def _pick(cmd, fields):
@@ -586,6 +595,12 @@ def execute(action, cmd):
         return _api_or_raise('PUT', '/api/sound_exclusions', _pick(cmd, ('label', 'excluded')))
     if action == 'set_advanced':
         return _api_or_raise('PUT', '/api/settings/advanced', _pick(cmd, ('delay', 'peak_cooldown', 'peak_ratio')))
+    if action == 'calibration_status':
+        return _api_or_raise('GET', '/api/calibration')
+    if action.startswith('calibration_'):
+        fields = {'calibration_start': ('source',), 'calibration_record': ('target', 'expected', 'duration'),
+                  'calibration_apply': ('gain', 'groups')}.get(action, ())
+        return _api_or_raise('POST', f"/api/calibration/{action[len('calibration_'):]}", _pick(cmd, fields))
 
     settings = load_settings()
     kind, key, src = _resolve_source(settings, cmd.get('source'))

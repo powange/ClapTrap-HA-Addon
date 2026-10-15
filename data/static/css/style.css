@@ -490,3 +490,16 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
     *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .source-card.is-highlight { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color .3s; }
+
+/* ---- Calibrage ----------------------------------------------------------------------- */
+.cal-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.cal-row > .input { flex: 1; min-width: 160px; }
+.cal-expected { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--ink-2); }
+.cal-expected .input { width: 64px; }
+.cal-target { margin: 8px 0 4px; font-size: 1.05rem; }
+.cal-countdown { font: 600 1.4rem var(--mono); min-height: 1.6em; color: var(--accent); }
+.cal-result { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
+.cal-result ul { margin: 4px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--ink-2); }
+.cal-result h4 { margin: 0; }
+.cal-warn { color: var(--warn); }
+.field-row-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 4px 0; }

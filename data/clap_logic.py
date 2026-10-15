@@ -32,6 +32,10 @@ def normalize_group(g, idx=0, default_threshold=0.5):
         'clap_counts': [n for n in counts if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 4],
         # Sons entendus ajoutes a la liste du groupe (desactive par defaut).
         'auto_add': bool(g.get('auto_add', g.get('auto_add_sounds', False))),
+        # Comptage : « attaques » (claps, toc : un front net par geste) ou
+        # « tenus » (sifflement : recompte toutes les SUSTAIN_RESET s tant que
+        # le son dure, comme avant la 6.37).
+        'count_mode': 'tenus' if g.get('count_mode') == 'tenus' else 'attaques',
     }
 
 
@@ -70,6 +74,10 @@ class ClapTracker:
     #   dernier pic pendant un son deja au-dessus du seuil.
     ATTACK_RATIO = 1.5
     REATTACK_GAP = 0.15
+    # Mode « sons tenus » : un son qui reste au-dessus du seuil compte un
+    # nouveau pic toutes les SUSTAIN_RESET s (un sifflement monte lentement :
+    # aucune attaque nette, donc 0 pic en mode « attaques »).
+    SUSTAIN_RESET = 0.3
 
     def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0):
         self.window = window
@@ -84,6 +92,11 @@ class ClapTracker:
         self._prev_peak = 0.0    # pic du bloc precedent (detection d'attaque)
         self._last_peak_time = 0.0
         self.peak_times = []
+        self.sustain_times = []  # pics du mode « sons tenus »
+        self._sus_above = False
+        self._sus_last = 0.0
+        self.attack_count = 0    # compteurs cumules (calibrage)
+        self.sustain_count = 0
         self._consumed_until = 0.0
         self._last_trigger = 0.0
         self._group_state = {}   # slug -> {armed_at, score, labels}
@@ -131,6 +144,16 @@ class ClapTracker:
 
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
+        self.sustain_times = [t for t in self.sustain_times if (now - t) < max_age]
+
+        if raw_peak > threshold:
+            if not self._sus_above or (now - self._sus_last) >= self.SUSTAIN_RESET:
+                self._sus_last = now
+                self.sustain_times.append(now)
+                self.sustain_count += 1
+            self._sus_above = True
+        elif raw_peak < threshold * 0.6:
+            self._sus_above = False
 
         if pre_level is not None:
             attack = raw_peak > pre_level * self.ATTACK_RATIO
@@ -143,6 +166,7 @@ class ClapTracker:
             if (now - self._last_peak_time) > self.peak_cooldown:
                 self._last_peak_time = now
                 self.peak_times.append(now)
+                self.attack_count += 1
             self._above = True
         elif raw_peak < threshold * 0.6:
             self._above = False
@@ -153,8 +177,11 @@ class ClapTracker:
     def on_classification(self, categories, now):
         """`categories` : [(label, score)]. Retourne la liste des evenements a
         declencher : dicts {group, clap_count, score, labels, ignored}."""
-        fresh = [t for t in self.peak_times
-                 if t > self._consumed_until and t >= now - self.peak_lookback]
+        def times(group):
+            return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
+
+        def fresh_of(group):
+            return [t for t in times(group) if t > self._consumed_until and t >= now - self.peak_lookback]
         # Sans pic, seul un groupe sans entites (evenement et webhook seulement)
         # peut s'armer : une tele qui diffuse des applaudissements declenchait
         # sinon « 1 clap » toutes les 2,5 s.
@@ -168,6 +195,7 @@ class ClapTracker:
             state = self._group_state.setdefault(group['slug'], {'armed_at': 0.0, 'score': 0.0, 'labels': {}})
 
             if best >= group['threshold']:
+                fresh = fresh_of(group)
                 if not state['armed_at']:
                     if fresh or (can_arm_without_peak and not group['clap_counts']):
                         state['armed_at'] = fresh[0] if fresh else now
@@ -193,7 +221,7 @@ class ClapTracker:
             state = self._group_state.get(group['slug'])
             if not state or not state['armed_at']:
                 continue
-            recent = [t for t in self.peak_times
+            recent = [t for t in times(group)
                       if state['armed_at'] <= t <= now and t > self._consumed_until]
             candidates.append({
                 'group': group,

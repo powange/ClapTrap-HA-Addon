@@ -30,6 +30,12 @@ const dom = new JSDOM(html, {
       else if (url === '/api/detection/stop') status = { running: false, sources: [] };
       else if (url.startsWith('/api/sources/') && method === 'PATCH') res = { success: true, source: {}, ...(w.__restart ? { restart: w.__restart } : {}) };
       else if (url === '/api/microphone' && method === 'DELETE') { settings.microphone.configured = false; }
+      else if (url === '/api/calibration/start') res = { success: true, active: true };
+      else if (url === '/api/calibration/record') res = { success: true, attacks: 2, sustains: 2, clipped: false, top: [{ classe: 'Clapping', score: 0.85 }] };
+      else if (url === '/api/calibration/analyze') res = { success: true, gain: { field: 'volume', current: 80, proposed: 100, change: true }, warnings: [],
+        groups: [{ target: 'Clap', group: 'clap', new: false, sounds: ['Clapping'], add: [], remove: ['Speech'], threshold: { current: 0.5, proposed: 0.7 },
+                   count_mode: { current: 'attaques', proposed: 'attaques' }, before: { recall: 1, false_positive: 0.5 }, after: { recall: 1, false_positive: 0 }, warnings: [] }] };
+      else if (url === '/api/calibration/apply') res = { success: true, applied: ['a', 'b'], errors: [] };
       else if (url === '/api/microphone' && method === 'POST') { Object.assign(settings.microphone, { configured: true, enabled: true }); }
       else if (url.startsWith('/api/rtsp/stream/') && method === 'DELETE') { settings.rtsp_sources = settings.rtsp_sources.filter(s => !url.endsWith(s.id)); }
       else if (url === '/api/source/sound_groups' && method === 'POST') { settings.microphone.sound_groups.push({ slug: 'snap', name: body.name, ha_entities: [1], sound_whitelist: {} }); }
@@ -331,6 +337,25 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  désactiver un groupe (serveur)', !!enPut && enPut[2].group_slug === 'clap' && enPut[2].enabled === false);
   CT.state.settings.microphone.sound_groups[0].enabled = false; CT.render();
   ok('+  groupe désactivé signalé sur la carte', !!$('#src-mic .group-live.is-off[data-slug="clap"]'));
+  // --- lot 6.56 : calibrage et comptage
+  const modeSel = $('#src-mic .group-card[data-slug="clap"] [data-role="count-mode"]');
+  ok('+  choix du comptage par groupe', !!modeSel);
+  change(modeSel, 'tenus'); await tick(2);
+  ok('+  comptage « sons tenus » (serveur)', lastCall('PUT', '/api/source/sound_groups')[2].count_mode === 'tenus');
+  CT.state.settings.microphone.enabled = true; CT.state.settings.microphone.sound_groups[0].enabled = true; CT.render();
+  $('#src-mic [data-action="calibrate"]').click(); await tick();
+  ok('+  calibrage : fenêtre ouverte', !$('#calibration').hidden && !!$('#calibration [data-c="start"]'));
+  $('#cal-reps').value = '2'; $('#cal-bg').checked = false;
+  $('#calibration [data-c="start"]').click(); await tick(3);
+  ok('+  calibrage : démarré sur la source', lastCall('POST', '/api/calibration/start')[2].source === 'mic' && /prise 1\//.test($('#calibration-title').textContent));
+  const nTakes = calls.filter(c => c[1] === '/api/calibration/record').length;
+  $('#calibration [data-c="record"]').click(); await tick(3);
+  ok('+  calibrage : prise enregistrée', calls.filter(c => c[1] === '/api/calibration/record').length === nTakes + 1 && /Applaudissement 85 %/.test($('#calibration').textContent));
+  while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
+  ok('+  calibrage : propositions affichées', /Seuil : 50 % → 70 %/.test($('#calibration').textContent) && !!$('#cal-apply-gain'));
+  $('#calibration [data-c="apply"]').click(); await tick(4);
+  const ap = lastCall('POST', '/api/calibration/apply');
+  ok('+  calibrage : appliqué', !!ap && ap[2].gain === true && ap[2].groups.length >= 1 && $('#calibration').hidden);
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

@@ -663,7 +663,7 @@ def update_source_sound_group():
     """Met a jour les meta-donnees d'un groupe.
 
     Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?,
-           auto_add_sounds?, enabled?}
+           auto_add_sounds?, enabled?, count_mode?}
     """
     data = _json()
     kind = _require_kind(data, 'group_slug')
@@ -690,6 +690,9 @@ def update_source_sound_group():
         if 'enabled' in data:
             # Groupe desactive : ignore par la detection, entites conservees.
             target['enabled'] = to_bool(data['enabled'], 'enabled')
+        if 'count_mode' in data:
+            from settings_manager import to_count_mode
+            target['count_mode'] = to_count_mode(data['count_mode'])
         if 'ha_entities' in data:
             target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
             # Plus de nombres de claps = nouvelles entites : meme controle qu'a

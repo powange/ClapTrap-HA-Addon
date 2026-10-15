@@ -520,6 +520,16 @@ def atomic_update(mutator):
 
 # --- Validation ----------------------------------------------------------------
 
+COUNT_MODES = ('attaques', 'tenus')
+
+
+def to_count_mode(value, path='count_mode'):
+    """Comptage d'un groupe : « attaques » (claps) ou « tenus » (sifflements)."""
+    if value not in COUNT_MODES:
+        raise ValueError(f"{path} : « attaques » ou « tenus » attendu")
+    return value
+
+
 _TRUE = {'true', '1', 'yes', 'on'}
 _FALSE = {'false', '0', 'no', 'off', ''}
 
@@ -645,6 +655,8 @@ def _norm_groups(src, path):
         for flag in ('auto_add_sounds', 'enabled'):
             if flag in g:
                 g[flag] = to_bool(g[flag], f"{gp}.{flag}")
+        if 'count_mode' in g:
+            g['count_mode'] = to_count_mode(g['count_mode'], f"{gp}.count_mode")
         wl = g.get('sound_whitelist')
         if wl is not None:
             if not isinstance(wl, dict):

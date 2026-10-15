@@ -27,6 +27,9 @@ from audio_utils import BLOCK_SAMPLES
 from clap_logic import ClapTracker
 
 PRE_WINDOW = 320   # 20 ms : niveau mesure juste avant un pic (attaque)
+# Fenetre d'analyse de YAMNet (15 600 echantillons a 16 kHz). En mode flux,
+# MediaPipe rend un resultat par fenetre, horodate au DEBUT de celle-ci.
+YAMNET_WINDOW_MS = 975
 PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
 AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
 AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
@@ -56,10 +59,12 @@ class AudioDetector:
         self._recent_peaks = collections.deque(maxlen=AGC_MEMORY)
         self._prev_tail = np.zeros(0, dtype=np.float32)  # fin du bloc precedent (|x|)
         self._clock_end = 0.0     # horloge audio : fin du dernier bloc recu
-        # Horodatage MediaPipe -> horloge audio du bloc analyse : les resultats
-        # sont dates sur la fenetre analysee, pas sur le dernier bloc recu
-        # (un resultat differe pendant une rafale etait decale de ~1 s).
+        # Horodatage MediaPipe (debut du bloc envoye) -> horloge audio a la fin
+        # de ce bloc : un resultat est date a la fin de la fenetre analysee,
+        # quelle que soit la cadence d'arrivee des blocs (rafales ffmpeg).
         self._ts_clock = collections.OrderedDict()
+        self._block_ms = int(BLOCK_SAMPLES / self.sample_rate * 1000)
+        self._taps = []           # ecoutes du calibrage : fn(evenement, *donnees)
         self._cadence = []        # instants des premiers resultats (mesure de cadence)
         self._errors_logged = 0
         self._detection_callback = None
@@ -67,6 +72,24 @@ class AudioDetector:
         self._sound_seen_callback = None
         self._scores_callback = None
         self._analysis_callback = None
+
+    # --- Ecoutes (calibrage) ------------------------------------------------
+
+    def add_tap(self, fn):
+        """fn('block', pic_brut, gain, instant), fn('peak', 'attack'|'sustain',
+        instant), fn('result', [(classe, score)], instant) : instants sur
+        l'horloge audio."""
+        self._taps = self._taps + [fn]
+
+    def remove_tap(self, fn):
+        self._taps = [t for t in self._taps if t is not fn]
+
+    def _tap(self, *event):
+        for fn in self._taps:
+            try:
+                fn(*event)
+            except Exception as e:
+                logging.debug(f"tap: {e}")
 
     # --- Configuration ------------------------------------------------------
 
@@ -163,7 +186,15 @@ class AudioDetector:
             raw_peak, peak_time, pre_level = self._locate_peak(audio_data)
 
             with self.lock:
+                attacks, sustains = self.tracker.attack_count, self.tracker.sustain_count
                 self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
+                attacks, sustains = self.tracker.attack_count - attacks, self.tracker.sustain_count - sustains
+            if self._taps:
+                self._tap('block', raw_peak, gain, peak_time)
+                if attacks:
+                    self._tap('peak', 'attack', peak_time)
+                if sustains:
+                    self._tap('peak', 'sustain', peak_time)
             # Auto-gain (classifieur seulement) sur le son le plus fort des 3
             # dernieres secondes : il reste eleve sur un clap faible isole (le
             # bruit qui suit ne le fait plus retomber) et baisse aussitot sur
@@ -259,7 +290,28 @@ class AudioDetector:
                     self.tracker.peak_lookback = 1.5
             self._cadence = None
 
+    def _window_end_clock(self, timestamp):
+        """Horloge audio a la fin de la fenetre qui commence a `timestamp`
+        (None si son dernier bloc n'est pas connu). Mesure sur MediaPipe 1.0 :
+        un resultat toutes les 975 ms, date au debut de sa fenetre ; le dater
+        avec le bloc de meme horodatage le placait ~0,9 s trop tot une fois
+        sur quatre (horloge qui recule, claps perdus ou mal comptes)."""
+        end = timestamp + YAMNET_WINDOW_MS
+        keys = list(self._ts_clock)
+        if not keys or end < keys[0]:
+            return None
+        if end > keys[-1] + self._block_ms:
+            # Fenetre pas encore recue : cadence d'un resultat par bloc (autre
+            # version de MediaPipe, faux classifieur) : bloc de meme horodatage.
+            return self._ts_clock.get(timestamp)
+        last = max(k for k in keys if k <= end)
+        return self._ts_clock[last] - (last + self._block_ms - end) / 1000.0
+
     def _handle_result(self, result, timestamp):
+        if not self.running:
+            # close() complete la derniere fenetre avec du silence et rappelle
+            # encore : resultat sans objet (« Silence » ajoute a la decouverte).
+            return
         try:
             self._log_cadence()
             if not result or not result.classifications:
@@ -270,8 +322,11 @@ class AudioDetector:
                 threshold = self.score_threshold
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
-                now = self._ts_clock.get(timestamp) or self._clock_end or time.monotonic()
+                now = self._window_end_clock(timestamp) or self._clock_end or time.monotonic()
                 events = self.tracker.on_classification(categories, now)
+            if self._taps:
+                self._tap('result', categories, now)
+            with self.lock:
                 group_scores = {
                     g['slug']: max((s for n, s in categories
                                     if g['whitelist'].get(n) and n not in exclusions), default=0.0)

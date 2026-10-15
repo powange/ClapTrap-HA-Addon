@@ -282,3 +282,28 @@ def test_lookback_extended_for_slow_cadence():
             t.feed_peak(0.002, now)
             events += t.on_classification([('Clapping', 0.05)], now)
         assert [e['clap_count'] for e in events] == expected, lookback
+
+
+def test_sustained_sound_counted_in_sustain_mode():
+    """Sifflement (son tenu, montee lente) : 0 attaque, mais un pic toutes les
+    0,3 s en mode « sons tenus » (comportement d'avant la 6.37)."""
+    from clap_logic import ClapTracker
+    tr = ClapTracker(window=1.5)
+    tr.set_groups([{'slug': 'siffler', 'name': 'Siffler', 'threshold': 0.5, 'ha_entities': [3],
+                    'sound_whitelist': {'Whistling': True}, 'count_mode': 'tenus'}])
+    t = 0.0
+    for _ in range(10):
+        t += 0.1
+        tr.feed_peak(0.002, t, pre_level=0.002)
+    level = 0.002
+    for _ in range(15):     # montee lente puis son tenu ~1 s
+        t += 0.1
+        level = min(0.05, level * 1.4)
+        tr.feed_peak(level, t, pre_level=level * 0.95)
+    assert tr.attack_count == 0 and len(tr.sustain_times) >= 3
+    events = []
+    for _ in range(25):
+        t += 0.1
+        events += tr.on_classification([('Whistling', 0.8)], t)
+        tr.feed_peak(0.002, t, pre_level=0.002)
+    assert events and events[0]['group']['slug'] == 'siffler' and events[0]['clap_count'] >= 3
