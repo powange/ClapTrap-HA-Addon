@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.59.0
+
+### Renommage d'un groupe
+
+- **Correctif : renommage des entités HA impossible sur les grosses
+  installations** (« Connection closed: 1009 »). ClapTrap demandait tout le
+  registre des entités en un seul message, trop gros pour la connexion
+  WebSocket du Supervisor. Il interroge désormais HA entité par entité
+  (`config/entity_registry/get` sur l'ancien puis sur le nouvel id), et
+  n'utilise qu'en dernier recours une liste compacte du registre lue par
+  lots ; aucune limite de taille côté client (la coupure venait du proxy).
+- Renommage idempotent : une entité déjà renommée (à la main par exemple)
+  est comptée « déjà à jour », un id choisi dans HA est conservé, un nouvel
+  id pris par une autre entité n'est jamais écrasé (pas de doublon `_2`).
+  Une erreur sur une entité ne bloque pas les autres (le groupe reste en
+  attente et sera retenté) ; une coupure de la connexion est suivie d'une
+  reprise ; renommages en plusieurs passes ; ligne `ancien -> nouveau` par
+  entité et bilan final (renommées, déjà à jour, conservées, conflits,
+  introuvables, erreurs). Nouvelles tentatives espacées (1, 5 puis 15 min),
+  avancées par un nouveau renommage ou le retour de HA.
+- **Automatisations à adapter** : la confirmation d'un renommage dans
+  l'interface liste les automatisations, scripts et scènes qui utilisent les
+  entités du groupe ; le compte rendu du renommage (journal, « Dernière
+  commande ») les cite aussi. Home Assistant ne les met pas à jour, ni les
+  tableaux de bord.
+
 ## 6.58.0
 
 ### Renommer un groupe depuis Home Assistant

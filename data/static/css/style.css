@@ -404,6 +404,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 16px;
 }
 .modal-small { max-width: 420px; }
+.modal-message { white-space: pre-line; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .steps { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
