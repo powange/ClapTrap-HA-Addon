@@ -9,7 +9,10 @@ calibration_bp.register_error_handler(Exception, api_error_response)
 
 
 def _body():
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except RecursionError:
+        raise ApiError('JSON trop imbriqué')
     return data if isinstance(data, dict) else {}
 
 

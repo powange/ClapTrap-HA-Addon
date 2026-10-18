@@ -434,6 +434,52 @@ def _commit(settings):
     _cache_time = time.time()
 
 
+# Cles connues (import) : les autres sont ignorees. Avant, toute cle etait
+# enregistree telle quelle et recopiee a chaque lecture.
+_KNOWN_SECTIONS = ('global', 'microphone', 'rtsp_sources', 'saved_vban_sources')
+_GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions'}
+_SOURCE_KEYS = {
+    'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
+                   'auto_volume', 'auto_start', 'configured', 'sound_groups'},
+    'rtsp_sources': {'id', 'name', 'url', 'enabled', 'gain', 'webhook_url', 'rtsp_tcp', 'sound_groups'},
+    'saved_vban_sources': {'id', 'name', 'ip', 'port', 'stream_name', 'enabled', 'gain', 'webhook_url',
+                           'entity_key', 'sound_groups'},
+}
+_GROUP_KEYS = {'slug', 'name', 'threshold', 'ha_entities', 'clap_counts', 'sound_whitelist', 'enabled',
+               'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from'}
+
+
+def strip_unknown_keys(data):
+    """Retire (en place) les cles inconnues d'un import ; renvoie leurs chemins.
+    Les anciens champs de source (seuil, entites, sons) restent : la
+    migration les convertit en groupe."""
+    removed = []
+    for key in [k for k in data if k not in _KNOWN_SECTIONS]:
+        removed.append(key)
+        data.pop(key)
+    g = data.get('global')
+    if isinstance(g, dict):
+        for key in [k for k in g if k not in _GLOBAL_KEYS]:
+            removed.append(f'global.{key}')
+            g.pop(key)
+    for section, allowed in _SOURCE_KEYS.items():
+        value = data.get(section)
+        sources = [value] if isinstance(value, dict) else value if isinstance(value, list) else []
+        for i, src in enumerate(sources):
+            if not isinstance(src, dict):
+                continue
+            path = section if section == 'microphone' else f'{section}[{i}]'
+            for key in [k for k in src if k not in allowed and k not in LEGACY_SOURCE_FIELDS]:
+                removed.append(f'{path}.{key}')
+                src.pop(key)
+            for j, grp in enumerate(src.get('sound_groups') or []):
+                if isinstance(grp, dict):
+                    for key in [k for k in grp if k not in _GROUP_KEYS]:
+                        removed.append(f'{path}.sound_groups[{j}].{key}')
+                        grp.pop(key)
+    return removed
+
+
 def merge_import(current, new_settings):
     """Reglages resultant d'un import (sections presentes remplacees,
     migrations appliquees). Utilise par l'enregistrement ET par le controle
@@ -521,6 +567,11 @@ def atomic_update(mutator):
 # --- Validation ----------------------------------------------------------------
 
 COUNT_MODES = ('attaques', 'tenus')
+# Bornes d'un import (memes valeurs que les routes)
+MAX_SOURCES = 32           # par type
+MAX_GROUPS = 20            # par source
+MAX_LABELS = 600           # sons d'une liste (YAMNet en connait 521)
+MAX_LABEL = 200            # longueur d'un nom de son
 
 
 def to_count_mode(value, path='count_mode'):
@@ -622,6 +673,8 @@ def _norm_groups(src, path):
         return
     if not isinstance(groups, list):
         raise ValueError(f"{path}.sound_groups : liste attendue")
+    if len(groups) > MAX_GROUPS:
+        raise ValueError(f"{path}.sound_groups : {MAX_GROUPS} groupes au plus")
     slugs = set()
     for i, g in enumerate(groups):
         gp = f"{path}.sound_groups[{i}]"
@@ -672,6 +725,9 @@ def _norm_groups(src, path):
         if wl is not None:
             if not isinstance(wl, dict):
                 raise ValueError(f"{gp}.sound_whitelist : objet attendu")
+            if len(wl) > MAX_LABELS or any(len(str(k)) > MAX_LABEL for k in wl):
+                raise ValueError(f"{gp}.sound_whitelist : {MAX_LABELS} sons au plus, noms de "
+                                 f"{MAX_LABEL} caractères au plus")
             g['sound_whitelist'] = {str(k): to_bool(v, f"{gp}.sound_whitelist.{k}") for k, v in wl.items()}
 
 
@@ -704,6 +760,10 @@ def _norm_source(src, path):
     if wl is not None:
         if not isinstance(wl, dict):
             raise ValueError(f"{path}.sound_whitelist : objet attendu")
+        # Ancien champ de source, converti en groupe : memes bornes.
+        if len(wl) > MAX_LABELS or any(len(str(k)) > MAX_LABEL for k in wl):
+            raise ValueError(f"{path}.sound_whitelist : {MAX_LABELS} sons au plus, noms de "
+                             f"{MAX_LABEL} caractères au plus")
         src['sound_whitelist'] = {str(k): to_bool(v, f"{path}.sound_whitelist.{k}") for k, v in wl.items()}
     _norm_groups(src, path)
 
@@ -737,7 +797,13 @@ def normalize_settings(data):
         if 'sound_exclusions' in g:
             if not isinstance(g['sound_exclusions'], list):
                 raise ValueError("global.sound_exclusions : liste attendue")
-            g['sound_exclusions'] = [str(x) for x in g['sound_exclusions']]
+            # Anciennes sauvegardes : valeurs converties en texte, vides retirees.
+            excl = [str(x).strip() for x in g['sound_exclusions'] if x is not None and str(x).strip()]
+            if len(excl) > MAX_LABELS:
+                raise ValueError(f"global.sound_exclusions : {MAX_LABELS} sons au plus")
+            if any(len(x) > MAX_LABEL for x in excl):
+                raise ValueError(f"global.sound_exclusions : noms de son de {MAX_LABEL} caractères au plus")
+            g['sound_exclusions'] = excl
     mic = data.get('microphone')
     if mic is not None:
         _norm_source(mic, 'microphone')
@@ -755,6 +821,8 @@ def normalize_settings(data):
             continue
         if not isinstance(lst, list):
             raise ValueError(f"{key} : liste attendue")
+        if len(lst) > MAX_SOURCES:
+            raise ValueError(f"{key} : {MAX_SOURCES} sources au plus")
         ids, entity_keys, streams = set(), set(), set()
         for i, src in enumerate(lst):
             _norm_source(src, f"{key}[{i}]")

@@ -25,7 +25,8 @@ def level_db(peak):
 def set_pulse_volume(pulse_name, volume_percent):
     """Règle le volume d'une source PulseAudio via pactl."""
     try:
-        subprocess.run(['pactl', 'set-source-volume', pulse_name, f'{volume_percent}%'],
+        # « -- » : un nom commencant par « - » n'est pas lu comme une option.
+        subprocess.run(['pactl', 'set-source-volume', '--', pulse_name, f'{volume_percent}%'],
                        capture_output=True, text=True, timeout=5)
     except Exception as e:
         logging.warning(f"pactl set-source-volume: {e}")

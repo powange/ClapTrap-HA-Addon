@@ -44,10 +44,19 @@ sources_bp.register_error_handler(Exception, api_error_response)
 
 
 def _json():
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except RecursionError:
+        # JSON tres imbrique ([[[[…) : 400 et non une erreur 500.
+        raise ApiError('JSON trop imbriqué')
     if not isinstance(data, dict):
         raise ApiError('Corps JSON attendu')
     return data
+
+
+# Bornes : un fichier ou un appel d'API demesure ne doit pas gonfler les
+# reglages, relus et recopies a chaque lecture (memes valeurs qu'a l'import).
+from settings_manager import MAX_SOURCES, MAX_GROUPS, MAX_LABEL, MAX_LABELS  # noqa: E402
 
 
 def _source_id_for(kind, source_key=None):
@@ -92,8 +101,8 @@ def _check_entity_collision(settings):
     from ha_entities import find_entity_collision
     clash = find_entity_collision(settings, before=load_settings())
     if clash:
-        raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
-                       "choisissez un autre nom", 409)
+        raise ApiError(f"Deux sources produiraient les mêmes entités Home Assistant (« {clash} ») : "
+                       "choisissez un autre nom de groupe ou de source", 409)
 
 
 def _apply_live():
@@ -241,12 +250,27 @@ def _resolve_pulse_name(settings):
 
 def _source_name(value, default=None):
     """Nom affiche d'une source : texte de 1 a 80 caracteres (vide = defaut)."""
-    name = str(value if value is not None else '').strip()
+    if value is not None and not isinstance(value, str):
+        raise ApiError('Nom : texte attendu')
+    name = (value or '').strip()
     if not name and default:
         return default
     if not name or len(name) > 80:
         raise ApiError('Nom : texte de 1 à 80 caractères attendu')
     return name
+
+
+def _rtsp_url_key(url):
+    """URL comparee sans tenir compte de la casse du schema (RTSP:// = rtsp://)."""
+    scheme, sep, rest = str(url or '').partition('://')
+    return f"{scheme.lower()}{sep}{rest}" if sep else str(url or '')
+
+
+def _check_rtsp_unique(settings, url, exclude_id=None):
+    """Une camera par URL, a l'ajout comme a la modification."""
+    if url and any(s.get('id') != exclude_id and _rtsp_url_key(s.get('url')) == _rtsp_url_key(url)
+                   for s in settings.get('rtsp_sources') or []):
+        raise ApiError('Cette caméra (même URL) est déjà ajoutée', 409)
 
 
 def _normalize_rtsp_url(url):
@@ -295,8 +319,9 @@ def add_rtsp_stream():
     def _mut(settings):
         # Doublon : un assistant ferme pendant l'ajout faisait recommencer
         # l'utilisateur, et la camera existait deux fois.
-        if new_stream['url'] and any(s.get('url') == new_stream['url'] for s in settings.get('rtsp_sources', [])):
-            raise ApiError('Cette caméra (même URL) est déjà ajoutée', 409)
+        _check_rtsp_unique(settings, new_stream['url'])
+        if len(settings.get('rtsp_sources') or []) >= MAX_SOURCES:
+            raise ApiError(f'{MAX_SOURCES} caméras au plus')
         settings.setdefault('rtsp_sources', []).append(new_stream)
 
     modify_settings(_mut)
@@ -318,6 +343,7 @@ def _update_rtsp(stream_id, data):
             stream['rtsp_tcp'] = tcp
         if 'url' in data:
             new_url = _normalize_rtsp_url(data['url'])
+            _check_rtsp_unique(settings, new_url, exclude_id=stream.get('id'))
             url_changed = new_url != stream.get('url')
             stream['url'] = new_url
         if 'name' in data:
@@ -383,6 +409,8 @@ def save_vban_source():
         lst = settings.setdefault('saved_vban_sources', [])
         from settings_manager import vban_entity_key
         new_source['entity_key'] = vban_entity_key(new_source, lst)
+        if len(lst) >= MAX_SOURCES:
+            raise ApiError(f'{MAX_SOURCES} flux VBAN au plus')
         if any(s.get('ip') == ip and s.get('name') == name for s in lst):
             raise ApiError('Cette source VBAN existe déjà')
         # Le listener route les paquets par (IP, nom du flux) : deux sources
@@ -466,10 +494,15 @@ def update_sound_exclusions():
     Body: {label: str, excluded: bool}
     """
     data = _json()
-    label = str(data.get('label') or '').strip()
+    label = data.get('label')
     excluded = to_bool(data.get('excluded', False), 'excluded')
-    if not label:
-        raise ApiError('label requis')
+    if not isinstance(label, str) or not label.strip():
+        raise ApiError('label : nom de son attendu')
+    label = label.strip()
+    if excluded and len(label) > MAX_LABEL:
+        # Borne a l'ajout seulement : un nom trop long deja enregistre doit
+        # pouvoir etre retire.
+        raise ApiError(f'label : nom de son de {MAX_LABEL} caractères au plus attendu')
 
     def _mut(settings):
         g = settings.setdefault('global', {})
@@ -585,7 +618,7 @@ def update_source_sound_whitelist():
     kind = _require_kind(data, 'label')
     source_key = data.get('source_key')
     label = data.get('label')
-    if not isinstance(label, str) or not label or len(label) > 200:
+    if not isinstance(label, str) or not label or len(label) > MAX_LABEL:
         raise ApiError('label : nom de son attendu')
     enabled = to_bool(data.get('enabled', False), 'enabled')
 
@@ -607,7 +640,10 @@ def update_source_sound_whitelist():
                     raise ApiError(
                         f'Le son "{label}" est deja active dans le groupe "{g.get("name", g.get("slug"))}"',
                         409, conflict_group=g.get('slug'))
-        target_group.setdefault('sound_whitelist', {})[label] = enabled
+        wl = target_group.setdefault('sound_whitelist', {})
+        if label not in wl and len(wl) >= MAX_LABELS:
+            raise ApiError(f'{MAX_LABELS} sons au plus par groupe')
+        wl[label] = enabled
         return target_slug
 
     target_slug = modify_settings(_mut)
@@ -692,6 +728,8 @@ def create_source_sound_group():
     def _mut(settings):
         src = _require_source(settings, kind, source_key)
         groups = src.setdefault('sound_groups', [])
+        if len(groups) >= MAX_GROUPS:
+            raise ApiError(f'{MAX_GROUPS} groupes au plus par source')
         _check_unique_group_name(groups, name)
         existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)} | \
             {g.get('entity_slug') for g in groups if isinstance(g, dict) and g.get('entity_slug')}
@@ -888,9 +926,12 @@ def _update_mic_fields(data, configured=False):
         dev = data['device'] or {}
         if not isinstance(dev, dict):
             raise ApiError('device : objet attendu')
-        changes['audio_source'] = str(dev.get('name') or 'default')
+        for field in ('name', 'pulse_name'):
+            if dev.get(field) is not None and not isinstance(dev.get(field), str):
+                raise ApiError(f'device.{field} : texte attendu')
+        changes['audio_source'] = dev.get('name') or 'default'
         changes['device_index'] = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
-        changes['pulse_name'] = str(dev.get('pulse_name') or '')
+        changes['pulse_name'] = dev.get('pulse_name') or ''
     if 'volume' in data:
         changes['volume'] = to_number(data['volume'], 'volume', 0, 150, integer=True)
     if 'auto_volume' in data:
@@ -906,7 +947,16 @@ def _update_mic_fields(data, configured=False):
     auto_after = changes.get('auto_volume', current.get('auto_volume', False))
     if 'volume' in changes and auto_after:
         raise ApiError('Volume automatique actif : désactivez-le pour régler le volume')
-    if changes.get('auto_volume') and not _resolve_pulse_name(load_settings()):
+    if changes.get('auto_volume') and 'device' in data:
+        # Peripherique change dans la meme requete : valider sur lui (l'ancien
+        # etait verifie), parmi les micros presents, sans rien enregistrer.
+        present = [d for d in get_audio_input_devices() if d.get('pulse_name')]
+        target_pulse = next((d['pulse_name'] for d in present if d['pulse_name'] == changes['pulse_name']), '') or \
+            next((d['pulse_name'] for d in present if d.get('name') == changes['audio_source']), '')
+        if not target_pulse:
+            raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+        changes['pulse_name'] = target_pulse
+    elif changes.get('auto_volume') and not _resolve_pulse_name(load_settings()):
         raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
 
     def _mut(settings):

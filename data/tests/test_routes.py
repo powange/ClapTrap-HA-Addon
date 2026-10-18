@@ -101,16 +101,16 @@ def test_webhook_test_payload_and_no_redirect(client, monkeypatch):
     import routes.settings_routes as sr
     sent = {}
 
-    def fake_send(url, payload, follow_redirects=True):
-        sent.update(url=url, payload=payload, follow=follow_redirects)
-        return types.SimpleNamespace(status_code=302)
+    def fake_send(url, payload):
+        sent.update(url=url, payload=payload)
+        raise requests.exceptions.HTTPError('redirection HTTP 302')   # redirection : echec explicite
     monkeypatch.setattr(sr, 'send_webhook', fake_send)
     r = client.post('/api/webhook/test', json={'url': 'http://ha:8123/api/webhook/x', 'source': 'mic'})
     assert r.status_code == 502 and 'journal' in r.json['error']   # message unique (pas de sondage du reseau)
-    assert sent['follow'] is False and sent['payload']['test'] is True
+    assert sent['payload']['test'] is True
     assert {'event', 'source_id', 'entity_key', 'source_name', 'clap_count', 'labels'} <= set(sent['payload'])
 
-    def failing(url, payload, follow_redirects=True):
+    def failing(url, payload):
         raise requests.exceptions.ConnectionError('x')
     monkeypatch.setattr(sr, 'send_webhook', failing)
     assert client.post('/api/webhook/test', json={'url': 'http://ha/x'}).status_code == 502
@@ -271,3 +271,118 @@ def test_rtsp_tcp_at_creation_and_sound_test(client, settings_dir, monkeypatch):
     c.post('/api/rtsp/test/start', json={'id': '', 'url': 'rtsp://c/2', 'rtsp_tcp': True})  # assistant
     c.post('/api/rtsp/test/start', json={'id': sid, 'url': 'rtsp://c/1', 'rtsp_tcp': False})
     assert seen == [True, True, False]
+
+
+def test_deeply_nested_json_is_400(client):
+    deep = '[' * 100000 + ']' * 100000
+    r = client.post('/api/settings/import', data=deep, content_type='application/json')
+    assert r.status_code == 400
+    r = client.put('/api/sound_exclusions', data=deep, content_type='application/json')
+    assert r.status_code == 400
+
+
+def test_rtsp_duplicate_refused_on_update_and_case(client, settings_dir):
+    client.post('/api/rtsp/stream', json={'name': 'A', 'url': 'rtsp://h/1'})
+    assert client.post('/api/rtsp/stream', json={'name': 'B', 'url': 'RTSP://h/1'}).status_code == 409
+    b = client.post('/api/rtsp/stream', json={'name': 'B', 'url': 'rtsp://h/2'}).json['stream']['id']
+    assert client.patch(f'/api/sources/rtsp/{b}', json={'url': 'rtsp://h/1'}).status_code == 409
+    assert client.patch(f'/api/sources/rtsp/{b}', json={'url': 'rtsp://h/2'}).status_code == 200   # elle-meme
+
+
+def test_non_text_names_refused(client, settings_dir):
+    assert client.post('/api/rtsp/stream', json={'name': ['B'], 'url': 'rtsp://h/3'}).status_code == 400
+    settings_dir.save_settings({'microphone': {'configured': True}})
+    r = client.patch('/api/sources/mic/mic', json={'device': {'name': ['a'], 'pulse_name': 'x'}})
+    assert r.status_code == 400
+
+
+def test_import_drops_unknown_keys_and_bounds(client, settings_dir):
+    r = client.post('/api/settings/import', json={
+        'junk': 'x' * 1000, 'global': {'threshold': 0.5, 'bidule': 1},
+        'microphone': {'configured': True, 'inconnu': 1,
+                       'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'truc': 2}]}})
+    assert r.status_code == 200
+    s = settings_dir.load_settings()
+    assert 'junk' not in s and 'bidule' not in s['global'] and 'inconnu' not in s['microphone']
+    assert 'truc' not in s['microphone']['sound_groups'][0]
+    r = client.post('/api/settings/import', json={'global': {'sound_exclusions': ['x' * 300]}})
+    assert r.status_code == 400
+    r = client.put('/api/sound_exclusions', json={'label': 'x' * 1_500_000, 'excluded': True})
+    assert r.status_code == 400
+
+
+def test_group_and_source_counts_bounded(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    monkeypatch.setattr(rs, 'MAX_GROUPS', 2)
+    settings_dir.save_settings({'microphone': {'configured': True}})
+    assert client.post('/api/source/sound_groups', json={'kind': 'mic', 'name': 'G2'}).status_code == 200
+    assert client.post('/api/source/sound_groups', json={'kind': 'mic', 'name': 'G3'}).status_code == 400
+
+
+def test_mic_device_and_auto_volume_in_one_request(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    monkeypatch.setattr(rs, '_resolve_pulse_name', lambda s: '')        # ancien micro : aucun
+    monkeypatch.setattr(rs, 'get_audio_input_devices', lambda: [{'name': 'USB', 'pulse_name': 'alsa.usb'}])
+    settings_dir.save_settings({'microphone': {'configured': True, 'audio_source': 'default'}})
+    r = client.patch('/api/sources/mic/mic', json={'device': {'name': 'USB', 'pulse_name': 'alsa.usb'},
+                                                   'auto_volume': True})
+    assert r.status_code == 200 and settings_dir.load_settings()['microphone']['auto_volume'] is True
+    r = client.patch('/api/sources/mic/mic', json={'device': {'name': 'Fantome', 'pulse_name': 'bogus'},
+                                                   'auto_volume': True})
+    assert r.status_code == 400                                         # micro absent : refuse
+
+
+def test_collision_message_is_neutral(client, settings_dir):
+    settings_dir.save_settings({'saved_vban_sources': [
+        {'id': 'a', 'entity_key': 'vban_salon', 'ip': '1.1.1.1', 'name': 'Salon', 'enabled': True,
+         'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'ha_entities': [1]}]},
+        {'id': 'b', 'entity_key': 'vban_salon_tele', 'ip': '1.1.1.2', 'name': 'Salon Tele', 'enabled': True,
+         'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'ha_entities': [1]}]}]})
+    r = client.post('/api/source/sound_groups', json={'kind': 'vban', 'source_key': 'a', 'name': 'Tele clap',
+                                                      'ha_entities': [1]})
+    assert r.status_code == 409 and 'Deux sources produiraient' in r.json['error']
+
+
+def test_mic_test_rejects_unknown_pulse_name(monkeypatch):
+    from flask import Flask
+    import routes.testing as rt
+    monkeypatch.setattr('audio_utils.get_audio_input_devices', lambda: [{'name': 'USB', 'pulse_name': 'alsa.usb'}])
+    app = Flask(__name__)
+    app.register_blueprint(rt.testing_bp)
+    r = app.test_client().post('/api/mic/test/start', json={'pulse_name': '--help'})
+    assert r.status_code == 400
+
+
+def test_webhook_redirects_not_followed_by_default(monkeypatch):
+    import webhook
+    seen = {}
+
+    def fake_post(url, json=None, timeout=None, allow_redirects=None):
+        seen['allow'] = allow_redirects
+        return types.SimpleNamespace(status_code=seen.get('code', 200), headers={'Location': 'https://ha/api/webhook/x'},
+                                     raise_for_status=lambda: None)
+    monkeypatch.setattr(webhook._session, 'post', fake_post)
+    webhook.send_webhook('http://ha:8123/api/webhook/x', {'a': 1})
+    assert seen['allow'] is False
+    seen['code'] = 301
+    with pytest.raises(requests.exceptions.HTTPError):        # redirection : echec explicite, pas silencieux
+        webhook.send_webhook('http://ha:8123/api/webhook/x', {'a': 1})
+
+
+def test_pactl_volume_uses_double_dash(monkeypatch):
+    import audio_utils
+    calls = []
+    monkeypatch.setattr(audio_utils.subprocess, 'run', lambda cmd, **k: calls.append(cmd))
+    audio_utils.set_pulse_volume('-x', 50)
+    assert calls[0][:3] == ['pactl', 'set-source-volume', '--']
+
+
+def test_overlong_exclusion_can_be_removed(client, settings_dir):
+    settings_dir.modify_settings(lambda st: st['global'].update(sound_exclusions=['y' * 300]))
+    r = client.put('/api/sound_exclusions', json={'label': 'y' * 300, 'excluded': False})
+    assert r.status_code == 200 and settings_dir.load_settings()['global']['sound_exclusions'] == []
+
+
+def test_old_backup_exclusions_coerced(client, settings_dir):
+    r = client.post('/api/settings/import', json={'global': {'sound_exclusions': ['Speech', 3, '', None]}})
+    assert r.status_code == 200 and settings_dir.load_settings()['global']['sound_exclusions'] == ['Speech', '3']
