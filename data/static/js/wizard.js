@@ -58,7 +58,7 @@
             setTimeout(function () { card.classList.remove('is-highlight'); }, 2000);
             // Groupe encore vide : ouvrir les reglages sur « Ajouter les sons
             // entendus » (le texte de l'etape 3 y renvoyait, loin dans la carte).
-            var src = CT.findSource(function (s) { return s.domId === show.domId; });
+            var src = CT.sourceByDomId(show.domId);
             var empty = src && (src.data.sound_groups || []).filter(function (g) {
                 return g && g.slug && g.enabled !== false && !CT.groupHasSounds(g);
             })[0];

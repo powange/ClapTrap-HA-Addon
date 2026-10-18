@@ -315,7 +315,11 @@
         var running = !!(CT.state.status && CT.state.status.running);
         // Test du son en cours au demarrage de la detection : l'arreter (son
         // bouton serait desactive, et il garderait une seconde capture).
-        if (running && CT.state.testing && CT.stopTest) CT.stopTest();
+        // Test en cours d'une source que la detection ecoute (seconde capture) :
+        // l'arreter. Une source hors de la session reste testable.
+        // (cle du test = identifiant de la source, assistant compris)
+        var testing = CT.state.testing;
+        if (running && testing && (CT.state.status.sources || []).indexOf(testing.key) !== -1 && CT.stopTest) CT.stopTest();
         // Formats connus du serveur (page ouverte apres la connexion des
         // cameras) ; un format recu en direct depuis, plus recent, est garde.
         var known = (CT.state.status && CT.state.status.audio_formats) || {};
@@ -380,7 +384,12 @@
         });
     }
 
-    function bindCard(card, src) {
+    function bindCard(card, bound) {
+        // Source relue a chaque action : apres un rechargement des reglages
+        // (retour sur l'onglet, renommage, reconnexion), l'objet de la liaison
+        // etait perime et les modifications partaient dans des donnees que
+        // l'ecran n'affichait plus.
+        function cur() { return CT.sourceByDomId(card.id) || bound; }
         var menuBtn = card.querySelector('[data-action="menu"]');
         var menu = card.querySelector('.menu-list');
         function closeMenu() { menu.hidden = true; menuBtn.setAttribute('aria-expanded', 'false'); }
@@ -410,6 +419,7 @@
             var btn = e.target.closest('[data-action]');
             if (!btn || !card.contains(btn)) return;
             var action = btn.getAttribute('data-action');
+            var src = cur();
             if (action === 'test') { closeMenu(); toggleTest(src, card); }
             else if (action === 'record') { recordClip(card, src); }
             else if (action === 'open-settings') { closeMenu(); openSettings(card, src); }
@@ -435,6 +445,7 @@
 
         var toggle = card.querySelector('[data-action="toggle"]');
         toggle.addEventListener('change', function () {
+            var src = cur();
             var value = toggle.checked;
             toggle.disabled = true;
             refreshAfter(CT.withRestart(CT.patchSource(src, {enabled: value})))
@@ -449,7 +460,7 @@
             slider.addEventListener('input', function () {
                 row.querySelector('.threshold-value').textContent = CT.pct(slider.value);
                 slider.setAttribute('aria-valuetext', CT.pct(slider.value));
-                var live = (CT.state.live[src.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
+                var live = (CT.state.live[bound.sourceId] || {scores: {}}).scores[row.getAttribute('data-slug')] || [];
                 drawSpark(row.querySelector('canvas'), live, parseFloat(slider.value), Date.now() / 1000);
             });
             var saveTimer = null;
@@ -460,6 +471,7 @@
                 saveTimer = setTimeout(save, 600);
             });
             function save() {
+                var src = cur();
                 var slug = row.getAttribute('data-slug');
                 CT.api('PUT', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug,
                                                            threshold: parseFloat(slider.value)})
@@ -488,10 +500,15 @@
             }
             input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
             input.addEventListener('change', function () {
+                var src = cur();
                 var body = {};
                 if (name === 'device') {
                     var dev = CT.deviceFromOption(input.value, src.data);
-                    if (!dev) return;
+                    if (!dev) {
+                        input.value = input.dataset.prev;
+                        CT.error('Ce micro n\'est plus détecté : choisissez-en un autre.');
+                        return;
+                    }
                     body.device = dev;
                 } else if (input.type === 'checkbox') {
                     body[name] = input.checked;
@@ -505,6 +522,9 @@
                 var fieldId = input.id;
                 CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
                     input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
+                    // Tout de suite, avant le rechargement : « Afficher le mot de
+                    // passe » remontrait sinon l'ancienne adresse.
+                    Object.assign(src.data, d.source || {});
                     if (name === 'auto_volume') {
                         var vol = card.querySelector('[data-field="volume"]');
                         if (vol) vol.disabled = input.checked;
@@ -512,9 +532,6 @@
                     if (['name', 'url', 'device'].indexOf(name) !== -1) {
                         return CT.refresh().then(function () { CT.markSaved(document.getElementById(fieldId) || input); });
                     }
-                    // Y compris pendant un test (qui lit le gain en direct) : la
-                    // valeur n'etait pas recopiee et revenait au rendu suivant.
-                    Object.assign(src.data, d.source || {});
                     CT.markSaved(input);
                 }).catch(function (err) {
                     if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
@@ -551,7 +568,7 @@
     // l'assistant).
     CT.openSourceSettings = function (domId, groupSlug) {
         var card = document.getElementById(domId);
-        var src = CT.findSource(function (s) { return s.domId === domId; });
+        var src = CT.sourceByDomId(domId);
         if (card && src) openSettings(card, src, false, groupSlug);
     };
 
@@ -576,13 +593,36 @@
         if (!rerender) dlg.querySelector('[data-action="close-settings"]').focus();
         if (!rerender && groupSlug) focusGroup(dlg, groupSlug);
         if (!rerender && src.kind === 'mic') {
-            // Un micro branche apres l'ouverture de la page apparait.
-            var before = JSON.stringify(CT.state.devices);
+            // Un micro branche apres l'ouverture de la page apparait : liste
+            // mise a jour dans le menu (la grille, elle, attend la fermeture).
             CT.reloadDevices().then(function () {
-                if (JSON.stringify(CT.state.devices) !== before && !CT.isEditing()) CT.render();
+                var sel = card.querySelector('[data-field="device"]');
+                var fresh = CT.sourceByDomId(card.id) || src;
+                if (!sel || CT.isTyping()) return;
+                var v = sel.value;
+                sel.innerHTML = CT.deviceOptions(fresh.data.audio_source);
+                if (CT.$$('option', sel).some(function (o) { return o.value === v; })) sel.value = v;
+                sel.dataset.prev = sel.value;   // valeur de retour en cas d'echec
             });
         }
     }
+
+    // Reglages recharges pendant qu'une fenetre est ouverte : titre et groupes
+    // refaits sur place depuis les nouveaux reglages (apres la saisie en cours).
+    CT.onSettingsReloaded = function () {
+        CT.$$('dialog.source-settings[open]').forEach(function (dlg) {
+            var card = dlg.closest('.source-card');
+            var fresh = card && CT.sourceByDomId(card.id);
+            if (!fresh) return;
+            var title = dlg.querySelector('.modal-head h2');
+            if (title) title.textContent = 'Réglages · ' + fresh.name;
+            // Meme cle que les rendus de groups.js : un seul rendu apres la saisie.
+            CT.whenIdle('groups:' + card.id, CT.isTyping, function () {
+                var now = CT.sourceByDomId(card.id);
+                if (now && dlg.open && CT.renderGroupsManage) CT.renderGroupsManage(card, now);
+            });
+        });
+    };
 
     function focusGroup(dlg, groupSlug) {
         var group = groupSlug && dlg.querySelector('.group-card[data-slug="' + CT.cssEscape(groupSlug) + '"]');

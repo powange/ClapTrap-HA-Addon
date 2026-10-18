@@ -283,7 +283,7 @@
     function refreshGroups(src) {
         return CT.refresh().then(function () {
             var card = document.getElementById(src.domId);
-            var fresh = CT.findSource(function (s) { return s.domId === src.domId; });
+            var fresh = CT.sourceByDomId(src.domId);
             if (card && fresh && card.querySelector('dialog.source-settings[open]')) CT.renderGroupsManage(card, fresh);
         });
     }
@@ -317,7 +317,7 @@
         // (c'est la qu'on regarde les sons arriver). Pendant une saisie :
         // a la fin de celle-ci (le son n'apparaissait sinon jamais).
         CT.whenIdle('groups:' + src.domId, CT.isTyping, function () {
-            var fresh = CT.findSource(function (s) { return s.domId === src.domId; });
+            var fresh = CT.sourceByDomId(src.domId);
             var el = document.getElementById(src.domId);
             if (fresh && el) CT.renderGroupsManage(el, fresh);
         });
