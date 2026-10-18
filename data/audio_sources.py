@@ -11,6 +11,7 @@ s'arrete, jusqu'a ce que `stop_event` soit leve.
 
 import logging
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -22,17 +23,42 @@ from url_validator import mask_url_credentials
 
 
 
+# ffmpeg -loglevel level+info : niveau de chaque ligne (« [rtsp @ 0x..] [error] … »).
+_LEVEL_RE = re.compile(r'\[(panic|fatal|error|warning|info|verbose|debug|trace)\] ?')
+# Flux d'entree : « Stream #0:0: Audio: pcm_mulaw, 8000 Hz, mono, s16, 64 kb/s ».
+# Le premier flux audio decrit est celui de la camera (la sortie f32le suit).
+_AUDIO_STREAM_RE = re.compile(r'Stream #\d+:\d+\S*: Audio: ([^,]+), (\d+) Hz(?:, ([^,]+))?')
+
+
+def parse_audio_format(line):
+    """{'codec', 'sample_rate', 'channels'} d'une ligne « Stream … Audio »
+    de ffmpeg, sinon None."""
+    m = _AUDIO_STREAM_RE.search(line)
+    if not m:
+        return None
+    return {'codec': m.group(1).split(' ')[0], 'sample_rate': int(m.group(2)),
+            'channels': (m.group(3) or '').strip()}
+
+
 class ProcessSource:
-    def __init__(self, cmd, name, stall_timeout=15, sanitize=None):
+    def __init__(self, cmd, name, stall_timeout=15, sanitize=None, levels=False):
         self.cmd = cmd
         self.name = name
         self.stall_timeout = stall_timeout
         self.sanitize = sanitize or (lambda s: s)
+        # levels : sortie d'erreur avec niveaux (ffmpeg, -loglevel level+info) :
+        # seules les lignes error/fatal sont des erreurs, les autres decrivent
+        # le flux (format audio de la camera).
+        self.levels = levels
         self._proc = None
         self._lock = threading.Lock()
         # Derniere ligne d'erreur du process (ex. "401 Unauthorized") : sans
         # elle, un mot de passe faux n'apparaissait que comme "flux interrompu".
         self.last_error = ''
+        # Format audio recu (codec, frequence), lu a chaque connexion ;
+        # on_format(fmt) est appele quand il est connu.
+        self.audio_format = None
+        self.on_format = None
 
     def iter_blocks(self, stop_event):
         """Lance le process et produit ses blocs jusqu'a EOF (process mort,
@@ -41,9 +67,44 @@ class ProcessSource:
         with self._lock:
             self._proc = proc
         self.last_error = ''
+        self.audio_format = None
+        # Etat propre a ce lancement : le fil de lecture d'un process precedent
+        # (relance) peut encore vider sa sortie et ne doit plus rien ecrire.
+        state = {'input': False, 'format_done': not self.levels}
 
         def _on_line(line):
-            self.last_error = line[-200:]
+            if self._proc is not proc:
+                return
+            if not self.levels:
+                self.last_error = line[-200:]
+                return
+            # Une fois le format connu, seules les erreurs comptent (les
+            # avertissements RTP d'un flux Wi-Fi peuvent etre frequents).
+            if state['format_done'] and not any(t in line for t in ('[error]', '[fatal]', '[panic]')):
+                return
+            m = _LEVEL_RE.search(line)
+            text = (line[:m.start()] + line[m.end():]).strip() if m else line
+            if m and m.group(1) in ('panic', 'fatal', 'error'):
+                self.last_error = text[-200:]
+                return
+            if state['format_done']:
+                return
+            # Flux d'entree seulement (« Input #0 » ... « Stream mapping » /
+            # « Output #0 ») : la sortie f32le 16 kHz n'est pas la camera.
+            if text.startswith('Input #'):
+                state['input'] = True
+            elif text.startswith(('Output #', 'Stream mapping')):
+                state['input'], state['format_done'] = False, True
+            elif state['input']:
+                fmt = parse_audio_format(text)
+                if fmt:
+                    state['format_done'] = True
+                    self.audio_format = fmt
+                    if self.on_format:
+                        try:
+                            self.on_format(fmt)
+                        except Exception as e:
+                            logging.debug(f"{self.name}: format audio non transmis : {e}")
         drain_stderr(proc, self.name, sanitize=self.sanitize, on_line=_on_line)
         last_data = [time.monotonic()]
         done = threading.Event()
@@ -98,7 +159,9 @@ def mic_source(pulse_name):
 
 def rtsp_source(url, tcp=False):
     cmd = [
-        'ffmpeg', '-nostdin', '-nostats', '-loglevel', 'error',
+        # level+info : erreurs reconnaissables (niveau) et description du flux
+        # recu (format audio de la camera, affiche dans ses reglages).
+        'ffmpeg', '-nostdin', '-nostats', '-loglevel', 'level+info',
         # protocol_whitelist : empeche ffmpeg d'ouvrir file://, http://, etc.
         '-protocol_whitelist', 'rtsp,rtp,udp,tcp,tls',
         # TCP (option par camera) : pas de paquets perdus en Wi-Fi ; par
@@ -112,7 +175,7 @@ def rtsp_source(url, tcp=False):
         '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ac', '1', '-ar', '16000',
         'pipe:1',
     ]
-    return ProcessSource(cmd, 'ffmpeg', stall_timeout=15, sanitize=mask_url_credentials)
+    return ProcessSource(cmd, 'ffmpeg', stall_timeout=15, sanitize=mask_url_credentials, levels=True)
 
 
 class VbanSource:

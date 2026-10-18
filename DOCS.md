@@ -58,7 +58,9 @@ Bouton **Ajouter une source**, puis :
   gèrent pas). Seule la piste audio est demandée à la caméra : la vidéo ne
   circule pas sur le réseau. Codecs audio pris en charge : AAC, G.711
   (µ-law, A-law), G.726, G.722, Opus, MP3/MP2, AMR, GSM, AC-3, Vorbis,
-  Speex et PCM, soit ceux des caméras IP courantes.
+  Speex et PCM, soit ceux des caméras IP courantes. Les réglages de la
+  caméra affichent le **format audio reçu** (par exemple « G.711 µ-law ·
+  8 kHz · mono ») dès qu'elle est écoutée (« Tester le son » ou détection).
 - **Flux VBAN** : un PC qui diffuse du son avec Voicemeeter. Réglez
   l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980 :
   le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur
@@ -465,6 +467,16 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 **Un flux VBAN affiche « Aucun paquet reçu »** : vérifiez que l'émetteur
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
+
+**Sons aigus mal reconnus sur une caméra** (claquement de doigts pris pour
+un animal, applaudissements notés « Mains » ou « Claque ») : regardez le
+**format audio reçu** dans les réglages de la caméra. À 8 kHz (G.711, très
+courant), tout ce qui dépasse 4 kHz est perdu, et les claquements de doigts
+deviennent méconnaissables. Choisissez si possible AAC à 16 kHz ou plus dans
+les réglages audio de la caméra, et désactivez sa réduction de bruit. Vérifiez
+aussi que le VU-mètre ne reste pas dans le rouge (gain trop fort). « Mains »
+et « Claque » sont des sons voisins d'« Applaudissement » : les cocher dans
+le groupe est normal (l'assistant de calibrage le fait).
 
 **Les claps ne sont pas comptés** : regardez la carte pendant un clap. Si le
 son est reconnu mais que le score reste sous le seuil, baissez le seuil du

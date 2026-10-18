@@ -68,3 +68,19 @@ def test_error_reported_when_stream_ends(env, monkeypatch):
 def test_vban_test_requires_known_source(env):
     t, c, readers, emitted = env
     assert c.post('/api/vban/test/start', json={'id': 'nope'}).status_code == 404
+
+
+def test_rtsp_test_reports_camera_audio_format(env, settings_dir):
+    """Detection arretee : le format de la camera s'affiche pendant le test,
+    seulement pour son adresse enregistree (pas une adresse en cours de saisie)."""
+    t, c, readers, emitted = env
+    settings_dir.save_settings({'rtsp_sources': [{'id': 'A', 'name': 'Cam', 'url': 'rtsp://a', 'enabled': True}]})
+    fmt = {'codec': 'pcm_alaw', 'sample_rate': 8000, 'channels': 'mono'}
+    c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://autre'})
+    wait_until(lambda: readers)
+    readers[-1].on_format(fmt)
+    assert not [e for e, d in emitted if e == 'source_format']
+    c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
+    wait_until(lambda: len(readers) == 2)
+    readers[-1].on_format(fmt)
+    assert ('source_format', {'source_id': 'rtsp_A', 'format': fmt}) in emitted

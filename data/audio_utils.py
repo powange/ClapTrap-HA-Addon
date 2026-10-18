@@ -46,7 +46,8 @@ def drain_stderr(proc, name, sanitize=None, on_line=None):
                     line = sanitize(line)
                 if on_line and line:
                     on_line(line)
-                logging.debug(f"{name}: {line}")
+                if logging.getLogger().isEnabledFor(logging.DEBUG):
+                    logging.debug(f"{name}: {line}")
         except Exception:
             pass
     threading.Thread(target=_drain, daemon=True).start()

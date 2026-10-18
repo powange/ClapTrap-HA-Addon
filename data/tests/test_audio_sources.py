@@ -5,6 +5,7 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from audio_sources import ProcessSource, run_source, rtsp_source
 from audio_utils import BLOCK_SAMPLES
@@ -113,3 +114,63 @@ def test_rtsp_tcp_transport_option():
     assert cmd[cmd.index('-allowed_media_types') + 1] == 'audio' and cmd.index('-allowed_media_types') < cmd.index('-i')
     cmd = rtsp_source('rtsp://cam/x', tcp=True).cmd
     assert cmd[cmd.index('-rtsp_transport') + 1] == 'tcp' and cmd.index('-rtsp_transport') < cmd.index('-i')
+
+
+# --- Format audio de la camera (ffmpeg -loglevel level+info) ------------------------
+FFMPEG_INFO = (
+    "[info] Input #0, rtsp, from 'rtsp://cam/x':\n"
+    "[info]   Stream #0:0: Audio: pcm_mulaw, 8000 Hz, mono, s16, 64 kb/s\n"
+    "[info] Stream mapping:\n"
+    "[info]   Stream #0:0: Audio: pcm_f32le, 16000 Hz, mono, flt, 512 kb/s\n"
+    "[udp @ 0x1] [warning] Circular buffer overrun\n")
+
+
+@pytest.mark.parametrize('line, fmt', [
+    ('  Stream #0:0: Audio: pcm_mulaw, 8000 Hz, mono, s16, 64 kb/s',
+     {'codec': 'pcm_mulaw', 'sample_rate': 8000, 'channels': 'mono'}),
+    ('  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp, start 0.161104',
+     {'codec': 'aac', 'sample_rate': 48000, 'channels': 'stereo'}),
+    ('  Stream #0:1[0x101](und): Audio: adpcm_g726, 8000 Hz, 1 channels',
+     {'codec': 'adpcm_g726', 'sample_rate': 8000, 'channels': '1 channels'}),
+    ('  Stream #0:0: Video: h264, yuv420p, 1920x1080', None),
+])
+def test_parse_audio_format(line, fmt):
+    from audio_sources import parse_audio_format
+    assert parse_audio_format(line) == fmt
+
+
+def test_ffmpeg_levels_format_and_errors():
+    """Lignes info : format de la camera (le premier flux, pas la sortie) ;
+    avertissement : pas une erreur ; ligne error : retenue comme cause."""
+    seen = []
+    src = ProcessSource(emitter(2, stderr=FFMPEG_INFO + "[rtsp @ 0x2] [error] method DESCRIBE failed: 401 Unauthorized\n"),
+                        'ffmpeg', levels=True)
+    src.on_format = seen.append
+    assert len(list(src.iter_blocks(threading.Event()))) == 2
+    wait_until(lambda: src.last_error)
+    assert seen == [{'codec': 'pcm_mulaw', 'sample_rate': 8000, 'channels': 'mono'}]
+    assert src.audio_format == seen[0]
+    # niveau retire (contexte garde, comme avant), avertissement ignore
+    assert src.last_error == '[rtsp @ 0x2] method DESCRIBE failed: 401 Unauthorized'
+
+
+def test_rtsp_command_reports_levels():
+    cmd = rtsp_source('rtsp://cam/x').cmd
+    assert cmd[cmd.index('-loglevel') + 1] == 'level+info' and rtsp_source('rtsp://cam/x').levels
+
+
+def test_output_stream_never_taken_for_camera_format():
+    """Entree sans frequence lisible : pas de format, plutot que la sortie
+    f32le 16 kHz (qui rassurerait a tort)."""
+    seen = []
+    info = ("[info] Input #0, rtsp, from 'rtsp://cam/x':\n"
+            "[info]   Stream #0:0: Audio: aac, 0 channels\n"
+            "[info] Stream mapping:\n"
+            "[info]   Stream #0:0: Audio: pcm_f32le, 16000 Hz, mono, flt, 512 kb/s\n"
+            "[error] Error while decoding stream\n")
+    src = ProcessSource(emitter(1, stderr=info), 'ffmpeg', levels=True)
+    src.on_format = seen.append
+    list(src.iter_blocks(threading.Event()))
+    wait_until(lambda: src.last_error)
+    assert seen == [] and src.audio_format is None
+    assert src.last_error == 'Error while decoding stream'   # erreur sans contexte, apres le format

@@ -76,6 +76,7 @@
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
                 '<div class="field"><label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
                     '> Transport TCP</label><p class="hint">Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; certaines caméras ne le gèrent pas.</p></div>' +
+                '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
                 gainField(src, gain, 100);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
@@ -98,6 +99,42 @@
             '<p class="hint">Appelé à chaque détection, en plus des entités Home Assistant.</p>', src.domId + '-webhook');
         return html;
     }
+    // ---- Format audio recu d'une camera ---------------------------------------
+    // Annonce par ffmpeg a chaque connexion (detection ou test du son). Une
+    // frequence sous 16 kHz coupe les aigus que YAMNet utilise : un claquement
+    // de doigts devient meconnaissable (pris pour un animal...).
+    var CODEC_NAMES = {pcm_mulaw: 'G.711 µ-law', pcm_alaw: 'G.711 A-law', aac: 'AAC', aac_latm: 'AAC',
+                       adpcm_g726: 'G.726', adpcm_g726le: 'G.726', adpcm_g722: 'G.722', g722: 'G.722', g726: 'G.726',
+                       opus: 'Opus', mp3: 'MP3', mp3float: 'MP3', mp2: 'MP2', amrnb: 'AMR', amrwb: 'AMR-WB',
+                       pcm_s16be: 'PCM 16 bits', pcm_s16le: 'PCM 16 bits', speex: 'Speex', ac3: 'AC-3', vorbis: 'Vorbis'};
+    var CHANNEL_NAMES = {mono: 'mono', stereo: 'stéréo'};
+    function audioFormatHtml(src) {
+        var fmt = CT.state.audioFormats[src.sourceId];
+        var head = '<span class="field-label">Format audio reçu</span>';
+        if (!fmt) return head + '<p class="hint">Inconnu pour l\'instant : il s\'affiche dès que la caméra est écoutée (« Tester le son » ou détection).</p>';
+        var khz = fmt.sample_rate / 1000;
+        var desc = [CODEC_NAMES[fmt.codec] || fmt.codec, String(khz).replace('.', ',') + ' kHz',
+                    CHANNEL_NAMES[fmt.channels] || fmt.channels].filter(Boolean).join(' · ');
+        var low = fmt.sample_rate < 16000;
+        return head + '<p class="audio-format' + (low ? ' text-warn' : '') + '">' + esc(desc) + '</p>' +
+            '<p class="hint' + (low ? ' text-warn' : '') + '">' + (low
+                ? 'Fréquence trop basse : tout ce qui dépasse ' + String(khz / 2).replace('.', ',') + ' kHz est perdu, et les sons aigus ' +
+                  '(claquement de doigts, sifflement) sont mal reconnus. Si la caméra le permet, choisissez AAC à 16 kHz ou plus ' +
+                  'dans ses réglages audio, puis relancez la détection.'
+                : 'Fréquence suffisante pour la reconnaissance.') + '</p>';
+    }
+    function updateAudioFormat(src) {
+        var card = document.getElementById(src.domId);
+        var el = card && card.querySelector('[data-role="audio-format"]');
+        if (el) el.innerHTML = audioFormatHtml(src);
+    }
+    CT.on('source_format', function (d) {
+        if (!d || !d.source_id || !d.format) return;
+        CT.state.audioFormats[d.source_id] = d.format;
+        var src = CT.findSource(function (s) { return s.sourceId === d.source_id; });
+        if (src) updateAudioFormat(src);
+    });
+
     // Mot de passe d'une URL RTSP masque a l'affichage (rtsp://admin:••••@…).
     function maskUrl(url) {
         // Jusqu'au dernier « @ » : un mot de passe contenant « / » ou « @ »
@@ -197,9 +234,16 @@
         // Test du son en cours au demarrage de la detection : l'arreter (son
         // bouton serait desactive, et il garderait une seconde capture).
         if (running && CT.state.testing && CT.stopTest) CT.stopTest();
+        // Formats connus du serveur (page ouverte apres la connexion des
+        // cameras) ; un format recu en direct depuis, plus recent, est garde.
+        var known = (CT.state.status && CT.state.status.audio_formats) || {};
+        Object.keys(known).forEach(function (sid) {
+            if (!CT.state.audioFormats[sid]) CT.state.audioFormats[sid] = known[sid];
+        });
         CT.sourceList().forEach(function (src) {
             var card = document.getElementById(src.domId);
             if (!card) return;
+            if (src.kind === 'rtsp') updateAudioFormat(src);
             // Pendant la detection, le VU-metre de la carte suit deja le son ;
             // un test ouvrait une seconde capture (2e session RTSP).
             CT.$$('[data-action="test"]', card).forEach(function (b) {

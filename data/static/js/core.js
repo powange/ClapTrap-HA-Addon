@@ -12,6 +12,7 @@
         devices: window.initialDevices || [],
         status: {running: false, source: null, since: null, sources: []},
         sourceStatus: {},   // sourceId -> connecting|connected|reconnecting|error
+        audioFormats: {},   // sourceId -> dernier format audio recu {codec, sample_rate, channels}
         live: {},           // sourceId -> {scores: {slug: [[t, score]...]}}
         testing: null,      // {key, stopUrl, domId}
         openPanels: {},     // ids des <details> ouverts (conserves entre rendus)

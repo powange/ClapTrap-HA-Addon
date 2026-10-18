@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.69.0
+
+### Caméras
+
+- **Format audio reçu affiché** dans les réglages de la caméra (codec,
+  fréquence, mono/stéréo), dès qu'elle est écoutée (« Tester le son » ou
+  détection). Sous 16 kHz (G.711 à 8 kHz, très courant), un avertissement
+  explique que les sons aigus (claquement de doigts, sifflement) sont mal
+  reconnus et propose de choisir AAC 16 kHz ou plus dans la caméra ; le
+  journal le signale aussi (première connexion, puis à chaque changement).
+- Dépannage « sons aigus mal reconnus » ajouté à la documentation.
+
 ## 6.68.0
 
 Simplification du code, sans changement de comportement visible.

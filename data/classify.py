@@ -200,6 +200,7 @@ class DetectionSession:
             self.exclusions = set()
         self._last_live = {}  # (source_id, event) -> instant du dernier envoi
         self.source_status = {}  # source_id -> connecting|connected|reconnecting|error
+        self.audio_formats = {}  # source_id -> format audio recu (cameras : codec, frequence)
         self.webhooks = {s['source_id']: s.get('webhook_url') or '' for s in sources}
         _live_gains.clear()
         _live_gains.update({s['source_id']: float(s['gain']) for s in sources if 'gain' in s})
@@ -215,6 +216,30 @@ class DetectionSession:
             src = next((s for s in self.sources if s['source_id'] == source_id), None)
             if src:
                 self._set_listening(src, status == 'connected')
+
+    def _set_format(self, src, fmt, reader=None):
+        """Format audio annonce par la camera, lu a chaque connexion : affiche
+        dans ses reglages ; une frequence sous 16 kHz (G.711 a 8 kHz, courant)
+        coupe les aigus dont YAMNet a besoin (claquement de doigts...)."""
+        sid = src['source_id']
+        with self._lock:
+            # Appele depuis le fil de lecture de ffmpeg : source retiree ou
+            # relancee entre-temps (autre lecteur), le format n'est plus le sien.
+            runner = self._runners.get(sid)
+            if reader is not None and (runner is None or runner.get('reader') is not reader
+                                       or runner['stop'].is_set()):
+                return
+            if self.audio_formats.get(sid) == fmt:
+                return
+            self.audio_formats[sid] = fmt
+        self._emit('source_format', {'source_id': sid, 'format': fmt})
+        desc = f"{fmt['codec']}, {fmt['sample_rate']} Hz" + (f", {fmt['channels']}" if fmt.get('channels') else '')
+        if fmt['sample_rate'] < 16000:
+            cutoff = f"{fmt['sample_rate'] / 2000:g}".replace('.', ',')   # comme l'interface
+            logging.warning(f"{src['label']} : audio {desc} : sons coupés au-dessus de {cutoff} kHz, "
+                            "reconnaissance des sons aigus dégradée (choisir AAC 16 kHz ou plus dans la caméra si possible)")
+        else:
+            logging.info(f"{src['label']} : audio {desc}")
 
     @staticmethod
     def _set_listening(src, listening):
@@ -428,6 +453,7 @@ class DetectionSession:
         elif kind == 'rtsp':
             url = src['rtsp_url']
             reader = rtsp_source(url, tcp=src.get('rtsp_tcp', False))
+            reader.on_format = lambda fmt, r=reader: self._set_format(src, fmt, r)
             gain_of = lambda: _live_gains.get(sid, 10.0)
             logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={gain_of()}x)")
         else:
@@ -489,6 +515,7 @@ class DetectionSession:
             det = self.detectors.pop(source_id, None)
             self.seen.pop(source_id, None)
             self.source_status.pop(source_id, None)
+            self.audio_formats.pop(source_id, None)
         if runner is None:
             return None, det
         runner['stop'].set()
@@ -716,7 +743,7 @@ def get_status():
         return {'running': False, 'source': None}
     return {'running': True, 'source': s.label, 'since': s.started_at,
             'sources': [src['source_id'] for src in list(s.sources)],
-            'source_status': dict(s.source_status)}
+            'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats)}
 
 
 def get_detection_history():
