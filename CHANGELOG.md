@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.62.0
+
+### Meilleure intégration avec Home Assistant
+
+- **Un appareil par source** (« ClapTrap Salon », « ClapTrap Micro »),
+  rattaché à l'appareil « ClapTrap » : chaque source peut recevoir sa propre
+  pièce. Entity_id, historique et personnalisations inchangés ; les entités
+  globales restent sur « ClapTrap ». Noms affichés : « ClapTrap Salon Clap ·
+  2 claps », « ClapTrap Salon Source active » (HA les préfixe du nom de
+  l'appareil).
+- **Entité event par groupe** (`event.claptrap_<source>_<groupe>_evenement`)
+  : un événement par détection, de type `1clap`, `2claps`… avec score et
+  sons en attributs ; historique et journal lisibles, automatisations
+  simples. Les capteurs à impulsion restent publiés.
+- **Lien vers l'interface** : bouton « Visiter » sur la fiche des appareils
+  ClapTrap.
+- **Mises à jour sûres** : `breaking_versions` arrête la mise à jour
+  automatique avant les versions qui changent des entity_id, des
+  identifiants d'événement ou des routes d'API (6.25, 6.28, 6.32, 6.33,
+  6.45).
+
 ## 6.61.0
 
 ### Home Assistant / MQTT

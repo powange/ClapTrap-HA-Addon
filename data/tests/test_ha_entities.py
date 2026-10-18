@@ -297,12 +297,52 @@ def test_stale_offline_is_corrected(mqtt, monkeypatch):
 
 def test_short_entity_names(mqtt):
     ha.sync_sources(settings())
-    names = {json.loads(p)['name'] for t, p, r in mqtt.published if t.endswith('/config') and p and '/binary_sensor/' in t}
-    assert 'Micro · Clap · 2 claps' in names and 'Cam · Bébé · 1 clap' in names
+    cfgs = [json.loads(p) for t, p, r in mqtt.published if t.endswith('/config') and p and '/binary_sensor/' in t]
+    shown = {f"{c['device']['name']} {c['name']}" for c in cfgs}       # comme HA : appareil + entite
+    assert 'ClapTrap Micro Clap · 2 claps' in shown and 'ClapTrap Cam Bébé · 1 clap' in shown
     mqtt.published.clear()
     ha.sync_sources(settings(rtsp_sources=[{'id': 'abcdef123456', 'name': 'Salon', 'enabled': True,
                                             'sound_groups': [G('clap', 'Clap', [1])]}]))
-    names = {json.loads(p)['name'] for t, p, r in mqtt.published if t.endswith('/config') and p}
+    devices = {json.loads(p)['device']['name'] for t, p, r in mqtt.published if t.endswith('/config') and p}
     # deux sources « Salon » (RTSP et VBAN) : libelle complet pour les distinguer
-    assert 'RTSP: Salon · Clap · 1 clap' in names and 'VBAN: Salon · source active' in names
+    assert {'ClapTrap RTSP: Salon', 'ClapTrap VBAN: Salon'} <= devices
     assert ha.short_name('VBAN: Salon') == 'Salon' and ha.short_name('Micro: alsa_input.usb-x') == 'Micro'
+
+
+def test_event_entity_and_source_devices(mqtt, monkeypatch):
+    monkeypatch.setattr(ha, '_ingress_url', 'homeassistant://hassio/ingress/abc_claptrap')
+    ha.sync_sources(settings())
+    cfgs = {t: json.loads(p) for t, p, r in mqtt.published if t.endswith('/config') and p}
+    ev = cfgs['homeassistant/event/claptrap/mic_clap_evenement/config']
+    assert ev['event_types'] == ['1clap', '2claps'] and ev['default_entity_id'] == 'event.claptrap_mic_clap_evenement'
+    binary = cfgs['homeassistant/binary_sensor/claptrap/mic_clap_1clap/config']
+    assert binary['device']['identifiers'] == ['claptrap_mic'] and binary['device']['via_device'] == 'claptrap'
+    assert binary['device']['name'] == 'ClapTrap Micro' and binary['device']['model'] == 'Micro'
+    assert binary['device']['configuration_url'] == 'homeassistant://hassio/ingress/abc_claptrap'
+    # groupe sans nombre de claps (evenement et webhook seulement) : pas d'entite event
+    assert 'homeassistant/event/claptrap/vban_salon_clap_evenement/config' not in cfgs
+    ha.republish_all()
+    det = next(json.loads(p) for t, p, r in mqtt.published if t.endswith('/detection/config') and p)
+    assert det['device']['identifiers'] == ['claptrap']           # entites globales : appareil principal
+    mqtt.published.clear()
+    ha.on_clap_detected('mic', 0.87, 2, labels=[{'label': 'Clapping', 'score': 0.87}])
+    evt = [(t, json.loads(p), r) for t, p, r in mqtt.published if t == 'claptrap/mic/clap/evenement']
+    assert evt == [('claptrap/mic/clap/evenement',
+                    {'event_type': '2claps', 'score': 0.87, 'sons': [{'classe': 'Clapping', 'score': 0.87}]}, False)]
+
+
+def test_ingress_url_from_supervisor(monkeypatch):
+    monkeypatch.setattr(ha, '_ingress_url', None)
+    monkeypatch.setenv('SUPERVISOR_TOKEN', 'x')
+    monkeypatch.setattr(ha.requests, 'get', lambda *a, **k: types.SimpleNamespace(
+        ok=True, json=lambda: {'data': {'slug': 'a0d7b954_claptrap'}}))
+    assert ha._fetch_ingress_url() == 'homeassistant://hassio/ingress/a0d7b954_claptrap'
+
+
+def test_event_config_removed_when_group_loses_clap_counts(mqtt):
+    s = settings()
+    ha.sync_sources(s)
+    s['microphone']['sound_groups'][0]['ha_entities'] = []
+    mqtt.published.clear()
+    ha.sync_sources(s)
+    assert ('homeassistant/event/claptrap/mic_clap_evenement/config', '', True) in mqtt.published

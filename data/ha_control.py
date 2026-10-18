@@ -38,7 +38,7 @@ SUBSCRIPTIONS = (COMMAND_TOPIC, DETECTION_SET_TOPIC, 'claptrap/+/source_active/s
                  'claptrap/+/+/seuil/set', 'claptrap/+/+/groupe_actif/set', 'claptrap/+/+/nom/set')
 # Entites de reglage et de diagnostic de chaque groupe : (composant, suffixe).
 GROUP_ENTITIES = (('number', 'seuil'), ('switch', 'groupe_actif'), ('sensor', 'score'),
-                  ('text', 'nom'), ('sensor', 'sons'))
+                  ('text', 'nom'), ('sensor', 'sons'), ('event', 'evenement'))
 ANALYSIS_INTERVAL = 2.0   # s entre deux mises a jour des capteurs d'une source
 STATES_DELAY = 0.3        # regroupement des republications apres une ecriture
 
@@ -97,15 +97,16 @@ def init(api_caller, notify_ui=None):
 
 # ===== Entites de reglage ===================================================
 
-def _base_config(component, obj, name, entity_obj=None, **extra):
+def _base_config(component, obj, name, entity_obj=None, device=None, **extra):
     """`obj` : unique_id (stable) ; `entity_obj` : entity_id propose (suit le
-    nom du groupe, renomme dans le registre de HA par ha_registry)."""
+    nom du groupe, renomme dans le registre de HA par ha_registry) ;
+    `device` : appareil de la source (« ClapTrap » par defaut)."""
     cfg = {
         'name': name,
         'unique_id': f'claptrap_{obj}',
         'default_entity_id': f'{component}.claptrap_{entity_obj or obj}',
         'availability_topic': ha.AVAILABILITY_TOPIC,
-        'device': ha._device_block(),
+        'device': device or ha._device_block(),
         'origin': ha._origin_block(),
     }
     cfg.update(extra)
@@ -115,53 +116,60 @@ def _base_config(component, obj, name, entity_obj=None, **extra):
 def source_entities(info):
     """[(composant, object_id, config)] des entites de reglage et de
     diagnostic d'une source publiee."""
-    slug, label = info['slug'], info['label']   # nom court (sync_sources)
+    slug = info['slug']
+    dev = ha.source_device(info)   # « ClapTrap Salon » : nom de source porte par l'appareil
     analyse = f'claptrap/{slug}/analyse'
     out = [
         ('switch', f'{slug}_source_active', _base_config(
-            'switch', f'{slug}_source_active', f'{label} · source active',
+            'switch', f'{slug}_source_active', 'Source active', device=dev,
             command_topic=f'claptrap/{slug}/source_active/set', state_topic=f'claptrap/{slug}/source_active',
             payload_on='ON', payload_off='OFF', entity_category='config', icon='mdi:microphone-settings')),
         ('sensor', f'{slug}_derniere_classe', _base_config(
-            'sensor', f'{slug}_derniere_classe', f'{label} · dernière classe',
+            'sensor', f'{slug}_derniere_classe', 'Dernière classe', device=dev,
             state_topic=analyse, value_template='{{ value_json.classe }}',
             json_attributes_topic=analyse,
             json_attributes_template='{{ {"score": value_json.score, "top3": value_json.top3, '
                                      '"groupes": value_json.groupes, "heure": value_json.heure} | tojson }}',
             entity_category='diagnostic', icon='mdi:waveform')),
         ('sensor', f'{slug}_top3', _base_config(
-            'sensor', f'{slug}_top3', f'{label} · 3 classes probables',
+            'sensor', f'{slug}_top3', '3 classes probables', device=dev,
             state_topic=analyse,
             value_template='{{ value_json.top3 | map(attribute="resume") | join(", ") }}',
             entity_category='diagnostic', icon='mdi:format-list-numbered')),
     ]
     for g_slug, g in info['groups'].items():
         base, ebase = f'{slug}_{g_slug}', f"{slug}_{g.get('entity_slug') or g_slug}"
-        name = f"{label} · {g['name']}"
+        name = g['name']   # HA prefixe du nom de l'appareil de la source
         topic = f'claptrap/{slug}/{g_slug}'
         out += [
             ('number', f'{base}_seuil', _base_config(
-                'number', f'{base}_seuil', f'{name} · seuil', f'{ebase}_seuil',
+                'number', f'{base}_seuil', f'{name} · seuil', f'{ebase}_seuil', device=dev,
                 command_topic=f'{topic}/seuil/set', state_topic=f'{topic}/seuil',
                 min=0, max=100, step=1, unit_of_measurement='%', mode='slider',
                 entity_category='config', icon='mdi:tune-vertical')),
             ('switch', f'{base}_groupe_actif', _base_config(
-                'switch', f'{base}_groupe_actif', f'{name} · actif', f'{ebase}_groupe_actif',
+                'switch', f'{base}_groupe_actif', f'{name} · actif', f'{ebase}_groupe_actif', device=dev,
                 command_topic=f'{topic}/groupe_actif/set', state_topic=f'{topic}/groupe_actif',
                 payload_on='ON', payload_off='OFF', entity_category='config', icon='mdi:toggle-switch-outline')),
             ('sensor', f'{base}_score', _base_config(
-                'sensor', f'{base}_score', f'{name} · score', f'{ebase}_score',
+                'sensor', f'{base}_score', f'{name} · score', f'{ebase}_score', device=dev,
                 state_topic=analyse, unit_of_measurement='%',
                 value_template=('{% set s = value_json.groupes.get("' + g_slug + '") %}'
                                 '{{ (s * 100) | round(0) if s is not none else none }}'),
                 entity_category='diagnostic', icon='mdi:gauge')),
             # Renommer le groupe depuis HA (entity_id renommes, historique conserve).
             ('text', f'{base}_nom', _base_config(
-                'text', f'{base}_nom', f'{name} · nom', f'{ebase}_nom',
+                'text', f'{base}_nom', f'{name} · nom', f'{ebase}_nom', device=dev,
                 command_topic=f'{topic}/nom/set', state_topic=f'{topic}/nom',
                 min=1, max=80, mode='text', entity_category='config', icon='mdi:rename')),
+            *([('event', f'{base}_evenement', _base_config(
+                'event', f'{base}_evenement', name, f'{ebase}_evenement', device=dev,
+                # score et sons : attributs (cles autres qu'event_type du message)
+                state_topic=f'{topic}/evenement', device_class='button', icon='mdi:hand-clap',
+                event_types=[ha.event_type(n) for n in g['clap_counts']]))]
+              if g.get('clap_counts') else []),
             ('sensor', f'{base}_sons', _base_config(
-                'sensor', f'{base}_sons', f'{name} · sons', f'{ebase}_sons',
+                'sensor', f'{base}_sons', f'{name} · sons', f'{ebase}_sons', device=dev,
                 state_topic=f'{topic}/sons', value_template='{{ value_json.nombre }}',
                 json_attributes_topic=f'{topic}/sons',
                 json_attributes_template='{{ {"sons": value_json.sons, "sons_non_coches": value_json.non_coches, '
@@ -178,9 +186,12 @@ def control_topics(info):
     p, slug = ha.MQTT_TOPIC_PREFIX, info['slug']
     topics = {f'{p}/switch/claptrap/{slug}_source_active/config', f'{p}/sensor/claptrap/{slug}_derniere_classe/config',
               f'{p}/sensor/claptrap/{slug}_top3/config', f'claptrap/{slug}/source_active', f'claptrap/{slug}/analyse'}
-    for g_slug in info['groups']:
+    for g_slug, g in info['groups'].items():
         base = f'{slug}_{g_slug}'
-        topics |= {f'{p}/{c}/claptrap/{base}_{suffix}/config' for c, suffix in GROUP_ENTITIES}
+        # Entite event seulement avec des nombres de claps : sans eux, sa
+        # configuration doit disparaitre (sinon entite figee pour toujours).
+        topics |= {f'{p}/{c}/claptrap/{base}_{suffix}/config' for c, suffix in GROUP_ENTITIES
+                   if c != 'event' or g.get('clap_counts')}
         topics |= {f'claptrap/{slug}/{g_slug}/{t}' for t in ('seuil', 'groupe_actif', 'nom', 'sons')}
     return topics
 

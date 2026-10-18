@@ -53,6 +53,7 @@ def configs(client):
 SNAP_IDS = [
     'binary_sensor.claptrap_vban_atomsalon_snap_3claps',
     'binary_sensor.claptrap_vban_atomsalon_snap_4claps',
+    'event.claptrap_vban_atomsalon_snap_evenement',
     'number.claptrap_vban_atomsalon_snap_seuil',
     'sensor.claptrap_vban_atomsalon_snap_score',
     'sensor.claptrap_vban_atomsalon_snap_sons',
@@ -203,14 +204,14 @@ def no_wait(monkeypatch):
 def test_registry_rename_normal_path(ren, settings_dir, monkeypatch, caplog):
     rename(ren, 'Snap')
     entries = entries_at(OLD_IDS)
-    entries[2]['entity_id'] = 'number.seuil_sifflet_salon'      # renomme a la main dans HA
+    entries[3]['entity_id'] = 'number.seuil_sifflet_salon'      # renomme a la main dans HA
     fake = FakeSession(entries)
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     with caplog.at_level(logging.INFO):
         report = ha_registry.reconcile()
     assert set(fake.updates) == {(o, n) for o, n in zip(OLD_IDS, SNAP_IDS) if not o.startswith('number.')}
     assert 'binary_sensor.claptrap_vban_atomsalon_siffler_3claps -> binary_sensor.claptrap_vban_atomsalon_snap_3claps' in caplog.text
-    assert report[0] == ('bilan : 6 renommées, 0 déjà à jour, 1 conservées (id personnalisé), '
+    assert report[0] == ('bilan : 7 renommées, 0 déjà à jour, 1 conservées (id personnalisé), '
                          '0 conflits, 0 introuvables, 0 erreurs')
     assert 'number.seuil_sifflet_salon' in fake.reg                 # id choisi dans HA : conserve
     assert '_renamed_from' not in group(settings_dir)
@@ -232,7 +233,7 @@ def test_already_renamed_by_hand_is_a_no_op(ren, settings_dir, monkeypatch):
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     report = ha_registry.reconcile()
     assert fake.updates == []
-    assert report[0].startswith('bilan : 0 renommées, 7 déjà à jour, 0 conservées')
+    assert report[0].startswith('bilan : 0 renommées, 8 déjà à jour, 0 conservées')
     assert sorted(fake.reg) == sorted(SNAP_IDS)                      # aucun doublon « _2 »
     assert '_renamed_from' not in group(settings_dir)
 
@@ -258,7 +259,7 @@ def test_entities_not_found(ren, settings_dir, monkeypatch):
     fake = FakeSession([])
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     report = ha_registry.reconcile()
-    assert ', 7 introuvables,' in report[0]
+    assert ', 8 introuvables,' in report[0]
     assert fake.types.count('config/entity_registry/list_for_display') == 1   # recours construit une fois
     assert '_renamed_from' not in group(settings_dir)
 
@@ -271,7 +272,7 @@ def test_connection_drop_resumes(ren, settings_dir, monkeypatch, no_wait, caplog
     with caplog.at_level(logging.INFO):
         report = ha_registry.reconcile()
     assert len(connects) == 2 and 'reprise 1/3' in caplog.text
-    assert report[0].startswith('bilan : 7 renommées')
+    assert report[0].startswith('bilan : 8 renommées')
     assert sorted(fake.reg) == sorted(SNAP_IDS)
 
 
@@ -361,7 +362,7 @@ def test_replayed_update_after_drop_counts_as_renamed(ren, monkeypatch):
     fake = Replayed(entries_at(OLD_IDS))
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     report = ha_registry.reconcile()
-    assert report[0].startswith('bilan : 7 renommées') and ', 0 erreurs' in report[0]
+    assert report[0].startswith('bilan : 8 renommées') and ', 0 erreurs' in report[0]
 
 
 def test_transient_error_keeps_group_pending(ren, settings_dir, monkeypatch):
@@ -398,7 +399,7 @@ def test_multi_pass_rename(ren, settings_dir, monkeypatch):
     fake = Ordered(entries)
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     report = ha_registry.reconcile()
-    assert order.count(OLD_IDS[0]) == 2 and report[0].startswith('bilan : 7 renommées')
+    assert order.count(OLD_IDS[0]) == 2 and report[0].startswith('bilan : 8 renommées')
 
 
 def test_shorter_delay_advances_scheduled_retry(monkeypatch):
@@ -477,4 +478,4 @@ def test_hand_renamed_with_other_spelling_kept(ren, monkeypatch):
     monkeypatch.setattr(ha_registry, '_connect', lambda: fake)
     report = ha_registry.reconcile()
     assert fake.updates == []
-    assert report[0].startswith('bilan : 0 renommées, 5 déjà à jour, 2 conservées (id personnalisé), 0 conflits')
+    assert report[0].startswith('bilan : 0 renommées, 6 déjà à jour, 2 conservées (id personnalisé), 0 conflits')

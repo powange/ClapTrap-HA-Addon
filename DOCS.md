@@ -131,10 +131,15 @@ calibrage se pilote aussi par commandes MQTT (voir plus bas).
 
 ## Entités Home Assistant
 
-Toutes les entités sont regroupées dans l'appareil **ClapTrap**.
+Chaque source a son propre appareil (« ClapTrap Salon », « ClapTrap Micro »),
+rattaché à l'appareil **ClapTrap** : vous pouvez lui affecter une pièce. Les
+entités globales (détection, configuration, dernière commande) restent sur
+**ClapTrap**. Le bouton **Visiter** de la fiche d'un appareil ouvre
+l'interface de ClapTrap.
 
 | Entité | Rôle |
 |---|---|
+| `event.claptrap_<source>_<groupe>_evenement` | un événement par détection : type `1clap`, `2claps`… (nombres cochés du groupe), attributs `score` et `sons` |
 | `binary_sensor.claptrap_<source>_<groupe>_1clap` | 1 clap détecté |
 | `binary_sensor.claptrap_<source>_<groupe>_2claps` | 2 claps, etc. jusqu'à `4claps` (au-delà de 4, aucune entité : c'est du bruit, pas un geste) |
 | `binary_sensor.claptrap_detection` | la détection tourne (attribut `sources`) |
@@ -156,7 +161,24 @@ Toutes les entités sont regroupées dans l'appareil **ClapTrap**.
   (détection arrêtée, source désactivée, flux RTSP en erreur, VBAN muet).
   Elles sont conservées, avec leurs personnalisations (nom, zone, icône).
 
-Exemple d'automatisation :
+Exemples d'automatisation, avec l'entité event (historique lisible : type et
+score de chaque détection) ou avec le capteur à impulsion :
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.claptrap_mic_clap_evenement
+    not_from: unavailable
+conditions:
+  - condition: state
+    entity_id: event.claptrap_mic_clap_evenement
+    attribute: event_type
+    state: 2claps
+actions:
+  - action: light.toggle
+    target:
+      entity_id: light.salon
+```
 
 ```yaml
 triggers:
@@ -168,6 +190,10 @@ actions:
     target:
       entity_id: light.salon
 ```
+
+Avec l'entité event, préférez un déclencheur sur son état (l'horodatage de
+la dernière détection change à chaque fois) : deux « 2claps » de suite
+déclenchent bien deux fois.
 
 **Supprimer les entités orphelines** (onglet Réglages) retire les entités
 ClapTrap qui ne correspondent plus à aucune source.
@@ -395,6 +421,7 @@ lignes : ouvrez une issue sur le dépôt avec leur contenu.
 | 6.48 | Un export « sans secrets » est refusé à l'import | Importer une sauvegarde complète (« Exporter »). |
 | 6.58 | Renommer un groupe renomme ses entity_id dans HA (historique conservé) | Après un renommage, adapter les automatisations (correspondances dans le journal). |
 | 6.61 | Noms affichés des entités raccourcis (« Salon · Clap · 2 claps » au lieu de « VBAN: Salon Clap 2 claps ») ; entity_id inchangés | Rien (un nom personnalisé dans HA est conservé). |
+| 6.62 | Un appareil par source dans HA (« ClapTrap Salon ») : noms affichés « ClapTrap Salon Clap · 2 claps » ; nouvelle entité event par groupe ; mise à jour automatique arrêtée avant les versions qui changent des identifiants (`breaking_versions`) | Rien ; affecter éventuellement une pièce à chaque appareil. |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).
