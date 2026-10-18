@@ -14,7 +14,6 @@ import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
 import requests
 
 from audio_detector import AudioDetector

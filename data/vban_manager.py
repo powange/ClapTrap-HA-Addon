@@ -27,7 +27,6 @@ def init_vban_detector():
 
 def get_vban_detector():
     """Get the global VBAN detector instance"""
-    global vban_detector
     if vban_detector is None:
         if not init_vban_detector():
             return None

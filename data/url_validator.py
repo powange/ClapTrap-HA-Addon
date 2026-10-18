@@ -18,7 +18,7 @@ def is_valid_url(url):
         return False
     try:
         parts = urlsplit(url)
-        port = parts.port  # leve ValueError si le port est invalide
+        parts.port  # leve ValueError si le port est invalide
     except ValueError:
         return False
     if parts.scheme.lower() not in ('http', 'https'):

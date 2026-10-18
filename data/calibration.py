@@ -66,7 +66,6 @@ def _watchdog(session):
 
 
 def _current():
-    global _session
     s = _session
     if s is not None and time.monotonic() - s.last_activity > IDLE_TIMEOUT:
         logging.info("Calibrage abandonné (inactif)")

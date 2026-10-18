@@ -13,7 +13,7 @@ def client(settings_dir, monkeypatch):
     import routes.sources as rs
     from routes.detection import detection_bp
     from routes.settings_routes import settings_bp
-    monkeypatch.setattr(rs, '_resolve_pulse_name', lambda s: 'alsa.usb')
+    monkeypatch.setattr(rs, '_find_pulse_name', lambda s: ('alsa.usb', None))
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
     for bp in (rs.sources_bp, settings_bp, detection_bp):
@@ -321,7 +321,7 @@ def test_group_and_source_counts_bounded(client, settings_dir, monkeypatch):
 
 def test_mic_device_and_auto_volume_in_one_request(client, settings_dir, monkeypatch):
     import routes.sources as rs
-    monkeypatch.setattr(rs, '_resolve_pulse_name', lambda s: '')        # ancien micro : aucun
+    monkeypatch.setattr(rs, '_find_pulse_name', lambda s: ('', None))        # ancien micro : aucun
     monkeypatch.setattr(rs, 'get_audio_input_devices', lambda: [{'name': 'USB', 'pulse_name': 'alsa.usb'}])
     settings_dir.save_settings({'microphone': {'configured': True, 'audio_source': 'default'}})
     r = client.patch('/api/sources/mic/mic', json={'device': {'name': 'USB', 'pulse_name': 'alsa.usb'},
@@ -386,3 +386,44 @@ def test_overlong_exclusion_can_be_removed(client, settings_dir):
 def test_old_backup_exclusions_coerced(client, settings_dir):
     r = client.post('/api/settings/import', json={'global': {'sound_exclusions': ['Speech', 3, '', None]}})
     assert r.status_code == 200 and settings_dir.load_settings()['global']['sound_exclusions'] == ['Speech', '3']
+
+
+def test_find_pulse_name_never_writes(settings_dir, monkeypatch):
+    """Validation et test du son : le micro est cherche sans rien enregistrer ;
+    seule la resolution enregistre la correction."""
+    import routes.sources as rs
+    monkeypatch.setattr(rs, 'get_audio_input_devices',
+                        lambda: [{'name': 'Micro USB', 'pulse_name': 'alsa.usb'}])
+    written = []
+    monkeypatch.setattr(rs, '_persist_pulse_name', written.append)
+    settings = {'microphone': {'audio_source': 'Micro USB', 'pulse_name': 'alsa.old'}}
+    assert rs._find_pulse_name(settings) == ('alsa.usb', 'alsa.usb') and written == []
+    assert rs._resolve_pulse_name(settings) == 'alsa.usb' and written == ['alsa.usb']
+    assert rs._find_pulse_name({'microphone': {'audio_source': 'default', 'pulse_name': 'x'}}) == ('', '')
+    assert rs._find_pulse_name({'microphone': {'audio_source': 'Micro USB', 'pulse_name': 'alsa.usb'}}) == ('alsa.usb', None)
+
+
+def test_restart_added_only_to_successful_json(client):
+    from flask import Flask, g, jsonify
+    import routes.sources as rs
+    app = Flask(__name__)
+    with app.test_request_context():
+        g.restart = 'ok'
+        failed = jsonify({'success': False})
+        failed.status_code = 400
+        assert 'restart' not in rs.add_restart_to_response(failed).get_json() and 'restart' not in g   # consomme
+        g.restart = 'ok'
+        assert rs.add_restart_to_response(jsonify({'success': True})).get_json() == {'success': True, 'restart': 'ok'}
+        assert rs.add_restart_to_response(jsonify([1, 2])).get_json() == [1, 2]   # listes inchangees
+
+
+def test_auto_volume_saves_corrected_pulse_name_with_change(client, settings_dir, monkeypatch):
+    """Nom PulseAudio perime : la correction est enregistree avec l'activation
+    du volume automatique (plus pendant la seule validation)."""
+    import routes.sources as rs
+    monkeypatch.setattr(rs, '_find_pulse_name', lambda s: ('alsa.new', 'alsa.new'))
+    settings_dir.save_settings({'microphone': {'configured': True, 'audio_source': 'Micro', 'pulse_name': 'alsa.old'}})
+    r = client.patch('/api/sources/mic/mic', json={'auto_volume': True})
+    assert r.status_code == 200, r.json
+    mic = settings_dir.load_settings()['microphone']
+    assert mic['auto_volume'] is True and mic['pulse_name'] == 'alsa.new'

@@ -107,11 +107,8 @@
     }
 
     function filterChips(search) {
-        var q = search.value.trim().toLowerCase();
-        CT.$$('.chip', search.closest('.group-card')).forEach(function (chip) {
-            var label = chip.querySelector('input').getAttribute('data-label');
-            chip.hidden = !!q && (label + ' ' + CT.soundLabel(label)).toLowerCase().indexOf(q) === -1;
-        });
+        CT.filterChips(CT.$$('.chip', search.closest('.group-card')), search.value,
+                       function (chip) { return chip.querySelector('input').getAttribute('data-label'); });
     }
 
     function putGroup(src, slug, body) {

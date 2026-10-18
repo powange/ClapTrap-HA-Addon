@@ -59,6 +59,10 @@ const change = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') e
 const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string' ? c[1] === u : u.test(c[1]))).pop();
 (async () => {
   await tick(4);
+  // --- lot 6.68 : simplifications
+  const histGets = () => calls.filter(c => c[0] === 'GET' && c[1] === '/api/detections/history').length;
+  ok('+  historique chargé une seule fois au démarrage', histGets() === 1);
+  ok('+  thème toujours posé (Home Assistant ou système)', ['light', 'dark'].includes(d.documentElement.getAttribute('data-theme')));
   // 8 / 21 : toutes les sources visibles
   ok('8. toutes les sources visibles en cartes', $$('.source-card').length === 3 && !!$('#add-source'));
   // 1 : demarrer / arreter
@@ -212,8 +216,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 20 : statut + resync
   status = { running: false, sources: [] }; emit('detection_status', { status: 'stopped' }); await tick(3);
   ok('20. arrêt reçu du serveur', $('#status-title').textContent === 'Détection arrêtée');
+  const histBefore = histGets();
   emit('connect'); emit('connect'); await tick(3);
   ok('20. resynchronisation à la reconnexion', calls.filter(c => c[1] === '/api/settings').length >= 1);
+  ok('+  historique rechargé à la reconnexion seulement (pas à la 1re connexion)', histGets() === histBefore + 1);
   // 18 : messages
   ok('18. messages (toasts aria-live)', $$('#toasts .toast').length > 0);
   // micro : suppression + re-ajout via assistant
@@ -433,6 +439,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  menu fermé : aria-expanded remis à false',
      menuOf('src-mic').getAttribute('aria-expanded') === 'false' && menuOf(otherCard).getAttribute('aria-expanded') === 'true');
   d.body.click(); await tick();
+  ok('+  clic hors des menus : tous fermés', $$('.menu-list').every(m => m.hidden) &&
+     menuOf(otherCard).getAttribute('aria-expanded') === 'false');
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

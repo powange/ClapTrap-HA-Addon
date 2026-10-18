@@ -34,7 +34,7 @@ def cal(settings_dir, mqtt, monkeypatch):
     import routes.sources as rs
     from routes.calibration import calibration_bp
     from routes.settings_routes import settings_bp
-    monkeypatch.setattr(rs, '_resolve_pulse_name', lambda s: 'alsa.usb')
+    monkeypatch.setattr(rs, '_find_pulse_name', lambda s: ('alsa.usb', None))
     app = Flask(__name__)
     for bp in (rs.sources_bp, settings_bp, calibration_bp):
         app.register_blueprint(bp)

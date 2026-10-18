@@ -76,11 +76,8 @@
         filterAvailable();
     }
     function filterAvailable() {
-        var q = (CT.$('#available-search').value || '').trim().toLowerCase();
-        CT.$$('#available-list .chip').forEach(function (c) {
-            var l = c.getAttribute('data-exclude');
-            c.hidden = !!q && (l + ' ' + CT.soundLabel(l)).toLowerCase().indexOf(q) === -1;
-        });
+        CT.filterChips(CT.$$('#available-list .chip'), CT.$('#available-search').value,
+                       function (c) { return c.getAttribute('data-exclude'); });
     }
     function bindExclusions() {
         CT.$('#exclusions').addEventListener('click', function (e) {

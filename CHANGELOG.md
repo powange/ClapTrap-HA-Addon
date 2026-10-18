@@ -1,5 +1,38 @@
 # Changelog
 
+## 6.68.0
+
+Simplification du code, sans changement de comportement visible.
+
+### Réglages et API
+
+- **Import en une seule passe** : la fusion et le contrôle des collisions
+  d'entités se font une fois, sous le verrou de l'enregistrement (la fusion
+  était calculée deux fois, la seconde hors verrou).
+- **Bornes définies une fois** : les réglages avancés et l'import partagent
+  les mêmes bornes, et la même longueur maximale de nom de groupe ; les
+  noms des sources et des groupes passent par un seul validateur dans
+  l'API ; types des sections vérifiés une fois.
+- **Validation sans effet de bord** : activer le volume automatique vérifie
+  le micro sans rien écrire pendant la vérification ; un nom PulseAudio
+  périmé est corrigé dans le même enregistrement que l'activation, et
+  seulement si elle est acceptée.
+- **Filtre ingress** : les adresses refusées gardées en mémoire sont
+  plafonnées aux plus récentes ; une adresse est de nouveau signalée au
+  journal après une heure.
+- Code mort retiré (imports, variables et déclarations inutilisés).
+
+### Interface
+
+- **Thème sombre écrit une fois** : le thème (Home Assistant, sinon système)
+  est toujours posé avant l'affichage ; la palette sombre n'est plus
+  dupliquée pour la préférence système.
+- **Historique chargé une fois** au démarrage (il l'était aussi à la
+  première connexion temps réel, qui ne le recharge plus que si ce premier
+  chargement a échoué) ; toujours rechargé à chaque reconnexion.
+- Factorisés : consigne de fin de l'assistant (3 versions), filtre des
+  pastilles de sons, fermeture des menus, comparaison de l'adresse masquée.
+
 ## 6.67.0
 
 ### Documentation

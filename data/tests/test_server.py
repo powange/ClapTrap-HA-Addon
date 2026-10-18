@@ -176,3 +176,23 @@ def test_run_sh_finds_pulse_server_and_starts_gunicorn(run_sh):
 def test_run_sh_keeps_existing_pulse_server(run_sh):
     out, _ = run_sh(PULSE_SERVER='tcp:audio:4713')
     assert 'PULSE_SERVER=tcp:audio:4713' in out and 'extrait de pactl' not in out
+
+
+def test_ingress_rejected_addresses_are_capped(monkeypatch, caplog):
+    """Liste plafonnee aux adresses les plus recentes, une nouvelle adresse
+    reste journalisee ; une adresse deja vue l'est de nouveau apres 1 h."""
+    import app as appmod
+    mw = _middleware(monkeypatch, token=True)
+    monkeypatch.setattr(mw, 'MAX_REJECTED', 3)
+    clock = [1000.0]
+    monkeypatch.setattr(appmod.time, 'monotonic', lambda: clock[0])
+    warned = lambda: len([r for r in caplog.records if 'Acces refuse' in r.getMessage()])  # noqa: E731
+    with caplog.at_level(logging.WARNING):
+        for i in range(10):
+            assert _call(mw, f'10.0.0.{i}')[0].startswith('403')   # toujours refuse
+        assert len(mw._rejected) == 3 and warned() == 10            # chaque nouvelle adresse journalisee
+        _call(mw, '10.0.0.9')
+        assert warned() == 10                                       # deja signalee il y a peu
+        clock[0] += mw.REJECT_LOG_EVERY
+        _call(mw, '10.0.0.9')
+        assert warned() == 11                                       # rappel apres 1 h

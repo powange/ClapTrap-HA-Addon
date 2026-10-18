@@ -68,10 +68,11 @@
                 '<p class="hint">Le volume automatique ajuste le micro pour garder un bon niveau.</p></div>';
         } else if (src.kind === 'rtsp') {
             var gain = d.gain != null ? d.gain : 10;
+            var shown = maskUrl(d.url || ''), hidden = shown !== (d.url || '');
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
-                field('Adresse du flux', '<div class="input-group"><input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(maskUrl(d.url || '')) + '"' +
-                    (maskUrl(d.url || '') !== (d.url || '') ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
-                    (maskUrl(d.url || '') !== (d.url || '') ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
+                field('Adresse du flux', '<div class="input-group"><input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(shown) + '"' +
+                    (hidden ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
+                    (hidden ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
                 '<div class="field"><label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
                     '> Transport TCP</label><p class="hint">Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; certaines caméras ne le gèrent pas.</p></div>' +
@@ -102,6 +103,12 @@
         // Jusqu'au dernier « @ » : un mot de passe contenant « / » ou « @ »
         // restait en partie visible.
         return String(url || '').replace(/^([a-z][a-z0-9+.-]*:\/\/[^:@\/\s]*):\S*@/i, '$1:••••@');
+    }
+    // Adresse reelle d'un champ d'URL : l'adresse masquee affichee (champ
+    // non revele) vaut l'adresse enregistree.
+    function realUrl(input, src) {
+        var v = input.value.trim();
+        return input.dataset.secret && v === maskUrl(src.data.url || '') ? (src.data.url || '') : v;
     }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
@@ -226,6 +233,17 @@
         });
     }
 
+    // Ferme les menus « ⋯ » ouverts, sauf celui qui contient `keep` (clic
+    // dedans) : un menu ferme ne reste pas « developpe » (aria-expanded).
+    function closeMenus(keep) {
+        CT.$$('.menu-list').forEach(function (m) {
+            if (m.hidden || (keep && m.parentNode.contains(keep))) return;
+            m.hidden = true;
+            var btn = m.parentNode.querySelector('[data-action="menu"]');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        });
+    }
+
     function bindCard(card, src) {
         var menuBtn = card.querySelector('[data-action="menu"]');
         var menu = card.querySelector('.menu-list');
@@ -233,11 +251,7 @@
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             var open = menu.hidden;
-            CT.$$('.menu-list').forEach(function (m) {
-                m.hidden = true;
-                var b = m.parentNode.querySelector('[data-action="menu"]');
-                if (b) b.setAttribute('aria-expanded', 'false');   // l'autre menu ferme ne reste pas « développé »
-            });
+            closeMenus();
             menu.hidden = !open;
             menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
             if (open) {
@@ -349,8 +363,7 @@
                 } else {
                     body[name] = input.value.trim();
                 }
-                if (input.dataset.secret && (body[name] === maskUrl(src.data.url || '') ||
-                                             body[name] === (src.data.url || ''))) return;  // rien change
+                if (input.dataset.secret && realUrl(input, src) === (src.data.url || '')) return;  // rien change
                 var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device', 'rtsp_tcp'].indexOf(name) !== -1);
                 var fieldId = input.id;
                 CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
@@ -478,8 +491,7 @@
         if (CT.state.testing && CT.state.testing.domId === src.domId) { CT.stopTest(); return; }
         var url = card.querySelector('[data-field="url"]');
         var gain = card.querySelector('[data-field="gain"]');
-        var u = url && url.value;
-        if (url && url.dataset.secret && u === maskUrl(src.data.url || '')) u = src.data.url;
+        var u = url && realUrl(url, src);
         CT.startTest(CT.testFor(src, u, gain && parseInt(gain.value, 10)))
             .catch(function (err) { CT.error('Test impossible : ' + err.message); });
     }
@@ -508,15 +520,7 @@
     }
 
     // Un seul ecouteur global ferme les menus ouverts (pas un par rendu de carte).
-    document.addEventListener('click', function (e) {
-        CT.$$('.menu-list').forEach(function (m) {
-            if (!m.hidden && !m.parentNode.contains(e.target)) {
-                m.hidden = true;
-                var btn = m.parentNode.querySelector('[data-action="menu"]');
-                if (btn) btn.setAttribute('aria-expanded', 'false');
-            }
-        });
-    });
+    document.addEventListener('click', function (e) { closeMenus(e.target); });
 
     // ---- Temps reel pendant la detection ----------------------------------------
     // Index sourceId -> {src, card, rows} construit a chaque rendu : les
@@ -652,13 +656,10 @@
         }
         return sparkColors;
     }
+    // data-theme suit aussi le theme du systeme (script de index.html).
     if (window.MutationObserver) {
         new MutationObserver(function () { sparkColors = null; CT.redrawLive(); })
             .observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
-    }
-    if (window.matchMedia) {
-        var mq = window.matchMedia('(prefers-color-scheme: dark)');
-        if (mq.addEventListener) mq.addEventListener('change', function () { sparkColors = null; CT.redrawLive(); });
     }
     function drawSpark(canvas, series, threshold, now) {
         var ctx = canvas && canvas.getContext && canvas.getContext('2d');

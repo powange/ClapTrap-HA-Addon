@@ -9,7 +9,8 @@
     <script>
         /* Theme de Home Assistant (clair / sombre), applique avant l'affichage :
            l'ingress sert la page dans la meme origine que HA, on lit la couleur
-           de fond de son theme ; a defaut, le theme du systeme s'applique. */
+           de fond de son theme ; a defaut, celui du systeme. data-theme est
+           donc toujours pose : la palette sombre n'est ecrite qu'une fois en CSS. */
         window.ctSyncTheme = function () {
             function lum(color) {
                 var ctx = document.createElement('canvas').getContext('2d');
@@ -30,11 +31,15 @@
                     if (l !== null) theme = l < 0.4 ? 'dark' : 'light';
                 }
             } catch (e) { theme = null; }
+            if (!theme) theme = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             var el = document.documentElement;
-            if (theme) { if (el.getAttribute('data-theme') !== theme) el.setAttribute('data-theme', theme); }
-            else el.removeAttribute('data-theme');
+            if (el.getAttribute('data-theme') !== theme) el.setAttribute('data-theme', theme);
         };
         window.ctSyncTheme();
+        if (window.matchMedia) {
+            var ctMq = matchMedia('(prefers-color-scheme: dark)');
+            if (ctMq.addEventListener) ctMq.addEventListener('change', window.ctSyncTheme);
+        }
     </script>
 </head>
 <body>
