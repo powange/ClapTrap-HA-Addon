@@ -438,6 +438,15 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   menuOf(otherCard).click(); await tick();
   ok('+  menu fermé : aria-expanded remis à false',
      menuOf('src-mic').getAttribute('aria-expanded') === 'false' && menuOf(otherCard).getAttribute('aria-expanded') === 'true');
+  // --- 6.69 : format audio recu d'une camera (reglages de la source)
+  const cam = CT.sourceList().find(x => x.kind === 'rtsp');
+  const fmtEl = () => $('#' + cam.domId + ' [data-role="audio-format"]');
+  ok('+  format audio : inconnu tant que la caméra n\'est pas écoutée', !!fmtEl() && /Inconnu pour l'instant/.test(fmtEl().textContent));
+  emit('source_format', { source_id: cam.sourceId, format: { codec: 'pcm_mulaw', sample_rate: 8000, channels: 'mono' } }); await tick();
+  ok('+  format audio 8 kHz : affiché et signalé', /G\.711 µ-law · 8 kHz · mono/.test(fmtEl().textContent) &&
+     /au-dessus de|dépasse 4 kHz/.test(fmtEl().textContent) && !!fmtEl().querySelector('.text-warn'));
+  emit('source_format', { source_id: cam.sourceId, format: { codec: 'aac', sample_rate: 16000, channels: 'stereo' } }); await tick();
+  ok('+  format audio 16 kHz : suffisant', /AAC · 16 kHz · stéréo/.test(fmtEl().textContent) && !fmtEl().querySelector('.text-warn'));
   d.body.click(); await tick();
   ok('+  clic hors des menus : tous fermés', $$('.menu-list').every(m => m.hidden) &&
      menuOf(otherCard).getAttribute('aria-expanded') === 'false');

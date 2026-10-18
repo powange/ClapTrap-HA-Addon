@@ -424,3 +424,31 @@ def test_sound_seen_tolerates_list_disabled_meanwhile(session_env):
     session.seen.pop('x')           # source arretee
     session._on_sound_seen(src, {'label': 'Speech'})
     assert not [e for e, d in emitted if e == 'sound_seen']
+
+
+def test_audio_format_reported_and_kept_in_status(session_env, caplog):
+    import logging
+    classify, sock, emitted, calls, sm = session_env
+    session = classify.DetectionSession([], sock)
+    src = {'source_id': 'rtsp_cam1', 'label': 'RTSP: Cam'}
+    low = {'codec': 'pcm_mulaw', 'sample_rate': 8000, 'channels': 'mono'}
+    with caplog.at_level(logging.INFO):
+        session._set_format(src, low)
+        session._set_format(src, low)                       # meme format a la reconnexion : rien de plus
+        session._set_format(src, dict(low, codec='aac', sample_rate=16000))
+    formats = [d for e, d in emitted if e == 'source_format']
+    assert [f['format']['sample_rate'] for f in formats] == [8000, 16000]
+    assert 'coupés au-dessus de 4 kHz' in caplog.text
+    assert session.audio_formats['rtsp_cam1']['codec'] == 'aac'
+
+
+def test_audio_format_from_stale_reader_ignored(session_env):
+    """Format lu par le fil d'un ffmpeg deja remplace (source retiree ou
+    relancee) : ignore, rien n'est garde ni annonce."""
+    classify, sock, emitted, calls, sm = session_env
+    session = classify.DetectionSession([], sock)
+    old, new = object(), object()
+    session._runners['rtsp_cam1'] = {'reader': new, 'stop': __import__('threading').Event()}
+    session._set_format({'source_id': 'rtsp_cam1', 'label': 'Cam'}, {'codec': 'aac', 'sample_rate': 16000}, old)
+    session._set_format({'source_id': 'rtsp_gone', 'label': 'X'}, {'codec': 'aac', 'sample_rate': 16000}, old)
+    assert session.audio_formats == {} and not [e for e, d in emitted if e == 'source_format']

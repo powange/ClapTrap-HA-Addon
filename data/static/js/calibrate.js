@@ -174,7 +174,7 @@
             '<li>Comptage : ' + (g.count_mode.current ? mode(g.count_mode.current) + ' → ' : '') + mode(g.count_mode.proposed) + '</li>' +
             '<li>Reconnu : ' + (g.before ? pctOrDash(g.before.recall) + ' → ' : '') + pctOrDash(g.after.recall) + ' des essais · ' +
             'fausses détections : ' + (g.before ? pctOrDash(g.before.false_positive) + ' → ' : '') + pctOrDash(g.after.false_positive) + '</li>' +
-            (g.warnings || []).map(function (w) { return '<li class="cal-warn">' + esc(w) + '</li>'; }).join('') + '</ul></div>';
+            (g.warnings || []).map(function (w) { return '<li class="text-warn">' + esc(w) + '</li>'; }).join('') + '</ul></div>';
     }
 
     function analyze(lastResult) {
@@ -189,7 +189,7 @@
                         (gain.change ? gain.current + ' → ' + gain.proposed : gain.current + ' (inchangé, déjà adapté)') + '</label></div>'
                         : '<p class="hint">' + esc(gain.note || '') + '</p>') +
                     p.groups.map(groupHtml).join('') +
-                    (p.warnings || []).map(function (w) { return '<p class="hint cal-warn">' + esc(w) + '</p>'; }).join('') +
+                    (p.warnings || []).map(function (w) { return '<p class="hint text-warn">' + esc(w) + '</p>'; }).join('') +
                     '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
                     '<button type="button" class="btn btn-primary" data-c="apply">Appliquer</button></div>';
                 body.querySelector('[data-c="cancel"]').addEventListener('click', close);

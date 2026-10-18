@@ -196,9 +196,23 @@ def start_rtsp_test():
     source_id = f"rtsp_{test_id}"
     test = _Test('rtsp', 'rtsp_level', {'id': test_id})
     _replace(test)
+    reader = rtsp_source(rtsp_url, tcp=tcp)
+
+    # Format affiche dans les reglages de la camera pendant le test aussi
+    # (detection arretee), seulement pour son adresse enregistree : une
+    # adresse en cours de saisie peut etre celle d'une autre camera.
+    try:
+        same_camera = bool(saved.get('url')) and normalize_rtsp_url(saved['url']) == rtsp_url
+    except ValueError:
+        same_camera = False
+
+    def _on_format(fmt):
+        if same_camera and _socketio and not test.stop_event.is_set():
+            _socketio.emit('source_format', {'source_id': source_id, 'format': fmt})
+    reader.on_format = _on_format
     test.thread = threading.Thread(
         target=_run_process,
-        args=(test, rtsp_source(rtsp_url, tcp=tcp), lambda: live_gain(source_id, initial_gain)),
+        args=(test, reader, lambda: live_gain(source_id, initial_gain)),
         daemon=True)
     test.thread.start()
     return jsonify({'success': True, 'token': test.token})

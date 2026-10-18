@@ -67,6 +67,8 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
 [hidden] { display: none !important; }
 .muted { color: var(--ink-3); }
 .hint { color: var(--ink-3); font-size: 0.85rem; }
+.text-warn { color: var(--warn); }   /* avertissement en texte (calibrage, format audio) */
+.audio-format { margin: 2px 0 4px; font-weight: 600; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .skip-link {
@@ -475,7 +477,6 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
 .cal-result { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
 .cal-result ul { margin: 4px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--ink-2); }
 .cal-result h4 { margin: 0; }
-.cal-warn { color: var(--warn); }
 .field-row-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 4px 0; }
 
 /* Cibles tactiles de 44 px sur ecran tactile (24 a 36 px avant) */
