@@ -231,7 +231,7 @@ class ClapTracker:
             # Pics de la fenetre reglee seulement : jusqu'a sa fin, et non
             # jusqu'au resultat qui la clot (un clap isole 1,8 s apres deux
             # claps faisait « 3 claps » avec une fenetre de 1,5 s).
-            end = min(now, state['armed_at'] + self.window)
+            end = min(now, state['armed_at'] + self.window + 1e-6)   # pic pile a la limite : compte (arrondis)
             recent = [t for t in self._times(group)
                       if state['armed_at'] <= t <= end and t > self._consumed_until]
             candidates.append({

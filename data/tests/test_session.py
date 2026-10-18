@@ -62,7 +62,7 @@ def session_env(settings_dir, fake_classifier, monkeypatch):
 
 def test_session_counts_emits_and_persists(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
-    reader = FakeReader(clap_blocks=(30, 45))
+    reader = FakeReader(clap_blocks=(30, 42))   # deux claps a 1,2 s : un geste (fenetre de 1,5 s)
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: reader)
     ok, _ = classify.start_from_settings(sock)
     assert ok and classify.get_status()['running']
