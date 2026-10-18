@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from audio_utils import BLOCK_SAMPLES
+from helpers import wait_until
 
 
 def det_of(source_id):
@@ -65,11 +66,12 @@ def test_session_counts_emits_and_persists(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: reader)
     ok, _ = classify.start_from_settings(sock)
     assert ok and classify.get_status()['running']
-    time.sleep(2.5)
+    wait_until(lambda: [e for e, d in emitted if e == 'clap'])
     claps = [d for e, d in emitted if e == 'clap']
     assert [(c['source_id'], c['clap_count'], c['entity_key'], c['source_name']) for c in claps] == \
         [('rtsp_cam1', 2, 'rtsp_cam1', 'Cam')]
-    assert calls['claps'] and calls['claps'][0][0][0] == 'rtsp_cam1'
+    wait_until(lambda: calls['claps'])   # entites HA mises a jour en arriere-plan
+    assert calls['claps'][0][0][0] == 'rtsp_cam1'
     statuses = [d['status'] for e, d in emitted if e == 'source_status']
     assert statuses[:2] == ['connecting', 'connected']
     assert ('rtsp_cam1', True) in calls['listening']
@@ -77,9 +79,9 @@ def test_session_counts_emits_and_persists(session_env, monkeypatch):
     classify.stop_detection()
     assert not classify.get_status()['running'] and reader.closed
     assert ('rtsp_cam1', False) in calls['listening']
-    time.sleep(0.3)
-    wl = sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
-    assert wl == {'Clapping': True, 'Speech': False}   # son entendu enregistre (par lot)
+    # son entendu enregistre (par lot)
+    wait_until(lambda: sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
+               == {'Clapping': True, 'Speech': False})
 
 
 def test_stop_during_slow_initialisation_closes_detector(session_env, monkeypatch, fake_classifier):
@@ -89,8 +91,7 @@ def test_stop_during_slow_initialisation_closes_detector(session_env, monkeypatc
     classify.start_from_settings(sock)
     time.sleep(0.2)
     classify.stop_detection(timeout=0.5)   # l'arret n'attend pas la fin de l'init
-    time.sleep(1.5)
-    assert fake_classifier.instances and all(c.closed for c in fake_classifier.instances)
+    wait_until(lambda: fake_classifier.instances and all(c.closed for c in fake_classifier.instances))
 
 
 def test_settings_changed_during_initialisation_are_applied(session_env, monkeypatch, fake_classifier):
@@ -104,17 +105,15 @@ def test_settings_changed_during_initialisation_are_applied(session_env, monkeyp
         s['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']['Knock'] = True
         s['global']['delay'] = 0.4
     sm.modify_settings(mut)
-    time.sleep(1.0)
-    det = det_of('rtsp_cam1')
-    assert det.tracker.groups[0]['whitelist'].get('Knock') is True
-    assert det.tracker.window == 0.4
+    det = wait_until(lambda: det_of('rtsp_cam1'))
+    wait_until(lambda: det.tracker.groups[0]['whitelist'].get('Knock') is True and det.tracker.window == 0.4)
 
 
 def test_live_gain_by_source_id(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=200))
     classify.start_from_settings(sock)
-    time.sleep(0.3)
+    wait_until(lambda: det_of('rtsp_cam1'))
     classify.update_source_gain('rtsp_cam1', 7)
     assert classify.live_gain('rtsp_cam1', 1) == 7
     assert classify.live_gain('rtsp_other', 3) == 3
@@ -129,16 +128,15 @@ def test_all_sources_dead_stops_session(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: Boom())
     monkeypatch.setattr(classify, 'run_source', lambda reader, on_block, stop, **k: None)
     classify.start_from_settings(sock)
-    time.sleep(1.5)
-    assert not classify.get_status()['running']
-    assert ('detection_status', {'status': 'stopped'}) in emitted
+    wait_until(lambda: not classify.get_status()['running'])
+    wait_until(lambda: ('detection_status', {'status': 'stopped'}) in emitted)
 
 
 def test_live_gains_cleared_after_stop(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=200))
     classify.start_from_settings(sock)
-    time.sleep(0.3)
+    wait_until(lambda: det_of('rtsp_cam1'))
     classify.update_source_gain('rtsp_cam1', 7)
     classify.stop_detection()
     assert classify.live_gain('rtsp_cam1', 3) == 3
@@ -175,9 +173,8 @@ def test_listening_off_while_reconnecting(session_env, monkeypatch):
                 yield np.zeros(BLOCK_SAMPLES, np.float32)
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: Short())
     classify.start_from_settings(sock)
-    time.sleep(1.5)
-    assert ('rtsp_cam1', True) in calls['listening']
-    assert calls['listening'][-1] == ('rtsp_cam1', False)   # flux perdu, reconnexion en cours
+    # flux perdu, reconnexion en cours
+    wait_until(lambda: ('rtsp_cam1', True) in calls['listening'] and calls['listening'][-1] == ('rtsp_cam1', False))
 
 
 def two_cameras(sm):
@@ -193,9 +190,7 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: urls.append(url) or FakeReader(n=400))
     two_cameras(sm)
     classify.start_from_settings(sock)
-    time.sleep(0.5)
-    det1, det2 = det_of('rtsp_cam1'), det_of('rtsp_cam2')
-    assert det1 and det2
+    det1, det2 = wait_until(lambda: all(d := (det_of('rtsp_cam1'), det_of('rtsp_cam2'))) and d)
 
     # Changement de groupe seulement : rien n'est relance
     def add_sound(s):
@@ -208,26 +203,23 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
     # Adresse de la camera 2 : seule elle est relancee
     sm.modify_settings(lambda s: s['rtsp_sources'][1].update(url='rtsp://h/2b'))
     assert classify.apply_settings_if_running() is True
-    time.sleep(0.5)
+    wait_until(lambda: det_of('rtsp_cam2') not in (None, det2))
+    wait_until(lambda: det2.classifier is None)
     assert det_of('rtsp_cam1') is det1 and not det1.tracker is None
-    new2 = det_of('rtsp_cam2')
-    assert new2 is not None and new2 is not det2 and det2.classifier is None
     assert urls[-1] == 'rtsp://h/2b'
 
     # Camera 1 desactivee : arretee, la 2 continue
     sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
     classify.apply_settings_if_running()
     assert det_of('rtsp_cam1') is None
-    time.sleep(0.5)   # classifieur ferme en arriere-plan (la requete n'attend plus)
-    assert det1.classifier is None
+    wait_until(lambda: det1.classifier is None)   # ferme en arriere-plan (la requete n'attend plus)
     assert classify.get_status()['sources'] == ['rtsp_cam2']
     assert ('rtsp_cam1', False) in calls['listening']
 
     # Plus aucune source : la session s'arrete d'elle-meme
     sm.modify_settings(lambda s: s['rtsp_sources'][1].update(enabled=False))
     classify.apply_settings_if_running()
-    time.sleep(1.2)
-    assert not classify.get_status()['running']
+    wait_until(lambda: not classify.get_status()['running'])
 
 
 def test_no_live_emits_without_clients(session_env, monkeypatch):
@@ -235,11 +227,11 @@ def test_no_live_emits_without_clients(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     monkeypatch.setattr(classify, '_clients', 0)
     classify.start_from_settings(sock)
-    time.sleep(0.8)
+    det = wait_until(lambda: det_of('rtsp_cam1'))
+    wait_until(lambda: det.classifier is not None and len(det.classifier.blocks) >= 10)   # blocs traites
     assert not [e for e, d in emitted if e in ('source_level', 'group_scores', 'labels')]
     classify.client_connected(+1)
-    time.sleep(0.5)
-    assert [e for e, d in emitted if e == 'source_level']
+    wait_until(lambda: [e for e, d in emitted if e == 'source_level'])
     classify.client_connected(-1)
 
 
@@ -253,13 +245,14 @@ def test_restarting_only_source_keeps_session_alive(session_env, monkeypatch):
     monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
-    time.sleep(0.4)
+    old = wait_until(lambda: det_of('rtsp_cam1'))
     slow = classify.DetectionSession._set_listening
     monkeypatch.setattr(classify.DetectionSession, '_set_listening',
                         staticmethod(lambda src, on: (time.sleep(1.0), slow(src, on))))
     sm.modify_settings(lambda s: s['rtsp_sources'][0].update(url='rtsp://h/nouvelle'))
     assert classify.apply_settings_if_running() is True
-    time.sleep(1.0)
+    wait_until(lambda: det_of('rtsp_cam1') not in (None, old))
+    time.sleep(0.7)   # au-dela d'une ronde de surveillance (0,5 s) : jamais vue arretee
     assert classify.get_status()['running'] and det_of('rtsp_cam1') is not None
     assert states == [True]   # jamais « arretee » puis « en cours »
 
@@ -271,11 +264,11 @@ def test_removing_last_source_stops_session_once(session_env, monkeypatch):
     monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
-    time.sleep(0.4)
+    wait_until(lambda: det_of('rtsp_cam1'))
     sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
     assert classify.apply_settings_if_running() is None
-    time.sleep(1.2)
-    assert not classify.get_status()['running'] and states == [True, False]
+    wait_until(lambda: not classify.get_status()['running'])
+    wait_until(lambda: states == [True, False])
 
 
 def test_sound_seen_not_duplicated_after_live_change(session_env, monkeypatch):
@@ -285,7 +278,7 @@ def test_sound_seen_not_duplicated_after_live_change(session_env, monkeypatch):
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     monkeypatch.setattr(classify, 'SEEN_FLUSH_DELAY', 30)
     classify.start_from_settings(sock)
-    time.sleep(0.6)
+    wait_until(lambda: 'Speech' in [d['label'] for e, d in emitted if e == 'sound_seen'])
     before = [d['label'] for e, d in emitted if e == 'sound_seen']
     assert before.count('Speech') == 1
     classify.apply_settings_if_running()
@@ -303,7 +296,7 @@ def test_entity_key_change_keeps_listening(session_env, monkeypatch):
         {'id': 'v1', 'entity_key': 'vban_salon', 'ip': '1.1.1.1', 'name': 'Salon', 'stream_name': 'S',
          'enabled': True, 'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'ha_entities': [1]}]}]))
     classify.start_from_settings(sock)
-    time.sleep(0.5)
+    wait_until(lambda: ('vban_salon', True) in calls['listening'])
     calls['listening'].clear()
     sm.modify_settings(lambda s: s['saved_vban_sources'][0].update(entity_key='vban_bureau'))
     assert classify.apply_settings_if_running() is False   # aucune relance
@@ -314,7 +307,7 @@ def test_apply_settings_during_shutdown_is_ignored(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
-    time.sleep(0.3)
+    wait_until(lambda: det_of('rtsp_cam1'))
     session = classify._current()
     session.stop_event.set()
     assert session.apply_settings(sm.load_settings()) is None
@@ -346,7 +339,9 @@ def test_sounds_not_added_without_auto_add(session_env, monkeypatch):
     sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'][0].update(auto_add_sounds=False))
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     classify.start_from_settings(sock)
-    time.sleep(1.0)
+    det = wait_until(lambda: det_of('rtsp_cam1'))
+    wait_until(lambda: det.classifier is not None and len(det.classifier.blocks) >= 20)   # « Speech » entendu
+    time.sleep(0.4)   # au-dela de l'ecriture groupee (0,2 s)
     classify.stop_detection(timeout=5)
     assert not [d for e, d in emitted if e == 'sound_seen']
     assert sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist'] == {'Clapping': True}
@@ -358,7 +353,7 @@ def test_sounds_added_only_to_auto_add_groups(session_env, monkeypatch):
         {'slug': 'toc', 'name': 'Toc', 'ha_entities': [1], 'sound_whitelist': {}}))
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     classify.start_from_settings(sock)
-    time.sleep(1.0)
+    wait_until(lambda: sm.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist'].get('Speech') is False)
     classify.stop_detection(timeout=5)
     clap, toc = sm.load_settings()['rtsp_sources'][0]['sound_groups']
     assert clap['sound_whitelist'].get('Speech') is False and toc['sound_whitelist'] == {}

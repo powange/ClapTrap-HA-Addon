@@ -8,9 +8,13 @@ salon.
 
 ## Fonctionnalités
 
-- **Sources** : micro USB, caméras RTSP, flux VBAN, plusieurs en même temps.
-- **Entités Home Assistant** (MQTT) : `binary_sensor.claptrap_<source>_<groupe>_2claps`,
-  une par nombre de claps (1 à 4), plus l'événement `claptrap_clap`.
+- **Sources** : micro USB, caméras RTSP/RTSPS (piste audio seule), flux VBAN,
+  plusieurs en même temps.
+- **Entités Home Assistant** (MQTT), un appareil par source :
+  `binary_sensor.claptrap_<source>_<groupe>_2claps`, une par nombre de claps
+  choisi (1 et 2 par défaut, jusqu'à 4), une entité `event` par groupe, plus
+  l'événement `claptrap_clap`. Réglages et commandes pilotables depuis Home
+  Assistant.
 - **Groupes de sons** : un groupe par type de son (claps, claquements de
   doigts, sonnette…), chacun avec son seuil et ses entités.
 - **Webhook** facultatif par source (Node-RED, webhook Home Assistant…).
@@ -21,8 +25,9 @@ salon.
 
 - Home Assistant OS ou Supervised 2025.10 ou plus récent, sur amd64 ou
   aarch64 (Raspberry Pi 4 et 5).
-- L'add-on **Mosquitto broker** et l'intégration **MQTT** : ClapTrap ne
-  démarre pas sans broker, et sans l'intégration aucune entité n'apparaît.
+- Un broker MQTT, l'add-on **Mosquitto broker** ou un broker externe
+  (renseigné dans l'onglet Configuration), et l'intégration **MQTT** : sans
+  eux, la détection fonctionne mais aucune entité n'apparaît.
 
 ## Installation
 
@@ -60,8 +65,8 @@ version : Home Assistant ne propose jamais une version dont l'image manque.
 Tests (lancés aussi par GitHub Actions à chaque push et pull request) :
 
 ```sh
-pip install -r data/requirements-dev.txt
-python -m pytest data/tests          # comptage, détecteur, VBAN, sources, session, HA, réglages, routes
+pip install -r data/requirements-dev.txt -r data/tests/ui/requirements.txt
+python -m pytest data/tests          # comptage, détecteur, VBAN, sources, session, HA, réglages, routes, serveur
 cd data/tests/ui && npm ci && python render_page.py && node ui_test.js page.html   # interface
 ```
 

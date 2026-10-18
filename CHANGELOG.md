@@ -1,5 +1,37 @@
 # Changelog
 
+## 6.67.0
+
+### Documentation
+
+- **Accès direct au port 16045** : décrit tel qu'il est (connexion refusée
+  depuis le réseau local, le serveur n'écoute que sur le réseau interne ;
+  « 403 » pour toute adresse interne autre que l'ingress).
+- **README** : 1 et 2 claps publiés par défaut (jusqu'à 4), entités event,
+  appareil par source, broker externe possible (l'add-on démarre sans
+  broker, seules les entités manquent).
+- **Caméras** : `rtsps://` accepté, piste audio seule, liste des codecs
+  audio pris en charge et dépannage « no decoder found » ; taille de l'image
+  à jour ; ligne 6.66 dans « Changements à connaître ».
+
+### Correctif
+
+- **Liste des micros hors Supervisor** (repli `pactl`) : une ligne sans
+  index numérique recevait son rang comme index, qui pouvait être celui
+  d'un autre micro (même clé de source). Elle est désormais ignorée.
+
+### Tests
+
+- **Plus rapides et plus fiables** : les attentes fixes (`time.sleep`) sont
+  remplacées par `wait_until(condition)` : suite en ≈ 30 s au lieu de 45 s
+  avec 26 tests de plus, stable sous charge (4 suites en parallèle).
+- **Nouveaux tests** : filtre ingress (403, un avertissement par adresse),
+  `gunicorn.conf.py` (interface d'écoute et repli, nettoyage au SIGTERM),
+  `run.sh` (PulseAudio, lancement de Gunicorn), périphériques audio
+  (Supervisor, repli pactl, cache), `vban_manager`, boucle d'auto-volume,
+  webhook en arrière-plan. Couverture : audio_utils 45 → 95 %,
+  vban_manager 48 → 100 %, auto_volume 68 → 97 %, webhook 80 → 96 %.
+
 ## 6.66.0
 
 ### Image

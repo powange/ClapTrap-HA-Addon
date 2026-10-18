@@ -5,6 +5,7 @@ import pytest
 
 import ha_control
 import ha_entities as ha
+from helpers import wait_until
 
 
 @pytest.fixture
@@ -197,15 +198,11 @@ def test_retained_commands_ignored_and_cleared(ctl, mqtt):
 
 
 def test_commands_run_in_order(ctl, mqtt):
-    import time
     ha_control.handle_message(ha_control.COMMAND_TOPIC,
                               json.dumps({'action': 'add_rtsp', 'name': 'Garage', 'url': 'rtsp://h/g'}).encode())
     ha_control.handle_message(ha_control.COMMAND_TOPIC,
                               json.dumps({'id': 'g', 'action': 'add_group', 'source': 'Garage', 'name': 'Toc'}).encode())
-    for _ in range(50):
-        if last(mqtt, ha_control.RESULT_TOPIC) and result(mqtt).get('id') == 'g':
-            break
-        time.sleep(0.05)
+    wait_until(lambda: last(mqtt, ha_control.RESULT_TOPIC) and result(mqtt).get('id') == 'g')
     assert result(mqtt)['success']
 
 

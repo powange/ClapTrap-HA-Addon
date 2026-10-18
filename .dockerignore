@@ -14,3 +14,4 @@ data/settings.json
 data/settings.json.*
 scripts/
 apparmor.txt
+data/.coverage

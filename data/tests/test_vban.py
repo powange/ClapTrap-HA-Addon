@@ -1,7 +1,6 @@
 """Ecoute VBAN : decodage, en-tete, reechantillonnage, routage, flux muet."""
 import struct
 import threading
-import time
 
 import numpy as np
 import pytest
@@ -10,6 +9,7 @@ from scipy.signal import resample_poly
 from audio_sources import VbanSource
 from audio_utils import BLOCK_SAMPLES
 from vban_listener import StreamResampler, VBANDetector, decode_vban_samples
+from helpers import wait_until
 
 
 def packet(name, samples, sr_idx=3, channels=1, datatype=1, raw_name=None):
@@ -158,10 +158,9 @@ def test_vban_source_reports_idle_and_recovery(monkeypatch):
     blocks = []
     th = threading.Thread(target=lambda: [blocks.append(b) for b in src.iter_blocks(stop)])
     th.start()
-    time.sleep(1.3)
-    assert calls == [True]
+    wait_until(lambda: calls == [True])
     fake.cb(np.zeros(BLOCK_SAMPLES, np.float32), 0)
-    time.sleep(0.3)
+    wait_until(lambda: calls == [True, False] and len(blocks) == 1)
     stop.set()
     th.join(2)
     assert calls == [True, False] and len(blocks) == 1
@@ -175,8 +174,7 @@ def test_real_listener_unsubscribes_bound_method(listener):
     stop = threading.Event()
     th = threading.Thread(target=lambda: list(src.iter_blocks(stop)))
     th.start()
-    time.sleep(0.2)
-    assert ('10.0.0.5', 'Stream1') in listener._streams
+    wait_until(lambda: ('10.0.0.5', 'Stream1') in listener._streams)
     stop.set()
     th.join(2)
     assert ('10.0.0.5', 'Stream1') not in listener._streams

@@ -4,6 +4,7 @@ import types
 
 import numpy as np
 import pytest
+from helpers import wait_until
 
 
 class Fake:
@@ -37,16 +38,16 @@ def env(settings_dir, monkeypatch):
 
 def test_one_test_at_a_time_with_tokens(env):
     t, c, readers, emitted = env
+    levels = lambda tid: [d for e, d in emitted if e == 'rtsp_level' and d.get('id') == tid]  # noqa: E731
     a = c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'}).json['token']
-    time.sleep(0.3)
+    wait_until(lambda: levels('A'))                      # A tourne et emet
     b = c.post('/api/rtsp/test/start', json={'id': 'B', 'url': 'rtsp://b'}).json['token']
-    time.sleep(0.3)
-    assert readers[0].closed and not readers[1].closed
+    wait_until(lambda: len(readers) == 2 and readers[0].closed and levels('B'))
+    assert not readers[1].closed
     c.post('/api/rtsp/test/stop', json={'token': a})     # ancien jeton : ignore
     assert not readers[1].closed
     c.post('/api/rtsp/test/stop', json={'token': b})
-    time.sleep(0.2)
-    assert readers[1].closed
+    wait_until(lambda: readers[1].closed)
     ids = [d.get('id') for e, d in emitted if e == 'rtsp_level']
     assert ids and ids[-1] == 'B'
 
@@ -60,9 +61,8 @@ def test_error_reported_when_stream_ends(env, monkeypatch):
     t, c, readers, emitted = env
     monkeypatch.setattr(t, 'rtsp_source', lambda url, **kw: readers.append(Fake(2)) or readers[-1])
     c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
-    time.sleep(0.5)
-    errors = [d.get('error') for e, d in emitted if e == 'rtsp_level' and d.get('error')]
-    assert errors and 'Unauthorized' in errors[0]
+    errors = wait_until(lambda: [d.get('error') for e, d in emitted if e == 'rtsp_level' and d.get('error')])
+    assert 'Unauthorized' in errors[0]
 
 
 def test_vban_test_requires_known_source(env):
