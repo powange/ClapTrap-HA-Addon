@@ -104,6 +104,10 @@ def rtsp_source(url, tcp=False):
         # TCP (option par camera) : pas de paquets perdus en Wi-Fi ; par
         # defaut ffmpeg essaie l'UDP et ne bascule qu'apres un delai.
         *(['-rtsp_transport', 'tcp'] if tcp else []),
+        # Piste audio seule : la camera n'envoie plus la video, et ffmpeg
+        # (compile sans decodeur video) ne la sonde plus ~5 s a chaque
+        # connexion avant de livrer l'audio.
+        '-allowed_media_types', 'audio',
         '-i', url,
         '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ac', '1', '-ar', '16000',
         'pipe:1',

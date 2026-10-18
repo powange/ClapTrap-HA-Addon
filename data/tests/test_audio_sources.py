@@ -101,5 +101,8 @@ def test_run_source_reports_error_detail():
 def test_rtsp_tcp_transport_option():
     from audio_sources import rtsp_source
     assert '-rtsp_transport' not in rtsp_source('rtsp://cam/x').cmd
+    # Piste audio seule (ffmpeg sans decodeur video sondait la video ~5 s).
+    cmd = rtsp_source('rtsp://cam/x').cmd
+    assert cmd[cmd.index('-allowed_media_types') + 1] == 'audio' and cmd.index('-allowed_media_types') < cmd.index('-i')
     cmd = rtsp_source('rtsp://cam/x', tcp=True).cmd
     assert cmd[cmd.index('-rtsp_transport') + 1] == 'tcp' and cmd.index('-rtsp_transport') < cmd.index('-i')
