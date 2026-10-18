@@ -76,6 +76,24 @@ def _install_mediapipe_stub():
 _install_mediapipe_stub()
 
 
+def _no_vban_socket():
+    """Pas de vrai socket UDP 6980 pendant les tests : importer app.py lancait
+    l'ecoute VBAN (sources du reseau local detectees, fil qui survit aux tests,
+    echec silencieux si le port est pris). Le detecteur existe, sans ecouter ;
+    un test du vrai bind restaure `real_start_listening` (monkeypatch)."""
+    import vban_listener
+
+    def start_listening(self):
+        self.running = False
+
+    cls = vban_listener.VBANDetector
+    cls.real_start_listening = cls.start_listening
+    cls.start_listening = start_listening
+
+
+_no_vban_socket()
+
+
 @pytest.fixture
 def fake_classifier():
     FakeClassifier.instances = []

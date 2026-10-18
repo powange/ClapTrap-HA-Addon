@@ -1,0 +1,28 @@
+# Mises a jour proposees en pull request (la CI les teste avant fusion).
+# Les dependances Python (requirements.lock, genere par
+# scripts/lock_requirements.py) ne sont pas lues par Dependabot : elles sont
+# auditees chaque semaine par .github/workflows/audit.yaml.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Les deux images de base (une par architecture) dans la meme PR : jamais
+  # deux versions de base differentes pour une meme version de l'add-on.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      base-image:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /data/tests/ui
+    schedule:
+      interval: monthly

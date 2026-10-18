@@ -1,10 +1,13 @@
 # Image construite par .github/workflows/ci.yaml (actions Home Assistant, qui
-# ne fournissent que BUILD_ARCH) : base unique definie ici.
+# fournissent BUILD_ARCH et BUILD_VERSION) : base definie ici, epinglee par
+# digest pour chaque architecture (build reproductible ; Dependabot propose
+# les nouvelles versions).
 ARG BUILD_ARCH=amd64
-ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base/${BUILD_ARCH}:9.4.0
+FROM ghcr.io/hassio-addons/debian-base/amd64:9.4.0@sha256:d76281c74089ccebd7a91a2872b902365015f8a5e831a925d1db33cac677d14b AS base-amd64
+FROM ghcr.io/hassio-addons/debian-base/aarch64:9.4.0@sha256:4fa84082956a06c4df61d825bc4b4769a86657e14126e412a2d64bf6f563f8bc AS base-aarch64
 
 # Stage 1: Build des dépendances Python
-FROM ${BUILD_FROM} AS builder
+FROM base-${BUILD_ARCH} AS builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -30,7 +33,7 @@ COPY data/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --no-deps -r /tmp/requirements.lock
 
 # Stage 2: Image finale (sans build-essential)
-FROM ${BUILD_FROM}
+FROM base-${BUILD_ARCH}
 ARG BUILD_ARCH
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -57,13 +60,24 @@ WORKDIR /usr/src/app
 ENV VIRTUAL_ENV=/usr/src/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Version de l'add-on (BUILD_VERSION est fourni par le Supervisor au build)
+# Version de l'add-on (BUILD_VERSION fourni par l'action de build en CI)
 ARG BUILD_VERSION
 ENV CLAPTRAP_VERSION=${BUILD_VERSION}
 # Cache de polices de matplotlib (importe par mediapipe) cree au build : il
 # etait regenere a chaque demarrage du conteneur.
 ENV MPLCONFIGDIR=/usr/src/app/.matplotlib
 RUN python -c "import matplotlib.pyplot" && chmod -R a+rX /usr/src/app/.matplotlib
+
+# Autotest du vrai YAMNet : classification et decoupage en fenetres (la
+# datation des claps en depend ; les tests unitaires utilisent un faux).
+# Fichiers montes depuis le contexte (pas de couche) : l'etape ne se relance
+# que si l'un d'eux, ou le venv, change.
+RUN --mount=type=bind,source=data/selftest_yamnet.py,target=/selftest/selftest_yamnet.py \
+    --mount=type=bind,source=data/audio_detector.py,target=/selftest/audio_detector.py \
+    --mount=type=bind,source=data/audio_utils.py,target=/selftest/audio_utils.py \
+    --mount=type=bind,source=data/clap_logic.py,target=/selftest/clap_logic.py \
+    --mount=type=bind,source=data/yamnet.tflite,target=/selftest/yamnet.tflite \
+    PYTHONDONTWRITEBYTECODE=1 python /selftest/selftest_yamnet.py
 
 # Delai laisse aux services a l'arret avant SIGKILL (3 s par defaut) : arret
 # propre de Gunicorn (graceful_timeout 6 s), publications MQTT comprises.
@@ -86,13 +100,19 @@ RUN out="$(pip check 2>&1 || true)"; \
 COPY run.sh /
 RUN chmod a+x /run.sh
 
-# Labels Home Assistant
+# Labels (version, architecture, source, date et revision : poses par
+# l'action de build ; licence de l'image de base effacee, le depot n'en a pas)
 LABEL \
     io.hass.name="ClapTrap" \
     io.hass.description="Application de détection d'applaudissements en temps réel utilisant YAMNet" \
     io.hass.type="addon" \
-    io.hass.version="${BUILD_VERSION}" \
-    io.hass.arch="${BUILD_ARCH}" \
-    org.opencontainers.image.source="https://github.com/powange/ClapTrap-HA-Addon"
+    maintainer="powange" \
+    org.opencontainers.image.title="ClapTrap" \
+    org.opencontainers.image.description="Détection d'applaudissements et de sons (YAMNet) pour Home Assistant" \
+    org.opencontainers.image.authors="powange" \
+    org.opencontainers.image.vendor="powange" \
+    org.opencontainers.image.url="https://github.com/powange/ClapTrap-HA-Addon" \
+    org.opencontainers.image.documentation="https://github.com/powange/ClapTrap-HA-Addon/blob/main/DOCS.md" \
+    org.opencontainers.image.licenses=""
 
 CMD [ "/run.sh" ]

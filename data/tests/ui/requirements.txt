@@ -1,0 +1,3 @@
+# Rendu du gabarit pour le test jsdom (render_page.py) : meme Jinja2 que l'image.
+-c ../../constraints.txt
+jinja2
