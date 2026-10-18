@@ -143,7 +143,7 @@
                 var top = (t.top || []).map(function (c) { return CT.soundLabel(c.classe) + ' ' + CT.pct(c.score); }).join(', ');
                 var summary = esc(p.name) + ' : ' + (top ? 'reconnu ' + esc(top) : 'aucun son reconnu') +
                     (p.target !== 'fond' ? ' · pics : ' + t.attacks + ' (attaques), ' + t.sustains + ' (sons tenus)' : '') +
-                    (t.clipped ? ' · <strong>saturé</strong>' : '');
+                    (t.clipped ? ' · <strong>saturé</strong>' : t.limited ? ' · atténué (limiteur)' : '');
                 step += 1;
                 if (step >= plan.length) analyze(summary); else takeStep(summary);
             })

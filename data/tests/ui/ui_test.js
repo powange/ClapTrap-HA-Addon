@@ -77,6 +77,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 22 : statut RTSP
   emit('source_status', { source_id: 'rtsp_abc-123', status: 'reconnecting' }); await tick();
   ok('22. statut RTSP sur la carte', /reconnexion/i.test($('#src-rtsp-abc_123 .status-text').textContent));
+  // --- 6.72 : cause d'une erreur ecrite sur la carte
+  emit('source_status', { source_id: 'rtsp_abc-123', status: 'error', error: "la caméra annonce une piste audio (aac, 16000 Hz) mais n'envoie aucun son" }); await tick();
+  ok('+  cause de l’erreur affichée sur la carte', !$('#src-rtsp-abc_123 [data-role="error"]').hidden && /n'envoie aucun son/.test($('#src-rtsp-abc_123 [data-role="error"]').textContent));
+  emit('source_status', { source_id: 'rtsp_abc-123', status: 'connected' }); await tick();
+  ok('+  cause effacée une fois connectée', $('#src-rtsp-abc_123 [data-role="error"]').hidden);
+  emit('source_status', { source_id: 'rtsp_abc-123', status: 'reconnecting' }); await tick();
   ok('    micro « À l\'écoute »', $('#src-mic .status-text').textContent === "À l'écoute");
   // nouveau : VU permanent + score/seuil
   emit('source_level', { source_id: 'mic', db: -20 }); emit('group_scores', { source_id: 'mic', scores: { clap: 0.7, toc: 0.1 } }); await tick();

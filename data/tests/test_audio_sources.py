@@ -174,3 +174,27 @@ def test_output_stream_never_taken_for_camera_format():
     wait_until(lambda: src.last_error)
     assert seen == [] and src.audio_format is None
     assert src.last_error == 'Error while decoding stream'   # erreur sans contexte, apres le format
+
+
+def test_watchdog_explains_camera_that_announces_audio_but_sends_none():
+    """Piste audio annoncee (format lu) mais aucun paquet : la cause est
+    donnee (camera qui ne sert l'audio qu'a un client), pas « flux perdu »."""
+    info = ("[info] Input #0, rtsp, from 'rtsp://cam/x':\n"
+            "[info]   Stream #0:1: Audio: aac (LC), 16000 Hz, mono, fltp\n"
+            "[info] Stream mapping:\n")
+    src = ProcessSource(emitter(0, then='hang', stderr=info), 'ffmpeg', stall_timeout=1, levels=True)
+    statuses = []
+    stop = threading.Event()
+    th = threading.Thread(target=run_source, args=(src, lambda b: None, stop),
+                          kwargs={'on_status': lambda s, e=None: statuses.append((s, e)), 'max_backoff': 1})
+    th.start()
+    wait_until(lambda: any(s == 'error' for s, e in statuses), timeout=8)
+    stop.set(); src.close(); th.join(5)
+    err = next(e for s, e in statuses if s == 'error')
+    assert 'annonce une piste audio (aac, 16000 Hz)' in err and "un autre lecteur RTSP" in err
+
+
+def test_watchdog_without_format_says_no_sound():
+    src = ProcessSource(emitter(0, then='hang'), 'fake', stall_timeout=1)
+    list(src.iter_blocks(threading.Event()))
+    assert src.last_error == 'aucun son reçu en 1 s'

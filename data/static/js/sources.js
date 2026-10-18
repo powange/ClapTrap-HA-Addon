@@ -253,6 +253,9 @@
                 '</div></div>' +
             '</header>' +
             '<p class="source-status" data-role="status"><span class="dot"></span><span class="status-text"></span></p>' +
+            // Cause d'une erreur (« 401 Unauthorized », camera sans audio...) :
+            // « Erreur de flux » seul ne disait pas quoi corriger.
+            '<p class="hint text-warn source-error" data-role="error" hidden></p>' +
             meterHtml() +
             '<p class="live-line" data-role="live">' + idleText(src.enabled) + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
@@ -356,6 +359,16 @@
                 line.textContent = idleText(src.enabled);
             }
             var st = statusOf(src);
+            var errEl = card.querySelector('[data-role="error"]');
+            if (errEl) {
+                // Cause recue en direct ; celle du dernier /status seulement si
+                // aucun statut en direct n'est encore arrive pour cette source.
+                var live = src.sourceId in CT.state.sourceStatus;
+                var detail = live ? CT.state.sourceErrors[src.sourceId] || ''
+                                  : ((CT.state.status || {}).source_errors || {})[src.sourceId] || '';
+                errEl.textContent = detail;
+                errEl.hidden = !(st.cls === 'err' && detail);
+            }
             var el = card.querySelector('[data-role="status"]');
             el.className = 'source-status status-' + st.cls;
             el.querySelector('.status-text').textContent = st.text;
@@ -814,6 +827,7 @@
     CT.resetLive = function () {
         CT.state.live = {};
         CT.state.sourceStatus = {};
+        CT.state.sourceErrors = {};
         CT.redrawLive();
         Object.keys(cardIndex).forEach(function (sid) {
             var card = cardIndex[sid].card;
@@ -922,6 +936,8 @@
     CT.on('source_status', function (d) {
         if (!d || !d.source_id) return;
         CT.state.sourceStatus[d.source_id] = d.status;
+        if (d.status === 'error' && d.error) CT.state.sourceErrors[d.source_id] = d.error;
+        else if (d.status === 'connected' || d.status === 'connecting') delete CT.state.sourceErrors[d.source_id];
         if (CT.renderStatus) CT.renderStatus(); else CT.renderSourceStatuses();
     });
 

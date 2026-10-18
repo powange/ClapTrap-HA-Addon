@@ -115,6 +115,10 @@ class ClapTracker:
     def set_groups(self, groups, default_threshold=0.3):
         self.groups = [normalize_group(g, idx, default_threshold)
                        for idx, g in enumerate(groups or []) if isinstance(g, dict)]
+        # Etat d'un groupe retire (desactive, supprime, renomme) : oublie.
+        slugs = {g['slug'] for g in self.groups}
+        for slug in [s for s in self._group_state if s not in slugs]:
+            del self._group_state[slug]
 
     @property
     def min_threshold(self):
@@ -178,17 +182,13 @@ class ClapTracker:
     def on_classification(self, categories, now):
         """`categories` : [(label, score)]. Retourne la liste des evenements a
         declencher : dicts {group, clap_count, score, labels, ignored}."""
-        def times(group):
-            return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
-
         def fresh_of(group):
-            return [t for t in times(group) if t > self._consumed_until and t >= now - self.peak_lookback]
+            return [t for t in self._times(group) if t > self._consumed_until and t >= now - self.peak_lookback]
         # Sans pic, seul un groupe sans entites (evenement et webhook seulement)
         # peut s'armer : une tele qui diffuse des applaudissements declenchait
         # sinon « 1 clap » toutes les 2,5 s.
         can_arm_without_peak = (now - self._last_trigger) >= self.RETRIGGER_GUARD
 
-        any_expired = False
         for group in self.groups:
             hits = [(name, score) for name, score in categories
                     if group['whitelist'].get(name, False) and name not in self.exclusions]
@@ -208,11 +208,17 @@ class ClapTracker:
                     for name, score in hits:
                         if score >= group['threshold'] and score > state['labels'].get(name, 0):
                             state['labels'][name] = float(score)
+        return self._expire(now)
 
-            if state['armed_at'] and (now - state['armed_at']) >= self.window:
-                any_expired = True
+    def _times(self, group):
+        return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
 
-        if not any_expired:
+    def _expire(self, now):
+        """Fenetres arrivees a leur fin : arbitrage et evenements. Fait a un
+        resultat YAMNet : celui qui suit la fin d'une fenetre couvre deja sa
+        derniere partie (le meilleur groupe peut n'etre reconnu qu'a la fin)."""
+        states = [self._group_state.get(g['slug']) for g in self.groups]   # groupes actuels seulement
+        if not any(st and st['armed_at'] and (now - st['armed_at']) >= self.window for st in states):
             return []
 
         # Des qu'une fenetre expire, TOUS les groupes armes entrent en
@@ -222,9 +228,14 @@ class ClapTracker:
             state = self._group_state.get(group['slug'])
             if not state or not state['armed_at']:
                 continue
-            recent = [t for t in times(group)
-                      if state['armed_at'] <= t <= now and t > self._consumed_until]
+            # Pics de la fenetre reglee seulement : jusqu'a sa fin, et non
+            # jusqu'au resultat qui la clot (un clap isole 1,8 s apres deux
+            # claps faisait « 3 claps » avec une fenetre de 1,5 s).
+            end = min(now, state['armed_at'] + self.window)
+            recent = [t for t in self._times(group)
+                      if state['armed_at'] <= t <= end and t > self._consumed_until]
             candidates.append({
+                '_end': end,
                 'group': group,
                 # 0 : son reconnu sans aucun pic (groupe sans entites)
                 'clap_count': len(recent),
@@ -250,7 +261,10 @@ class ClapTracker:
         winner = max(candidates, key=rank)
         for c in candidates:
             c['ignored'] = c is not winner
-        # Les pics comptes ici ne serviront plus a une autre detection.
-        self._consumed_until = now
+        # Les pics de la fenetre gagnante ne serviront plus ; ceux qui la
+        # suivent restent pour l'evenement suivant (geste distinct).
+        self._consumed_until = winner['_end']
         self._last_trigger = now
+        for c in candidates:
+            c.pop('_end', None)
         return candidates

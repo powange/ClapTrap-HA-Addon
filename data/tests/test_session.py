@@ -452,3 +452,35 @@ def test_audio_format_from_stale_reader_ignored(session_env):
     session._set_format({'source_id': 'rtsp_cam1', 'label': 'Cam'}, {'codec': 'aac', 'sample_rate': 16000}, old)
     session._set_format({'source_id': 'rtsp_gone', 'label': 'X'}, {'codec': 'aac', 'sample_rate': 16000}, old)
     assert session.audio_formats == {} and not [e for e, d in emitted if e == 'source_format']
+
+
+def test_vban_unavailable_reported_as_source_error(session_env, monkeypatch):
+    """Port VBAN occupe : erreur explicite sur la source, sans initialiser
+    YAMNet pour rien (la carte restait sur « Connexion… »)."""
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'get_vban_detector', lambda: None)
+    created = []
+    monkeypatch.setattr(classify.DetectionSession, '_create_detector', lambda self, *a: created.append(1))
+    session = classify.DetectionSession([], sock)
+    session._run_one({'type': 'vban', 'source_id': 'vban_v1', 'label': 'VBAN: Salon'}, {'stop': __import__('threading').Event()})
+    assert created == [] and session.source_errors['vban_v1'].startswith('écoute VBAN indisponible')
+    assert ('source_status', {'source_id': 'vban_v1', 'status': 'error',
+                              'error': session.source_errors['vban_v1']}) in emitted
+
+
+def test_yamnet_init_failure_reported(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+
+    def boom(self, *a):
+        raise RuntimeError('modèle illisible')
+    monkeypatch.setattr(classify.DetectionSession, '_create_detector', boom)
+    session = classify.DetectionSession([], sock)
+    runner = {'stop': __import__('threading').Event()}
+    session._runners['rtsp_c'] = runner
+    session._run_one({'type': 'rtsp', 'source_id': 'rtsp_c', 'label': 'Cam'}, runner)
+    assert 'modèle illisible' in session.source_errors['rtsp_c']
+    # Source retiree pendant l'initialisation : rien a afficher
+    session.source_errors.clear()
+    session._runners.pop('rtsp_c')
+    session._run_one({'type': 'rtsp', 'source_id': 'rtsp_c', 'label': 'Cam'}, runner)
+    assert session.source_errors == {}

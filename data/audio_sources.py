@@ -107,6 +107,7 @@ class ProcessSource:
                             logging.debug(f"{self.name}: format audio non transmis : {e}")
         drain_stderr(proc, self.name, sanitize=self.sanitize, on_line=_on_line)
         last_data = [time.monotonic()]
+        got_data = [False]
         done = threading.Event()
 
         def _watchdog():
@@ -115,6 +116,15 @@ class ProcessSource:
             while not done.wait(1.0):
                 if time.monotonic() - last_data[0] > self.stall_timeout:
                     logging.warning(f"{self.name}: aucune donnée depuis {self.stall_timeout}s, redémarrage")
+                    if not got_data[0] and self._proc is proc and not self.last_error:
+                        # Rien recu depuis la connexion : la cause, sinon
+                        # « Flux perdu, reconnexion » en boucle sans explication.
+                        fmt = self.audio_format
+                        self.last_error = (
+                            f"la caméra annonce une piste audio ({fmt['codec']}, {fmt['sample_rate']} Hz) "
+                            "mais n'envoie aucun son : un autre lecteur RTSP a peut-être l'audio "
+                            "(certaines caméras ne le servent qu'à un client à la fois)"
+                            if fmt else f"aucun son reçu en {self.stall_timeout} s")
                     self._kill(proc)
                     return
         threading.Thread(target=_watchdog, daemon=True).start()
@@ -125,6 +135,7 @@ class ProcessSource:
                 if not data:
                     break
                 last_data[0] = time.monotonic()
+                got_data[0] = True
                 usable = len(data) - (len(data) % 4)
                 if usable:
                     yield np.frombuffer(data[:usable], dtype=np.float32)

@@ -22,8 +22,7 @@ import time
 DEFAULT_DURATION = 4.0
 MIN_DURATION = 1.0
 MAX_DURATION = 15.0
-RESULT_GRACE = 1.6       # s d'attente apres la prise : derniers resultats YAMNet
-YAMNET_WINDOW = 0.975    # un resultat couvre la seconde qui le precede
+from recording import RESULT_GRACE, YAMNET_WINDOW, saturation   # ecoute commune (calibrage, extraits)
 TARGET_LEVEL = 0.5       # niveau vise (bruit le plus fort x gain) : fort, sans ecretage
 MIN_TAKES = 2
 BACKGROUND = 'fond'
@@ -219,7 +218,10 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
             'target': name, 'kind': kind, 'group': slug, 'expected': expected,
             'duration': duration, 'blocks': len(blocks), 'results': len(results),
             'max_raw': round(max_raw, 5), 'gain': gain,
-            'clipped': max_raw * gain >= 0.99,
+            # Comme l'extrait (le limiteur empeche l'ecretage par le gain :
+            # « sature » pour un son simplement limite trompait).
+            'clipped': saturation(max_raw, gain)[0],
+            'limited': saturation(max_raw, gain)[1],
             'attacks': sum(1 for p in peaks if p[0] == 'attack'),
             'sustains': sum(1 for p in peaks if p[0] == 'sustain'),
             'classes': {k: round(v, 3) for k, v in classes.items()},
@@ -388,7 +390,8 @@ def analyze():
                             'que sur les autres groupes')
         clipped = sum(1 for t in s.takes if t['clipped'])
         if clipped:
-            warnings.append(f'{clipped} prise(s) saturée(s) au gain actuel')
+            warnings.append(f'{clipped} prise(s) saturée(s) dès le micro ou la caméra : éloignez le son '
+                            'ou baissez le volume du micro (le gain n\'y peut rien)')
         s.proposal = {'source': s.label, 'gain': gain, 'groups': groups, 'warnings': warnings,
                       'background_takes': sum(1 for t in s.takes if t['kind'] == 'fond')}
         return s.proposal
