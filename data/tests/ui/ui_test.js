@@ -108,7 +108,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // test micro : desactive pendant la detection (le niveau de la carte suit deja le son)
   ok('+  « Tester le son » désactivé pendant la détection',
      $('#src-mic dialog [data-action="test"]').disabled && $('#src-mic .menu-list [data-action="test"]').hidden);
+  ok('+  raison écrite sous le bouton grisé', /La détection écoute cette source.*Arrêtez la détection/.test($('#src-mic [data-role="test-hint"]').textContent) &&
+     !/format audio/.test($('#src-mic [data-role="test-hint"]').textContent));   // micro : pas de format
   status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  ok('+  texte normal détection arrêtée', /sans lancer la détection/.test($('#src-mic [data-role="test-hint"]').textContent));
   $('#src-mic [data-action="test"]').click(); await tick();
   emit('mic_level', { db: -12 }); await tick();
   ok('11. test du micro + VU', !!lastCall('POST', '/api/mic/test/start') && /Test · -12 dB/.test($('#src-mic [data-role="meter-label"]').textContent));
@@ -442,6 +445,16 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const cam = CT.sourceList().find(x => x.kind === 'rtsp');
   const fmtEl = () => $('#' + cam.domId + ' [data-role="audio-format"]');
   ok('+  format audio : inconnu tant que la caméra n\'est pas écoutée', !!fmtEl() && /Inconnu pour l'instant/.test(fmtEl().textContent));
+  // Page ouverte pendant la detection : le format vient du statut du serveur
+  status = { running: true, sources: [cam.sourceId], audio_formats: { [cam.sourceId]: { codec: 'pcm_alaw', sample_rate: 8000, channels: 'mono' } } };
+  await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  ok('+  format audio repris du statut (détection en cours)', /G\.711 A-law · 8 kHz/.test(fmtEl().textContent));
+  // Source hors de la session (pas dans `sources`) : testable pendant la detection
+  status = { running: true, sources: ['autre'] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  ok('+  source non écoutée : « Tester le son » actif pendant la détection',
+     !$('#' + cam.domId + ' dialog [data-action="test"]').disabled && /sans lancer la détection/.test($('#' + cam.domId + ' [data-role="test-hint"]').textContent));
+  status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  delete dom.window.CT.state.audioFormats[cam.sourceId];   // etat propre pour la suite
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'pcm_mulaw', sample_rate: 8000, channels: 'mono' } }); await tick();
   ok('+  format audio 8 kHz : affiché et signalé', /G\.711 µ-law · 8 kHz · mono/.test(fmtEl().textContent) &&
      /au-dessus de|dépasse 4 kHz/.test(fmtEl().textContent) && !!fmtEl().querySelector('.text-warn'));

@@ -88,7 +88,7 @@
         }
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
-            '<p class="hint">Affiche le niveau sonore dans le VU-mètre de la carte, sans lancer la détection.</p></div>';
+            '<p class="hint" data-role="test-hint"></p></div>';   // texte : renderSourceStatuses
         html += '<div class="field"><span class="field-label">Groupes de sons</span>' +
             '<p class="hint">Chaque groupe a son propre seuil, ses entités Home Assistant et sa liste de sons. Un son ne peut être actif que dans un seul groupe d\'une même source.</p>' +
             '<div class="groups-manage" data-role="groups"></div>' +
@@ -146,6 +146,15 @@
     function realUrl(input, src) {
         var v = input.value.trim();
         return input.dataset.secret && v === maskUrl(src.data.url || '') ? (src.data.url || '') : v;
+    }
+    // Pourquoi « Tester le son » est grise pendant que la detection ecoute la
+    // source : ecrit sous le bouton (une infobulle ne s'affiche ni au toucher
+    // ni au clavier).
+    function testHint(src, listening) {
+        return listening
+            ? 'La détection écoute cette source : son niveau sonore est déjà affiché en direct' +
+              (src.kind === 'rtsp' ? ', ainsi que le format audio reçu' : '') + '. Arrêtez la détection pour tester le son seul.'
+            : 'Affiche le niveau sonore dans le VU-mètre de la carte, sans lancer la détection.';
     }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
@@ -244,15 +253,16 @@
             var card = document.getElementById(src.domId);
             if (!card) return;
             if (src.kind === 'rtsp') updateAudioFormat(src);
-            // Pendant la detection, le VU-metre de la carte suit deja le son ;
-            // un test ouvrait une seconde capture (2e session RTSP).
+            // Source ecoutee par la detection : son VU-metre suit deja le son, et
+            // un test ouvrait une seconde capture (2e session RTSP). Une source
+            // hors de la session (desactivee, ajoutee depuis) reste testable.
+            var listening = running && (CT.state.status.sources || []).indexOf(src.sourceId) !== -1;
             CT.$$('[data-action="test"]', card).forEach(function (b) {
-                if (b.getAttribute('role') === 'menuitem') b.hidden = running;   // menu : navigable au clavier
-                else {
-                    b.disabled = running;
-                    b.title = running ? 'Pendant la détection, le niveau de la carte suit déjà le son' : '';
-                }
+                if (b.getAttribute('role') === 'menuitem') b.hidden = listening;   // menu : navigable au clavier
+                else b.disabled = listening;
             });
+            var testNote = card.querySelector('[data-role="test-hint"]');
+            if (testNote) testNote.textContent = testHint(src, listening);
             // Texte d'attente selon l'etat de la detection (il restait
             // « Détection arrêtée » apres le demarrage, en silence).
             var line = card.querySelector('[data-role="live"]');

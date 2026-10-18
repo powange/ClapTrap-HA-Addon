@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.69.1
+
+### Interface
+
+- **« Tester le son » pendant la détection** : grisé seulement pour une
+  source que la détection écoute, avec la raison écrite sous le bouton
+  (elle n'apparaissait qu'au survol de la souris, donc jamais sur mobile) :
+  son niveau, et pour une caméra son format audio, sont déjà affichés en
+  direct. Une source non écoutée (désactivée, ajoutée depuis le démarrage)
+  reste testable sans arrêter la détection.
+
 ## 6.69.0
 
 ### Caméras
