@@ -6,6 +6,7 @@ import time
 import types
 
 import ha_entities as ha
+from helpers import wait_until
 
 G = lambda slug, name, counts: {'slug': slug, 'name': name, 'ha_entities': counts}  # noqa: E731
 
@@ -140,8 +141,7 @@ def test_pulse_off_then_on_and_empty_group(mqtt, monkeypatch):
     ha.on_clap_detected('mic', 0.9, 1)
     time.sleep(0.1)
     ha.on_clap_detected('mic', 0.9, 1)
-    time.sleep(0.5)
-    assert [p for t, p, r in mqtt.published if t == 'claptrap/mic_clap_1clap/state'] == ['ON', 'OFF', 'ON', 'OFF']
+    wait_until(lambda: [p for t, p, r in mqtt.published if t == 'claptrap/mic_clap_1clap/state'] == ['ON', 'OFF', 'ON', 'OFF'])
     mqtt.published.clear()
     ha.on_clap_detected('vban_salon', 0.9, 1, group_slug='clap')   # groupe sans entite
     ha.on_clap_detected('mic', 0.9, 0)                              # aucun pic

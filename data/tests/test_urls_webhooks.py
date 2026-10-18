@@ -38,3 +38,20 @@ def test_post_not_replayed_on_server_error():
 def test_async_ignores_invalid_url(caplog):
     webhook.send_webhook_async('not a url', {})
     assert 'invalide' in caplog.text
+
+
+def test_async_sends_in_pool_and_contains_errors(monkeypatch):
+    import types
+    submitted, sent = [], []
+    monkeypatch.setattr(webhook, '_executor', types.SimpleNamespace(submit=lambda fn: submitted.append(fn)))
+    webhook.send_webhook_async('', {'x': 1})            # pas de webhook configure
+    assert submitted == []
+
+    def send(url, data):
+        sent.append((url, data))
+        raise RuntimeError('HTTP 500')
+    monkeypatch.setattr(webhook, 'send_webhook', send)
+    webhook.send_webhook_async('http://ha.local:8123/api/webhook/abc', {'x': 1})
+    assert len(submitted) == 1
+    submitted[0]()                                      # l'echec n'echappe pas du fil
+    assert sent == [('http://ha.local:8123/api/webhook/abc', {'x': 1})]

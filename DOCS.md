@@ -25,7 +25,7 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
    `https://github.com/powange/ClapTrap-HA-Addon`
 2. Recherchez **ClapTrap**, cliquez sur **Installer**, puis **Démarrer**.
    L'image est précompilée : l'installation ne prend que le temps du
-   téléchargement (environ 340 Mo, 1,4 Go une fois installée ; compter
+   téléchargement (environ 210 Mo, 880 Mo une fois installée ; compter
    quelques minutes sur un Raspberry Pi).
 3. Activez **Afficher dans la barre latérale** et, si vous le souhaitez,
    **Watchdog** (Home Assistant relance alors l'add-on s'il s'arrête : le
@@ -33,10 +33,15 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
 4. Ouvrez l'interface (**Ouvrir l'interface utilisateur Web**) et ajoutez
    votre première source.
 
-L'interface n'est accessible que depuis Home Assistant (ingress). Depuis la
-version 6.35, le port 16045 refuse les connexions directes
-(`http://homeassistant:16045` répond « accès refusé ») : passez par le panneau
-de l'add-on.
+L'interface n'est accessible que depuis Home Assistant (ingress) : passez
+par le panneau de l'add-on. Le serveur n'écoute que sur le réseau interne de
+Home Assistant : `http://homeassistant:16045` depuis le réseau local est
+refusé avant même d'atteindre ClapTrap (connexion refusée, rien n'écoute sur
+cette adresse). Sur le réseau interne, seul le proxy d'ingress du Supervisor
+est accepté ; toute autre adresse reçoit « 403 ». Si cette interface interne
+manque (installation inhabituelle), le serveur écoute sur toutes les
+interfaces : le port répond alors depuis le réseau local, mais toujours par
+« 403 », et le journal le signale au démarrage.
 
 ## Ajouter une source
 
@@ -47,9 +52,13 @@ Bouton **Ajouter une source**, puis :
   listé dans Paramètres > Système > Matériel, puis rouvrez l'assistant.
 - **Caméra RTSP** : l'adresse du flux, par exemple
   `rtsp://utilisateur:motdepasse@192.168.1.20:554/stream` (voir l'application
-  ou la documentation de la caméra). Seul le protocole `rtsp://` est accepté.
-  Si le son se coupe (Wi-Fi, paquets perdus), cochez **Transport TCP** dans
-  les réglages de la caméra (certaines caméras ne le gèrent pas).
+  ou la documentation de la caméra). Seuls `rtsp://` et `rtsps://` (chiffré)
+  sont acceptés. Si le son se coupe (Wi-Fi, paquets perdus), cochez
+  **Transport TCP** dans les réglages de la caméra (certaines caméras ne le
+  gèrent pas). Seule la piste audio est demandée à la caméra : la vidéo ne
+  circule pas sur le réseau. Codecs audio pris en charge : AAC, G.711
+  (µ-law, A-law), G.726, G.722, Opus, MP3/MP2, AMR, GSM, AC-3, Vorbis,
+  Speex et PCM, soit ceux des caméras IP courantes.
 - **Flux VBAN** : un PC qui diffuse du son avec Voicemeeter. Réglez
   l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980 :
   le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur
@@ -412,7 +421,7 @@ lignes : ouvrez une issue sur le dépôt avec leur contenu.
 | 6.32 | `source_id` d'un flux VBAN : `vban_<id>` (au lieu de l'IP) | Filtrer plutôt sur `entity_key` (6.38). |
 | 6.33 | entity_id en ASCII (accents translittérés : « Bébé » devient `bebe`) | Mettre à jour les automatisations qui utilisaient un entity_id accentué. |
 | 6.33 | `source_id` du micro : `mic` (au lieu de `mic_<index>`) | Adapter les automatisations qui filtraient `claptrap_clap` sur l'ancien identifiant. |
-| 6.35 | Interface accessible uniquement par l'ingress (port 16045 fermé) | Ouvrir l'add-on depuis Home Assistant. |
+| 6.35 | Interface accessible uniquement par l'ingress (port 16045 fermé au réseau local) | Ouvrir l'add-on depuis Home Assistant. |
 | 6.37 | Réglage « Fin d'un pic » retiré (un clap réverbéré ne compte plus pour deux) | Rien. |
 | 6.37 | Un groupe avec entités ne se déclenche plus sans pic sonore | Rien ; un groupe sans entité envoie `clap_count: 0` dans ce cas. |
 | 6.38 | Entités indisponibles tant que la source n'écoute pas | Vérifier les automatisations qui réagissaient au passage « indisponible ». |
@@ -424,6 +433,7 @@ lignes : ouvrez une issue sur le dépôt avec leur contenu.
 | 6.58 | Renommer un groupe renomme ses entity_id dans HA (historique conservé) | Après un renommage, adapter les automatisations (correspondances dans le journal). |
 | 6.61 | Noms affichés des entités raccourcis (« Salon · Clap · 2 claps » au lieu de « VBAN: Salon Clap 2 claps ») ; entity_id inchangés | Rien (un nom personnalisé dans HA est conservé). |
 | 6.62 | Un appareil par source dans HA (« ClapTrap Salon ») : noms affichés « ClapTrap Salon Clap · 2 claps » ; nouvelle entité event par groupe ; mise à jour automatique arrêtée avant les versions qui changent des identifiants (`breaking_versions`) | Rien ; affecter éventuellement une pièce à chaque appareil. |
+| 6.66 | ffmpeg réduit à l'audio des caméras : codecs listés dans « Ajouter une source » ; seule la piste audio est demandée | Rien, sauf caméra muette avec « no decoder found » au journal : le signaler. |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).
@@ -446,6 +456,11 @@ réglages du micro (la liste est relue à l'ouverture).
 et le mot de passe (le journal de l'add-on indique la cause, par exemple
 « 401 Unauthorized »). Le **gain** de la caméra amplifie le son envoyé à la
 reconnaissance (10 par défaut).
+
+**Une caméra reste muette, journal « no decoder found for: … »** : son codec
+audio n'est pas pris en charge (liste dans « Ajouter une source »). Choisissez
+AAC ou G.711 dans les réglages audio de la caméra si elle le permet, et
+signalez le codec dans une issue pour qu'il soit ajouté.
 
 **Un flux VBAN affiche « Aucun paquet reçu »** : vérifiez que l'émetteur
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est

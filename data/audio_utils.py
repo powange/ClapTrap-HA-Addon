@@ -118,9 +118,11 @@ def get_audio_input_devices():
         result = []
         for line in out.splitlines():
             cols = line.split('\t')
-            if len(cols) >= 2 and not cols[1].endswith('.monitor'):
-                result.append({'index': int(cols[0]) if cols[0].isdigit() else len(result),
-                               'name': cols[1], 'pulse_name': cols[1]})
+            # Index numerique obligatoire : il sert de cle a la source micro ;
+            # un index invente (rang dans la liste) pouvait egaler celui d'un
+            # autre peripherique.
+            if len(cols) >= 2 and cols[0].isdigit() and not cols[1].endswith('.monitor'):
+                result.append({'index': int(cols[0]), 'name': cols[1], 'pulse_name': cols[1]})
         _audio_devices_cache = result
         _audio_devices_cache_time = now
         return result

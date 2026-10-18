@@ -1,4 +1,5 @@
 """Sources audio : process externes (chien de garde, arret) et relance."""
+import inspect
 import sys
 import threading
 import time
@@ -7,6 +8,7 @@ import numpy as np
 
 from audio_sources import ProcessSource, run_source, rtsp_source
 from audio_utils import BLOCK_SAMPLES
+from helpers import wait_until
 
 PY = sys.executable
 
@@ -26,8 +28,7 @@ def test_process_source_reads_blocks_and_error_line():
     src = ProcessSource(emitter(3, stderr='401 Unauthorized\n'), 'fake')
     blocks = list(src.iter_blocks(threading.Event()))
     assert len(blocks) == 3 and blocks[0].dtype == np.float32 and blocks[0][0] == 0.25
-    time.sleep(0.2)
-    assert 'Unauthorized' in src.last_error
+    wait_until(lambda: 'Unauthorized' in src.last_error)
 
 
 def test_process_source_watchdog_kills_stalled_stream():
@@ -42,7 +43,14 @@ def test_close_unblocks_read():
     out = []
     th = threading.Thread(target=lambda: out.extend(src.iter_blocks(threading.Event())))
     th.start()
-    time.sleep(0.5)
+    # Le fil doit etre bloque dans proc.stdout.read() (ligne lue dans le code).
+    lines, first = inspect.getsourcelines(ProcessSource.iter_blocks)
+    read_line = first + next(i for i, line in enumerate(lines) if 'proc.stdout.read(' in line)
+
+    def blocked_in_read():
+        frame = sys._current_frames().get(th.ident)
+        return frame is not None and frame.f_code.co_name == 'iter_blocks' and frame.f_lineno == read_line
+    wait_until(blocked_in_read)
     src.close()
     th.join(3)
     assert not th.is_alive()
@@ -73,7 +81,7 @@ def test_run_source_retries_with_statuses():
     th = threading.Thread(target=run_source, args=(src, blocks.append, stop),
                           kwargs={'on_status': lambda s, e=None: statuses.append(s), 'max_backoff': 1})
     th.start()
-    time.sleep(2.5)
+    wait_until(lambda: src.runs >= 2 and len(statuses) >= 3 and len(blocks) == 2 * src.runs)
     stop.set()
     th.join(3)
     assert src.runs >= 2 and len(blocks) == 2 * src.runs
@@ -92,10 +100,9 @@ def test_run_source_reports_error_detail():
     th = threading.Thread(target=run_source, args=(src, lambda b: None, stop),
                           kwargs={'on_status': lambda s, e=None: statuses.append((s, e))})
     th.start()
-    time.sleep(0.3)
+    wait_until(lambda: ('error', '401 Unauthorized') in statuses)
     stop.set()
     th.join(3)
-    assert ('error', '401 Unauthorized') in statuses
 
 
 def test_rtsp_tcp_transport_option():

@@ -40,3 +40,56 @@ def test_stop_is_immediate_and_device_change_restarts(monkeypatch):
     t0 = time.monotonic()
     av.stop()
     assert time.monotonic() - t0 < 0.5   # attendait jusqu'a 2 s (sleep)
+
+
+# --- Boucle d'ajustement (fil reel, intervalle raccourci) -------------------------
+def test_adjust_loop_applies_notifies_and_persists(settings_dir, monkeypatch):
+    import types
+    import audio_utils
+    import auto_volume
+    from helpers import wait_until
+    monkeypatch.setattr(auto_volume, 'ADJUST_INTERVAL', 0.05)
+    applied, emitted = [], []
+    monkeypatch.setattr(audio_utils, 'set_pulse_volume', lambda name, vol: applied.append((name, vol)))
+    settings_dir.modify_settings(lambda s: s.setdefault('microphone', {}).update(volume=100))
+    av = AutoVolume()
+
+    def feed_until(cond, peak):
+        av.feed_peak(peak)
+        return cond()
+    sio = types.SimpleNamespace(emit=lambda ev, data: emitted.append((ev, data)))
+    av.start('alsa.mic', sio)
+    try:
+        # Saturation : baisse appliquee, annoncee et enregistree (1re fois)
+        wait_until(lambda: feed_until(lambda: applied, CLIP_LEVEL))
+        assert applied[0] == ('alsa.mic', 100 - STEP_DOWN)
+        assert emitted[0] == ('auto_volume_update', {'volume': 100 - STEP_DOWN})
+        wait_until(lambda: settings_dir.load_settings()['microphone']['volume'] == 100 - STEP_DOWN)
+        # 2e baisse dans les 30 s : appliquee mais pas encore ecrite...
+        wait_until(lambda: feed_until(lambda: len(applied) >= 2, CLIP_LEVEL))
+        assert settings_dir.load_settings()['microphone']['volume'] == 100 - STEP_DOWN
+    finally:
+        av.stop()
+    # ... ecrite a l'arret
+    assert settings_dir.load_settings()['microphone']['volume'] == applied[-1][1]
+    assert not av.running
+
+
+def test_stop_without_loop_keeps_user_volume(settings_dir):
+    settings_dir.modify_settings(lambda s: s.setdefault('microphone', {}).update(volume=73))
+    AutoVolume().stop()   # jamais demarre : ne reecrit pas le volume par defaut
+    assert settings_dir.load_settings()['microphone']['volume'] == 73
+
+
+def test_apply_and_persist_errors_are_contained(monkeypatch, caplog):
+    import audio_utils
+    import settings_manager
+
+    def boom(*a, **k):
+        raise RuntimeError('panne')
+    monkeypatch.setattr(audio_utils, 'set_pulse_volume', boom)
+    monkeypatch.setattr(settings_manager, 'atomic_update', boom)
+    av = AutoVolume()
+    av._apply_volume(50)
+    av._persist_volume(50)
+    assert caplog.text.count('panne') == 2
