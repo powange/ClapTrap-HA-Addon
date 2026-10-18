@@ -133,6 +133,8 @@ def import_settings():
             imported = request.get_json(silent=True)
     except (ValueError, UnicodeDecodeError) as e:
         return jsonify({'success': False, 'error': f'Fichier JSON illisible : {e}'}), 400
+    except RecursionError:
+        return jsonify({'success': False, 'error': 'Fichier JSON illisible : trop imbriqué'}), 400
     if isinstance(imported, dict) and imported.pop('_shareable', False):
         # Identifiants et chemins de webhook masques : l'importer cassait
         # cameras et webhooks sans aucune erreur.
@@ -141,6 +143,11 @@ def import_settings():
     # Validation AVANT ecriture : un seuil "abc" faisait planter float() au
     # demarrage suivant (auto-start en echec silencieux).
     normalize_settings(imported)
+    from settings_manager import strip_unknown_keys
+    ignored = strip_unknown_keys(imported)
+    if ignored:
+        logging.warning(f"Import : champs inconnus ignorés : {', '.join(ignored[:20])}"
+                        f"{' …' if len(ignored) > 20 else ''}")
     _check_import_collisions(imported)
     success, msg = save_settings(imported)
     if not success:
@@ -148,6 +155,19 @@ def import_settings():
     # Appliquer la configuration importee sans attendre un redemarrage manuel.
     level = logging.DEBUG if load_settings().get('global', {}).get('debug') else logging.INFO
     logging.getLogger().setLevel(level)
+    # Volume du micro importe : applique tout de suite (la detection ne le
+    # reapplique qu'au demarrage du micro).
+    settings = load_settings()
+    mic = settings.get('microphone') or {}
+    if 'microphone' in imported and not mic.get('auto_volume'):
+        try:
+            from audio_utils import set_pulse_volume
+            from routes.sources import _resolve_pulse_name
+            pulse = _resolve_pulse_name(settings)   # micro reellement present (pas le nom du fichier)
+            if pulse:
+                set_pulse_volume(pulse, mic.get('volume', 100))
+        except Exception as e:
+            logging.warning(f"Volume du micro importé non appliqué : {e}")
     _sync_and_apply()
     return jsonify({'success': True, 'message': msg})
 
@@ -194,11 +214,7 @@ def test_webhook():
     failure = jsonify({'success': False,
                        'error': "Le webhook n'a pas été accepté (détail dans le journal de l'add-on)"}), 502
     try:
-        response = send_webhook(url, payload, follow_redirects=False)
+        send_webhook(url, payload)
     except requests.exceptions.RequestException:
-        return failure
-    if 300 <= response.status_code < 400:
-        logging.error(f"Webhook de test vers {mask_webhook_url(url)} : redirection refusée "
-                      f"(HTTP {response.status_code})")
-        return failure
+        return failure   # redirection comprise (journalisee par send_webhook)
     return jsonify({'success': True, 'message': 'Test réussi'})

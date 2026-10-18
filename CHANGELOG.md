@@ -1,5 +1,38 @@
 # Changelog
 
+## 6.63.0
+
+### API et réglages
+
+- **Plus d'erreur 500 sur une requête forgée** : un JSON très imbriqué
+  (import, API, test du son, calibrage) répond 400.
+- **Validation complétée** :
+  - une caméra par URL, à l'ajout comme à la modification, sans tenir
+    compte de la casse du schéma (`RTSP://`) ;
+  - noms de source et de périphérique : texte exigé (une liste devenait
+    « ['B'] ») ;
+  - import : les champs inconnus sont ignorés (et listés dans le journal)
+    au lieu d'être enregistrés ;
+  - bornes : 32 caméras et 32 flux VBAN, 20 groupes par source, 600 sons
+    par liste, noms de son de 200 caractères au plus (un nom de 1,5 Mo était
+    accepté puis recopié à chaque lecture) ;
+  - micro : changer de périphérique et activer le volume automatique dans
+    la même requête est accepté (la validation portait sur l'ancien micro),
+    pour un micro réellement présent ;
+  - anciennes sauvegardes : sons exclus convertis en texte, entrées vides
+    retirées ; un son exclu trop long reste supprimable.
+- **Comportements harmonisés** :
+  - message de conflit d'entités neutre (il accusait parfois la mauvaise
+    source) ;
+  - les webhooks des détections ne suivent plus les redirections, comme le
+    test (un POST devenait GET) : une redirection est un échec signalé dans
+    le journal, avec l'adresse finale à utiliser ;
+  - le volume du micro importé est appliqué tout de suite, au micro présent ;
+  - le test du micro n'accepte que les micros connus, et `pactl` reçoit
+    `--` avant le nom du périphérique.
+- **32 fils** pour le serveur web (au lieu de 16) : plusieurs onglets et
+  l'application mobile en arrière-plan ne saturent plus l'API.
+
 ## 6.62.0
 
 ### Meilleure intégration avec Home Assistant

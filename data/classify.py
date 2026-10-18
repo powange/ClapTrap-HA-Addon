@@ -782,7 +782,8 @@ def _ensure_label_in_groups(source_dict, label):
     for g in source_dict.get('sound_groups') or []:
         if isinstance(g, dict) and g.get('auto_add_sounds'):
             wl = g.setdefault('sound_whitelist', {})
-            if label not in wl:
+            from settings_manager import MAX_LABELS, MAX_LABEL
+            if label not in wl and len(wl) < MAX_LABELS and len(label) <= MAX_LABEL:
                 wl[label] = False
                 changed = True
     return changed

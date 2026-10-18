@@ -120,7 +120,10 @@ def _run_process(test, reader, gain_of=lambda: 1.0):
 
 def _body():
     """Corps JSON en objet (une liste donnait une erreur 500)."""
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except RecursionError:
+        raise ApiError('JSON trop imbriqué')
     return data if isinstance(data, dict) else {}
 
 
@@ -142,6 +145,13 @@ def start_mic_test():
     body = _body()
     settings = load_settings()
     pulse_name = body.get('pulse_name') or _resolve_pulse_name(settings)
+    if body.get('pulse_name'):
+        # Seuls les micros connus : le nom part a pactl et parecord (volume
+        # applique, enregistrement), pas n'importe quel nom fourni.
+        from audio_utils import get_audio_input_devices
+        if not isinstance(pulse_name, str) or pulse_name not in {
+                d.get('pulse_name') for d in get_audio_input_devices() if d.get('pulse_name')}:
+            raise ApiError('Micro inconnu')
     from auto_volume import auto_volume_mgr
     if pulse_name and not auto_volume_mgr.running:
         # Auto-volume actif : son volume courant n'est enregistre que toutes les

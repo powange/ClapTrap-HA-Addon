@@ -29,14 +29,24 @@ _session = _make_session()
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="webhook")
 
 
-def send_webhook(url, data, follow_redirects=True):
+def send_webhook(url, data):
     """POST JSON synchrone ; retourne la reponse, leve ValueError (URL
-    invalide) ou requests.RequestException."""
+    invalide) ou requests.RequestException.
+
+    Pas de redirection (requests transformait le POST en GET, et le test
+    refusait deja les redirections) : une reponse 3xx est un echec explicite,
+    avec la nouvelle adresse (masquee) dans le journal."""
     if not url or not is_valid_url(url):
         raise ValueError("URL de webhook invalide (http:// ou https:// attendu)")
     try:
         # timeout = (connect, read) : echec rapide si l'hote ne repond pas.
-        response = _session.post(url, json=data, timeout=(3, 5), allow_redirects=follow_redirects)
+        response = _session.post(url, json=data, timeout=(3, 5), allow_redirects=False)
+        if 300 <= response.status_code < 400:
+            target = response.headers.get('Location', '')
+            logging.error(f"Webhook vers {mask_webhook_url(url)} redirigé (HTTP {response.status_code})"
+                          + (f" vers {mask_webhook_url(target)}" if target else '')
+                          + " : utilisez l'adresse finale")
+            raise requests.exceptions.HTTPError(f"redirection HTTP {response.status_code}", response=response)
         response.raise_for_status()
         return response
     except requests.exceptions.RequestException as e:
