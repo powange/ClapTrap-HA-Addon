@@ -200,26 +200,14 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
         det = classify.detector_for(s.source_id)
         if det is None:
             raise CalibrationError("la source n'écoute plus (détection arrêtée ?)", 409)
-        blocks, peaks, results = [], [], []
-        lock = threading.Lock()
-
-        def tap(event, *data):
-            with lock:
-                (blocks if event == 'block' else peaks if event == 'peak' else results).append(data)
-        t0 = det._clock_end
-        det.add_tap(tap)
-        try:
-            time.sleep(duration)
-            t1 = det._clock_end
-            time.sleep(RESULT_GRACE)
-        finally:
-            det.remove_tap(tap)
-        with lock:
-            blocks = [b for b in blocks if t0 < b[2] <= t1]
-            peaks = [p for p in peaks if t0 < p[1] <= t1]
-            # Fenetres dont la moitie au moins tombe dans la prise.
-            half = YAMNET_WINDOW / 2
-            results = [r for r in results if t0 + half < r[1] <= t1 + half]
+        from recording import capture   # ecoute commune (calibrage, extraits)
+        cap = capture(det, duration, grace=RESULT_GRACE)
+        t0, t1 = cap['t0'], cap['t1']
+        blocks = [b for b in cap['blocks'] if t0 < b[2] <= t1]
+        peaks = [p for p in cap['peaks'] if t0 < p[1] <= t1]
+        # Fenetres dont la moitie au moins tombe dans la prise.
+        half = YAMNET_WINDOW / 2
+        results = [r for r in cap['results'] if t0 + half < r[1] <= t1 + half]
         classes = {}
         for categories, _now in results:
             for label, score in categories:

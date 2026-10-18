@@ -88,7 +88,11 @@
         }
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
-            '<p class="hint" data-role="test-hint"></p></div>';   // texte : renderSourceStatuses
+            '<p class="hint" data-role="test-hint"></p></div>' +   // texte : renderSourceStatuses
+            '<div class="field"><span class="field-label">Extrait sonore</span>' +
+            '<button type="button" class="btn btn-ghost" data-action="record">Enregistrer ' + RECORD_SECONDS + ' s</button>' +
+            '<p class="hint" data-role="record-hint"></p><div class="record-result" data-role="record-result">' +
+            recordingHtml(src) + '</div></div>';
         html += '<div class="field"><span class="field-label">Groupes de sons</span>' +
             '<p class="hint">Chaque groupe a son propre seuil, ses entités Home Assistant et sa liste de sons. Un son ne peut être actif que dans un seul groupe d\'une même source.</p>' +
             '<div class="groups-manage" data-role="groups"></div>' +
@@ -156,6 +160,67 @@
               (src.kind === 'rtsp' ? ', ainsi que le format audio reçu' : '') + '. Arrêtez la détection pour tester le son seul.'
             : 'Affiche le niveau sonore dans le VU-mètre de la carte, sans lancer la détection.';
     }
+    // ---- Extrait enregistre (detection en cours) --------------------------
+    // Ce que la reconnaissance recoit (gain compris) : on l'ecoute pour
+    // reperer echo, saturation ou reduction de bruit, avec les sons reconnus.
+    var RECORD_SECONDS = 5;
+    function recordHint(listening) {
+        return listening
+            ? 'Enregistre ' + RECORD_SECONDS + ' s de ce que reçoit la reconnaissance (gain compris) : faites le son pendant ' +
+              'l\'enregistrement, puis écoutez-le et voyez les sons reconnus.'
+            : 'Disponible pendant la détection, quand la source est écoutée.';
+    }
+    // Enregistrement en cours et dernier extrait, par source : la carte peut
+    // etre reconstruite pendant les ~7 s de la requete (fermeture des
+    // reglages) ; une seule URL de blob par source (l'ancienne est liberee).
+    var recordingNow = {}, lastRecording = {};
+    function recordClip(card, src) {
+        if (recordingNow[src.sourceId]) return;
+        recordingNow[src.sourceId] = true;
+        CT.renderSourceStatuses();
+        CT.api('POST', '/api/source/record', {source_id: src.sourceId, seconds: RECORD_SECONDS})
+            .then(function (d) {
+                var prev = lastRecording[src.sourceId];
+                if (prev && prev.url && window.URL) URL.revokeObjectURL(prev.url);
+                lastRecording[src.sourceId] = {d: d, url: wavUrl(d.wav), name: recordingName(src)};
+            })
+            .catch(function (err) { CT.error('Enregistrement impossible : ' + err.message); })
+            .then(function () {
+                delete recordingNow[src.sourceId];
+                var cardNow = document.getElementById(src.domId);   // carte actuelle, peut-etre reconstruite
+                var out = cardNow && cardNow.querySelector('[data-role="record-result"]');
+                if (out) out.innerHTML = recordingHtml(src);
+                CT.renderSourceStatuses();
+            });
+    }
+    function wavUrl(b64) {
+        if (!(window.URL && URL.createObjectURL)) return '';
+        var bytes = atob(b64 || ''), arr = new Uint8Array(bytes.length);
+        for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        return URL.createObjectURL(new Blob([arr], {type: 'audio/wav'}));
+    }
+    function recordingName(src) {
+        var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        return 'claptrap-' + (src.data.name || src.sourceId).replace(/[^\w-]+/g, '_') + '-' + stamp + '.wav';
+    }
+    function recordingHtml(src) {
+        var rec = lastRecording[src.sourceId];
+        if (!rec) return '';
+        var d = rec.d, pct = function (v) { return Math.round(v * 100) + ' %'; };
+        var rows = (d.timeline || []).map(function (w) {
+            return '<li><span class="mono">' + w.t.toFixed(1).replace('.', ',') + ' s</span> ' +
+                (w.top || []).map(function (c) { return esc(CT.soundLabel(c.classe)) + ' ' + pct(c.score); }).join(' · ') + '</li>';
+        }).join('');
+        return (rec.url ? '<audio controls src="' + rec.url + '"></audio>' +
+                '<p><a href="' + rec.url + '" download="' + esc(rec.name) + '">Télécharger l\'extrait (WAV)</a></p>' : '') +
+            (d.clipped ? '<p class="hint text-warn">Le son arrive déjà saturé du micro ou de la caméra : éloignez la source ' +
+                         'du bruit ou baissez le volume du micro dans la caméra (le gain de ClapTrap n\'y peut rien).</p>'
+             : d.limited ? '<p class="hint">Des sons forts ont été atténués par le limiteur (gain de la source élevé) : ' +
+                           'baissez le gain si cela arrive souvent.</p>' : '') +
+            '<p class="hint">Sons reconnus (une fenêtre d\'environ 1 s par ligne, depuis le début) :</p>' +
+            (rows ? '<ul class="record-timeline">' + rows + '</ul>' : '<p class="hint">Aucun son reconnu.</p>');
+    }
+
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
     }
@@ -263,6 +328,15 @@
             });
             var testNote = card.querySelector('[data-role="test-hint"]');
             if (testNote) testNote.textContent = testHint(src, listening);
+            // Extrait : l'inverse du test, seulement quand la detection ecoute la source.
+            var rec = card.querySelector('[data-action="record"]');
+            if (rec) {
+                var busy = !!recordingNow[src.sourceId];
+                rec.disabled = busy || !listening;
+                rec.textContent = busy ? 'Enregistrement… faites le son' : 'Enregistrer ' + RECORD_SECONDS + ' s';
+            }
+            var recNote = card.querySelector('[data-role="record-hint"]');
+            if (recNote) recNote.textContent = recordHint(listening);
             // Texte d'attente selon l'etat de la detection (il restait
             // « Détection arrêtée » apres le demarrage, en silence).
             var line = card.querySelector('[data-role="live"]');
@@ -329,6 +403,7 @@
             if (!btn || !card.contains(btn)) return;
             var action = btn.getAttribute('data-action');
             if (action === 'test') { closeMenu(); toggleTest(src, card); }
+            else if (action === 'record') { recordClip(card, src); }
             else if (action === 'open-settings') { closeMenu(); openSettings(card, src); }
             else if (action === 'choose-sounds') { openSettings(card, src, false, btn.getAttribute('data-group')); }
             else if (action === 'close-settings') { closeSettings(card); }

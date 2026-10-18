@@ -75,19 +75,26 @@ class AudioDetector:
 
     # --- Ecoutes (calibrage) ------------------------------------------------
 
-    def add_tap(self, fn):
+    def add_tap(self, fn, events=None):
         """fn('block', pic_brut, gain, instant), fn('peak', 'attack'|'sustain',
         instant), fn('result', [(classe, score)], instant) : instants sur
-        l'horloge audio."""
-        self._taps = self._taps + [fn]
+        l'horloge audio ; fn('audio', bloc) : le son donne a YAMNet (gain,
+        auto-gain et limiteur appliques), pour l'enregistrement d'extraits.
+        `events` : evenements voulus (tous si None)."""
+        self._taps = self._taps + [(fn, frozenset(events) if events else None)]
 
     def remove_tap(self, fn):
-        self._taps = [t for t in self._taps if t is not fn]
+        self._taps = [t for t in self._taps if t[0] is not fn]
 
-    def _tap(self, *event):
-        for fn in self._taps:
+    def _wants(self, event):
+        return any(ev is None or event in ev for _fn, ev in self._taps)
+
+    def _tap(self, event, *data):
+        for fn, ev in self._taps:
+            if ev is not None and event not in ev:
+                continue
             try:
-                fn(*event)
+                fn(event, *data)
             except Exception as e:
                 logging.debug(f"tap: {e}")
 
@@ -217,6 +224,8 @@ class AudioDetector:
             elif abs(total - 1.0) > 1e-3:
                 audio_data = np.clip(audio_data * np.float32(total), -1.0, 1.0)
             self._last_total = total
+            if self._taps and self._wants('audio'):
+                self._tap('audio', audio_data)   # tableau neuf, non modifie ensuite
 
             if self._pending.size:
                 audio_data = np.concatenate((self._pending, audio_data))
