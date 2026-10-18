@@ -1,5 +1,35 @@
 # Changelog
 
+## 6.60.0
+
+### Détection
+
+- **Arbitrage entre groupes** : quand plusieurs groupes reconnaissent le même
+  son, un groupe dont le nombre de claps a une entité passe en premier, puis
+  un groupe sans entité sur un vrai pic, puis les autres (score à égalité de
+  rang). Avant, le meilleur score gagnait même s'il ne pouvait rien
+  déclencher (3 claps pour des entités 1 et 2, applaudissements de la télé
+  sans pic) et éteignait le groupe qui, lui, aurait déclenché.
+- **Plus d'événement à 0 clap** : un son reconnu sans pic par un groupe qui a
+  des entités n'envoie plus d'événement `claptrap_clap` ni de webhook
+  (`clap_count: 0`). Un groupe sans entité les envoie toujours.
+- **Son trop fort réduit au lieu d'être écrêté** : avec un gain élevé
+  (caméra ×10), un pic brut au-delà de 0,1 saturait avant YAMNet ; le bloc
+  trop fort est désormais ramené sous la saturation, sans atténuer les sons
+  qui suivent.
+- **Transport TCP par caméra** (assistant d'ajout, réglages de la caméra,
+  commandes `add_rtsp` et `update_source` avec `rtsp_tcp`) : plus fiable en
+  Wi-Fi ; la caméra est relancée au changement, et le test du son utilise
+  le même transport.
+- Corrections : un ancien lanceur du micro ne laisse plus l'auto-volume
+  actif sur l'ancien périphérique ; la découverte des sons ne lève plus
+  d'erreur quand l'option « Ajouter les sons entendus » est désactivée
+  pendant la détection ; les routes de test du son répondent 400 (et non
+  500) à un corps JSON qui n'est pas un objet.
+- Ménage : heuristique de mesure de cadence retirée (MediaPipe 1.0 rend
+  toujours un résultat par fenêtre de 975 ms), ancienne branche des sources
+  sans groupes retirée.
+
 ## 6.59.0
 
 ### Renommage d'un groupe

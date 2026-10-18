@@ -62,7 +62,7 @@ def session_env(settings_dir, fake_classifier, monkeypatch):
 def test_session_counts_emits_and_persists(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     reader = FakeReader(clap_blocks=(30, 45))
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: reader)
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: reader)
     ok, _ = classify.start_from_settings(sock)
     assert ok and classify.get_status()['running']
     time.sleep(2.5)
@@ -85,7 +85,7 @@ def test_session_counts_emits_and_persists(session_env, monkeypatch):
 def test_stop_during_slow_initialisation_closes_detector(session_env, monkeypatch, fake_classifier):
     classify, sock, emitted, calls, sm = session_env
     fake_classifier.init_delay = 1.0
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader())
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader())
     classify.start_from_settings(sock)
     time.sleep(0.2)
     classify.stop_detection(timeout=0.5)   # l'arret n'attend pas la fin de l'init
@@ -96,7 +96,7 @@ def test_stop_during_slow_initialisation_closes_detector(session_env, monkeypatc
 def test_settings_changed_during_initialisation_are_applied(session_env, monkeypatch, fake_classifier):
     classify, sock, emitted, calls, sm = session_env
     fake_classifier.init_delay = 0.6
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=200))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=200))
     classify.start_from_settings(sock)
     time.sleep(0.1)
 
@@ -112,7 +112,7 @@ def test_settings_changed_during_initialisation_are_applied(session_env, monkeyp
 
 def test_live_gain_by_source_id(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=200))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=200))
     classify.start_from_settings(sock)
     time.sleep(0.3)
     classify.update_source_gain('rtsp_cam1', 7)
@@ -126,7 +126,7 @@ def test_all_sources_dead_stops_session(session_env, monkeypatch):
     class Boom(FakeReader):
         def iter_blocks(self, stop):
             raise RuntimeError('boom')
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: Boom())
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: Boom())
     monkeypatch.setattr(classify, 'run_source', lambda reader, on_block, stop, **k: None)
     classify.start_from_settings(sock)
     time.sleep(1.5)
@@ -136,7 +136,7 @@ def test_all_sources_dead_stops_session(session_env, monkeypatch):
 
 def test_live_gains_cleared_after_stop(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=200))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=200))
     classify.start_from_settings(sock)
     time.sleep(0.3)
     classify.update_source_gain('rtsp_cam1', 7)
@@ -173,7 +173,7 @@ def test_listening_off_while_reconnecting(session_env, monkeypatch):
                     return
                 time.sleep(0.01)
                 yield np.zeros(BLOCK_SAMPLES, np.float32)
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: Short())
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: Short())
     classify.start_from_settings(sock)
     time.sleep(1.5)
     assert ('rtsp_cam1', True) in calls['listening']
@@ -190,7 +190,7 @@ def two_cameras(sm):
 def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     urls = []
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: urls.append(url) or FakeReader(n=400))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: urls.append(url) or FakeReader(n=400))
     two_cameras(sm)
     classify.start_from_settings(sock)
     time.sleep(0.5)
@@ -232,7 +232,7 @@ def test_apply_settings_restarts_only_changed_source(session_env, monkeypatch):
 
 def test_no_live_emits_without_clients(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     monkeypatch.setattr(classify, '_clients', 0)
     classify.start_from_settings(sock)
     time.sleep(0.8)
@@ -251,7 +251,7 @@ def test_restarting_only_source_keeps_session_alive(session_env, monkeypatch):
     import ha_entities
     states = []
     monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
     time.sleep(0.4)
     slow = classify.DetectionSession._set_listening
@@ -269,7 +269,7 @@ def test_removing_last_source_stops_session_once(session_env, monkeypatch):
     import ha_entities
     states = []
     monkeypatch.setattr(ha_entities, 'update_detection_state', lambda running, *a: states.append(running))
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
     time.sleep(0.4)
     sm.modify_settings(lambda s: s['rtsp_sources'][0].update(enabled=False))
@@ -282,7 +282,7 @@ def test_sound_seen_not_duplicated_after_live_change(session_env, monkeypatch):
     """Son en attente d'ecriture : une mise a jour en direct ne le rend pas
     « nouveau » une seconde fois."""
     classify, sock, emitted, calls, sm = session_env
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     monkeypatch.setattr(classify, 'SEEN_FLUSH_DELAY', 30)
     classify.start_from_settings(sock)
     time.sleep(0.6)
@@ -312,7 +312,7 @@ def test_entity_key_change_keeps_listening(session_env, monkeypatch):
 
 def test_apply_settings_during_shutdown_is_ignored(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=400))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=400))
     classify.start_from_settings(sock)
     time.sleep(0.3)
     session = classify._current()
@@ -344,7 +344,7 @@ def test_sounds_not_added_without_auto_add(session_env, monkeypatch):
     """Groupe sans « Ajouter les sons entendus » : aucun son ajouté ni annoncé."""
     classify, sock, emitted, calls, sm = session_env
     sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'][0].update(auto_add_sounds=False))
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     classify.start_from_settings(sock)
     time.sleep(1.0)
     classify.stop_detection(timeout=5)
@@ -356,7 +356,7 @@ def test_sounds_added_only_to_auto_add_groups(session_env, monkeypatch):
     classify, sock, emitted, calls, sm = session_env
     sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'].append(
         {'slug': 'toc', 'name': 'Toc', 'ha_entities': [1], 'sound_whitelist': {}}))
-    monkeypatch.setattr(classify, 'rtsp_source', lambda url: FakeReader(n=100))
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     classify.start_from_settings(sock)
     time.sleep(1.0)
     classify.stop_detection(timeout=5)
@@ -371,3 +371,61 @@ def test_discovery_seen_intersection():
               {'whitelist': {}, 'auto_add': True},       # option tout juste activee
               {'whitelist': {'C': True}, 'auto_add': False}]
     assert classify._discovery_seen(groups) == set()   # A et B manquent au 2e groupe
+
+
+def test_zero_clap_event_dropped_for_group_with_entities(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    session = classify.DetectionSession([], sock)
+    src = {'source_id': 'rtsp_cam1', 'entity_key': 'rtsp_cam1', 'name': 'Cam', 'label': 'RTSP: Cam'}
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    base = {'timestamp': 1, 'score': 0.8, 'labels': [], 'group_slug': 'clap', 'group_name': 'Clap', 'ignored': False}
+    session._on_detection(src, dict(base, clap_count=0, group_clap_counts=[1, 2]))
+    assert posted == [] and not [e for e, d in emitted if e == 'clap']
+    session._on_detection(src, dict(base, clap_count=0, group_clap_counts=[]))   # groupe sans entites
+    assert len(posted) == 1
+
+
+def test_stopped_mic_launcher_stops_only_its_auto_volume(session_env, monkeypatch):
+    """Relance rapide du micro (meme peripherique) : l'ancien lanceur, arrete
+    pendant son demarrage, ne coupe pas l'auto-volume repris par le nouveau."""
+    import threading
+    import audio_utils
+    import auto_volume
+    classify, sock, emitted, calls, sm = session_env
+    mgr = auto_volume.auto_volume_mgr
+    state = {'running': False, 'stops': 0}
+
+    def fake_start(pulse, sio, owner=None):
+        mgr._owner = owner
+        mgr._pulse_name = pulse
+        state['running'] = True
+        if owner is old_stop:
+            # pendant le demarrage de l'ancien : arret de la source, puis le
+            # nouveau lanceur reprend l'auto-volume (meme micro)
+            old_stop.set()
+            mgr._owner = new_stop
+    monkeypatch.setattr(mgr, 'start', fake_start)
+    monkeypatch.setattr(mgr, 'stop', lambda: state.__setitem__('stops', state['stops'] + 1))
+    monkeypatch.setattr(type(mgr), '_running', property(lambda self: state['running']), raising=False)
+    monkeypatch.setattr(audio_utils, 'set_pulse_volume', lambda *a: None)
+    monkeypatch.setattr(classify, 'mic_source', lambda name: FakeReader())
+    sm.modify_settings(lambda s: s['microphone'].update(enabled=True, auto_volume=True, pulse_name='alsa.x'))
+    session = classify.DetectionSession([], sock)
+    old_stop, new_stop = threading.Event(), threading.Event()
+    reader, av = session._prepare_mic(old_stop)
+    assert av is None and state['stops'] == 0          # le nouveau proprietaire garde l'auto-volume
+    mgr._owner = old_stop
+    mgr.stop_if(old_stop)
+    assert state['stops'] == 1                          # encore proprietaire : arrete
+
+
+def test_sound_seen_tolerates_list_disabled_meanwhile(session_env):
+    classify, sock, emitted, calls, sm = session_env
+    session = classify.DetectionSession([], sock)
+    src = {'source_id': 'x', 'kind': 'rtsp', 'source_key': 'x'}
+    session.seen['x'] = None        # dernier « Ajouter les sons entendus » desactive
+    session._on_sound_seen(src, {'label': 'Speech'})
+    session.seen.pop('x')           # source arretee
+    session._on_sound_seen(src, {'label': 'Speech'})
+    assert not [e for e, d in emitted if e == 'sound_seen']

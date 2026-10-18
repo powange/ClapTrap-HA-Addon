@@ -228,3 +228,46 @@ def test_whitelist_unknown_group_refused(client, settings_dir):
                                                         'group_slug': 'inconnu'})
     assert r.status_code == 404
     assert settings_dir.load_settings()['microphone']['sound_groups'] == before   # aucun groupe cree
+
+
+def test_rtsp_tcp_option_saved_and_restarts(client, settings_dir, monkeypatch):
+    import routes.sources as rs
+    calls = []
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: calls.append('restart'))
+    sid = client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://c/1', 'enabled': True}).json['stream']['id']
+    calls.clear()
+    r = client.patch(f'/api/sources/rtsp/{sid}', json={'rtsp_tcp': True})
+    assert r.status_code == 200 and settings_dir.load_settings()['rtsp_sources'][0]['rtsp_tcp'] is True
+    assert calls == ['restart']
+    assert client.patch(f'/api/sources/rtsp/{sid}', json={'rtsp_tcp': 'peut-être'}).status_code == 400
+    from classify import build_sources_from_settings
+    assert build_sources_from_settings(settings_dir.load_settings())[0]['rtsp_tcp'] is True
+
+
+def test_sound_test_routes_reject_non_object_body(client):
+    from flask import Flask
+    from routes.testing import testing_bp
+    app = Flask(__name__)
+    app.register_blueprint(testing_bp)
+    c = app.test_client()
+    for path in ('/api/mic/test/stop', '/api/rtsp/test/stop', '/api/vban/test/stop'):
+        assert c.post(path, json=[1, 2]).status_code < 500, path
+
+
+def test_rtsp_tcp_at_creation_and_sound_test(client, settings_dir, monkeypatch):
+    sid = client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://c/1', 'rtsp_tcp': True}).json['stream']['id']
+    assert settings_dir.load_settings()['rtsp_sources'][0]['rtsp_tcp'] is True
+    from flask import Flask
+    import routes.testing as rt
+    seen = []
+    monkeypatch.setattr(rt, 'rtsp_source', lambda url, tcp=False: seen.append(tcp) or types.SimpleNamespace())
+    monkeypatch.setattr(rt.threading, 'Thread',
+                        lambda **kw: types.SimpleNamespace(start=lambda: None, join=lambda timeout=None: None,
+                                                           is_alive=lambda: False))
+    app = Flask(__name__)
+    app.register_blueprint(rt.testing_bp)
+    c = app.test_client()
+    c.post('/api/rtsp/test/start', json={'id': sid, 'url': 'rtsp://c/1'})               # camera enregistree
+    c.post('/api/rtsp/test/start', json={'id': '', 'url': 'rtsp://c/2', 'rtsp_tcp': True})  # assistant
+    c.post('/api/rtsp/test/start', json={'id': sid, 'url': 'rtsp://c/1', 'rtsp_tcp': False})
+    assert seen == [True, True, False]

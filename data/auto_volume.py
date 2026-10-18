@@ -50,7 +50,10 @@ class AutoVolume:
     def running(self):
         return self._running
 
-    def start(self, pulse_name, socketio):
+    def start(self, pulse_name, socketio, owner=None):
+        """`owner` : lanceur qui en depend (le dernier a demarrer en devient
+        proprietaire, meme si l'auto-volume tournait deja sur ce micro)."""
+        self._owner = owner
         if self._running:
             if pulse_name == self._pulse_name:
                 return
@@ -69,6 +72,13 @@ class AutoVolume:
         self._thread = threading.Thread(target=self._adjust_loop, daemon=True)
         self._thread.start()
         logging.info(f"Auto-volume demarre (volume initial: {self._current_volume}%)")
+
+    def stop_if(self, owner):
+        """Arrete l'auto-volume si `owner` en est encore le proprietaire : un
+        lanceur arrete ne coupe pas celui dont un nouveau lanceur depend, meme
+        micro compris (relance rapide)."""
+        if self._running and getattr(self, '_owner', None) is owner:
+            self.stop()
 
     def stop(self):
         # stop() est appele a chaque arret de la detection, auto-volume actif ou

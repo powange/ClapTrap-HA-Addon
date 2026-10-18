@@ -137,12 +137,14 @@
             '<div class="field"><label class="field-label" for="wz-url">Adresse du flux</label>' +
             '<input class="input" id="wz-url" type="url" placeholder="rtsp://utilisateur:motdepasse@192.168.1.20:554/stream" spellcheck="false">' +
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
+            '<label class="check"><input type="checkbox" id="wz-tcp"> Transport TCP (si le son se coupe, en Wi-Fi)</label>' +
             actions('Ajouter la caméra');
         CT.$('#wz-url').focus();
         wire(stepType, function (mine) {
             var url = CT.$('#wz-url').value.trim();
             if (!url) { CT.$('#wz-url').focus(); throw new Error("Saisissez l'adresse du flux."); }
-            return CT.withRestart(CT.api('POST', '/api/rtsp/stream', {name: CT.$('#wz-name').value.trim() || 'Caméra', url: url, enabled: true}))
+            return CT.withRestart(CT.api('POST', '/api/rtsp/stream', {name: CT.$('#wz-name').value.trim() || 'Caméra', url: url, enabled: true,
+                                                                      rtsp_tcp: CT.$('#wz-tcp').checked}))
                 .then(function (d) { return CT.reloadSettings().then(function () { return d; }); })
                 .then(function (d) {
                     if (!current(mine)) return;

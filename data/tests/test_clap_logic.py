@@ -265,9 +265,9 @@ def test_set_groups_keeps_empty_clap_counts():
     assert [g['clap_counts'] for g in t.groups] == [[], [1, 3], [1, 2]]
 
 
-def test_lookback_extended_for_slow_cadence():
-    """Resultat 1,4 s apres le pic : hors fenetre par defaut, rattache avec la
-    fenetre elargie (cadence d'un resultat par seconde)."""
+def test_lookback_window_is_configurable():
+    """Resultat 1,4 s apres le pic : hors fenetre par defaut (1,2 s), rattache
+    avec une fenetre de rattachement plus large (reglage du tracker)."""
     for lookback, expected in ((1.2, []), (1.5, [1])):
         t, now = _quiet_tracker()
         t.peak_lookback = lookback
@@ -307,3 +307,43 @@ def test_sustained_sound_counted_in_sustain_mode():
         events += tr.on_classification([('Whistling', 0.8)], t)
         tr.feed_peak(0.002, t, pre_level=0.002)
     assert events and events[0]['group']['slug'] == 'siffler' and events[0]['clap_count'] >= 3
+
+
+def test_arbitration_prefers_group_with_matching_entity():
+    """Deux groupes reconnaissent le meme son : « Fort » a le meilleur score
+    mais aucune entite pour 1 clap ; « Clap » (1 clap) gagne au lieu d'etre
+    eteint pour rien."""
+    t, now = _quiet_tracker()
+    t.set_groups([{'slug': 'fort', 'name': 'Fort', 'whitelist': {'Applause': True}, 'threshold': 0.4,
+                   'ha_entities': [3]},
+                  {'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.4,
+                   'ha_entities': [1]}])
+    t.feed_peak(0.5, now)
+    events = []
+    for _ in range(25):
+        now += 0.1
+        t.feed_peak(0.002, now)
+        events += t.on_classification([('Applause', 0.9), ('Clapping', 0.6)], now)
+    winner = next(e for e in events if not e['ignored'])
+    assert winner['group']['slug'] == 'clap' and winner['clap_count'] == 1
+
+
+def test_event_only_group_without_peak_does_not_beat_matching_clap():
+    """Groupe sans entite arme sans pic (applaudissements de la tele) : il ne
+    passe pas devant un vrai clap d'un groupe a entite."""
+    t, now = _quiet_tracker()
+    t.set_groups([{'slug': 'tv', 'name': 'TV', 'whitelist': {'Applause': True}, 'threshold': 0.4,
+                   'ha_entities': []},
+                  {'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.4,
+                   'ha_entities': [1]}])
+    events = []
+    for i in range(30):
+        now += 0.1
+        if i == 12:
+            t.feed_peak(0.5, now)
+        else:
+            t.feed_peak(0.002, now)
+        events += t.on_classification([('Applause', 0.9)] + ([('Clapping', 0.6)] if i >= 12 else []), now)
+    winners = [e for e in events if not e['ignored']]
+    assert any(w['group']['slug'] == 'clap' and w['clap_count'] == 1 for w in winners)
+

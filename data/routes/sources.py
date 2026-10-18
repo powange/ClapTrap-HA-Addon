@@ -289,6 +289,7 @@ def add_rtsp_stream():
         'webhook_url': to_webhook(data.get('webhook_url', '')),
         'enabled': to_bool(data.get('enabled', True), 'enabled'),
         'gain': to_number(data.get('gain', 10), 'gain', 0, 100, integer=True),
+        'rtsp_tcp': to_bool(data.get('rtsp_tcp', False), 'rtsp_tcp'),
     }
 
     def _mut(settings):
@@ -310,7 +311,11 @@ def _update_rtsp(stream_id, data):
 
     def _mut(settings):
         stream = _find_rtsp(settings, stream_id)
-        url_changed = enabled_changed = False
+        url_changed = enabled_changed = transport_changed = False
+        if 'rtsp_tcp' in data:
+            tcp = to_bool(data['rtsp_tcp'], 'rtsp_tcp')
+            transport_changed = tcp != bool(stream.get('rtsp_tcp'))
+            stream['rtsp_tcp'] = tcp
         if 'url' in data:
             new_url = _normalize_rtsp_url(data['url'])
             url_changed = new_url != stream.get('url')
@@ -325,9 +330,9 @@ def _update_rtsp(stream_id, data):
             stream['enabled'] = new_enabled
         if 'gain' in data:
             stream['gain'] = to_number(data['gain'], 'gain', 0, 100, integer=True)
-        # Redemarrage si la source est (des)activee, ou si l'URL d'une source
-        # active change (ffmpeg doit se reconnecter a la nouvelle URL).
-        state['restart'] = enabled_changed or (url_changed and stream.get('enabled', False))
+        # Redemarrage si la source est (des)activee, ou si l'URL ou le
+        # transport d'une source active change (ffmpeg doit se reconnecter).
+        state['restart'] = enabled_changed or ((url_changed or transport_changed) and stream.get('enabled', False))
         return dict(stream)
 
     stream = modify_settings(_mut)
@@ -856,7 +861,7 @@ _PATCH_FIELDS = {
     # Seuil et entites se reglent par groupe (/api/source/sound_groups) : les
     # champs de source equivalents etaient acceptes sans aucun effet.
     'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled'},
-    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain'},
+    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp'},
     # VBAN : `name` n'est que le nom affiche ; le routage utilise stream_name
     # et les entity_id la cle fixee a la creation.
     'vban': {'name', 'webhook_url', 'enabled', 'gain'},

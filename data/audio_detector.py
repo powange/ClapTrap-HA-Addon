@@ -34,6 +34,7 @@ PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
 AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
 AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
 AGC_MAX = 5.0
+AGC_CEILING = 0.9  # niveau maximal avant le classifieur (pas d'ecretage)
 
 
 class AudioDetector:
@@ -65,7 +66,6 @@ class AudioDetector:
         self._ts_clock = collections.OrderedDict()
         self._block_ms = int(BLOCK_SAMPLES / self.sample_rate * 1000)
         self._taps = []           # ecoutes du calibrage : fn(evenement, *donnees)
-        self._cadence = []        # instants des premiers resultats (mesure de cadence)
         self._errors_logged = 0
         self._detection_callback = None
         self._labels_callback = None
@@ -204,6 +204,12 @@ class AudioDetector:
             target = min(AGC_TARGET / loudest, AGC_MAX) if 0 < loudest < AGC_TARGET / 2 else 1.0
             self._agc = target if target < self._agc else 0.95 * self._agc + 0.05 * target
             total = gain * self._agc
+            if raw_peak * total > AGC_CEILING:
+                # Bloc trop fort pour le gain de la source (camera a x10) :
+                # reduit plutot qu'ecrete (un clap sature est moins bien
+                # reconnu). Ce bloc seulement : les sons suivants ne sont pas
+                # attenues par un bruit fort isole.
+                total = AGC_CEILING / raw_peak
             if total > self._last_total + 1e-3 and audio_data.size:
                 # Remontee en rampe sur le bloc : pas de marche toutes les 100 ms.
                 ramp = np.linspace(self._last_total, total, audio_data.size, dtype=np.float32)
@@ -272,24 +278,6 @@ class AudioDetector:
 
     # --- Resultats (thread MediaPipe) --------------------------------------
 
-    def _log_cadence(self):
-        """Mesure une fois l'intervalle reel entre resultats YAMNet (100 ms ou
-        ~1 s selon MediaPipe) : il conditionne la protection anti-redeclenchement."""
-        if self._cadence is None:
-            return
-        self._cadence.append(time.monotonic())
-        if len(self._cadence) == 31:
-            gaps = [b - a for a, b in zip(self._cadence, self._cadence[1:])]
-            cadence = sorted(gaps)[len(gaps) // 2]
-            logging.info(f"[{self.label}] cadence YAMNet mesurée : un résultat toutes les "
-                         f"{1000 * cadence:.0f} ms")
-            if cadence > 0.5:
-                # Un resultat par ~seconde : le pic d'un clap peut preceder de
-                # plus d'1 s le resultat qui le reconnait.
-                with self.lock:
-                    self.tracker.peak_lookback = 1.5
-            self._cadence = None
-
     def _window_end_clock(self, timestamp):
         """Horloge audio a la fin de la fenetre qui commence a `timestamp`
         (None si son dernier bloc n'est pas connu). Mesure sur MediaPipe 1.0 :
@@ -313,7 +301,6 @@ class AudioDetector:
             # encore : resultat sans objet (« Silence » ajoute a la decouverte).
             return
         try:
-            self._log_cadence()
             if not result or not result.classifications:
                 return
             categories = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
