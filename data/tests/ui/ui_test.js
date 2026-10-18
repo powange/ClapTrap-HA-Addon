@@ -100,8 +100,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 11 : micro
   $('#src-mic [data-action="open-settings"]').click(); await tick();
   ok('+  réglages de la source dans une fenêtre', $('#src-mic dialog.source-settings').open === true);
-  change($('#src-mic [data-field="device"]'), 'dev:1'); await tick(3);
+  change($('#src-mic [data-field="device"]'), 'dev:x'); await tick(3);
   ok('11. choix du micro (device seul)', JSON.stringify(lastCall('PATCH', '/api/sources/mic/mic')[2]) === JSON.stringify({ device: { index: 5, name: 'A|B', pulse_name: 'x' } }));
+  // --- 6.71 : micro designe par son nom (la liste peut changer entre affichage et choix)
+  dom.window.CT.state.devices = [{ index: 9, name: 'Nouveau micro', pulse_name: 'n' }, { index: 5, name: 'A|B', pulse_name: 'x' }, { index: 2, name: 'USB', pulse_name: 'u' }];
+  change($('#src-mic [data-field="device"]'), 'dev:u'); await tick(3);
+  ok('+  micro choisi par son nom, même si la liste a changé', lastCall('PATCH', '/api/sources/mic/mic')[2].device.name === 'USB');
   change($('#src-mic [data-field="volume"]'), '90'); await tick();
   ok('11. volume', lastCall('PATCH', '/api/sources/mic/mic')[2].volume === 90);
   change($('#src-mic [data-field="auto_volume"]'), true); await tick();
@@ -484,6 +488,55 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /au-dessus de|dépasse 4 kHz/.test(fmtEl().textContent) && !!fmtEl().querySelector('.text-warn'));
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'aac', sample_rate: 16000, channels: 'stereo' } }); await tick();
   ok('+  format audio 16 kHz : suffisant', /AAC · 16 kHz · stéréo/.test(fmtEl().textContent) && !fmtEl().querySelector('.text-warn'));
+  // --- 6.71 : reglages recharges fusionnes dans les objets existants
+  {
+    const M = dom.window.CT.mergeInto;
+    const g1 = { slug: 'clap', name: 'Clap', sound_whitelist: { A: true } }, g2 = { slug: 'old', name: 'Old' };
+    const src1 = { id: 'c1', name: 'Cam', sound_groups: [g1, g2], gone: 1 };
+    const target = { rtsp_sources: [src1], global: { delay: 1.5, sound_exclusions: ['X'] } };
+    M(target, { global: { sound_exclusions: ['Y'], delay: 2 }, rtsp_sources: [{ id: 'c1', name: 'Salon', sound_groups: [{ slug: 'clap', name: 'Clap', sound_whitelist: { B: true } }, { slug: 'new', name: 'New' }] }, { id: 'c2', name: 'Deux' }] });
+    ok('+  fusion : la source et son groupe gardent le même objet', target.rtsp_sources[0] === src1 && src1.sound_groups[0] === g1 && src1.name === 'Salon');
+    ok('+  fusion : valeurs, clés et éléments retirés à jour', JSON.stringify(g1.sound_whitelist) === '{"B":true}' && !('gone' in src1) &&
+       src1.sound_groups.map(g => g.slug).join() === 'clap,new' && target.rtsp_sources.length === 2 && target.global.sound_exclusions.join() === 'Y');
+    ok('+  fusion : clés dans l’ordre du serveur', Object.keys(target).join() === 'global,rtsp_sources' && Object.keys(target.global).join() === 'sound_exclusions,delay');
+    const dupe = { list: [{ id: 'd' }] };
+    M(dupe, { list: [{ id: 'd', n: 1 }, { id: 'd', n: 2 }] });
+    ok('+  fusion : identifiant en double, deux objets distincts', dupe.list[0] !== dupe.list[1] && dupe.list[0].n === 1 && dupe.list[1].n === 2);
+  }
+  // --- 6.71 : fenetre ouverte pendant un rechargement des reglages
+  const camCard = () => $('#' + cam.domId);
+  if (!camCard().querySelector('dialog').open) { camCard().querySelector('[data-role="settings-open"]').click(); await tick(2); }
+  const srv = settings.rtsp_sources.find(r => r.id === cam.key);
+  srv.name = 'Salon'; srv.sound_groups[0].sound_whitelist = { Knock: false };
+  await dom.window.CT.reloadSettings(); await tick(3);
+  ok('+  fenêtre ouverte : titre mis à jour après un rechargement', /Réglages · Salon/.test(camCard().querySelector('dialog .modal-head h2').textContent));
+  const knock = camCard().querySelector('dialog .chip input[data-label="Knock"]');
+  ok('+  fenêtre ouverte : groupes refaits depuis les réglages rechargés', !!knock);
+  if (knock) { change(knock, true); await tick(3); }
+  ok('+  son coché après un rechargement : état local à jour (plus d’objet périmé)',
+     dom.window.CT.findSource(x => x.domId === cam.domId).data.sound_groups[0].sound_whitelist.Knock === true);
+  // --- 6.71 : test d'une source non ecoutee, pas coupe par un statut d'une autre source
+  // (carte du micro : identifiant unique, le faux serveur cree des cameras en double)
+  status = { running: true, sources: [cam.sourceId] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  dom.window.CT.stopTest(); await tick();   // aucun test en cours (un clic l'arreterait)
+  $('#src-mic dialog [data-action="test"]').click(); await tick(2);
+  emit('source_status', { source_id: cam.sourceId, status: 'connected' }); await tick(2);
+  ok('+  test d’une source non écoutée : pas coupé par le statut d’une autre source', !!dom.window.CT.state.testing && dom.window.CT.state.testing.domId === 'src-mic');
+  dom.window.CT.stopTest();
+  status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  camCard().querySelector('[data-action="close-settings"]').click(); await tick(2);
+  // --- 6.71 : ignorer partout un son utilise par un groupe demande confirmation
+  settings.global.sound_exclusions = [];
+  $('#tab-settings').click(); await tick(3);
+  const putsBefore = calls.filter(c => c[0] === 'PUT' && c[1] === '/api/sound_exclusions').length;
+  const usedChip = $('#available-list [data-exclude="Knock"]');
+  ok('+  son utilisé signalé dans « Ignorer un autre son »', !!usedChip && /Salon/.test(usedChip.textContent));
+  usedChip.click(); await tick(2);
+  const confirmBox = $('.modal-backdrop [data-r="ok"]') && $('.modal-backdrop [data-r="ok"]').closest('.modal');
+  ok('+  ignorer un son utilisé : confirmation demandée', !!confirmBox && /utilisé par/.test(confirmBox.textContent));
+  $('.modal-backdrop [data-r="cancel"]').click(); await tick(2);
+  ok('+  confirmation refusée : rien n’est ignoré', calls.filter(c => c[0] === 'PUT' && c[1] === '/api/sound_exclusions').length === putsBefore);
+  $('#tab-listen').click(); await tick(2);
   d.body.click(); await tick();
   ok('+  clic hors des menus : tous fermés', $$('.menu-list').every(m => m.hidden) &&
      menuOf(otherCard).getAttribute('aria-expanded') === 'false');

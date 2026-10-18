@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.71.0
+
+### Réglages fiables (fenêtre de réglages d'une source)
+
+- **Plus de modifications sur des données périmées** : la fenêtre relit la
+  source à chaque action. Après un rechargement des réglages (retour sur
+  l'onglet, renommage, reconnexion), un son coché était bien enregistré sur
+  le serveur mais l'écran affichait encore l'ancien état (groupe « sans
+  son », pastille décochée à la réouverture, titre périmé). Les réglages
+  rechargés sont désormais fusionnés dans les objets existants (une source
+  ou un groupe garde le même objet), et le titre et les groupes de la
+  fenêtre ouverte sont refaits sur place, seulement s'ils ont changé.
+- **Micro désigné par son nom PulseAudio** : si la liste des micros changeait entre
+  l'affichage et le choix (micro branché), un autre micro pouvait être
+  enregistré. La liste est aussi mise à jour dans la fenêtre ouverte : un
+  micro branché apparaît. Même correction dans l'assistant.
+- **Adresse RTSP** : après l'enregistrement d'une nouvelle adresse,
+  « Afficher le mot de passe » et « Tester le son » utilisaient l'ancienne.
+- **Test du son pendant la détection** : celui d'une source non écoutée
+  n'est plus coupé au premier changement de statut d'une autre source.
+- **Ignorer un son partout** : un son coché dans un groupe est signalé
+  (« utilisé par Clap (Micro) ») et une confirmation est demandée ; la liste
+  est triée par nom français.
+
 ## 6.70.1
 
 ### Interface

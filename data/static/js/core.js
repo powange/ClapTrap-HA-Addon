@@ -235,6 +235,9 @@
         });
         return out;
     };
+    CT.sourceByDomId = function (domId) {
+        return CT.findSource(function (s) { return s.domId === domId; });
+    };
     CT.findSource = function (predicate) {
         return CT.sourceList().filter(predicate)[0] || null;
     };
@@ -299,9 +302,52 @@
         return CT.api('GET', '/api/ha/entity-ids').then(function (ids) { CT.state.entityIds = ids || {}; })
             .catch(function () {});
     };
+    // Reglages recharges fusionnes DANS les objets existants : une source (id)
+    // ou un groupe (slug) garde le meme objet tant qu'il existe. Les
+    // gestionnaires qui en gardent une reference (fenetre de reglages,
+    // groupes, requete en cours) voient ainsi les nouvelles valeurs ; avant,
+    // tout etait remplace et ils modifiaient des objets que l'ecran
+    // n'affichait plus.
+    function keyOf(item) {
+        return item && typeof item === 'object' && !Array.isArray(item) ? (item.id != null ? 'id:' + item.id : item.slug != null ? 'slug:' + item.slug : null) : null;
+    }
+    function isPlain(v) { return v && typeof v === 'object' && !Array.isArray(v); }
+    CT.mergeInto = function (target, fresh) {
+        if (Array.isArray(target) && Array.isArray(fresh)) {
+            var byKey = {}, used = {};
+            target.forEach(function (item) { var k = keyOf(item); if (k && !byKey[k]) byKey[k] = item; });
+            var merged = fresh.map(function (item) {
+                var k = keyOf(item), old = k && !used[k] ? byKey[k] : null;
+                if (k) used[k] = true;   // identifiant en double : un seul objet repris
+                return old && isPlain(item) ? CT.mergeInto(old, item) : item;
+            });
+            target.length = 0;
+            Array.prototype.push.apply(target, merged);
+            return target;
+        }
+        if (isPlain(target) && isPlain(fresh)) {
+            var merged = {};
+            Object.keys(fresh).forEach(function (k) {
+                var a = target[k], b = fresh[k];
+                merged[k] = (Array.isArray(a) && Array.isArray(b)) || (isPlain(a) && isPlain(b)) ? CT.mergeInto(a, b) : b;
+            });
+            // Cles dans l'ordre du serveur (comparaisons par JSON inchangees).
+            Object.keys(target).forEach(function (k) { delete target[k]; });
+            Object.keys(merged).forEach(function (k) { target[k] = merged[k]; });
+            return target;
+        }
+        return fresh;
+    };
     CT.reloadSettings = function () {
         return Promise.all([CT.api('GET', '/api/settings'), CT.reloadEntityIds()])
-            .then(function (r) { CT.state.settings = r[0]; return r[0]; });
+            .then(function (r) {
+                var changed = JSON.stringify(CT.state.settings) !== JSON.stringify(r[0]);
+                CT.state.settings = isPlain(CT.state.settings) ? CT.mergeInto(CT.state.settings, r[0]) : r[0];
+                // Fenetre de reglages ouverte : la grille n'est pas reconstruite
+                // (elle attend la fermeture), ses groupes et son titre si.
+                if (changed && CT.onSettingsReloaded) CT.onSettingsReloaded();
+                return CT.state.settings;
+            });
     };
     // Recharger les reglages puis reconstruire la page (une seule facon de le
     // faire, il y en avait trois).
@@ -317,15 +363,24 @@
         if (current !== 'default' && !devices.some(function (d) { return d.name === current; })) {
             html += '<option value="current" selected>' + CT.esc(current) + ' (non détecté)</option>';
         }
-        devices.forEach(function (d, i) {
-            html += '<option value="dev:' + i + '"' + (d.name === current ? ' selected' : '') + '>' + CT.esc(d.name) + '</option>';
+        // Valeur = nom PulseAudio du micro (unique ; nom affiche a defaut),
+        // pas sa position : la liste peut changer entre l'affichage et le
+        // choix (micro branche), et la position designait un autre micro.
+        var picked = false;
+        devices.forEach(function (d) {
+            var sel = !picked && d.name === current;   // deux micros identiques : un seul selectionne
+            if (sel) picked = true;
+            html += '<option value="dev:' + CT.esc(d.pulse_name || d.name) + '"' + (sel ? ' selected' : '') + '>' + CT.esc(d.name) + '</option>';
         });
         return html;
     };
     CT.deviceFromOption = function (value, mic) {
         if (value === 'default') return {index: 0, name: 'default', pulse_name: ''};
         if (value === 'current' && mic) return {index: mic.device_index || 0, name: mic.audio_source, pulse_name: mic.pulse_name || ''};
-        var dev = (CT.state.devices || [])[parseInt(String(value).replace('dev:', ''), 10)];
+        var id = String(value).replace(/^dev:/, '');
+        var devices = CT.state.devices || [];
+        var dev = devices.filter(function (d) { return d.pulse_name && d.pulse_name === id; })[0] ||
+                  devices.filter(function (d) { return d.name === id; })[0];
         return dev ? {index: dev.index || 0, name: dev.name, pulse_name: dev.pulse_name || ''} : null;
     };
     CT.reloadDevices = function () {

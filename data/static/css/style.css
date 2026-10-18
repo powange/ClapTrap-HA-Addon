@@ -335,6 +335,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
     color: var(--ink-2); font: 0.85rem var(--font); cursor: pointer;
 }
 .chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.chip-note { display: block; font-size: 0.72rem; color: var(--ink-3); }   /* son utilise par un groupe */
+.chip-used { flex-direction: column; align-items: flex-start; gap: 0; padding-block: 4px; border-radius: 12px; }
 .chip:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
 .chip.is-excluded span:first-of-type { text-decoration: line-through; }

@@ -69,11 +69,26 @@
             return '<span class="chip is-on"><span title="' + CT.esc(l) + '">' + CT.esc(CT.soundLabel(l)) + '</span>' +
                 '<button type="button" class="chip-remove" data-unexclude="' + CT.esc(l) + '" aria-label="Ne plus exclure ' + CT.esc(CT.soundLabel(l)) + '">×</button></span>';
         }).join('') : '<p class="hint">Aucun son exclu.</p>';
+        // Ordre du nom affiche (francais) ; un son coche dans un groupe le dit.
+        available = available.slice().sort(function (a, b) { return CT.soundLabel(a).localeCompare(CT.soundLabel(b), 'fr'); });
         av.innerHTML = available.length ? available.map(function (l) {
-            return '<button type="button" class="chip" data-exclude="' + CT.esc(l) + '" title="' + CT.esc(l) + '">' +
-                '<span>' + CT.esc(CT.soundLabel(l)) + '</span></button>';
+            var used = usedBy(l);
+            return '<button type="button" class="chip' + (used.length ? ' chip-used' : '') + '" data-exclude="' + CT.esc(l) + '" title="' + CT.esc(l) + '"' +
+                (used.length ? ' aria-label="' + CT.esc(CT.soundLabel(l) + ', utilisé par ' + used.join(', ')) + '"' : '') + '>' +
+                '<span>' + CT.esc(CT.soundLabel(l)) + '</span>' +
+                (used.length ? '<small class="chip-note">' + CT.esc(used.join(', ')) + '</small>' : '') + '</button>';
         }).join('') : '<p class="hint">Aucun autre son entendu pour l\'instant.</p>';
         filterAvailable();
+    }
+    // Groupes (« Clap (Micro) ») qui utilisent ce son.
+    function usedBy(label) {
+        var out = [];
+        (CT.sourceList ? CT.sourceList() : []).forEach(function (src) {
+            ((src.data && src.data.sound_groups) || []).forEach(function (g) {
+                if (g && g.sound_whitelist && g.sound_whitelist[label]) out.push((g.name || g.slug) + ' (' + src.name + ')');
+            });
+        });
+        return out;
     }
     function filterAvailable() {
         CT.filterChips(CT.$$('#available-list .chip'), CT.$('#available-search').value,
@@ -84,9 +99,17 @@
             var add = e.target.closest('[data-exclude]'), del = e.target.closest('[data-unexclude]');
             if (!add && !del) return;
             var label = (add || del).getAttribute(add ? 'data-exclude' : 'data-unexclude');
-            CT.api('PUT', '/api/sound_exclusions', {label: label, excluded: !!add})
-                .then(loadExclusions)
-                .catch(function (err) { CT.error('Exclusion non enregistrée : ' + err.message); });
+            var used = add ? usedBy(label) : [];
+            // Ignorer partout un son coche dans un groupe le coupe : demander.
+            (used.length ? CT.confirm('« ' + CT.soundLabel(label) + ' » est utilisé par ' + used.join(', ') +
+                                      '. L\'ignorer partout empêchera ces groupes de se déclencher sur ce son. Continuer ?',
+                                      'Ignorer partout')
+                         : Promise.resolve(true)).then(function (ok) {
+                if (!ok) return;
+                CT.api('PUT', '/api/sound_exclusions', {label: label, excluded: !!add})
+                    .then(loadExclusions)
+                    .catch(function (err) { CT.error('Exclusion non enregistrée : ' + err.message); });
+            });
         });
         CT.$('#available-search').addEventListener('input', filterAvailable);
     }
