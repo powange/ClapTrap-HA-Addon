@@ -322,8 +322,12 @@ dialog.source-settings::backdrop { background: rgba(0, 0, 0, 0.5); }
 }
 .input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 select.input { padding-right: 32px; }
-.input-group { display: flex; gap: 8px; }
-.input-group .input { flex: 1; min-width: 0; }
+/* Le bouton passe sous le champ quand la place manque (mobile) : le champ
+   garde au moins ~14rem au lieu d'etre ecrase par le libelle du bouton. */
+.input-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.input-group .input { flex: 1 1 14rem; min-width: 0; }
+.input-group > .btn { flex: 0 0 auto; }
+@media (max-width: 480px) { .input-group > .btn { flex: 1 1 100%; } }
 input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px; }
 .pill {
     display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem;

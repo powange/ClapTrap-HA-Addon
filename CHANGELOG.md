@@ -1,5 +1,39 @@
 # Changelog
 
+## 6.65.0
+
+### Interface
+
+- **Adresse du flux sur mobile** : le bouton « Afficher le mot de passe »
+  passe sous le champ quand la place manque (le champ était réduit à
+  quelques caractères). Même chose pour l'URL du webhook.
+
+### Sécurité
+
+- **Werkzeug 3.1.9** (faille PYSEC-2026-4312 dans 3.1.8).
+
+### Build et publication
+
+- **Audit hebdomadaire des dépendances Python** (`pip-audit` sur
+  `requirements.lock`, que Dependabot ne lit pas) ; c'est lui qui a
+  signalé la faille de Werkzeug.
+- **Autotest du vrai YAMNet dans l'image** : le build classifie quelques
+  secondes de signal avec MediaPipe et `yamnet.tflite`, et vérifie le
+  nombre de résultats et leur horodatage (la datation des claps en dépend).
+  Une mise à jour de mediapipe qui change le découpage échoue au build.
+- **Image de base épinglée par digest** pour chaque architecture ;
+  labels OCI propres (titre, description, documentation, révision du commit).
+- **Actions GitHub épinglées par SHA** (tag en commentaire) et
+  **Dependabot** (actions, image de base des deux architectures dans une
+  même PR, dépendances du test d'interface).
+- **Garde-fous de publication** : `VERSION` doit être au format X.Y.Z et
+  supérieure à la version publiée ; une version présente pour une seule
+  architecture n'est reprise que depuis le même commit (relance d'un run
+  interrompu), sinon refusée au lieu de mélanger deux contenus. Délais maximaux sur chaque job, identifiants git non
+  conservés hors du job de publication, Jinja2 des tests épinglé.
+- **Tests sans réseau VBAN** : l'import de l'application n'ouvre plus le
+  port UDP 6980 pendant les tests.
+
 ## 6.64.0
 
 ### Interface

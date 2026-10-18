@@ -33,10 +33,13 @@ concurrency:
 jobs:
   python:
     name: Tests Python
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
       - run: pip install -r data/requirements-dev.txt
@@ -45,16 +48,19 @@ jobs:
 
   ui:
     name: Tests de l'interface
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-      - run: pip install jinja2
+      - run: pip install -r data/tests/ui/requirements.txt
       - run: npm ci --prefix data/tests/ui
       - run: python data/tests/ui/render_page.py data/tests/ui/page.html
       - run: node data/tests/ui/ui_test.js data/tests/ui/page.html
@@ -63,10 +69,13 @@ jobs:
     name: Construction de l'image (pull request)
     if: github.event_name == 'pull_request'
     needs: [python, ui]
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: home-assistant/builder/actions/build-image@2026.09.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           arch: amd64
           image: ghcr.io/${{ github.repository_owner }}/amd64-claptrap
@@ -81,31 +90,85 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [python, ui]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read   # lecture des images deja publiees (garde-fou)
     outputs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.version.outputs.publish }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Comparer VERSION et config.yaml
         id: version
         run: |
           next="$(tr -d '[:space:]' < VERSION)"
           current="$(yq '.version' config.yaml)"
-          echo "version=$next" >> "$GITHUB_OUTPUT"
-          if [ "$next" != "$current" ]; then echo "publish=true" >> "$GITHUB_OUTPUT"; else echo "publish=false" >> "$GITHUB_OUTPUT"; fi
           echo "VERSION=$next, config.yaml=$current"
+          semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if ! [[ "$next" =~ $semver ]]; then
+            echo "::error file=VERSION::VERSION invalide ($next) : attendu X.Y.Z"; exit 1
+          fi
+          if ! [[ "$current" =~ $semver ]]; then
+            echo "::error file=config.yaml::version de config.yaml invalide ($current)"; exit 1
+          fi
+          if [ "$next" = "$current" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "$(printf '%s\n%s\n' "$next" "$current" | sort -V | tail -1)" != "$next" ]; then
+            # Une faute de frappe (6.53.1 apres 6.54.0) remplacerait latest par
+            # un code plus ancien.
+            echo "::error file=VERSION::VERSION ($next) inferieure a la version publiee ($current)"; exit 1
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
       - name: Matrice
         id: matrix
-        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           architectures: ${{ env.ARCHITECTURES }}
           image-name: ${{ env.IMAGE_NAME }}
+      - name: Refuser une version publiée à moitié
+        # skip-existing saute une architecture deja poussee : apres un echec
+        # partiel suivi d'un nouveau commit, la version melangerait deux
+        # contenus (amd64 ancien, aarch64 nouveau). Une version presente pour
+        # une partie des architectures n'est reprise que depuis le meme commit
+        # (relance d'un run interrompu) ; sinon, nouvelle VERSION.
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MATRIX: ${{ steps.matrix.outputs.matrix }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$TOKEN" > /dev/null
+          found=(); missing=(); foreign=()
+          while read -r arch image; do
+            ref="$image:$VERSION"
+            if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
+              found+=("$arch")
+              rev=$(docker buildx imagetools inspect "$ref" --format '{{json .Image}}' \
+                | jq -r '[.. | objects | .Labels? // empty | .["org.opencontainers.image.revision"] // empty] | first // ""')
+              [ "$rev" = "$SHA" ] || foreign+=("$arch (${rev:-révision inconnue})")
+            elif [[ "$out" == *"$ref: not found"* || "$out" == *"manifest unknown"* || "$out" == *"MANIFEST_UNKNOWN"* ]]; then
+              missing+=("$arch")
+            else
+              echo "::error::Impossible de vérifier $ref : $out"; exit 1
+            fi
+          done < <(jq -r '.include[] | "\(.arch) \(.image)"' <<< "$MATRIX")
+          echo "Déjà publiées : ${found[*]:-aucune} ; à construire : ${missing[*]:-aucune}"
+          if [ ${#found[@]} -gt 0 ] && [ ${#missing[@]} -gt 0 ] && [ ${#foreign[@]} -gt 0 ]; then
+            echo "::error file=VERSION::$VERSION n'existe que pour ${foreign[*]}, construite depuis un autre commit : passer à une nouvelle VERSION"; exit 1
+          fi
 
   build:
     name: Image ${{ matrix.arch }}
     needs: init
     if: needs.init.outputs.publish == 'true'
+    timeout-minutes: 90
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -115,8 +178,10 @@ jobs:
       fail-fast: true
       matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: home-assistant/builder/actions/build-image@2026.09.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
@@ -124,6 +189,7 @@ jobs:
           image-tags: |
             ${{ needs.init.outputs.version }}
             latest
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           push: "true"
           skip-existing: ${{ needs.init.outputs.version }}
           version: ${{ needs.init.outputs.version }}
@@ -131,12 +197,13 @@ jobs:
   manifest:
     name: Manifeste multi-architecture
     needs: [init, build]
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       packages: write
     steps:
-      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           architectures: ${{ env.ARCHITECTURES }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
@@ -149,16 +216,19 @@ jobs:
   release:
     name: Publier la version
     needs: [init, manifest]
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main   # derniere version de main (un commit a pu arriver depuis)
       - name: config.yaml passe à la version publiée
+        env:
+          VERSION: ${{ needs.init.outputs.version }}
         run: |
-          v="${{ needs.init.outputs.version }}"
+          v="$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
