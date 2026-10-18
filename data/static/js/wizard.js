@@ -8,6 +8,17 @@
     // reouverture) est ignoree. Fermer pendant l'ajout lancait sinon un test
     // dans la fenetre cachee, sans rafraichir la grille.
     var session = 0;
+    // Detection en cours : le VU-metre de l'etape 3 suit les niveaux de la
+    // detection (source_level) au lieu d'un test, qui ouvrait une 2e session
+    // RTSP (limitee sur beaucoup de cameras) et se figeait au demarrage.
+    var levelSource = null;
+
+    function showLevel(db) {
+        var m = CT.$('#wz-meter');
+        if (!m) return;
+        CT.setMeterFill(m.querySelector('.meter-fill'), CT.dbToPct(db));
+        m.querySelector('.meter-label').textContent = Math.round(db) + ' dB';
+    }
 
     function open() {
         var back = document.getElementById('wizard');
@@ -24,6 +35,7 @@
     }
     function close(show) {
         CT.stopTest();
+        levelSource = null;
         var back = document.getElementById('wizard');
         if (back.hidden) return Promise.resolve();
         back.hidden = true;
@@ -44,6 +56,13 @@
             if (card.scrollIntoView) card.scrollIntoView({block: 'center'});
             card.classList.add('is-highlight');
             setTimeout(function () { card.classList.remove('is-highlight'); }, 2000);
+            // Groupe encore vide : ouvrir les reglages sur « Ajouter les sons
+            // entendus » (le texte de l'etape 3 y renvoyait, loin dans la carte).
+            var src = CT.findSource(function (s) { return s.domId === show.domId; });
+            var empty = src && (src.data.sound_groups || []).filter(function (g) {
+                return g && g.slug && g.enabled !== false && !CT.groupHasSounds(g);
+            })[0];
+            if (empty && CT.openSourceSettings) CT.openSourceSettings(show.domId, empty.slug);
         });
     }
     function setStep(n, title) {
@@ -247,6 +266,7 @@
         body.querySelector('[data-w="done"]').addEventListener('click', function () { close(shown); });
         var start = body.querySelector('[data-w="start"]');
         if (start) start.addEventListener('click', function () {
+            var mine = session;   // assistant ferme pendant la requete : ne plus rien faire
             start.disabled = true;
             // Le test du son ouvrait une 2e session RTSP en parallele de la
             // detection (beaucoup de cameras en limitent le nombre).
@@ -258,6 +278,8 @@
                 })
                 .then(function () { return CT.reloadStatus(); })
                 .then(function () {
+                    if (!current(mine)) return;
+                    levelSource = shown.sourceId;   // le VU-metre suit maintenant la detection
                     if (CT.renderStatus) CT.renderStatus();
                     start.remove();
                     CT.$('#wz-hint').textContent = 'Détection démarrée. Dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, tapez dans vos mains et cochez les sons qui doivent le déclencher.';
@@ -267,20 +289,19 @@
                 .catch(function (err) { start.disabled = false; CT.error('Démarrage impossible : ' + err.message); });
         });
         body.querySelector('[data-w="done"]').focus();
+        if (running) { levelSource = created.sourceId; return; }
         var test = CT.testFor(created);
         test.domId = 'wizard';
-        test.onLevel = function (data) {
-            var m = CT.$('#wz-meter');
-            if (!m) return;
-            CT.setMeterFill(m.querySelector('.meter-fill'), CT.dbToPct(data.db));
-            m.querySelector('.meter-label').textContent = Math.round(data.db) + ' dB';
-        };
+        test.onLevel = function (data) { showLevel(data.db); };
         CT.startTest(test).catch(function (err) {
             CT.$('#wz-hint').textContent = 'Test du son impossible : ' + err.message;
         });
     }
 
     CT.openWizard = open;
+    CT.on('source_level', function (d) {
+        if (levelSource && d && d.source_id === levelSource) showLevel(d.db);
+    });
     CT.initWizard = function () {
         var back = document.getElementById('wizard');
         back.addEventListener('click', function (e) { if (e.target === back) close(); });

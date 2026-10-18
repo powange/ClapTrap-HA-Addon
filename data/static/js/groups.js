@@ -10,17 +10,38 @@
         return (CT.state.entityIds[key] || {})[g.slug] || [];
     }
 
+    // Ordre des pastilles fige apres le premier affichage (cochees d'abord,
+    // puis alphabetique) : cocher ou recevoir un son ne deplace plus les
+    // pastilles sous le doigt ; les nouveaux sons s'ajoutent a la fin.
+    var chipOrder = {};   // domId|slug -> [labels]
+    CT.resetChipOrder = function (domId) {
+        Object.keys(chipOrder).forEach(function (k) { if (k.indexOf(domId + '|') === 0) delete chipOrder[k]; });
+    };
+    function orderedLabels(key, wl) {
+        var byName = function (a, b) { return CT.soundLabel(a).localeCompare(CT.soundLabel(b), 'fr'); };
+        var known = chipOrder[key];
+        if (!known) {
+            known = chipOrder[key] = Object.keys(wl).sort(function (a, b) {
+                if (!!wl[a] !== !!wl[b]) return wl[a] ? -1 : 1;
+                return byName(a, b);
+            });
+            return known.slice();
+        }
+        var kept = known.filter(function (l) { return l in wl; });
+        var added = Object.keys(wl).filter(function (l) { return kept.indexOf(l) === -1; }).sort(byName);
+        chipOrder[key] = kept.concat(added);
+        return chipOrder[key].slice();
+    }
+
     function groupHtml(src, g, isDefault, activeElsewhere) {
         var wl = g.sound_whitelist || {};
-        var labels = Object.keys(wl).sort(function (a, b) {
-            if (!!wl[a] !== !!wl[b]) return wl[a] ? -1 : 1;
-            return CT.soundLabel(a).localeCompare(CT.soundLabel(b), 'fr');
-        });
+        var labels = orderedLabels(src.domId + '|' + g.slug, wl);
+        var gname = esc(g.name || g.slug);
+        var excluded = (CT.state.settings.global || {}).sound_exclusions || [];
         var chips = labels.map(function (label) {
             var on = !!wl[label];
             var other = activeElsewhere[label];
             var disabled = !on && other;
-            var excluded = (CT.state.settings.global || {}).sound_exclusions || [];
             var isExcluded = excluded.indexOf(label) !== -1;
             return '<label class="chip' + (on ? ' is-on' : '') + (disabled ? ' is-disabled' : '') + (isExcluded ? ' is-excluded' : '') + '" title="' + esc(label) + '">' +
                 '<input type="checkbox" data-label="' + esc(label) + '"' + (on ? ' checked' : '') + (disabled ? ' disabled' : '') + '>' +
@@ -39,20 +60,22 @@
         }).join('');
         return '<section class="group-card" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-head">' +
-                '<input type="text" class="input group-name" data-role="group-name" value="' + esc(g.name || g.slug) + '" aria-label="Nom du groupe">' +
+                '<input type="text" class="input group-name" data-role="group-name" value="' + gname + '" aria-label="Nom du groupe ' + gname + '">' +
                 '<label class="switch-inline"><input type="checkbox" role="switch" data-role="group-enabled"' + (g.enabled !== false ? ' checked' : '') +
-                    ' aria-label="Groupe ' + esc(g.name || g.slug) + ' actif"> Actif</label>' +
+                    ' aria-label="Groupe ' + gname + ' actif"> Actif</label>' +
                 (isDefault ? '<span class="pill">Groupe principal</span>'
                            : '<button type="button" class="btn-link danger" data-group-action="delete">Supprimer le groupe</button>') +
             '</div>' +
             '<fieldset class="field"><legend class="field-label">Entités Home Assistant à créer</legend><div class="checks">' + claps + '</div>' +
             (entities ? '<ul class="entity-list">' + entities + '</ul>' : '<p class="hint">Aucune entité : cochez au moins un nombre de claps.</p>') +
             '</fieldset>' +
-            '<div class="field"><div class="field-row"><span class="field-label">Sons qui déclenchent ce groupe</span>' +
+            '<div class="field" role="group" aria-labelledby="' + src.domId + '-' + esc(g.slug) + '-sounds">' +
+                '<div class="field-row"><span class="field-label" id="' + src.domId + '-' + esc(g.slug) + '-sounds">Sons qui déclenchent le groupe ' + gname + '</span>' +
                 '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
                 '<label class="switch-inline"><input type="checkbox" role="switch" data-role="auto-add"' + (g.auto_add_sounds ? ' checked' : '') +
-                    '> Ajouter les sons entendus</label>' +
-                '<label class="field-row-inline">Comptage <select class="input" data-role="count-mode" aria-label="Comptage du groupe ' + esc(g.name || g.slug) + '">' +
+                    ' aria-label="Ajouter les sons entendus au groupe ' + gname + '"> Ajouter les sons entendus</label>' +
+                '<p class="hint">Seuls les sons reconnus au-dessus du seuil du groupe sont ajoutés.</p>' +
+                '<label class="field-row-inline">Comptage <select class="input" data-role="count-mode" aria-label="Comptage du groupe ' + gname + '">' +
                     '<option value="attaques"' + (g.count_mode !== 'tenus' ? ' selected' : '') + '>claps, coups (attaques nettes)</option>' +
                     '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>sons tenus (sifflement)</option></select></label>' +
                 (labels.length > 8 ? '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
@@ -215,8 +238,11 @@
                 putGroup(src, slug, {auto_add_sounds: on})
                     .then(function () {
                         group.auto_add_sounds = on;
-                        CT.markSaved(auto, on ? 'Sons entendus ajoutés' : 'Ajout automatique arrêté');
-                        CT.renderGroupsManage(box.closest('.source-card'), src);
+                        var card = box.closest('.source-card');
+                        CT.renderGroupsManage(card, src);
+                        // Apres le rendu : la coche placee avant etait aussitot effacee.
+                        CT.markSaved(card.querySelector('.group-card[data-slug="' + CT.cssEscape(slug) + '"] [data-role="auto-add"]'),
+                                     on ? 'Sons entendus ajoutés' : 'Ajout automatique arrêté');
                     })
                     .catch(function (err) { auto.checked = !on; CT.error('Réglage non enregistré : ' + err.message); });
             });
@@ -229,6 +255,10 @@
                         .then(function () {
                             (group.sound_whitelist = group.sound_whitelist || {})[label] = on;
                             CT.renderGroupsManage(box.closest('.source-card'), src);
+                            // Groupe vide ou non : barre d'etat tout de suite,
+                            // carte a la fermeture des reglages.
+                            if (CT.renderStatus) CT.renderStatus();
+                            CT.renderWhenIdle();
                         })
                         .catch(function (err) { cb.checked = !on; CT.error(err.message); });
                 });
@@ -277,8 +307,14 @@
             if (!(d.label in g.sound_whitelist)) { g.sound_whitelist[d.label] = false; changed = true; }
         });
         var card = document.getElementById(src.domId);
+        if (!changed || !card) return;
         // Mise a jour sur place, y compris fenetre de reglages ouverte
-        // (c'est la qu'on regarde les sons arriver), sauf pendant une saisie.
-        if (changed && card && !CT.isTyping()) CT.renderGroupsManage(card, src);
+        // (c'est la qu'on regarde les sons arriver). Pendant une saisie :
+        // a la fin de celle-ci (le son n'apparaissait sinon jamais).
+        CT.whenIdle('groups:' + src.domId, CT.isTyping, function () {
+            var fresh = CT.findSource(function (s) { return s.domId === src.domId; });
+            var el = document.getElementById(src.domId);
+            if (fresh && el) CT.renderGroupsManage(el, fresh);
+        });
     });
 })();

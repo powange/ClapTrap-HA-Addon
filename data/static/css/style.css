@@ -135,6 +135,8 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
 .switch-track {
     position: relative; width: 40px; height: 22px; border-radius: 11px;
     background: var(--line); transition: background-color 0.15s;
+    /* Piste eteinte : bordure contrastee (1,3:1 sans elle, minimum 3:1). */
+    box-shadow: inset 0 0 0 1px var(--ink-3);
 }
 .switch-track::after {
     content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
@@ -267,6 +269,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 .groups-live { display: flex; flex-direction: column; gap: 14px; }
 .group-live { display: flex; flex-direction: column; gap: 6px; }
 .group-live.is-off { opacity: 0.55; }
+.group-empty { margin: 0; font-size: 0.85rem; color: var(--warn); }
 .group-live-head { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 .group-live-name { font-weight: 600; flex: 1; }
 .group-live-score { font: 600 0.8rem var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -500,3 +503,9 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
 .cal-result h4 { margin: 0; }
 .cal-warn { color: var(--warn); }
 .field-row-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 4px 0; }
+
+/* Cibles tactiles de 44 px sur ecran tactile (24 a 36 px avant) */
+@media (pointer: coarse) {
+    .chip, .check, .btn-link, .chip-remove, .toast-close, .switch-inline { min-height: 44px; }
+    .chip-remove, .toast-close { min-width: 44px; }
+}

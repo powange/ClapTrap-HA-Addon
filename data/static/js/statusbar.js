@@ -42,10 +42,18 @@
             return r === 'error' || r === 'reconnecting';
         }).length : 0;
         bar.classList.toggle('is-degraded', bad > 0);
-        setText(CT.$('#status-detail'), running
+        // Groupes actifs sans son coche (ne se declencheront jamais).
+        var empty = 0;
+        enabled.forEach(function (src) {
+            (src.data.sound_groups || []).forEach(function (g) {
+                if (g && g.slug && g.enabled !== false && !CT.groupHasSounds(g)) empty += 1;
+            });
+        });
+        var emptyText = empty ? ' · ' + empty + ' groupe' + (empty > 1 ? 's' : '') + ' sans son' : '';
+        setText(CT.$('#status-detail'), (running
             ? n + ' source' + (n > 1 ? 's' : '') + (bad ? ' · ' + bad + ' en erreur' : '') + ' · ' + sinceText(st.since)
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
-                              : 'Activez une source pour pouvoir démarrer'));
+                              : 'Activez une source pour pouvoir démarrer')) + emptyText);
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
         if (wasRunning !== null && wasRunning !== running && CT.announce) {
             CT.announce(running ? 'Détection démarrée' : 'Détection arrêtée', true);
@@ -140,7 +148,7 @@
             '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
             '<span class="history-main"><strong>' + n + ' clap' + (n > 1 ? 's' : '') + '</strong> · ' +
             CT.esc(sourceNameFor(ev.source_id)) + ' · ' + CT.esc(ev.group_name || ev.group_slug || '') +
-            (ev.ignored ? ' <span class="muted">(ignoré : un autre groupe a gagné)</span>' : '') + '</span>' +
+            (ev.ignored ? ' <span class="muted">(non retenu : autre groupe prioritaire)</span>' : '') + '</span>' +
             '<span class="history-score">' + CT.pct(ev.score) + '</span>';
         var labels = (ev.labels || []).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
         if (labels) {

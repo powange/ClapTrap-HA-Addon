@@ -62,10 +62,12 @@ La dernière étape affiche le niveau sonore : tapez dans vos mains, il doit
 monter nettement. Lancez ensuite la détection avec **Démarrer la détection** (ou
 cochez **Démarrer au lancement de l'add-on**).
 
-Le groupe « Clap » d'une nouvelle source est vide : dans **Réglages de la
-source**, activez **Ajouter les sons entendus**, tapez dans vos mains pendant
-la détection, puis cochez les sons qui doivent déclencher le groupe (par
-exemple « Applaudissement », « Mains »).
+Le groupe « Clap » d'une nouvelle source est vide : la carte l'indique
+(« Aucun son choisi »), et l'assistant ouvre à la fin les réglages de la
+source sur ce groupe. Activez **Ajouter les sons entendus**, tapez dans vos
+mains pendant la détection, puis cochez les sons qui doivent déclencher le
+groupe (par exemple « Applaudissement », « Mains »). Le bouton **Choisir les
+sons** de la carte ramène au même endroit.
 
 Le mot de passe d'une adresse RTSP est masqué à l'écran : le bouton
 **Afficher le mot de passe** révèle l'adresse complète pour la modifier. Il reste dans la
