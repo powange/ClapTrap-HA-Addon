@@ -1,5 +1,36 @@
 # Changelog
 
+## 6.61.0
+
+### Home Assistant / MQTT
+
+- **Broker MQTT externe** : l'add-on démarre aussi sans Mosquitto
+  (`mqtt:want`). Un broker externe (NAS, Docker…) se renseigne dans l'onglet
+  **Configuration** : adresse, port, utilisateur, mot de passe, TLS et
+  vérification du certificat (libellés en français et en anglais).
+- **TLS** : connexion chiffrée vers un broker externe, et vers Mosquitto
+  quand son service l'annonce (la connexion partait en clair et échouait) ;
+  certificat auto-signé accepté si « Vérifier le certificat » est décoché.
+  Sans broker, l'add-on fonctionne sans entités et le rappelle toutes les
+  10 minutes.
+- **Disponibilité fiable** : identifiant MQTT fixe propre à l'installation
+  (l'« offline » d'une ancienne session arrive avant le nouveau « online ») ;
+  un « offline » tardif reçu en direct alors qu'on est connecté est corrigé
+  aussitôt.
+- **QoS 1 pour les messages retenus** (configurations, suppressions,
+  disponibilité, états) : une suppression perdue pendant une micro-coupure
+  laissait une entité orpheline. Le nettoyage des orphelines attend la fin
+  de l'arrivée des configurations retenues (30 s au plus) au lieu de 3 s
+  fixes.
+- **Noms d'entités plus courts** : « Salon · Clap · 2 claps » au lieu de
+  « VBAN: Salon Clap 2 claps », « Micro » au lieu du nom technique du
+  périphérique (qui changeait avec le micro), « Détection en cours ». Les
+  entity_id ne changent pas. Deux sources de même nom gardent leur libellé
+  complet (« RTSP: Salon », « VBAN: Salon »).
+- **AppArmor** : profil complété (certificats pour le TLS) et procédure dans
+  la documentation pour relever les accès avant le passage en mode strict ;
+  il reste en mode « complain ».
+
 ## 6.60.0
 
 ### Détection

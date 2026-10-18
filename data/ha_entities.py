@@ -1,7 +1,8 @@
 """Gestion des entites Home Assistant pour ClapTrap (MQTT Discovery).
 
-Le broker MQTT est obligatoire (`services: mqtt:need`) : toutes les entites
-sont regroupees dans un appareil "ClapTrap".
+Broker MQTT : celui de l'add-on Mosquitto (service du Supervisor), ou un
+broker externe renseigne dans les options de l'add-on (`mqtt_host`...).
+Toutes les entites sont regroupees dans un appareil "ClapTrap".
 
 Entites par source et par groupe de sons :
 - binary_sensor.claptrap_<source>_<groupe>_<N>clap(s) : un par nombre de claps (1-4)
@@ -26,7 +27,6 @@ retirer de HA une entite que l'autre venait d'ajouter.
 import os
 import re
 import time
-import uuid
 import logging
 import threading
 import json
@@ -57,6 +57,11 @@ _pending_removal = set()    # object_ids a supprimer des que le broker est joign
 _pending_topics = set()     # topics de config (entites de reglage) a vider de meme
 _auth_failures = 0
 _warned_collisions = set()  # (cle, source en conflit) deja signales
+_shutting_down = False      # arret propre : « offline » voulu, ne pas le corriger
+OPTIONS_FILE = '/data/options.json'   # options de l'add-on (onglet Configuration)
+DISCOVERY_QUIET = 3.0       # s sans config retenue recue : toutes sont arrivees
+DISCOVERY_MAX_WAIT = 30.0   # s au plus (broker charge)
+_last_discovery = 0.0       # derniere config retenue recue (instant monotone)
 
 
 def _group_object_id(source_slug, group_slug, n):
@@ -141,17 +146,66 @@ def _mqtt_publish(topic, payload, retain=False):
         return None
     data = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
     try:
-        return client.publish(topic, data, retain=retain)
+        # QoS 1 pour les messages retenus (configurations, suppressions,
+        # disponibilite, etats) : une suppression perdue pendant une
+        # micro-coupure laissait une entite orpheline. Impulsions en QoS 0.
+        return client.publish(topic, data, qos=1 if retain else 0, retain=retain)
     except Exception as e:
         logging.warning(f"MQTT: publication sur {topic} impossible: {e}")
         return None
 
 
+def _addon_options():
+    try:
+        with open(OPTIONS_FILE, encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _fetch_broker_info():
+    """Broker externe (options de l'add-on) s'il est renseigne, sinon celui
+    du service MQTT du Supervisor (add-on Mosquitto)."""
+    opts = _addon_options()
+    host = str(opts.get('mqtt_host') or '').strip()
+    if host:
+        tls = bool(opts.get('mqtt_tls'))
+        return {'host': host, 'port': int(opts.get('mqtt_port') or (8883 if tls else 1883)),
+                'username': opts.get('mqtt_username') or '', 'password': opts.get('mqtt_password') or '',
+                'ssl': tls, 'tls_insecure': opts.get('mqtt_tls_verify') is False, 'external': True}
     resp = requests.get('http://supervisor/services/mqtt', headers=_get_headers(), timeout=5)
     if not resp.ok:
-        raise RuntimeError(f"service MQTT indisponible via le Supervisor (HTTP {resp.status_code})")
-    return resp.json().get('data', {})
+        raise RuntimeError(f"aucun broker : installez l'add-on Mosquitto ou renseignez « mqtt_host » dans "
+                           f"la configuration de ClapTrap (service MQTT : HTTP {resp.status_code})")
+    info = dict(resp.json().get('data', {}))
+    # Mosquitto en TLS : son certificat vise rarement « core-mosquitto ».
+    info['tls_insecure'] = opts.get('mqtt_tls_verify') is False
+    return info
+
+
+def _client_id():
+    """Identifiant fixe : a la reconnexion, le broker coupe l'ancienne session
+    tout de suite, et son « offline » (LWT) arrive avant le nouveau « online »
+    (avec un identifiant aleatoire, il pouvait arriver apres et rendre toutes
+    les entites indisponibles)."""
+    # Suffixe tire une fois par installation (deux Home Assistant sur le meme
+    # broker externe ne se volent pas la session).
+    path = os.path.join(os.path.dirname(OPTIONS_FILE), '.mqtt_client_id')
+    try:
+        with open(path, encoding='utf-8') as f:
+            suffix = re.sub(r'[^a-f0-9]', '', f.read())[:12]
+    except OSError:
+        suffix = ''
+    if len(suffix) != 12:
+        import secrets
+        suffix = secrets.token_hex(6)
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(suffix)
+        except OSError:
+            pass
+    return f"claptrap-{suffix}"
 
 
 def _connection_failed(client, reason):
@@ -181,6 +235,7 @@ def _on_connect(client, userdata, flags, rc, *args):
     logging.info("MQTT connecté")
     _mqtt_connected.set()
     client.subscribe(HA_STATUS_TOPIC)
+    client.subscribe(AVAILABILITY_TOPIC)
     client.subscribe(DISCOVERY_WILDCARD)
     client.subscribe('claptrap/+/availability')
     from ha_control import SUBSCRIPTIONS
@@ -197,9 +252,21 @@ def _on_disconnect(client, userdata, *args):
 
 
 def _on_message(client, userdata, msg):
+    global _last_discovery
     if msg.topic.startswith('claptrap/') and (msg.topic.endswith('/set') or msg.topic == 'claptrap/command'):
         from ha_control import handle_message
         handle_message(msg.topic, msg.payload, retained=bool(getattr(msg, 'retain', False)))
+        return
+    if msg.topic == AVAILABILITY_TOPIC:
+        # Message retenu (dernier arret propre, recu a l'abonnement) : deja
+        # remplace par le « online » de la connexion. Seul un LWT tardif, en
+        # direct, est a corriger.
+        if (not getattr(msg, 'retain', False) and msg.payload.decode(errors='ignore') == 'offline'
+                and _mqtt_connected.is_set() and not _shutting_down):
+            # « offline » d'une ancienne session (LWT tardif) alors qu'on est
+            # connecte : retablir, sinon toutes les entites restaient indisponibles.
+            logging.info("MQTT : « offline » d'une ancienne session reçu, disponibilité rétablie")
+            _mqtt_publish(AVAILABILITY_TOPIC, 'online', retain=True)
         return
     if msg.topic == HA_STATUS_TOPIC:
         if msg.payload.decode(errors='ignore') == 'online':
@@ -219,6 +286,7 @@ def _on_message(client, userdata, msg):
         return
     m = re.match(r'^homeassistant/([^/]+)/claptrap/([^/]+)/config$', msg.topic)
     if m:
+        _last_discovery = time.monotonic()
         target, item = (_discovered, m.group(2)) if m.group(1) == 'binary_sensor' else (_discovered_ctrl, msg.topic)
         with _lock:
             if msg.payload:
@@ -241,9 +309,16 @@ def _after_connect():
     republish_all()
     import ha_registry
     ha_registry.schedule_reconcile(10.0)   # renommages d'entites restes en attente
-    # Laisser arriver les configs retenues avant de chercher les orphelines.
-    time.sleep(3)
-    cleanup_orphans()
+    # Laisser arriver les configs retenues avant de chercher les orphelines :
+    # attendre que le flux s'arrete (3 s sans nouvelle config), 30 s au plus.
+    start = time.monotonic()
+    while time.monotonic() - start < DISCOVERY_MAX_WAIT:
+        time.sleep(0.5)
+        quiet = time.monotonic() - max(start, _last_discovery)
+        if quiet >= DISCOVERY_QUIET:
+            break
+    if _mqtt_connected.is_set():
+        cleanup_orphans()
 
 
 def _mqtt_worker():
@@ -256,12 +331,13 @@ def _mqtt_worker():
         logging.error("paho-mqtt non installé : entités Home Assistant indisponibles")
         return
     delay = 5
+    last_warning = -1e9
     while True:
         try:
             info = _fetch_broker_info()
             host = info.get('host', 'core-mosquitto')
             port = int(info.get('port', 1883))
-            client_id = f"claptrap_{uuid.uuid4().hex[:8]}"
+            client_id = _client_id()
             try:
                 from paho.mqtt.enums import CallbackAPIVersion
                 client = mqtt_module.Client(callback_api_version=CallbackAPIVersion.VERSION2,
@@ -270,8 +346,19 @@ def _mqtt_worker():
                 client = mqtt_module.Client(client_id=client_id)
             if info.get('username'):
                 client.username_pw_set(info['username'], info.get('password', ''))
+            if info.get('ssl'):
+                # Port TLS (service du Supervisor avec ssl, ou option mqtt_tls) :
+                # la connexion partait en clair et echouait en boucle.
+                if info.get('tls_insecure'):
+                    # Certificat auto-signe (option « Vérifier le certificat »
+                    # decochee) : ni chaine ni nom verifies, connexion chiffree.
+                    import ssl
+                    client.tls_set(cert_reqs=ssl.CERT_NONE)
+                    client.tls_insecure_set(True)
+                else:
+                    client.tls_set()
             # LWT : si l'add-on meurt, toutes les entites passent "indisponible".
-            client.will_set(AVAILABILITY_TOPIC, 'offline', retain=True)
+            client.will_set(AVAILABILITY_TOPIC, 'offline', qos=1, retain=True)
             client.on_connect = _on_connect
             client.on_connect_fail = _on_connect_fail
             client.on_disconnect = _on_disconnect
@@ -281,12 +368,21 @@ def _mqtt_worker():
             _mqtt_client = client
             client.connect_async(host, port, keepalive=60)
             client.loop_start()
-            logging.info(f"MQTT: connexion à {host}:{port}...")
+            logging.info(f"MQTT: connexion à {host}:{port}{' (TLS)' if info.get('ssl') else ''}"
+                         f"{' (broker externe)' if info.get('external') else ''}...")
             return
         except Exception as e:
-            logging.warning(f"MQTT non disponible ({e}), nouvel essai dans {delay}s")
+            # Sans broker (ni Mosquitto ni option) : un avertissement, puis un
+            # rappel toutes les 10 min au lieu d'une ligne par minute.
+            now = time.monotonic()
+            if now - last_warning >= 600:
+                logging.warning(f"MQTT non disponible ({e}) : entités Home Assistant indisponibles, "
+                                f"nouvel essai régulier")
+                last_warning = now
+            else:
+                logging.debug(f"MQTT non disponible ({e}), nouvel essai dans {delay}s")
             time.sleep(delay)
-            delay = min(delay * 2, 60)
+            delay = min(delay * 2, 300)
 
 
 def _reconnect_fresh(old_client):
@@ -314,13 +410,15 @@ def init_entities(settings=None):
 
 def shutdown():
     """Arret propre : detection OFF et entites indisponibles."""
+    global _shutting_down
     client = _mqtt_client
     if client is None:
         return
+    _shutting_down = True
     try:
         if _mqtt_connected.is_set():
-            client.publish('claptrap/detection/state', 'OFF', retain=True).wait_for_publish(1)
-            client.publish(AVAILABILITY_TOPIC, 'offline', retain=True).wait_for_publish(1)
+            client.publish('claptrap/detection/state', 'OFF', qos=1, retain=True).wait_for_publish(1)
+            client.publish(AVAILABILITY_TOPIC, 'offline', qos=1, retain=True).wait_for_publish(1)
         client.disconnect()
         client.loop_stop()
     except Exception as e:
@@ -329,8 +427,21 @@ def shutdown():
 
 # ===== Entites ===============================================================
 
+def short_name(label):
+    """Nom court d'une source dans HA (« Salon », « Micro ») : le libelle
+    complet (« VBAN: Salon », « Micro: alsa_input.usb-… ») donnait des noms
+    d'entites longs et techniques, qui changeaient avec le micro."""
+    label = str(label or '')
+    if label == 'Microphone' or label.startswith('Micro: '):
+        return 'Micro'
+    for prefix in ('RTSP: ', 'VBAN: '):
+        if label.startswith(prefix):
+            return label[len(prefix):] or label
+    return label
+
+
 def _friendly_name(display, g_name, n):
-    return f'{display} {g_name} {n} clap{"s" if n > 1 else ""}'
+    return f'{display} · {g_name} · {n} clap{"s" if n > 1 else ""}'
 
 
 def _entity_config(obj, name, source_slug, entity_obj=None):
@@ -400,7 +511,7 @@ def _unpublish_object(obj):
 
 def _publish_detection():
     _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/detection/config", {
-        'name': 'Detection',
+        'name': 'Détection en cours',
         'unique_id': 'claptrap_detection',
         'default_entity_id': 'binary_sensor.claptrap_detection',
         'state_topic': 'claptrap/detection/state',
@@ -609,8 +720,12 @@ def sync_sources(settings=None):
             from settings_manager import load_settings
             settings = load_settings()
         configured = _configured_sources(settings)
+        # Nom court dans HA (« Salon »), sauf s'il est porte par deux sources
+        # (« RTSP: Salon » et « VBAN: Salon ») : libelle complet alors.
+        shorts = [short_name(label) for _k, label, _g, _a in configured]
         for key, label, groups, available in configured:
-            register_source(key, label=label, groups=groups, available=available)
+            display = short_name(label) if shorts.count(short_name(label)) == 1 else label
+            register_source(key, label=display, groups=groups, available=available)
         from settings_manager import is_degraded
         if is_degraded():
             # Reglages illisibles (valeurs par defaut, aucune source) : ne rien

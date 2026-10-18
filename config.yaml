@@ -15,8 +15,18 @@ audio: true
 hassio_api: true
 hassio_role: default
 homeassistant_api: true
+# Broker de l'add-on Mosquitto s'il est installe ; sinon broker externe a
+# renseigner dans les options ci-dessous (onglet Configuration).
 services:
-  - mqtt:need
+  - mqtt:want
+options: {}
+schema:
+  mqtt_host: str?
+  mqtt_port: port?
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_tls: bool?
+  mqtt_tls_verify: bool?
 ingress: true
 ingress_port: 16045
 init: false
