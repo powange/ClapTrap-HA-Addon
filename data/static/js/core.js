@@ -330,6 +330,11 @@
             return st;
         });
     };
+    // Un groupe sans son coche ne se declenche jamais.
+    CT.groupHasSounds = function (g) {
+        var wl = (g && g.sound_whitelist) || {};
+        return Object.keys(wl).some(function (k) { return wl[k]; });
+    };
     // Ne pas reconstruire la page pendant une saisie : on perdrait le texte.
     // Saisie en cours dans un champ (hors assistant) : pas de rendu qui
     // l'effacerait.
@@ -398,22 +403,29 @@
     // Rendu complet, differe tant qu'un champ est en cours de saisie : un
     // enregistrement qui se terminait pendant la frappe dans un autre champ
     // reconstruisait la carte et effacait le texte tape.
-    var renderPending = false, pointerDown = false;
+    var pointerDown = false;
     document.addEventListener('pointerdown', function () { pointerDown = true; }, true);
     document.addEventListener('pointerup', function () { setTimeout(function () { pointerDown = false; }, 0); }, true);
-    CT.renderWhenIdle = function () {
-        if (!CT.isEditing()) { CT.render(); return; }
-        if (CT.renderStatus) CT.renderStatus();
-        if (renderPending) return;
-        renderPending = true;
+    // Defilement tactile : pointercancel sans pointerup (le rendu differe
+    // attendait sinon un toucher de plus).
+    document.addEventListener('pointercancel', function () { pointerDown = false; }, true);
+    // `fn` tout de suite si `busy()` est faux, sinon a la fin de l'occupation
+    // (focus qui quitte le champ, clic en cours termine), une seule fois par
+    // `key` (rendu de la grille, groupes d'une source).
+    var idlePending = {};
+    CT.whenIdle = function (key, busy, fn) {
+        if (!busy()) { fn(); return; }
+        if (idlePending[key]) { idlePending[key] = fn; return; }
+        idlePending[key] = fn;
         function done() {
             document.removeEventListener('focusout', retry);
-            renderPending = false;
-            CT.render();
+            var run = idlePending[key];
+            delete idlePending[key];
+            if (run) run();
         }
         function retry() {
             setTimeout(function () {
-                if (CT.isEditing()) return;
+                if (busy()) return;
                 if (pointerDown) {
                     // Clic en cours (le focus part au pointerdown) : rendre apres
                     // le clic, sinon le bouton vise etait remplace avant d'etre clique.
@@ -427,6 +439,10 @@
             }, 0);
         }
         document.addEventListener('focusout', retry);
+    };
+    CT.renderWhenIdle = function () {
+        if (CT.isEditing() && CT.renderStatus) CT.renderStatus();
+        CT.whenIdle('grid', CT.isEditing, function () { CT.render(); });
     };
     // Reconstruire la grille seulement si les reglages ont change : au retour
     // sur l'onglet, un rendu complet remasquait l'URL, fermait les menus et

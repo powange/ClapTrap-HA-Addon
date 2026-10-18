@@ -5,6 +5,12 @@
     var CT = window.CT;
     var esc = CT.esc;
     var SPARK_SECONDS = 10;
+    var LIVE_IDLE_MS = 2500;   // sans son reconnu : retour au texte d'attente
+
+    function idleText(enabled) {
+        if (!enabled) return 'Source désactivée';
+        return CT.state.status && CT.state.status.running ? 'En attente de sons…' : 'Détection arrêtée';
+    }
 
     function groupsOf(src) {
         return (src.data.sound_groups || []).filter(function (g) { return g && g.slug; });
@@ -29,11 +35,16 @@
     function liveGroupHtml(src, g) {
         var t = g.threshold != null ? g.threshold : 0.5;
         var off = g.enabled === false;   // desactive (interface ou Home Assistant)
-        return '<div class="group-live' + (off ? ' is-off' : '') + '" data-slug="' + esc(g.slug) + '">' +
+        // Groupe sans son coche (etat d'un groupe neuf) : il ne se declenchera
+        // jamais, le dire sur la carte plutot que d'afficher « 0 % ».
+        var empty = !off && !CT.groupHasSounds(g);
+        return '<div class="group-live' + (off ? ' is-off' : '') + (empty ? ' is-empty' : '') + '" data-slug="' + esc(g.slug) + '">' +
             '<div class="group-live-head"><span class="group-live-name">' + esc(g.name || g.slug) +
             (off ? ' <span class="pill">désactivé</span>' : '') + '</span>' +
             '<span class="clap-badge" hidden></span>' +
             '<span class="group-live-score" title="Score actuel">0 %</span></div>' +
+            (empty ? '<p class="group-empty">Aucun son choisi : ce groupe ne se déclenchera pas. ' +
+                '<button type="button" class="btn-link" data-action="choose-sounds" data-group="' + esc(g.slug) + '">Choisir les sons</button></p>' : '') +
             '<div class="scorebar"><div class="scorebar-fill"></div>' +
             '<input type="range" class="threshold" data-role="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
             'aria-valuetext="' + CT.pct(t) + '" ' +
@@ -106,7 +117,7 @@
         return '<article class="card source-card' + (src.enabled ? '' : ' is-disabled') + '" id="' + src.domId + '">' +
             '<header class="card-head">' +
                 '<span class="tag tag-' + src.kind + '">' + CT.kindLabel[src.kind] + '</span>' +
-                '<h3 class="card-title">' + esc(src.name) + '</h3>' +
+                '<h2 class="card-title">' + esc(src.name) + '</h2>' +
                 '<label class="switch"><input type="checkbox" role="switch" data-action="toggle"' + (src.enabled ? ' checked' : '') +
                 ' aria-label="Activer ' + esc(src.name) + '"><span class="switch-track" aria-hidden="true"></span></label>' +
                 '<div class="menu"><button type="button" class="btn-icon" data-action="menu" aria-haspopup="true" aria-expanded="false" aria-label="Actions pour ' + esc(src.name) + '">' +
@@ -120,9 +131,9 @@
             '</header>' +
             '<p class="source-status" data-role="status"><span class="dot"></span><span class="status-text"></span></p>' +
             '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
-            '<p class="live-line" data-role="live">' + (src.enabled ? 'En attente de sons…' : 'Source désactivée') + '</p>' +
+            '<p class="live-line" data-role="live">' + idleText(src.enabled) + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
-            '<button type="button" class="btn btn-ghost source-settings-open" data-action="open-settings">Réglages de la source</button>' +
+            '<button type="button" class="btn btn-ghost source-settings-open" data-role="settings-open" data-action="open-settings">Réglages de la source</button>' +
             // Fenetre (<dialog>) DANS la carte : les champs gardent leurs
             // gestionnaires (delegation sur la carte) ; le navigateur gere le
             // premier plan, l'inertie du reste de la page et Echap.
@@ -175,9 +186,28 @@
     };
 
     CT.renderSourceStatuses = function () {
+        var running = !!(CT.state.status && CT.state.status.running);
+        // Test du son en cours au demarrage de la detection : l'arreter (son
+        // bouton serait desactive, et il garderait une seconde capture).
+        if (running && CT.state.testing && CT.stopTest) CT.stopTest();
         CT.sourceList().forEach(function (src) {
             var card = document.getElementById(src.domId);
             if (!card) return;
+            // Pendant la detection, le VU-metre de la carte suit deja le son ;
+            // un test ouvrait une seconde capture (2e session RTSP).
+            CT.$$('[data-action="test"]', card).forEach(function (b) {
+                if (b.getAttribute('role') === 'menuitem') b.hidden = running;   // menu : navigable au clavier
+                else {
+                    b.disabled = running;
+                    b.title = running ? 'Pendant la détection, le niveau de la carte suit déjà le son' : '';
+                }
+            });
+            // Texte d'attente selon l'etat de la detection (il restait
+            // « Détection arrêtée » apres le demarrage, en silence).
+            var line = card.querySelector('[data-role="live"]');
+            if (line && (line.textContent === 'En attente de sons…' || line.textContent === 'Détection arrêtée')) {
+                line.textContent = idleText(src.enabled);
+            }
             var st = statusOf(src);
             var el = card.querySelector('[data-role="status"]');
             el.className = 'source-status status-' + st.cls;
@@ -203,13 +233,20 @@
         menuBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             var open = menu.hidden;
-            CT.$$('.menu-list').forEach(function (m) { m.hidden = true; });
+            CT.$$('.menu-list').forEach(function (m) {
+                m.hidden = true;
+                var b = m.parentNode.querySelector('[data-action="menu"]');
+                if (b) b.setAttribute('aria-expanded', 'false');   // l'autre menu ferme ne reste pas « développé »
+            });
             menu.hidden = !open;
             menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-            if (open) menu.querySelector('button').focus();
+            if (open) {
+                var first = CT.$$('[role="menuitem"]', menu).filter(function (b) { return !b.hidden && !b.disabled; })[0];
+                if (first) first.focus();
+            }
         });
         menu.addEventListener('keydown', function (e) {
-            var items = CT.$$('[role="menuitem"]', menu);
+            var items = CT.$$('[role="menuitem"]', menu).filter(function (b) { return !b.hidden && !b.disabled; });
             var i = items.indexOf(document.activeElement);
             if (e.key === 'Escape') { e.preventDefault(); closeMenu(); menuBtn.focus(); }
             else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
@@ -225,6 +262,7 @@
             var action = btn.getAttribute('data-action');
             if (action === 'test') { closeMenu(); toggleTest(src, card); }
             else if (action === 'open-settings') { closeMenu(); openSettings(card, src); }
+            else if (action === 'choose-sounds') { openSettings(card, src, false, btn.getAttribute('data-group')); }
             else if (action === 'close-settings') { closeSettings(card); }
             else if (action === 'calibrate') {
                 closeMenu();
@@ -345,6 +383,9 @@
             CT.state.openPanels[card.id] = false;
             var opener = card.querySelector('.source-settings-open');
             if (opener) opener.focus();
+            // Carte a jour (groupes, « Aucun son choisi ») : les rendus etaient
+            // reportes pendant la fenetre.
+            CT.renderWhenIdle();
         });
         // Clic sur le fond : hors du rectangle de la fenetre (un clic dans sa
         // marge, ou un curseur relache dehors, vise aussi l'element <dialog>).
@@ -355,9 +396,25 @@
         });
     }
 
-    function openSettings(card, src, rerender) {
+    // Ouvre les reglages d'une source ; `groupSlug` : aller a ce groupe et
+    // donner le focus a « Ajouter les sons entendus » (groupe vide, fin de
+    // l'assistant).
+    CT.openSourceSettings = function (domId, groupSlug) {
+        var card = document.getElementById(domId);
+        var src = CT.findSource(function (s) { return s.domId === domId; });
+        if (card && src) openSettings(card, src, false, groupSlug);
+    };
+
+    function openSettings(card, src, rerender, groupSlug) {
         var dlg = card.querySelector('dialog.source-settings');
-        if (!dlg || dlg.open) return;
+        if (!dlg) return;
+        if (!rerender && CT.resetChipOrder && !dlg.open) {
+            // Nouvel affichage : nouveau tri, applique tout de suite (sinon il se
+            // faisait au premier clic et la pastille cochee se deplacait).
+            CT.resetChipOrder(src.domId);
+            if (CT.renderGroupsManage) CT.renderGroupsManage(card, src);
+        }
+        if (dlg.open) return focusGroup(dlg, groupSlug);
         if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
         CT.state.openPanels[card.id] = true;
         // Messages au premier plan, lisibles et annonces (le reste de la page
@@ -367,6 +424,7 @@
         // Focus sur « Fermer » (et non sur un champ : le rendu de la grille
         // attendrait la fin de cette « saisie »).
         if (!rerender) dlg.querySelector('[data-action="close-settings"]').focus();
+        if (!rerender && groupSlug) focusGroup(dlg, groupSlug);
         if (!rerender && src.kind === 'mic') {
             // Un micro branche apres l'ouverture de la page apparait.
             var before = JSON.stringify(CT.state.devices);
@@ -374,6 +432,14 @@
                 if (JSON.stringify(CT.state.devices) !== before && !CT.isEditing()) CT.render();
             });
         }
+    }
+
+    function focusGroup(dlg, groupSlug) {
+        var group = groupSlug && dlg.querySelector('.group-card[data-slug="' + CT.cssEscape(groupSlug) + '"]');
+        if (!group) return;
+        if (group.scrollIntoView) group.scrollIntoView({block: 'start'});
+        var target = group.querySelector('[data-role="auto-add"]');
+        if (target) target.focus();
     }
 
     function closeSettings(card) {
@@ -526,7 +592,7 @@
         Object.keys(cardIndex).forEach(function (sid) {
             var card = cardIndex[sid].card;
             var line = card.querySelector('[data-role="live"]');
-            if (line) line.textContent = card.classList.contains('is-disabled') ? 'Source désactivée' : 'En attente de sons…';
+            if (line) line.textContent = idleText(!card.classList.contains('is-disabled'));
         });
     };
 
@@ -589,7 +655,21 @@
         var line = c.card.querySelector('[data-role="live"]');
         if (line.dataset.clapUntil && Date.now() < +line.dataset.clapUntil) return;
         line.textContent = d.detected.slice(0, 3).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
+        // Le serveur n'envoie rien en silence : sans nouvelle, revenir a
+        // « En attente de sons… » (le dernier son restait affiche des minutes).
+        scheduleIdle(line, LIVE_IDLE_MS);
     });
+
+    // Retour au texte d'attente apres `delay` ms sans nouveau son ; repousse
+    // apres l'affichage d'un clap (il restait sinon affiche indefiniment).
+    function scheduleIdle(line, delay) {
+        clearTimeout(line._idle);
+        line._idle = setTimeout(function () {
+            var clapLeft = line.dataset.clapUntil ? +line.dataset.clapUntil - Date.now() : 0;
+            if (clapLeft > 0) return scheduleIdle(line, clapLeft + 50);
+            line.textContent = idleText(true);
+        }, delay);
+    }
 
     CT.on('clap', function (d) {
         var c = d && cardIndex[d.source_id];
@@ -600,6 +680,7 @@
             var line = c.card.querySelector('[data-role="live"]');
             line.textContent = '👏 ' + text + ' · ' + (d.group_name || d.group_slug) + ' (' + CT.pct(d.score) + ')';
             line.dataset.clapUntil = String(Date.now() + 2500);
+            scheduleIdle(line, 2600);
             CT.announce(text + ' détecté' + (n > 1 ? 's' : '') + ' sur ' + c.src.name);
             c.card.classList.remove('flash'); void c.card.offsetWidth; c.card.classList.add('flash');
         }

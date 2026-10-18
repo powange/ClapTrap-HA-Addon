@@ -1,5 +1,35 @@
 # Changelog
 
+## 6.64.0
+
+### Interface
+
+- **Groupe vide signalé** : la carte affiche « Aucun son choisi : ce groupe
+  ne se déclenchera pas » avec un bouton **Choisir les sons**, et la barre
+  d'état compte les groupes sans son. Le bouton ouvre les réglages sur ce
+  groupe, avec le focus sur « Ajouter les sons entendus ».
+- **Fin de l'assistant** : les réglages de la nouvelle source s'ouvrent sur
+  son groupe vide (la consigne renvoyait loin dans la carte). Si la
+  détection tourne, le VU-mètre de l'étape 3 suit la détection au lieu
+  d'ouvrir une seconde session RTSP ; il ne se fige plus après « Démarrer
+  la détection ». Pendant la détection, « Tester le son » est désactivé
+  (le niveau de la carte suit déjà le son) et un test en cours s'arrête.
+- **Pastilles de sons stables** : triées à l'ouverture des réglages, elles ne
+  bougent plus quand on en coche une ou qu'un son arrive (ajouté à la fin).
+  Un son entendu pendant une saisie apparaît dès la fin de celle-ci.
+- **Ligne en direct** : retour à « En attente de sons… » après 2,5 s sans son
+  reconnu (le dernier son restait affiché) ; « Détection arrêtée » quand
+  elle ne tourne pas.
+- **Accessibilité** : menu fermé qui annonçait encore « développé »,
+  coche « ✓ » de l'interrupteur visible, défilement tactile qui bloquait un
+  rendu différé, contraste de la piste des interrupteurs, sons regroupés et
+  libellés par groupe pour les lecteurs d'écran, titres de cartes de niveau
+  2, cibles tactiles de 44 px sur écran tactile.
+- **Vocabulaire** : « ignoré » réservé aux sons exclus (historique : « non
+  retenu : autre groupe prioritaire »), « Ignorer un autre son entendu »,
+  « Démarrage auto » sur mobile ; explication du filtrage par le seuil près
+  de « Ajouter les sons entendus ».
+
 ## 6.63.0
 
 ### API et réglages

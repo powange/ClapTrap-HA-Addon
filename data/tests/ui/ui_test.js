@@ -101,7 +101,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('11. volume automatique', lastCall('PATCH', '/api/sources/mic/mic')[2].auto_volume === true && $('#src-mic [data-field="volume"]').disabled);
   emit('auto_volume_update', { volume: 120 }); await tick();
   ok('19. mise à jour du volume auto', $('#src-mic [data-out="volume"]').textContent === '120 %');
-  // test micro
+  // test micro : desactive pendant la detection (le niveau de la carte suit deja le son)
+  ok('+  « Tester le son » désactivé pendant la détection',
+     $('#src-mic dialog [data-action="test"]').disabled && $('#src-mic .menu-list [data-action="test"]').hidden);
+  status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   $('#src-mic [data-action="test"]').click(); await tick();
   emit('mic_level', { db: -12 }); await tick();
   ok('11. test du micro + VU', !!lastCall('POST', '/api/mic/test/start') && /Test · -12 dB/.test($('#src-mic [data-role="meter-label"]').textContent));
@@ -176,6 +179,9 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('7. assistant : VU-mètre de vérification', /-10 dB/.test($('#wz-meter').textContent));
   $('[data-w="done"]').click(); await tick(4);
   ok('7. assistant fermé, carte affichée', $('#wizard').hidden && !!$('#src-rtsp-new_1'));
+  ok('+  groupe vide : réglages ouverts sur « Ajouter les sons entendus »',
+     $('#src-rtsp-new_1 dialog.source-settings').open && d.activeElement && d.activeElement.getAttribute('data-role') === 'auto-add');
+  $('#src-rtsp-new_1 [data-action="close-settings"]').click(); await tick(3);
   $('#add-source').click(); await tick(); $('.choice[data-kind="vban"]').click(); await tick(3);
   ok('7. assistant VBAN : flux découverts', /PC2/.test($('#wz-vban-list').textContent));
   $('.vban-item').click(); await tick(5);
@@ -301,7 +307,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const micPost = lastCall('POST', '/api/microphone');
   ok('+  assistant micro : une seule requête', !!micPost && micPost[2].enabled === true && !!micPost[2].device && calls.filter(c => c[0] === 'PATCH').length === patchesBefore);
   $('[data-w="done"]').click(); await tick(5);
-  ok('+  assistant terminé : focus sur la nouvelle carte', $('#wizard').hidden && d.activeElement && d.activeElement.id === 'src-mic');
+  // le micro a un groupe vide (« Snap », cree plus haut) : reglages ouverts sur ce groupe
+  ok('+  assistant terminé : réglages de la nouvelle carte ouverts sur le groupe vide',
+     $('#wizard').hidden && $('#src-mic dialog.source-settings').open &&
+     d.activeElement && d.activeElement.closest('.group-card') && d.activeElement.getAttribute('data-role') === 'auto-add');
+  $('#src-mic [data-action="close-settings"]').click(); await tick(3);
+  ok('+  assistant terminé : focus rendu à la carte', d.activeElement === $('#src-mic .source-settings-open'));
   // Focus apres renommage / suppression de groupe
   const gSrc = CT.sourceList().find(x => x.kind === 'mic');
   CT.state.settings.microphone.sound_groups = JSON.parse(JSON.stringify(base.microphone.sound_groups));
@@ -390,6 +401,30 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  grille non reconstruite pendant les réglages', $('#src-mic') === cardOpen && dlg().open);
   $('#src-mic [data-action="close-settings"]').click(); await tick(2);
   ok('+  messages rendus à la page et grille à jour après fermeture', $('#toasts').parentNode === d.body && $('#src-mic') !== cardOpen);
+  // --- lot 6.64 : interface
+  CT.state.settings = JSON.parse(JSON.stringify(settings));
+  CT.state.settings.microphone.sound_groups = [{ slug: 'clap', name: 'Clap', ha_entities: [1], sound_whitelist: { Clapping: true, Dog: false, Bird: false, Water: false } },
+                                               { slug: 'vide', name: 'Vide', ha_entities: [1], sound_whitelist: {} }];
+  CT.render(); await tick();
+  ok('+  groupe vide signalé sur la carte', /Aucun son choisi/.test($('#src-mic .group-live[data-slug="vide"]').textContent));
+  ok('+  barre d\'état : groupe sans son', /groupes? sans son/.test($('#status-detail').textContent));
+  $('#src-mic [data-action="choose-sounds"]').click(); await tick();
+  ok('+  « Choisir les sons » ouvre le groupe dans les réglages',
+     $('#src-mic dialog.source-settings').open && d.activeElement.closest('.group-card').getAttribute('data-slug') === 'vide');
+  const order = () => $$('#src-mic .group-card[data-slug="clap"] .chip input').map(i => i.getAttribute('data-label')).join(',');
+  const chipsBefore = order();
+  change($('#src-mic .group-card[data-slug="clap"] .chip input[data-label="Water"]'), true); await tick(2);
+  ok('+  pastilles fixes après une coche', order() === chipsBefore);
+  $('#src-mic [data-action="close-settings"]').click(); await tick(3);
+  const menuOf = id => $('#' + id + ' [data-action="menu"]');
+  menuOf('src-mic').click(); await tick();
+  // carte a identifiant unique (le faux serveur du test cree des doublons)
+  const ids = $$('.source-card').map(c => c.id);
+  const otherCard = ids.find(id => id !== 'src-mic' && ids.indexOf(id) === ids.lastIndexOf(id));
+  menuOf(otherCard).click(); await tick();
+  ok('+  menu fermé : aria-expanded remis à false',
+     menuOf('src-mic').getAttribute('aria-expanded') === 'false' && menuOf(otherCard).getAttribute('aria-expanded') === 'true');
+  d.body.click(); await tick();
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);
