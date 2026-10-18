@@ -15,7 +15,7 @@ def ren(settings_dir, mqtt, monkeypatch):
     from flask import Flask
     import routes.sources as rs
     from routes.settings_routes import settings_bp
-    monkeypatch.setattr(rs, '_resolve_pulse_name', lambda s: 'alsa.usb')
+    monkeypatch.setattr(rs, '_find_pulse_name', lambda s: ('alsa.usb', None))
     monkeypatch.setattr(ha_registry, 'schedule_reconcile', lambda *a, **k: None)
     app = Flask(__name__)
     for bp in (rs.sources_bp, settings_bp):

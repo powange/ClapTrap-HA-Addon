@@ -247,6 +247,11 @@
     // ---- Etape 3 : verification ---------------------------------------------------
     // Repere « bon niveau » du VU-metre : un clap doit depasser -20 dB.
     var GOOD_DB = -20;
+    // Consigne de la derniere etape (choix des sons), selon l'etat de la detection.
+    function nextSteps(intro, running) {
+        return intro + ' Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, ' +
+            (running ? '' : 'démarrez la détection, ') + 'tapez dans vos mains et cochez les sons qui doivent le déclencher.';
+    }
     function stepCheck() {
         setStep(3, 'Vérifier le son');
         if (!created) { close(); return; }
@@ -256,9 +261,8 @@
             '<div class="meter meter-large" id="wz-meter"><div class="meter-fill"></div>' +
             '<span class="meter-target" style="left:' + CT.dbToPct(GOOD_DB) + '%" aria-hidden="true"><span>bon niveau</span></span>' +
             '<span class="meter-label">En attente du son…</span></div>' +
-            '<p class="hint" id="wz-hint">' + (running
-                ? 'La détection tourne. Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, tapez dans vos mains et cochez les sons qui doivent le déclencher.'
-                : 'Ce test mesure seulement le niveau. Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, démarrez la détection, tapez dans vos mains et cochez les sons qui doivent le déclencher.') + '</p>' +
+            '<p class="hint" id="wz-hint">' + (running ? nextSteps('La détection tourne.', true)
+                                                       : nextSteps('Ce test mesure seulement le niveau.', false)) + '</p>' +
             '<div class="modal-actions">' +
             (running ? '' : '<button type="button" class="btn btn-ghost" data-w="start">Démarrer la détection</button>') +
             '<button type="button" class="btn btn-primary" data-w="done">Terminer</button></div>';
@@ -282,7 +286,7 @@
                     levelSource = shown.sourceId;   // le VU-metre suit maintenant la detection
                     if (CT.renderStatus) CT.renderStatus();
                     start.remove();
-                    CT.$('#wz-hint').textContent = 'Détection démarrée. Dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, tapez dans vos mains et cochez les sons qui doivent le déclencher.';
+                    CT.$('#wz-hint').textContent = nextSteps('Détection démarrée.', true);
                     var done = body.querySelector('[data-w="done"]');
                     done.textContent = 'Terminer et voir la carte';
                 })

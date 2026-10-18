@@ -159,3 +159,26 @@ def test_new_source_group_empty_legacy_source_keeps_sounds(settings_dir):
     assert old['sound_groups'][0]['sound_whitelist'].get('Clapping') is True
     with pytest.raises(ValueError, match='auto_add_sounds'):
         sm.normalize_settings({'microphone': {'sound_groups': [{'slug': 'a', 'auto_add_sounds': 'x'}]}})
+
+
+def test_save_settings_check_runs_on_merged_result_before_writing(settings_dir):
+    """Import : le controle voit les reglages fusionnes (une seule fusion,
+    sous le verrou) et une exception annule l'ecriture."""
+    settings_dir.save_settings({'global': {'threshold': 0.3}})
+    seen = []
+
+    def refuse(merged, current):
+        seen.append((merged['global']['threshold'], current['global']['threshold']))
+        raise ValueError('collision')
+    with pytest.raises(ValueError, match='collision'):
+        settings_dir.save_settings({'global': {'threshold': 0.8}}, check=refuse)
+    assert seen == [(0.8, 0.3)]
+    assert settings_dir.load_settings()['global']['threshold'] == 0.3   # rien ecrit
+
+
+def test_to_name_shared_validator():
+    from settings_manager import to_name, MAX_NAME
+    assert to_name('  Salon ') == 'Salon' and to_name('', default='Caméra') == 'Caméra'
+    for bad in (None, '', 'x' * (MAX_NAME + 1), 12):
+        with pytest.raises(ValueError):
+            to_name(bad)

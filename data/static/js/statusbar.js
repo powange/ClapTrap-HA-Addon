@@ -167,16 +167,25 @@
     }
     function bindHistory() {
         var list = CT.$('#history-list');
+        var loaded = false;
         function loadHistory() {
             CT.api('GET', '/api/detections/history').then(function (events) {
+                loaded = true;
                 list.innerHTML = '';
                 (Array.isArray(events) ? events : []).slice(0, 20).forEach(function (ev) { list.appendChild(historyItem(ev)); });
                 renderHistoryEmpty();
             }).catch(renderHistoryEmpty);
         }
         loadHistory();
-        // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus.
-        CT.on('connect', loadHistory);
+        // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus :
+        // recharge a chaque reconnexion. La premiere connexion suit le
+        // chargement ci-dessus (fait deux fois au demarrage) : rechargement
+        // seulement s'il a echoue (add-on encore en demarrage).
+        var wasConnected = !!(CT.socket && CT.socket.connected);
+        CT.on('connect', function () {
+            if (wasConnected || !loaded) loadHistory();
+            wasConnected = true;
+        });
         CT.on('clap', function (ev) {
             list.insertBefore(historyItem(ev || {}), list.firstChild);
             while (list.children.length > 20) list.removeChild(list.lastChild);

@@ -1,4 +1,5 @@
 import atexit
+import collections
 import logging
 import os
 import secrets
@@ -61,19 +62,29 @@ class IngressOnlyMiddleware:
     SUPERVISOR_TOKEN), le filtre est desactive.
     """
     ALLOWED = {'172.30.32.2'}
+    MAX_REJECTED = 256        # adresses gardees en memoire (les plus recentes)
+    REJECT_LOG_EVERY = 3600   # une adresse refusee est rejournalisee apres 1 h
 
     def __init__(self, app):
         self.app = app
         self.enabled = bool(os.environ.get('SUPERVISOR_TOKEN'))
-        self._rejected = set()
+        self._rejected = collections.OrderedDict()   # adresse -> dernier avertissement
 
     def __call__(self, environ, start_response):
         remote = environ.get('REMOTE_ADDR', '')
         if remote.startswith('::ffff:'):
             remote = remote[7:]
         if self.enabled and remote not in self.ALLOWED:
-            if remote not in self._rejected:
-                self._rejected.add(remote)
+            # Un avertissement par adresse et par heure ; seules les adresses
+            # les plus recentes sont gardees (un balayage du reseau ne fait pas
+            # grossir la liste, et une nouvelle adresse reste journalisee).
+            now = time.monotonic()
+            last = self._rejected.get(remote)
+            if last is None or now - last >= self.REJECT_LOG_EVERY:
+                self._rejected[remote] = now
+                self._rejected.move_to_end(remote)
+                while len(self._rejected) > self.MAX_REJECTED:
+                    self._rejected.popitem(last=False)
                 logging.warning(f"Acces refuse depuis {remote} : l'interface n'est accessible que via l'ingress Home Assistant")
             start_response('403 Forbidden', [('Content-Type', 'text/plain; charset=utf-8')])
             return [b"ClapTrap n'est accessible que depuis Home Assistant (ingress)."]

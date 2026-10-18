@@ -1,3 +1,5 @@
+import json
+
 from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import HTTPException
 import logging
@@ -5,7 +7,7 @@ import threading
 import uuid
 
 from settings_manager import (load_settings, modify_settings, SettingsSaveError,
-                              to_bool, to_number, to_clap_counts, to_webhook)
+                              to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
 
@@ -165,14 +167,16 @@ def _note_restart(result):
 
 
 def add_restart_to_response(response):
-    """after_request des blueprints : ajoute `restart` aux reponses JSON."""
+    """after_request des blueprints : ajoute `restart` (resultat de la mise a
+    jour de la detection, cf. _note_restart) aux reponses JSON de succes.
+    Ne reecrit la reponse que si une mise a jour a eu lieu."""
     from flask import g
     result = g.pop('restart', None)
     if result and response.is_json and response.status_code < 400:
         data = response.get_json(silent=True)
         if isinstance(data, dict):
             data['restart'] = result
-            response.set_data(__import__('json').dumps(data))
+            response.set_data(json.dumps(data))
     return response
 
 
@@ -217,47 +221,34 @@ def _persist_pulse_name(pulse_name):
         logging.warning(f"pulse_name non enregistré: {e}")
 
 
-def _resolve_pulse_name(settings):
-    """Résout le pulse_name depuis les settings ou l'API Supervisor.
-    Vérifie toujours que le pulse_name correspond à l'audio_source actuel.
-    Les corrections sont enregistrees de facon atomique (modify_settings)."""
+def _find_pulse_name(settings):
+    """pulse_name du micro choisi, verifie parmi les micros presents, sans
+    rien ecrire (validations, tests du son). Renvoie (pulse_name, a_ecrire) :
+    `a_ecrire` vaut la valeur a enregistrer si celle des reglages est perimee,
+    sinon None."""
     mic = settings.get('microphone', {})
     audio_source = mic.get('audio_source', '')
+    cached = mic.get('pulse_name', '')
     if not audio_source or audio_source == 'default':
-        # Pas de source spécifique, effacer le pulse_name stale
-        if mic.get('pulse_name'):
-            _persist_pulse_name('')
-        return ''
-
-    # Vérifier si le pulse_name en cache correspond au device actuel
-    cached_pulse_name = mic.get('pulse_name', '')
+        return '', ('' if cached else None)   # pas de micro precis : nom perime efface
     devices = get_audio_input_devices()
-    if cached_pulse_name:
-        for dev in devices:
-            if dev.get('name') == audio_source and dev.get('pulse_name') == cached_pulse_name:
-                return cached_pulse_name
-        logging.warning(f"pulse_name '{cached_pulse_name}' ne correspond plus à '{audio_source}', re-résolution...")
-
-    for dev in devices:
-        if dev.get('name') == audio_source and dev.get('pulse_name'):
-            _persist_pulse_name(dev['pulse_name'])
-            logging.info(f"pulse_name résolu et sauvegardé: {dev['pulse_name']}")
-            return dev['pulse_name']
-
+    if cached and any(d.get('name') == audio_source and d.get('pulse_name') == cached for d in devices):
+        return cached, None
+    found = next((d['pulse_name'] for d in devices if d.get('name') == audio_source and d.get('pulse_name')), '')
+    if found:
+        return found, found
     logging.warning(f"Impossible de résoudre pulse_name pour '{audio_source}'")
-    return ''
+    return '', None
 
 
-def _source_name(value, default=None):
-    """Nom affiche d'une source : texte de 1 a 80 caracteres (vide = defaut)."""
-    if value is not None and not isinstance(value, str):
-        raise ApiError('Nom : texte attendu')
-    name = (value or '').strip()
-    if not name and default:
-        return default
-    if not name or len(name) > 80:
-        raise ApiError('Nom : texte de 1 à 80 caractères attendu')
-    return name
+def _resolve_pulse_name(settings):
+    """Comme _find_pulse_name, en enregistrant la correction (atomique)."""
+    pulse, to_save = _find_pulse_name(settings)
+    if to_save is not None:
+        _persist_pulse_name(to_save)
+        if to_save:
+            logging.info(f"pulse_name résolu et sauvegardé: {to_save}")
+    return pulse
 
 
 def _rtsp_url_key(url):
@@ -271,11 +262,6 @@ def _check_rtsp_unique(settings, url, exclude_id=None):
     if url and any(s.get('id') != exclude_id and _rtsp_url_key(s.get('url')) == _rtsp_url_key(url)
                    for s in settings.get('rtsp_sources') or []):
         raise ApiError('Cette caméra (même URL) est déjà ajoutée', 409)
-
-
-def _normalize_rtsp_url(url):
-    from settings_manager import normalize_rtsp_url
-    return normalize_rtsp_url(url)
 
 
 def _find_rtsp(settings, stream_id):
@@ -308,8 +294,8 @@ def add_rtsp_stream():
     data = _json()
     new_stream = {
         'id': str(uuid.uuid4()),
-        'name': _source_name(data.get('name'), 'Caméra'),
-        'url': _normalize_rtsp_url(data.get('url', '')),
+        'name': to_name(data.get('name'), default='Caméra'),
+        'url': normalize_rtsp_url(data.get('url', '')),
         'webhook_url': to_webhook(data.get('webhook_url', '')),
         'enabled': to_bool(data.get('enabled', True), 'enabled'),
         'gain': to_number(data.get('gain', 10), 'gain', 0, 100, integer=True),
@@ -342,12 +328,12 @@ def _update_rtsp(stream_id, data):
             transport_changed = tcp != bool(stream.get('rtsp_tcp'))
             stream['rtsp_tcp'] = tcp
         if 'url' in data:
-            new_url = _normalize_rtsp_url(data['url'])
+            new_url = normalize_rtsp_url(data['url'])
             _check_rtsp_unique(settings, new_url, exclude_id=stream.get('id'))
             url_changed = new_url != stream.get('url')
             stream['url'] = new_url
         if 'name' in data:
-            stream['name'] = _source_name(data['name'], 'Caméra')
+            stream['name'] = to_name(data['name'], default='Caméra')
         if 'webhook_url' in data:
             stream['webhook_url'] = to_webhook(data['webhook_url'])
         if 'enabled' in data:
@@ -389,7 +375,7 @@ def save_vban_source():
     source = _json()
     if not all(field in source for field in ('name', 'ip', 'port')):
         raise ApiError('Données manquantes pour la source VBAN')
-    name = _source_name(source['name'])
+    name = to_name(source['name'])
     if not name:
         raise ApiError('Nom requis pour la source VBAN')
     from settings_manager import to_ip
@@ -400,7 +386,7 @@ def save_vban_source():
         'ip': ip,
         'port': to_number(source['port'], 'port', 1, 65535, integer=True),
         # Nom du flux VBAN tel qu'emis par l'emetteur (routage des paquets).
-        'stream_name': _source_name(source.get('stream_name') or name),
+        'stream_name': to_name(source.get('stream_name') or name),
         'webhook_url': to_webhook(source.get('webhook_url', '')),
         'enabled': to_bool(source.get('enabled', True), 'enabled'),
     }
@@ -445,7 +431,7 @@ def _update_vban(vban_id, source):
         s = _find_vban_by_id(settings, vban_id)
         restart = False
         if 'name' in source:
-            s['name'] = _source_name(source['name'])
+            s['name'] = to_name(source['name'])
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
         if 'enabled' in source:
@@ -723,7 +709,7 @@ def create_source_sound_group():
     source_key = data.get('source_key')
     if not isinstance(data.get('name'), str):
         raise ApiError('Nom du groupe : texte attendu')
-    name = _source_name(data['name'])
+    name = to_name(data['name'])
 
     def _mut(settings):
         src = _require_source(settings, kind, source_key)
@@ -773,7 +759,7 @@ def update_source_sound_group():
         if 'name' in data:
             if not isinstance(data['name'], str) or not data['name'].strip():
                 raise ApiError('Nom du groupe : texte non vide attendu')
-            new_name = _source_name(data['name'], target.get('name', slug))
+            new_name = to_name(data['name'], default=target.get('name', slug))
             if new_name != target.get('name'):
                 # Meme nom renvoye (entite text, assistant) : rien ne change,
                 # surtout pas les entity_id.
@@ -832,9 +818,8 @@ def delete_source_sound_group():
         if target is _default_group(groups):
             raise ApiError('Le groupe par defaut ne peut etre supprime')
         src['sound_groups'] = [g for g in groups if g is not target]
-        return dict(src)
 
-    src = modify_settings(_mut)
+    modify_settings(_mut)
     _sync_ha_entities()
     _apply_live()
     return jsonify({'success': True})
@@ -956,8 +941,12 @@ def _update_mic_fields(data, configured=False):
         if not target_pulse:
             raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
         changes['pulse_name'] = target_pulse
-    elif changes.get('auto_volume') and not _resolve_pulse_name(load_settings()):
-        raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+    elif changes.get('auto_volume'):
+        pulse, to_save = _find_pulse_name(load_settings())
+        if not pulse:
+            raise ApiError('Aucun périphérique PulseAudio trouvé pour le volume automatique')
+        if to_save is not None:
+            changes['pulse_name'] = to_save   # nom perime corrige, ecrit avec la modification
 
     def _mut(settings):
         m = settings.setdefault('microphone', {})

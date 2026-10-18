@@ -1,14 +1,12 @@
 from flask import Blueprint, jsonify, request
 import json
 import logging
-import os
 from datetime import datetime
 import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
-                              to_bool, to_number, SettingsSaveError)
+                              to_bool, to_number, SettingsSaveError, GLOBAL_LIMITS)
 from webhook import send_webhook
-from url_validator import mask_webhook_url
 from routes.sources import (ApiError, add_restart_to_response, api_error_response, _apply_live, _json,
                            _sync_and_apply)
 
@@ -42,17 +40,18 @@ def toggle_debug():
     return jsonify({'success': True, 'debug': enabled})
 
 
-_ADVANCED_LIMITS = {'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50)}
+# Reglages avances : tous les reglages globaux bornes sauf le seuil (par
+# groupe dans l'interface), avec les bornes de l'import.
+_ADVANCED_KEYS = tuple(k for k in GLOBAL_LIMITS if k != 'threshold')
 
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
     data = _json()
-    unknown = sorted(set(data) - set(_ADVANCED_LIMITS))
+    unknown = sorted(set(data) - set(_ADVANCED_KEYS))
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
-    values = {key: to_number(data[key], key, lo, hi)
-              for key, (lo, hi) in _ADVANCED_LIMITS.items() if key in data}
+    values = {key: to_number(data[key], key, *GLOBAL_LIMITS[key]) for key in _ADVANCED_KEYS if key in data}
 
     def _mut(settings):
         settings.setdefault('global', {}).update(values)
@@ -112,13 +111,11 @@ def export_settings():
                     headers={'Content-Disposition': f'attachment; filename={name}'})
 
 
-def _check_import_collisions(imported):
-    """Refuse un import dont deux sources produiraient les memes entites HA."""
-    from settings_manager import merge_import
+def _check_import_collisions(merged, current):
+    """Refuse un import dont deux sources produiraient les memes entites HA
+    (controle des reglages fusionnes, sous le verrou de l'enregistrement)."""
     from ha_entities import find_entity_collision
-    # Meme fusion (et memes migrations) que l'enregistrement.
-    current = load_settings()
-    clash = find_entity_collision(merge_import(current, imported), before=current)
+    clash = find_entity_collision(merged, before=current)
     if clash:
         raise ApiError(f"« {clash} » produirait les mêmes entités Home Assistant qu'une autre source : "
                        "renommez-la dans le fichier avant de l'importer", 409)
@@ -148,8 +145,7 @@ def import_settings():
     if ignored:
         logging.warning(f"Import : champs inconnus ignorés : {', '.join(ignored[:20])}"
                         f"{' …' if len(ignored) > 20 else ''}")
-    _check_import_collisions(imported)
-    success, msg = save_settings(imported)
+    success, msg = save_settings(imported, check=_check_import_collisions)
     if not success:
         raise SettingsSaveError(msg)
     # Appliquer la configuration importee sans attendre un redemarrage manuel.

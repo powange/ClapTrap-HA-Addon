@@ -31,6 +31,15 @@
     CT.pct = function (n) { return Math.round((n || 0) * 100) + ' %'; };
     // Nom francais d'un son YAMNet (sounds_fr.js), le nom anglais a defaut.
     CT.soundLabel = function (label) { return (CT.SOUNDS_FR || {})[label] || label; };
+    // Filtre de pastilles par recherche (nom YAMNet ou francais) ; `labelOf`
+    // donne le son d'une pastille.
+    CT.filterChips = function (chips, query, labelOf) {
+        var q = (query || '').trim().toLowerCase();
+        chips.forEach(function (chip) {
+            var label = labelOf(chip);
+            chip.hidden = !!q && (label + ' ' + CT.soundLabel(label)).toLowerCase().indexOf(q) === -1;
+        });
+    };
     CT.dbToPct = function (db) { return Math.max(0, Math.min(100, ((db + 60) / 60) * 100)); };
     CT.setMeterFill = function (fill, pct) {
         fill.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';

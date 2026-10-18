@@ -496,18 +496,30 @@ def merge_import(current, new_settings):
     return merged
 
 
-def save_settings(new_settings):
+def save_settings(new_settings, check=None):
     """Import : chaque section presente dans `new_settings` REMPLACE la
     section enregistree ; les sections absentes sont conservees (un fichier
     partiel, par exemple seulement `global`, n'efface pas les sources).
     Avant, les sections etaient fusionnees : des cles absentes du fichier
     importe restaient.
 
+    `check(merged, current)` controle le resultat avant ecriture, sous le meme
+    verrou (une exception annule l'import et remonte) : la fusion n'est faite
+    qu'une fois, sur les reglages qui seront ecrits.
+
     Retourne (succes, message).
     """
     with _lock:
         try:
-            _commit(merge_import(load_settings(), new_settings))
+            current = load_settings()
+            merged = merge_import(current, new_settings)
+        except Exception as e:
+            logging.error(f"Import des paramètres impossible: {e}")
+            return False, f"Erreur lors de la sauvegarde des paramètres: {str(e)}"
+        if check:
+            check(merged, current)   # refus (collision...) : remonte, rien n'est ecrit
+        try:
+            _commit(merged)
             return True, "Paramètres sauvegardés avec succès"
         except Exception as e:
             logging.error(f"Sauvegarde des paramètres impossible: {e}")
@@ -681,8 +693,8 @@ def _norm_groups(src, path):
         if not isinstance(g, dict):
             raise ValueError(f"{gp} : objet attendu")
         name = g.get('name')
-        if name is not None and (not isinstance(name, str) or len(name) > 80):
-            raise ValueError(f"{gp}.name : texte de 80 caractères au plus attendu")
+        if name is not None and (not isinstance(name, str) or len(name) > MAX_NAME):
+            raise ValueError(f"{gp}.name : texte de {MAX_NAME} caractères au plus attendu")
         # Slug : identifiant MQTT et entity_id, donc ASCII [a-z0-9_] et unique
         # dans la source (/, +, #, accents ou doublons cassaient les topics).
         # Un export ancien peut contenir des slugs accentues : on les convertit
@@ -768,6 +780,23 @@ def _norm_source(src, path):
     _norm_groups(src, path)
 
 
+# Bornes des reglages globaux (import et onglet Reglages avances).
+GLOBAL_LIMITS = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50)}
+MAX_NAME = 80   # nom affiche d'une source ou d'un groupe (API)
+
+
+def to_name(value, path='Nom', default=None):
+    """Nom affiche : texte de 1 a MAX_NAME caracteres (vide = `default`)."""
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{path} : texte attendu")
+    name = (value or '').strip()
+    if not name and default:
+        return default
+    if not name or len(name) > MAX_NAME:
+        raise ValueError(f"{path} : texte de 1 à {MAX_NAME} caractères attendu")
+    return name
+
+
 def normalize_settings(data):
     """Valide et normalise (en place) un dict de settings importe ou envoye
     par l'UI. Convertit les formes courantes ("0.5", "true") et leve
@@ -783,13 +812,9 @@ def normalize_settings(data):
             raise ValueError(f"{key} : {label} attendu")
     g = data.get('global')
     if g is not None:
-        if not isinstance(g, dict):
-            raise ValueError("global : objet attendu")
-        limits = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2),
-                  'peak_ratio': (1, 50)}
         # « Fin d'un pic » (6.36 et avant) : remplace par la detection d'attaque.
         g.pop('peak_reset', None)
-        for key, (lo, hi) in limits.items():
+        for key, (lo, hi) in GLOBAL_LIMITS.items():
             if key in g:
                 g[key] = to_number(g[key], f"global.{key}", lo, hi)
         if 'debug' in g:
@@ -819,8 +844,6 @@ def normalize_settings(data):
         lst = data.get(key)
         if lst is None:
             continue
-        if not isinstance(lst, list):
-            raise ValueError(f"{key} : liste attendue")
         if len(lst) > MAX_SOURCES:
             raise ValueError(f"{key} : {MAX_SOURCES} sources au plus")
         ids, entity_keys, streams = set(), set(), set()
