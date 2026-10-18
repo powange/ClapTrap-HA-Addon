@@ -158,7 +158,7 @@
         return listening
             ? 'La détection écoute cette source : son niveau sonore est déjà affiché en direct' +
               (src.kind === 'rtsp' ? ', ainsi que le format audio reçu' : '') + '. Arrêtez la détection pour tester le son seul.'
-            : 'Affiche le niveau sonore dans le VU-mètre de la carte, sans lancer la détection.';
+            : 'Affiche le niveau sonore dans le VU-mètre (en haut de cette fenêtre et sur la carte), sans lancer la détection.';
     }
     // ---- Extrait enregistre (detection en cours) --------------------------
     // Ce que la reconnaissance recoit (gain compris) : on l'ecoute pour
@@ -230,6 +230,11 @@
             '<p class="hint">Amplifie un flux trop faible. Surveillez le VU-mètre : il ne doit pas rester dans le rouge.</p></div>';
     }
 
+    // VU-metre (carte et fenetre de reglages) : setMeter les met tous a jour.
+    function meterHtml() {
+        return '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>';
+    }
+
     function cardHtml(src) {
         var groups = groupsOf(src);
         return '<article class="card source-card' + (src.enabled ? '' : ' is-disabled') + '" id="' + src.domId + '">' +
@@ -248,7 +253,7 @@
                 '</div></div>' +
             '</header>' +
             '<p class="source-status" data-role="status"><span class="dot"></span><span class="status-text"></span></p>' +
-            '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
+            meterHtml() +
             '<p class="live-line" data-role="live">' + idleText(src.enabled) + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
             '<button type="button" class="btn btn-ghost source-settings-open" data-role="settings-open" data-action="open-settings">Réglages de la source</button>' +
@@ -256,11 +261,14 @@
             // gestionnaires (delegation sur la carte) ; le navigateur gere le
             // premier plan, l'inertie du reste de la page et Echap.
             '<dialog class="modal source-settings" data-role="settings" aria-labelledby="' + src.domId + '-settings-title">' +
-                '<div class="modal-head"><h2 id="' + src.domId + '-settings-title">Réglages · ' + esc(src.name) + '</h2>' +
+                // Titre et VU-metre colles en haut de la fenetre : visibles en
+                // faisant defiler (test du son, gain, volume). Sous le titre
+                // sans plus, le VU-metre sortait de l'ecran une fois descendu
+                // jusqu'a « Tester le son » (celui de la carte est sous le fond).
+                '<div class="settings-top"><div class="modal-head"><h2 id="' + src.domId + '-settings-title">Réglages · ' + esc(src.name) + '</h2>' +
                 '<button type="button" class="btn-icon" data-action="close-settings" aria-label="Fermer les réglages">' +
                 '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>' +
-                // VU-metre recopie dans la fenetre : celui de la carte est sous le fond.
-                '<div class="meter" data-role="meter"><div class="meter-fill"></div><span class="meter-label" data-role="meter-label">—</span></div>' +
+                meterHtml() + '</div>' +
                 '<div class="settings-body">' + settingsHtml(src) + '</div></dialog>' +
             '</article>';
     }

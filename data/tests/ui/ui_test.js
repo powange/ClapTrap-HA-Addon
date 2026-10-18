@@ -119,6 +119,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('mic_level', { db: -12 }); await tick();
   ok('11. test du micro + VU', !!lastCall('POST', '/api/mic/test/start') && /Test · -12 dB/.test($('#src-mic [data-role="meter-label"]').textContent));
   ok('+  VU-mètre aussi dans la fenêtre de réglages', /Test · -12 dB/.test($('#src-mic dialog.source-settings [data-role="meter-label"]').textContent));
+  ok('+  VU-mètre de la fenêtre collé en haut avec le titre', $$('#src-mic dialog [data-role="meter"]').length === 1 &&
+     !!$('#src-mic dialog .settings-top [data-role="meter"]') && !!$('#src-mic dialog .settings-top [data-action="close-settings"]'));
+  ok('+  VU-mètre de la carte conservé (hors de la fenêtre)', $$('#src-mic [data-role="meter"]').filter(m => !m.closest('dialog')).length === 1 &&
+     /Test · -12 dB/.test($$('#src-mic [data-role="meter"]').find(m => !m.closest('dialog')).textContent));
   $('#src-mic [data-action="close-settings"]').click(); await tick(2);
   // 12 : rtsp
   change($('#src-rtsp-abc_123 [data-field="url"]'), 'rtsp://cam/2'); await tick(3);
