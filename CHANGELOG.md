@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.70.0
+
+### Sources
+
+- **Enregistrer un extrait** : pendant la détection, le bouton
+  **Enregistrer 5 s** des réglages d'une source garde 5 s du son que reçoit
+  la reconnaissance (gain, auto-gain et limiteur compris). L'extrait
+  s'écoute directement, se télécharge en WAV, et la liste des sons reconnus
+  s'affiche fenêtre par fenêtre (environ 1 s chacune). Un son déjà saturé
+  à l'entrée (micro ou caméra) est signalé, ainsi que les sons forts
+  atténués par le limiteur. Utile pour comprendre une mauvaise
+  reconnaissance (écho, réduction de bruit de la caméra, gain trop fort).
+- Calibrage et extraits partagent la même écoute de la source ; les
+  écoutes du détecteur choisissent leurs événements.
+
 ## 6.69.1
 
 ### Interface

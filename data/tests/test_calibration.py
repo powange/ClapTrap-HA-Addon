@@ -15,7 +15,7 @@ class FakeDetector:
         self._taps = []
         self.script = script   # fn(det) appelee pendant la prise
 
-    def add_tap(self, fn):
+    def add_tap(self, fn, events=None):
         self._taps.append(fn)
         threading.Thread(target=self.script, args=(self,), daemon=True).start()
 

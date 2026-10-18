@@ -149,3 +149,15 @@ def test_loud_block_reduced_not_clipped_and_next_sounds_not_attenuated(fake_clas
     det.process_audio(block(0.002, 0.0005), gain=10.0)
     det.process_audio(block(0.05, 0.0005), gain=10.0)    # clap normal : 0,05 x10 = 0,5
     assert np.abs(clf.blocks[-1]).max() > 0.4
+
+
+def test_audio_tap_gets_exactly_what_the_classifier_gets(fake_classifier):
+    """Enregistrement d'extraits : le son ecoute est celui donne a YAMNet
+    (gain et limiteur appliques), bloc pour bloc."""
+    det, clf, _ = make(fake_classifier)
+    heard = []
+    det.add_tap(lambda event, *data: heard.append(data[0]) if event == 'audio' else None)
+    for i in range(5):
+        det.process_audio(block(0.6 if i == 2 else 0.003, 0.001), gain=10)
+    assert len(heard) == 5 == len(clf.blocks)
+    assert all(np.array_equal(h, c) for h, c in zip(heard, clf.blocks))

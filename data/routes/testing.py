@@ -218,6 +218,26 @@ def start_rtsp_test():
     return jsonify({'success': True, 'token': test.token})
 
 
+# --- Extrait enregistre (detection en cours) ---------------------------------
+
+@testing_bp.route('/api/source/record', methods=['POST'])
+def record_source_clip():
+    """Quelques secondes de ce que la reconnaissance recoit d'une source
+    (WAV en base64) et les classes reconnues. Body : {source_id, seconds}."""
+    import recording
+    from settings_manager import to_number
+    body = _body()
+    source_id = body.get('source_id')
+    if not isinstance(source_id, str) or not source_id or len(source_id) > 200:
+        raise ApiError('source_id : texte attendu')
+    seconds = to_number(body.get('seconds', recording.DEFAULT_SECONDS), 'seconds',
+                        recording.MIN_SECONDS, recording.MAX_SECONDS)
+    try:
+        return jsonify({'success': True, **recording.record(source_id, seconds)})
+    except recording.RecordingError as e:
+        raise ApiError(str(e), e.status)
+
+
 @testing_bp.route('/api/rtsp/test/stop', methods=['POST'])
 def stop_rtsp_test():
     return _stop_route('rtsp')

@@ -468,6 +468,13 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
+**Comprendre ce que la reconnaissance entend** : pendant la détection, le
+bouton **Enregistrer 5 s** des réglages d'une source garde 5 secondes du son
+reçu par la reconnaissance (gain compris). Faites le son pendant
+l'enregistrement : vous pouvez ensuite l'écouter, le télécharger en WAV et voir
+les sons reconnus fenêtre par fenêtre. Écho, saturation ou réduction de bruit
+de la caméra s'entendent tout de suite.
+
 **Sons aigus mal reconnus sur une caméra** (claquement de doigts pris pour
 un animal, applaudissements notés « Mains » ou « Claque ») : regardez le
 **format audio reçu** dans les réglages de la caméra. À 8 kHz (G.711, très

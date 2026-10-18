@@ -14,6 +14,7 @@ const dom = new JSDOM(html, {
   beforeParse(w) {
     w.io = () => ({ on: (ev, fn) => { (handlers[ev] = handlers[ev] || []).push(fn); }, emit() {} });
     w.CSS = { escape: s => String(s).replace(/["\\]/g, '\\$&') };
+    w.URL.createObjectURL = () => 'blob:extrait'; w.URL.revokeObjectURL = () => {};
     w.fetch = (url, opts = {}) => {
       const method = opts.method || 'GET';
       const body = opts.body && typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body;
@@ -23,6 +24,8 @@ const dom = new JSDOM(html, {
       else if (url === '/api/settings') res = JSON.parse(JSON.stringify(settings));
       else if (url === '/api/detections/history' && method === 'GET') res = [{ source_id: 'mic', timestamp: 1e9, score: 0.8, clap_count: 2, group_name: 'Clap', labels: [] }];
       else if (url === '/api/sound_exclusions' && method === 'GET') res = { excluded: ['Speech'], available: ['Knock', 'Dog'] };
+      else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
+        timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
       else if (url === '/api/rtsp/stream' && method === 'POST') { const s = { id: 'new-1', name: body.name, url: body.url, enabled: true, sound_groups: [{ slug: 'clap', name: 'Clap', ha_entities: [1], sound_whitelist: {} }] }; settings.rtsp_sources.push(s); res = { success: true, stream: s }; }
       else if (url === '/api/vban/save') { const s = Object.assign({ sound_groups: [] }, body); settings.saved_vban_sources.push(s); res = { success: true, source: s }; }
@@ -455,6 +458,23 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      !$('#' + cam.domId + ' dialog [data-action="test"]').disabled && /sans lancer la détection/.test($('#' + cam.domId + ' [data-role="test-hint"]').textContent));
   status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   delete dom.window.CT.state.audioFormats[cam.sourceId];   // etat propre pour la suite
+  // --- 6.70 : extrait sonore (detection en cours, source ecoutee)
+  const recBtn = () => $('#' + cam.domId + ' [data-action="record"]');
+  ok('+  extrait : bouton grisé hors détection, avec la raison', recBtn().disabled &&
+     /pendant la détection/.test($('#' + cam.domId + ' [data-role="record-hint"]').textContent));
+  status = { running: true, sources: [cam.sourceId] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  ok('+  extrait : actif quand la détection écoute la source', !recBtn().disabled);
+  recBtn().click(); await tick(3);
+  const recCall = lastCall('POST', '/api/source/record');
+  ok('+  extrait : demande au serveur (source, 5 s)', !!recCall && recCall[2].source_id === cam.sourceId && recCall[2].seconds === 5);
+  const recOutNow = () => $('#' + cam.domId + ' [data-role="record-result"]');
+  ok('+  extrait : lecteur, téléchargement, sons reconnus en français, saturation signalée',
+     !!recOutNow().querySelector('audio') && !!recOutNow().querySelector('a[download$=".wav"]') &&
+     /Applaudissement 72 %/.test(recOutNow().textContent) && recOutNow().querySelectorAll('.record-timeline li').length === 2 &&
+     /déjà saturé/.test(recOutNow().textContent) && recBtn().textContent === 'Enregistrer 5 s' && !recBtn().disabled);
+  dom.window.CT.render(); await tick();
+  ok('+  extrait conservé après reconstruction de la carte', !!recOutNow().querySelector('audio'));
+  status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'pcm_mulaw', sample_rate: 8000, channels: 'mono' } }); await tick();
   ok('+  format audio 8 kHz : affiché et signalé', /G\.711 µ-law · 8 kHz · mono/.test(fmtEl().textContent) &&
      /au-dessus de|dépasse 4 kHz/.test(fmtEl().textContent) && !!fmtEl().querySelector('.text-warn'));
