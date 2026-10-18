@@ -112,6 +112,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('12. URL RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].url === 'rtsp://cam/2');
   change($('#src-rtsp-abc_123 [data-field="gain"]'), '20'); await tick();
   ok('12. gain RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].gain === 20);
+  change($('#src-rtsp-abc_123 [data-field="rtsp_tcp"]'), true); await tick(2);
+  ok('+  transport TCP de la caméra', lastCall('PATCH', /rtsp\/abc-123/)[2].rtsp_tcp === true);
   $('#src-rtsp-abc_123 [data-action="test"]').click(); await tick();
   ok('12. test RTSP (remplace le test micro)', lastCall('POST', '/api/rtsp/test/start')[2].id === 'abc-123');
   change($('#src-rtsp-abc_123 [data-field="name"]'), 'Entrée'); await tick(3);

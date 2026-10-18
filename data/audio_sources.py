@@ -96,11 +96,14 @@ def mic_source(pulse_name):
     return ProcessSource(cmd, 'parecord', stall_timeout=10)
 
 
-def rtsp_source(url):
+def rtsp_source(url, tcp=False):
     cmd = [
         'ffmpeg', '-nostdin', '-nostats', '-loglevel', 'error',
         # protocol_whitelist : empeche ffmpeg d'ouvrir file://, http://, etc.
         '-protocol_whitelist', 'rtsp,rtp,udp,tcp,tls',
+        # TCP (option par camera) : pas de paquets perdus en Wi-Fi ; par
+        # defaut ffmpeg essaie l'UDP et ne bascule qu'apres un delai.
+        *(['-rtsp_transport', 'tcp'] if tcp else []),
         '-i', url,
         '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ac', '1', '-ar', '16000',
         'pipe:1',

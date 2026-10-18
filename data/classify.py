@@ -108,6 +108,7 @@ def build_sources_from_settings(settings):
                 'source_key': src.get('id', ''),
                 'entity_key': source_entity_key('rtsp', src),
                 'rtsp_url': url,
+                'rtsp_tcp': bool(src.get('rtsp_tcp', False)),
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 10)),
                 'groups': _build_groups_for_source(src, global_threshold),
@@ -267,6 +268,12 @@ class DetectionSession:
             'group_name': data.get('group_name', 'Clap'),
             'ignored': bool(data.get('ignored', False)),
         }
+        if not base_payload['clap_count'] and data.get('group_clap_counts'):
+            # Son reconnu sans pic par un groupe qui a des entites : aucune
+            # entite ne peut le representer ; l'evenement HA et le webhook
+            # (clap_count 0) n'etaient que du bruit.
+            logging.debug(f"Son reconnu sans pic sur {src['label']} ({base_payload['group_name']}) : ignoré")
+            return
         logging.info(f"CLAP{' (ignore)' if base_payload['ignored'] else ''} sur {src['label']} "
                      f"({base_payload['group_name']}): score={data['score']:.2f}, "
                      f"claps={base_payload['clap_count']}")
@@ -285,16 +292,16 @@ class DetectionSession:
             return   # calibrage : les bruits joues n'entrent pas dans les listes
         label = data.get('label')
         source_id = src['source_id']
+        # Une seule section sous verrou : entre deux, la liste pouvait passer a
+        # None (dernier « Ajouter les sons entendus » desactive) ou disparaitre
+        # (source arretee), d'ou une erreur avalee dans le fil des resultats.
         with self._lock:
             seen = self.seen.get(source_id)
-            if not label or seen is None or label in seen:
-                return  # chemin chaud : deja vu, aucun acces disque
-        with self._lock:
             # Exclusions gardees en memoire : un son exclu relisait les reglages
             # (copie profonde) a chaque resultat.
-            if label in self.exclusions or label in self.seen[source_id]:
-                return
-            self.seen[source_id].add(label)
+            if not label or seen is None or label in seen or label in self.exclusions:
+                return  # chemin chaud : deja vu, aucun acces disque
+            seen.add(label)
         # Ecriture disque groupee, hors du thread de resultats MediaPipe.
         _queue_sound_seen(src['kind'], src['source_key'], label)
         self._emit('sound_seen', {'source_id': source_id, 'kind': src['kind'],
@@ -399,8 +406,14 @@ class DetectionSession:
             # lanceur lent demarrait l'auto-volume sur l'ancien peripherique.
             if mic.get('auto_volume', False) and not self.stop_event.is_set() and not stop.is_set():
                 from auto_volume import auto_volume_mgr
-                auto_volume_mgr.start(pulse_name, self.socketio)
+                auto_volume_mgr.start(pulse_name, self.socketio, owner=stop)
                 auto_volume = auto_volume_mgr
+                if stop.is_set() or self.stop_event.is_set():
+                    # Arrete pendant le demarrage : l'arret de la source a pu
+                    # passer avant. Ne couper que si ce lanceur en est encore
+                    # proprietaire (un nouveau lanceur a pu le reprendre).
+                    auto_volume_mgr.stop_if(stop)
+                    auto_volume = None
         return mic_source(pulse_name), auto_volume
 
     def _run_one(self, src, runner):
@@ -415,7 +428,7 @@ class DetectionSession:
             reader, auto_volume = self._prepare_mic(runner['stop'])
         elif kind == 'rtsp':
             url = src['rtsp_url']
-            reader = rtsp_source(url)
+            reader = rtsp_source(url, tcp=src.get('rtsp_tcp', False))
             gain_of = lambda: _live_gains.get(sid, 10.0)
             logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={gain_of()}x)")
         else:
@@ -428,8 +441,11 @@ class DetectionSession:
             gain_of = lambda: _live_gains.get(sid, 1.0)
         with self._lock:
             runner['reader'] = reader
-            if runner['stop'].is_set():
-                return
+            stopped = runner['stop'].is_set()
+        if stopped:
+            if auto_volume is not None:
+                auto_volume.stop_if(runner['stop'])   # demarre par ce lanceur, deja arrete
+            return
 
         def on_block(block):
             # Bloc brut + gain : le detecteur compte les pics avant le gain et
@@ -514,7 +530,7 @@ class DetectionSession:
         """Ce qui impose de relancer la capture d'une source (le reste :
         groupes, gain, webhook, reglages avances, s'applique en direct)."""
         if src['type'] == 'rtsp':
-            return ('rtsp', src['rtsp_url'])
+            return ('rtsp', src['rtsp_url'], bool(src.get('rtsp_tcp')))
         if src['type'] == 'vban':
             return ('vban', src['ip'], src['stream_name'])
         mic = settings.get('microphone') or {}
@@ -759,15 +775,11 @@ def _ensure_label_in_groups(source_dict, label):
     chose a change."""
     if not isinstance(source_dict, dict):
         return False
-    groups = source_dict.get('sound_groups')
-    if not isinstance(groups, list) or not groups:
-        wl = source_dict.setdefault('sound_whitelist', {})
-        if label not in wl:
-            wl[label] = False
-            return True
-        return False
+    # Toute source a des groupes (migration au chargement) : l'ancienne
+    # branche « sound_whitelist » de source ajoutait le son sans tenir compte
+    # de l'option des groupes.
     changed = False
-    for g in groups:
+    for g in source_dict.get('sound_groups') or []:
         if isinstance(g, dict) and g.get('auto_add_sounds'):
             wl = g.setdefault('sound_whitelist', {})
             if label not in wl:
@@ -837,13 +849,9 @@ def get_all_known_labels():
     def _collect(source_dict):
         if not isinstance(source_dict, dict):
             return
-        groups = source_dict.get('sound_groups')
-        if isinstance(groups, list) and groups:
-            for g in groups:
-                if isinstance(g, dict):
-                    known.update((g.get('sound_whitelist') or {}).keys())
-        else:
-            known.update((source_dict.get('sound_whitelist') or {}).keys())
+        for g in source_dict.get('sound_groups') or []:
+            if isinstance(g, dict):
+                known.update((g.get('sound_whitelist') or {}).keys())
 
     for s in settings.get('rtsp_sources', []) or []:
         _collect(s)

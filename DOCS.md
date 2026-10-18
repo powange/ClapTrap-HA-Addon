@@ -47,6 +47,8 @@ Bouton **Ajouter une source**, puis :
 - **Caméra RTSP** : l'adresse du flux, par exemple
   `rtsp://utilisateur:motdepasse@192.168.1.20:554/stream` (voir l'application
   ou la documentation de la caméra). Seul le protocole `rtsp://` est accepté.
+  Si le son se coupe (Wi-Fi, paquets perdus), cochez **Transport TCP** dans
+  les réglages de la caméra (certaines caméras ne le gèrent pas).
 - **Flux VBAN** : un PC qui diffuse du son avec Voicemeeter. Réglez
   l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980 :
   le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur
@@ -243,7 +245,7 @@ data:
 | `add_rtsp` | `name`, `url`, `enabled` |
 | `add_vban` | `name`, `ip`, `port` (6980), `stream_name`, `enabled` |
 | `add_microphone` | `device`, `enabled` |
-| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume` |
+| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) |
 | `delete_source` | `source` |
 | `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`) |
 | `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques` ou `tenus`) |

@@ -60,10 +60,11 @@ ACTIONS = {
     'get_settings': 'Réglages complets (secrets masqués) et références des sources.',
     'start_detection': 'Démarre la détection.',
     'stop_detection': 'Arrête la détection.',
-    'add_rtsp': '{name, url, enabled?} : ajoute une caméra RTSP.',
+    'add_rtsp': '{name, url, enabled?, rtsp_tcp?} : ajoute une caméra RTSP.',
     'add_vban': '{name, ip, port?=6980, stream_name?, enabled?} : ajoute un flux VBAN.',
     'add_microphone': '{device?: {name, index, pulse_name}, enabled?} : ajoute le micro.',
-    'update_source': '{source, name?, url?, enabled?, gain?, webhook_url?, device?, volume?, auto_volume?}.',
+    'update_source': '{source, name?, url?, enabled?, gain?, webhook_url?, device?, volume?, auto_volume?, '
+                     'rtsp_tcp?(caméra)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
     'add_group': '{source, name, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons.',
     'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?, '
@@ -587,7 +588,7 @@ def _api_or_raise(method, path, body=None):
     return data
 
 
-_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'webhook_url', 'device', 'volume', 'auto_volume')
+_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'webhook_url', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
 _GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode')
 
 
@@ -611,7 +612,7 @@ def execute(action, cmd):
     if action == 'stop_detection':
         return _api_or_raise('POST', '/api/detection/stop')
     if action == 'add_rtsp':
-        return _api_or_raise('POST', '/api/rtsp/stream', _pick(cmd, ('name', 'url', 'enabled')))
+        return _api_or_raise('POST', '/api/rtsp/stream', _pick(cmd, ('name', 'url', 'enabled', 'rtsp_tcp')))
     if action == 'add_vban':
         body = _pick(cmd, ('name', 'ip', 'port', 'stream_name', 'enabled'))
         body.setdefault('port', 6980)

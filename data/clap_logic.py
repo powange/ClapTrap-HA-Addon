@@ -52,8 +52,9 @@ class ClapTracker:
     # PEAK_LOOKBACK s, la fenetre d'analyse de YAMNet (~0.975 s) : au-dela,
     # ce n'est pas le son que YAMNet est en train de reconnaitre (choix assume :
     # un bruit sans rapport dans cette seconde peut encore etre compte).
-    # Marge de 0,2 s pour la duree d'inference ; portee a 1,5 s si MediaPipe
-    # ne rend qu'un resultat par seconde (cadence mesuree par le detecteur).
+    # Marge de 0,2 s : les resultats sont dates a la fin de leur fenetre
+    # (MediaPipe 1.0 : un resultat par fenetre de 975 ms), donc un pic au
+    # debut de la fenetre date de ~0,975 s.
     PEAK_LOOKBACK = 1.2
     # Blocs (100 ms) servant a mesurer le bruit de fond au demarrage : aucun
     # pic n'est compte pendant ce temps. Sans cela, le niveau partait de 0.001
@@ -233,7 +234,20 @@ class ClapTracker:
             })
             state.update(armed_at=0.0, score=0.0, labels={})
 
-        winner = max(candidates, key=lambda c: c['score'])
+        # Un seul gagnant : en priorite un groupe dont le nombre de claps a une
+        # entite (ou sans entites : evenement et webhook seulement). Avant, le
+        # meilleur score gagnait meme s'il ne pouvait rien declencher (3 claps
+        # pour [1, 2], 0 pic) et eteignait un groupe qui, lui, aurait declenche.
+        def rank(c):
+            counts = c['group']['clap_counts']
+            if counts and c['clap_count'] in counts:
+                tier = 2          # peut declencher une entite
+            elif not counts and c['clap_count']:
+                tier = 1          # evenement et webhook seulement, sur un vrai pic
+            else:
+                tier = 0          # rien a declencher (ou son reconnu sans pic)
+            return (tier, c['clap_count'] > 0, c['score'])
+        winner = max(candidates, key=rank)
         for c in candidates:
             c['ignored'] = c is not winner
         # Les pics comptes ici ne serviront plus a une autre detection.

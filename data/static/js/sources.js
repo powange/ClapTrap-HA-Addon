@@ -62,6 +62,8 @@
                     (maskUrl(d.url || '') !== (d.url || '') ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
                     (maskUrl(d.url || '') !== (d.url || '') ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
+                '<div class="field"><label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
+                    '> Transport TCP</label><p class="hint">Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; certaines caméras ne le gèrent pas.</p></div>' +
                 gainField(src, gain, 100);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
@@ -311,7 +313,7 @@
                 }
                 if (input.dataset.secret && (body[name] === maskUrl(src.data.url || '') ||
                                              body[name] === (src.data.url || ''))) return;  // rien change
-                var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device'].indexOf(name) !== -1);
+                var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device', 'rtsp_tcp'].indexOf(name) !== -1);
                 var fieldId = input.id;
                 CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
                     input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;

@@ -134,3 +134,18 @@ def test_skip_audio_advances_clock(fake_classifier):
     t = det._clock_end
     det.skip_audio(3 * BLOCK_SAMPLES)
     assert abs(det._clock_end - t - 0.3) < 1e-9
+
+
+def test_loud_block_reduced_not_clipped_and_next_sounds_not_attenuated(fake_classifier):
+    """Camera a gain x10 : un pic brut de 0,5 (x10 = 5) est ramene sous 1
+    avant le classifieur au lieu d'etre ecrete ; un clap normal juste apres
+    garde son niveau (limiteur par bloc, pas de memoire de 3 s)."""
+    det, clf, _ = make(fake_classifier)
+    for _ in range(12):
+        det.process_audio(block(0.002, 0.0005), gain=10.0)
+    det.process_audio(block(0.5, 0.0005), gain=10.0)
+    loud = np.abs(clf.blocks[-1]).max()
+    assert 0.5 < loud <= 0.91
+    det.process_audio(block(0.002, 0.0005), gain=10.0)
+    det.process_audio(block(0.05, 0.0005), gain=10.0)    # clap normal : 0,05 x10 = 0,5
+    assert np.abs(clf.blocks[-1]).max() > 0.4

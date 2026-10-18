@@ -96,3 +96,10 @@ def test_run_source_reports_error_detail():
     stop.set()
     th.join(3)
     assert ('error', '401 Unauthorized') in statuses
+
+
+def test_rtsp_tcp_transport_option():
+    from audio_sources import rtsp_source
+    assert '-rtsp_transport' not in rtsp_source('rtsp://cam/x').cmd
+    cmd = rtsp_source('rtsp://cam/x', tcp=True).cmd
+    assert cmd[cmd.index('-rtsp_transport') + 1] == 'tcp' and cmd.index('-rtsp_transport') < cmd.index('-i')

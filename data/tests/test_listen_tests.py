@@ -27,7 +27,7 @@ def env(settings_dir, monkeypatch):
     import routes.testing as t
     from flask import Flask
     readers, emitted = [], []
-    monkeypatch.setattr(t, 'rtsp_source', lambda url: readers.append(Fake(1000)) or readers[-1])
+    monkeypatch.setattr(t, 'rtsp_source', lambda url, **kw: readers.append(Fake(1000)) or readers[-1])
     monkeypatch.setattr(t, '_socketio', types.SimpleNamespace(emit=lambda e, d: emitted.append((e, d))))
     app = Flask(__name__)
     app.register_blueprint(t.testing_bp)
@@ -58,7 +58,7 @@ def test_rtsp_test_refuses_other_protocols(env):
 
 def test_error_reported_when_stream_ends(env, monkeypatch):
     t, c, readers, emitted = env
-    monkeypatch.setattr(t, 'rtsp_source', lambda url: readers.append(Fake(2)) or readers[-1])
+    monkeypatch.setattr(t, 'rtsp_source', lambda url, **kw: readers.append(Fake(2)) or readers[-1])
     c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
     time.sleep(0.5)
     errors = [d.get('error') for e, d in emitted if e == 'rtsp_level' and d.get('error')]

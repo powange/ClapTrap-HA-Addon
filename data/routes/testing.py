@@ -118,8 +118,14 @@ def _run_process(test, reader, gain_of=lambda: 1.0):
         test.stop_event.set()
 
 
+def _body():
+    """Corps JSON en objet (une liste donnait une erreur 500)."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
 def _stop_route(kind):
-    token = (request.get_json(silent=True) or {}).get('token')
+    token = _body().get('token')
     with _lock:
         test = _current
     # Un "stop" en retard (ancien jeton, autre type) n'arrete pas le test en cours.
@@ -133,7 +139,7 @@ def _stop_route(kind):
 
 @testing_bp.route('/api/mic/test/start', methods=['POST'])
 def start_mic_test():
-    body = request.get_json(silent=True) or {}
+    body = _body()
     settings = load_settings()
     pulse_name = body.get('pulse_name') or _resolve_pulse_name(settings)
     from auto_volume import auto_volume_mgr
@@ -158,7 +164,7 @@ def stop_mic_test():
 
 @testing_bp.route('/api/rtsp/test/start', methods=['POST'])
 def start_rtsp_test():
-    data = request.get_json(silent=True) or {}
+    data = _body()
     rtsp_url = str(data.get('url', '') or '').strip()
     test_id = str(data.get('id', ''))  # renvoye dans rtsp_level : l'UI met a jour la bonne carte
     try:
@@ -169,8 +175,12 @@ def start_rtsp_test():
         raise ApiError('URL RTSP requise')
     # Securite : n'accepter que rtsp:// (ffmpeg accepterait sinon file://,
     # http://, concat:... : lecture de fichiers locaux, SSRF).
-    from settings_manager import normalize_rtsp_url
+    from settings_manager import normalize_rtsp_url, to_bool
     rtsp_url = normalize_rtsp_url(rtsp_url)
+    # Transport : celui demande (assistant, camera pas encore enregistree),
+    # sinon celui de la camera enregistree (option TCP).
+    saved = next((s for s in load_settings().get('rtsp_sources') or [] if str(s.get('id')) == test_id), {})
+    tcp = to_bool(data['rtsp_tcp'], 'rtsp_tcp') if 'rtsp_tcp' in data else bool(saved.get('rtsp_tcp'))
     # Gain lu en direct (curseur de la carte), jamais ecrit ici.
     from classify import live_gain
     source_id = f"rtsp_{test_id}"
@@ -178,7 +188,7 @@ def start_rtsp_test():
     _replace(test)
     test.thread = threading.Thread(
         target=_run_process,
-        args=(test, rtsp_source(rtsp_url), lambda: live_gain(source_id, initial_gain)),
+        args=(test, rtsp_source(rtsp_url, tcp=tcp), lambda: live_gain(source_id, initial_gain)),
         daemon=True)
     test.thread.start()
     return jsonify({'success': True, 'token': test.token})
@@ -193,7 +203,7 @@ def stop_rtsp_test():
 
 @testing_bp.route('/api/vban/test/start', methods=['POST'])
 def start_vban_test():
-    data = request.get_json(silent=True) or {}
+    data = _body()
     vban_id = str(data.get('id') or '')
     src = next((s for s in load_settings().get('saved_vban_sources') or [] if s.get('id') == vban_id), None)
     if src is None:
