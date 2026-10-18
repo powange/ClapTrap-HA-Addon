@@ -31,6 +31,15 @@ ingress: true
 ingress_port: 16045
 init: false
 homeassistant: "2025.10.0"
+# Versions qui changent des entity_id : la mise a jour automatique s'arrete
+# avant elles (mise a jour manuelle, apres lecture de « Mises a jour :
+# changements a connaitre »). A completer a chaque changement de ce type.
+breaking_versions:
+  - "6.25.0"   # source_id d'une camera
+  - "6.28.0"   # entity_id du micro
+  - "6.32.0"   # source_id d'un flux VBAN
+  - "6.33.0"   # entity_id en ASCII
+  - "6.45.0"   # routes d'API retirees
 # Serveur bloque : relance par le Supervisor (option « Watchdog » de l'add-on).
 watchdog: "tcp://[HOST]:[PORT:16045]"
 # Arret propre (MQTT puis detection) avant l'arret force.

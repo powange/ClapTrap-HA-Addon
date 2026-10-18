@@ -158,8 +158,8 @@ def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, gr
     """
     try:
         from ha_entities import on_clap_detected
-        on_clap_detected(entity_key, score, clap_count,
-                         group_slug=group_slug, group_clap_counts=group_clap_counts)
+        on_clap_detected(entity_key, score, clap_count, group_slug=group_slug,
+                         group_clap_counts=group_clap_counts, labels=base_payload.get('labels'))
     except Exception as e:
         logging.warning(f"Entite HA non mise a jour pour {source_id}: {e}")
     token = os.environ.get('SUPERVISOR_TOKEN')

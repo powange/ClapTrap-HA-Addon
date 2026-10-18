@@ -64,10 +64,15 @@ DISCOVERY_MAX_WAIT = 30.0   # s au plus (broker charge)
 _last_discovery = 0.0       # derniere config retenue recue (instant monotone)
 
 
+def event_type(n):
+    """« 1clap », « 2claps »… : suffixe des entites clap et type
+    d'evenement de l'entite event du groupe (une seule regle)."""
+    return f"{n}clap{'s' if n > 1 else ''}"
+
+
 def _group_object_id(source_slug, group_slug, n):
     """Construit l'object_id (sans le prefixe claptrap_) pour une entite clap."""
-    suffix = f"{n}clap" if n == 1 else f"{n}claps"
-    return f"{source_slug}_{group_slug or 'clap'}_{suffix}"
+    return f"{source_slug}_{group_slug or 'clap'}_{event_type(n)}"
 
 
 def _get_headers():
@@ -123,13 +128,48 @@ def _get_version():
     return os.environ.get('CLAPTRAP_VERSION') or 'unknown'
 
 
+_ingress_url = None   # lien vers l'interface (bouton « Visiter » de la fiche appareil)
+
+
+def _fetch_ingress_url():
+    """homeassistant://hassio/ingress/<slug> d'apres le Supervisor (slug avec
+    le prefixe du depot). None hors de Home Assistant."""
+    global _ingress_url
+    if _ingress_url is None and os.environ.get('SUPERVISOR_TOKEN'):
+        try:
+            resp = requests.get('http://supervisor/addons/self/info', headers=_get_headers(), timeout=5)
+            slug = resp.json().get('data', {}).get('slug') if resp.ok else None
+            if slug:
+                _ingress_url = f'homeassistant://hassio/ingress/{slug}'
+        except Exception as e:
+            logging.debug(f"Lien vers l'interface indisponible: {e}")
+    return _ingress_url
+
+
 def _device_block():
-    return {
+    device = {
         "identifiers": ["claptrap"],
         "name": "ClapTrap",
         "manufacturer": "Korben & Les Freres Poulain",
         "model": "ClapTrap Audio Detector",
         "sw_version": _get_version(),
+    }
+    if _ingress_url:
+        device["configuration_url"] = _ingress_url
+    return device
+
+
+def source_device(info):
+    """Appareil d'une source (« ClapTrap Salon »), rattache a « ClapTrap » :
+    chaque source recoit sa propre piece dans HA. Changer d'appareil ne change
+    ni l'entity_id ni l'historique (meme unique_id)."""
+    return {
+        **_device_block(),
+        "identifiers": [f"claptrap_{info['slug']}"],
+        "name": f"ClapTrap {info['label']}",
+        "model": {'mic': 'Micro', 'rtsp': 'Caméra RTSP', 'vban': 'Flux VBAN'}.get(
+            str(info.get('key', '')).split('_', 1)[0], 'Source audio'),
+        "via_device": "claptrap",
     }
 
 
@@ -297,6 +337,9 @@ def _on_message(client, userdata, msg):
 
 def _after_connect():
     _mqtt_publish(AVAILABILITY_TOPIC, 'online', retain=True)
+    # Lien « Visiter » des appareils : retente a chaque connexion tant qu'il
+    # manque (Supervisor lent au demarrage), hors du demarrage de la connexion.
+    _fetch_ingress_url()
     with _lock:
         pending = set(_pending_removal)
         _pending_removal.clear()
@@ -440,13 +483,16 @@ def short_name(label):
     return label
 
 
-def _friendly_name(display, g_name, n):
-    return f'{display} · {g_name} · {n} clap{"s" if n > 1 else ""}'
+def _friendly_name(g_name, n):
+    """Nom de l'entite, sans la source : HA le prefixe du nom de l'appareil
+    (« ClapTrap Salon Clap · 2 claps »)."""
+    return f'{g_name} · {n} clap{"s" if n > 1 else ""}'
 
 
-def _entity_config(obj, name, source_slug, entity_obj=None):
+def _entity_config(obj, name, source_slug, entity_obj=None, device=None):
     """`obj` (slug du groupe) : unique_id et topics, stables ; `entity_obj`
-    (nom du groupe) : entity_id propose a la creation."""
+    (nom du groupe) : entity_id propose a la creation ; `device` : appareil
+    de la source."""
     return {
         'name': name,
         'unique_id': f'claptrap_{obj}',
@@ -463,7 +509,7 @@ def _entity_config(obj, name, source_slug, entity_obj=None):
         'icon': 'mdi:hand-clap',
         'payload_on': 'ON',
         'payload_off': 'OFF',
-        'device': _device_block(),
+        'device': device or _device_block(),
         'origin': _origin_block(),
     }
 
@@ -474,8 +520,9 @@ def _publish_source(info):
         for n in g_info['clap_counts']:
             obj = _group_object_id(slug, g_slug, n)
             _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/{obj}/config",
-                          _entity_config(obj, _friendly_name(info['label'], g_info['name'], n), slug,
-                                         _group_object_id(slug, g_info.get('entity_slug') or g_slug, n)),
+                          _entity_config(obj, _friendly_name(g_info['name'], n), slug,
+                                         _group_object_id(slug, g_info.get('entity_slug') or g_slug, n),
+                                         source_device(info)),
                           retain=True)
             _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
     _mqtt_publish(f'claptrap/{slug}/availability',
@@ -821,7 +868,7 @@ def _pulse(topic):
         t.start()
 
 
-def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_clap_counts=None):
+def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_clap_counts=None, labels=None):
     """Appele quand un clap est detecte. Route vers l'entite du bon groupe."""
     with _lock:
         info = _source_info.get(entity_key)
@@ -842,3 +889,9 @@ def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_cla
         logging.warning(f"MQTT non connecté : clap sur {source_slug}/{group_slug} non publié")
         return
     _pulse(f'claptrap/{_group_object_id(source_slug, group_slug, clap_count)}/state')
+    # Entite event du groupe (non retenu : un evenement ne se rejoue pas).
+    _mqtt_publish(f'claptrap/{source_slug}/{group_slug}/evenement', {
+        'event_type': event_type(clap_count), 'score': round(float(score), 3),
+        'sons': [{'classe': l.get('label'), 'score': round(float(l.get('score', 0)), 3)}
+                 for l in (labels or []) if isinstance(l, dict)],
+    })
