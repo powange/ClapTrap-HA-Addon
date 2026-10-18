@@ -523,14 +523,56 @@
     // evenements en direct (~5/s par source) reconstruisaient toute la liste
     // des sources et relancaient des querySelector.
     var cardIndex = {};
+    // Taille des courbes mise en cache (lire clientWidth a chaque dessin, 5 fois
+    // par seconde et par ligne, forcait une mise en page) et cartes hors ecran
+    // non dessinees, redessinees quand elles reapparaissent.
+    var sparkSize = new WeakMap();
+    var resized = [];
+    var resizeObs = window.ResizeObserver && new ResizeObserver(function (entries) {
+        entries.forEach(function (e) {
+            var before = sparkSize.get(e.target), w = e.contentRect.width, h = e.contentRect.height;
+            sparkSize.set(e.target, {w: w, h: h});
+            // 1re mesure (observe() a chaque rendu, qui vient de dessiner) :
+            // rien a refaire. Ensuite, seule la carte redimensionnee.
+            if (before && (before.w !== w || before.h !== h)) {
+                var card = e.target.closest('.source-card');
+                if (card && resized.indexOf(card) === -1) resized.push(card);
+            }
+        });
+        if (resized.length === 1) requestAnimationFrame(function () {
+            var cards = resized; resized = [];
+            if (!liveVisible()) return;
+            var now = Date.now() / 1000;
+            cards.forEach(function (card) {
+                var c = cardIndex[card.getAttribute('data-source-id')];
+                if (c && c.card === card && c.onScreen) redrawCard(c, now);
+            });
+        });
+    });
+    var onScreenObs = window.IntersectionObserver && new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+            var c = cardIndex[e.target.getAttribute('data-source-id')];
+            if (!c || c.card !== e.target) return;
+            c.onScreen = e.isIntersecting;
+            if (c.onScreen && liveVisible()) redrawCard(c, Date.now() / 1000);
+        });
+    });
     function indexCards(sources) {
         cardIndex = {};
+        if (resizeObs) resizeObs.disconnect();
+        if (onScreenObs) onScreenObs.disconnect();
         sources.forEach(function (src) {
             var card = document.getElementById(src.domId);
             if (!card) return;
             var rows = {};
-            CT.$$('.group-live', card).forEach(function (row) { rows[row.getAttribute('data-slug')] = row; });
-            cardIndex[src.sourceId] = {src: src, card: card, rows: rows};
+            CT.$$('.group-live', card).forEach(function (row) {
+                rows[row.getAttribute('data-slug')] = row;
+                var canvas = row.querySelector('canvas');
+                if (canvas && resizeObs) resizeObs.observe(canvas);
+            });
+            card.setAttribute('data-source-id', src.sourceId);
+            cardIndex[src.sourceId] = {src: src, card: card, rows: rows, onScreen: true};
+            if (onScreenObs) onScreenObs.observe(card);
         });
     }
     // Rien a dessiner si la page est cachee ou l'onglet Reglages affiche ; les
@@ -539,16 +581,19 @@
         var panel = document.getElementById('panel-listen');
         return !document.hidden && !(panel && panel.hidden);
     }
+    function redrawCard(c, now) {
+        var live = (CT.state.live[c.src.sourceId] || {scores: {}}).scores;
+        Object.keys(c.rows).forEach(function (slug) {
+            var row = c.rows[slug], series = live[slug] || [];
+            var threshold = parseFloat(row.querySelector('.threshold').value);
+            setScore(row, series.length ? series[series.length - 1][1] : 0, threshold);
+            drawSpark(row.querySelector('canvas'), series, threshold, now);
+        });
+    }
     CT.redrawLive = function () {
         var now = Date.now() / 1000;
         Object.keys(cardIndex).forEach(function (sid) {
-            var c = cardIndex[sid], live = (CT.state.live[sid] || {scores: {}}).scores;
-            Object.keys(c.rows).forEach(function (slug) {
-                var row = c.rows[slug], series = live[slug] || [];
-                var threshold = parseFloat(row.querySelector('.threshold').value);
-                setScore(row, series.length ? series[series.length - 1][1] : 0, threshold);
-                drawSpark(row.querySelector('canvas'), series, threshold, now);
-            });
+            if (cardIndex[sid].onScreen) redrawCard(cardIndex[sid], now);
         });
     };
     document.addEventListener('visibilitychange', function () { if (!document.hidden) CT.redrawLive(); });
@@ -570,7 +615,7 @@
             var series = live.scores[slug] = (live.scores[slug] || []).filter(function (p) { return now - p[0] <= SPARK_SECONDS; });
             series.push([now, score]);
             var row = c.rows[slug];
-            if (!row || !visible) return;
+            if (!row || !visible || !c.onScreen) return;
             var threshold = parseFloat(row.querySelector('.threshold').value);
             setScore(row, score, threshold);
             drawSpark(row.querySelector('canvas'), series, threshold, now);
@@ -621,7 +666,9 @@
         // Taille reelle x densite de l'ecran : un canevas fixe de 320x40 etire
         // en largeur etait flou et deforme.
         var dpr = window.devicePixelRatio || 1;
-        var cw = Math.round((canvas.clientWidth || 320) * dpr), ch = Math.round((canvas.clientHeight || 40) * dpr);
+        var size = sparkSize.get(canvas);
+        if (!size || !size.w) size = {w: canvas.clientWidth, h: canvas.clientHeight};   // avant la 1re mesure
+        var cw = Math.round((size.w || 320) * dpr), ch = Math.round((size.h || 40) * dpr);
         if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
         var w = canvas.width, h = canvas.height, c = colors();
         var accent = c.accent, line = c.line;

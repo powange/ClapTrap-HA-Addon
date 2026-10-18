@@ -292,6 +292,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const before = liveRow.querySelector('.group-live-score').textContent;
   emit('group_scores', { source_id: liveSrc.sourceId, scores: { [liveSlug]: 0.93 } }); await tick();
   ok('+  pas de dessin pendant l\'onglet Réglages', liveRow.querySelector('.group-live-score').textContent === before);
+  // --- lot 6.66 : une rafale de sons nouveaux = un seul rechargement des exclusions
+  const exGets = () => calls.filter(c => c[0] === 'GET' && c[1] === '/api/sound_exclusions').length;
+  const exBefore = exGets();
+  ['Bird', 'Cat', 'Knock'].forEach(label => emit('sound_seen', { source_id: 'mic', label }));
+  await tick(2);
+  ok('+  exclusions : pas de requête par son entendu', exGets() === exBefore);
+  await tick(45);
+  ok('+  exclusions : un seul rechargement pour la rafale', exGets() === exBefore + 1);
   $('#tab-listen').click(); await tick();
   ok('+  courbes rattrapées au retour sur Écoute', d.querySelector('#' + liveSrc.domId + ' .group-live[data-slug="' + liveSlug + '"] .group-live-score').textContent === '93 %');
   // --- lot 6.53

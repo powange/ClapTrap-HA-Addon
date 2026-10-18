@@ -119,12 +119,37 @@
     }
     function bindGroups(box, src, groups) {
         // Delegation posee une seule fois : la boite est re-rendue sur place.
-        box._ctx = {src: src};
+        box._ctx = {src: src, groups: groups};
         if (!box._bound) {
             box._bound = true;
             box.addEventListener('click', function (e) { onBoxClick(e, box._ctx.src); });
+            // Pastilles de sons : un ecouteur pour toutes (il y en a des
+            // centaines, recreees a chaque coche).
+            box.addEventListener('change', function (e) {
+                if (e.target.matches('.chip input')) onChipChange(e.target, box);
+            });
         }
         bindGroupInputs(box, src, groups);
+    }
+
+    function onChipChange(cb, box) {
+        var src = box._ctx.src;
+        var slug = cb.closest('.group-card').getAttribute('data-slug');
+        var group = box._ctx.groups.filter(function (g) { return g.slug === slug; })[0];
+        if (!group) return;
+        var label = cb.getAttribute('data-label');
+        var on = cb.checked;
+        CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.key, group_slug: slug,
+                                                      label: label, enabled: on})
+            .then(function () {
+                (group.sound_whitelist = group.sound_whitelist || {})[label] = on;
+                CT.renderGroupsManage(box.closest('.source-card'), src);
+                // Groupe vide ou non : barre d'etat tout de suite,
+                // carte a la fermeture des reglages.
+                if (CT.renderStatus) CT.renderStatus();
+                CT.renderWhenIdle();
+            })
+            .catch(function (err) { cb.checked = !on; CT.error(err.message); });
     }
 
     function onBoxClick(e, src) {
@@ -245,23 +270,6 @@
                                      on ? 'Sons entendus ajoutés' : 'Ajout automatique arrêté');
                     })
                     .catch(function (err) { auto.checked = !on; CT.error('Réglage non enregistré : ' + err.message); });
-            });
-            CT.$$('.chip input', cardEl).forEach(function (cb) {
-                cb.addEventListener('change', function () {
-                    var label = cb.getAttribute('data-label');
-                    var on = cb.checked;
-                    CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.key, group_slug: slug,
-                                                                  label: label, enabled: on})
-                        .then(function () {
-                            (group.sound_whitelist = group.sound_whitelist || {})[label] = on;
-                            CT.renderGroupsManage(box.closest('.source-card'), src);
-                            // Groupe vide ou non : barre d'etat tout de suite,
-                            // carte a la fermeture des reglages.
-                            if (CT.renderStatus) CT.renderStatus();
-                            CT.renderWhenIdle();
-                        })
-                        .catch(function (err) { cb.checked = !on; CT.error(err.message); });
-                });
             });
             var search = cardEl.querySelector('.sound-search');
             if (search) {

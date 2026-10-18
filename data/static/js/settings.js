@@ -41,8 +41,14 @@
     }
 
     // ---- Exclusions -----------------------------------------------------------
+    // Plusieurs chargements peuvent se croiser (rechargement differe, action
+    // sur une pastille, ouverture de l'onglet) : seule la reponse la plus
+    // recente est appliquee, une plus ancienne arrivee apres est ignoree.
+    var exclusionsSeq = 0;
     function loadExclusions() {
+        var seq = ++exclusionsSeq;
         return CT.api('GET', '/api/sound_exclusions').then(function (data) {
+            if (seq !== exclusionsSeq) return;
             // L'etat local sert aux listes de sons des groupes : sans cette
             // copie, un son exclu y restait propose jusqu'au rechargement.
             var g = CT.state.settings && (CT.state.settings.global = CT.state.settings.global || {});
@@ -53,7 +59,7 @@
             }
             renderExclusions(data);
         }).catch(function (err) {
-            CT.error('Exclusions indisponibles : ' + err.message);
+            if (seq === exclusionsSeq) CT.error('Exclusions indisponibles : ' + err.message);
         });
     }
     function renderExclusions(data) {
@@ -167,8 +173,24 @@
         bindAdvanced();
         bindExclusions();
         bindConfig();
+        // Un rechargement pour une rafale de sons nouveaux (une requete par
+        // son entendu a la decouverte), au plus un en cours.
+        var pending = null, inflight = false, again = false;
+        function reloadSoon() {
+            if (pending) return;
+            pending = setTimeout(function () {
+                pending = null;
+                if (CT.$('#panel-settings').hidden) return;
+                if (inflight) { again = true; return; }
+                inflight = true;
+                loadExclusions().then(function () {
+                    inflight = false;
+                    if (again) { again = false; reloadSoon(); }
+                });
+            }, 1000);
+        }
         CT.on('sound_seen', function () {
-            if (!CT.$('#panel-settings').hidden) loadExclusions();
+            if (!CT.$('#panel-settings').hidden) reloadSoon();
         });
     };
 })();

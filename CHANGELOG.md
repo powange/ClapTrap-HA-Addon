@@ -1,5 +1,36 @@
 # Changelog
 
+## 6.66.0
+
+### Image
+
+- **Image allégée de 42 %** (≈ 208 Mo compressés au lieu de 358, 876 Mo
+  installés au lieu de 1,47 Go) : ffmpeg est compilé dans l'image en
+  version minimale (lecture audio des flux `rtsp://` et `rtsps://`
+  seulement), au lieu du paquet Debian qui tirait Mesa, LLVM, SDL, x265…
+  Décodeurs audio des caméras : AAC, G.711 (µ-law, A-law), G.726, G.722,
+  Opus, MP3/MP2, AMR, GSM, AC-3, Vorbis, Speex, PCM. Testés sur un vrai
+  flux RTSP (UDP et TCP) : AAC, G.711, G.726, G.722, Opus, MP3, PCM.
+  Si une caméra utilise un autre codec, le journal affiche « no decoder
+  found for: … » : le signaler.
+- **Connexion RTSP plus rapide** : seule la piste audio est demandée à la
+  caméra (`-allowed_media_types audio`). La vidéo n'est plus envoyée sur le
+  réseau, et le premier son arrive en ≈ 0,5 s au lieu d'≈ 5 s.
+- **pip retiré** de l'image (inutile à l'exécution).
+- Le build vérifie qu'aucune bibliothèque système ne manque et que ffmpeg
+  sait lire le RTSP et les codecs principaux ; l'audit hebdomadaire signale
+  une nouvelle version corrective de ffmpeg (hors des mises à jour Debian).
+
+### Interface
+
+- **Courbes en direct** : taille des canevas mise en cache (plus de mise en
+  page forcée 5 fois par seconde et par ligne) et cartes hors écran non
+  dessinées, rattrapées quand elles réapparaissent.
+- **Pastilles de sons** : un seul écouteur pour toutes au lieu d'un par
+  pastille recréé à chaque coche.
+- **Réglages ouverts pendant la découverte** : une rafale de sons nouveaux
+  ne recharge plus les exclusions qu'une fois (une requête par son avant).
+
 ## 6.65.0
 
 ### Interface

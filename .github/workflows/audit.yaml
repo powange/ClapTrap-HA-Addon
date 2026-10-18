@@ -1,6 +1,7 @@
 # Failles connues dans les dependances Python de l'image (requirements.lock,
-# que Dependabot ne lit pas). Chaque semaine et a la demande ; un echec
-# signale une version a remonter (scripts/lock_requirements.py).
+# que Dependabot ne lit pas) et version corrective de ffmpeg (compile dans
+# l'image, hors des mises a jour Debian). Chaque semaine et a la demande ; un
+# echec signale une version a remonter.
 name: Audit des dépendances
 
 on:
@@ -25,3 +26,24 @@ jobs:
           python-version: "3.13"
       - run: pip install pip-audit==2.10.1
       - run: pip-audit --disable-pip --require-hashes -r data/requirements.lock
+
+  ffmpeg:
+    name: ffmpeg à jour (Dockerfile)
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Dernière version corrective de la même branche
+        run: |
+          current="$(sed -n 's/^ARG FFMPEG_VERSION=//p' Dockerfile)"
+          branch="$(cut -d. -f1-2 <<< "$current")"   # 9.0.2 et 9.0 -> 9.0
+          latest="$(curl -fsSL https://ffmpeg.org/releases/ \
+            | grep -oE "ffmpeg-${branch//./\\.}(\.[0-9]+)*\.tar\.xz\"" | tr -d '"' \
+            | sed -E 's/^ffmpeg-(.*)\.tar\.xz$/\1/' | sort -V | tail -1)"
+          echo "Dockerfile : $current ; dernière $branch.x : ${latest:-?}"
+          [ -n "$latest" ] || { echo "::error::liste des versions illisible"; exit 1; }
+          if [ "$latest" != "$current" ]; then
+            echo "::error file=Dockerfile::ffmpeg $latest disponible : mettre à jour FFMPEG_VERSION et FFMPEG_SHA256"; exit 1
+          fi
