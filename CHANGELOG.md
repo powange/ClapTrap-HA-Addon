@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.72.0
+
+### Détection
+
+- **Fenêtre de comptage fidèle au réglage** : seuls les claps de la fenêtre
+  réglée sont comptés. Elle s'étendait jusqu'au résultat YAMNet suivant
+  (jusqu'à environ 1 s de plus) : deux claps puis un clap isolé 1,8 s plus
+  tard donnaient un « 3 claps » sans entité au lieu de « 2 claps » puis
+  « 1 clap ». Si vous aviez raccourci la fenêtre pour compenser, vous pouvez
+  la remettre à la durée de vos gestes. Un groupe désactivé pendant qu'il
+  compte ne laisse plus d'état en suspens.
+- **Caméra qui n'envoie pas son audio** : au lieu de « Flux perdu,
+  reconnexion… » en boucle, la cause est donnée (« la caméra annonce une
+  piste audio mais n'envoie aucun son : un autre lecteur RTSP a peut-être
+  l'audio »), constaté sur des caméras IMOU qui ne servent l'audio qu'à un
+  client. « Tester le son » refuse d'ouvrir une seconde connexion à une
+  caméra déjà écoutée.
+- **Cause des erreurs sur la carte** : « Erreur de flux » est complétée par
+  la raison (identifiants refusés, caméra sans audio, écoute VBAN
+  indisponible, reconnaissance en échec).
+- **VBAN** : écoute UDP indisponible ou échec d'initialisation de YAMNet
+  signalés en erreur (la carte restait sur « Connexion… ») ; un flux
+  multicast repris par un autre PC n'est plus ignoré ; plus de trace
+  d'erreur à l'arrêt de l'écoute.
+- **Calibrage** : une prise simplement atténuée par le limiteur n'est plus
+  annoncée « saturée ».
+
 ## 6.71.0
 
 ### Réglages fiables (fenêtre de réglages d'une source)

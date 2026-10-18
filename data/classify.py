@@ -201,12 +201,17 @@ class DetectionSession:
         self._last_live = {}  # (source_id, event) -> instant du dernier envoi
         self.source_status = {}  # source_id -> connecting|connected|reconnecting|error
         self.audio_formats = {}  # source_id -> format audio recu (cameras : codec, frequence)
+        self.source_errors = {}  # source_id -> cause de la derniere erreur (affichee sur la carte)
         self.webhooks = {s['source_id']: s.get('webhook_url') or '' for s in sources}
         _live_gains.clear()
         _live_gains.update({s['source_id']: float(s['gain']) for s in sources if 'gain' in s})
 
     def _set_status(self, source_id, status, error=None):
         self.source_status[source_id] = status
+        if status == 'error' and error:
+            self.source_errors[source_id] = error
+        elif status in ('connected', 'connecting'):
+            self.source_errors.pop(source_id, None)
         self._emit('source_status', {'source_id': source_id, 'status': status,
                                      **({'error': error} if error else {})})
         if not self.stop_event.is_set():
@@ -441,11 +446,26 @@ class DetectionSession:
         return mic_source(pulse_name), auto_volume
 
     def _run_one(self, src, runner):
-        det = self._create_detector(src, runner['stop'])
-        if det is None:
-            return  # arret demande pendant l'initialisation
         kind = src['type']
         sid = src['source_id']
+        listener = get_vban_detector() if kind == 'vban' else None
+        if kind == 'vban' and listener is None:
+            # Avant YAMNet (plusieurs secondes sur Pi pour rien) : port 6980
+            # occupe. La carte restait sur « Connexion… » sans explication.
+            logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
+            self._set_status(sid, 'error', "écoute VBAN indisponible (port UDP 6980 déjà utilisé ?)")
+            return
+        try:
+            det = self._create_detector(src, runner['stop'])
+        except Exception as e:
+            logging.exception(f"{src['label']} : initialisation de la reconnaissance impossible")
+            with self._lock:
+                still_mine = self._runners.get(sid) is runner and not runner['stop'].is_set()
+            if still_mine:   # source retiree ou relancee entre-temps : rien a afficher
+                self._set_status(sid, 'error', f"reconnaissance (YAMNet) indisponible : {e}")
+            return
+        if det is None:
+            return  # arret demande pendant l'initialisation
         gain_of = auto_volume = None
         on_status = lambda status, error=None: self._set_status(sid, status, error)
         if kind == 'mic':
@@ -457,10 +477,6 @@ class DetectionSession:
             gain_of = lambda: _live_gains.get(sid, 10.0)
             logging.info(f"RTSP: démarrage capture {mask_url_credentials(url)} (gain={gain_of()}x)")
         else:
-            listener = get_vban_detector()
-            if listener is None:
-                logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
-                return
             reader = VbanSource(listener, src['ip'], src['stream_name'],
                                 on_idle=lambda idle, msg: on_status('error', msg) if idle else on_status('connected'))
             gain_of = lambda: _live_gains.get(sid, 1.0)
@@ -516,6 +532,7 @@ class DetectionSession:
             self.seen.pop(source_id, None)
             self.source_status.pop(source_id, None)
             self.audio_formats.pop(source_id, None)
+            self.source_errors.pop(source_id, None)
         if runner is None:
             return None, det
         runner['stop'].set()
@@ -743,7 +760,8 @@ def get_status():
         return {'running': False, 'source': None}
     return {'running': True, 'source': s.label, 'since': s.started_at,
             'sources': [src['source_id'] for src in list(s.sources)],
-            'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats)}
+            'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats),
+            'source_errors': dict(s.source_errors)}
 
 
 def get_detection_history():

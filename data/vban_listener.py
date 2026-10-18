@@ -305,8 +305,11 @@ class VBANDetector:
                     self._housekeeping(now)
                 except Exception as e:
                     logging.error(f"VBAN: erreur de maintenance: {e}")
+            sock = self._socket   # remis a None par stop_listening pendant l'attente
+            if sock is None:
+                break
             try:
-                data, addr = self._socket.recvfrom(2048)
+                data, addr = sock.recvfrom(2048)
             except socket.timeout:
                 continue
             except OSError as e:
@@ -383,7 +386,16 @@ class VBANDetector:
                     # Flux multicast : on s'attache au premier emetteur vu. Un
                     # autre emetteur du meme nom (unicast par exemple) melangeait
                     # son audio et recreait le reechantillonneur a chaque paquet.
-                    sender = stream.setdefault('sender', ip)
+                    sender = stream.get('sender')
+                    sender_info = self.sources.get((sender, hdr.name)) if sender else None
+                    if sender is None or sender == ip or sender_info is None \
+                            or now - sender_info['last_seen'] > SOURCE_TIMEOUT:
+                        # Emetteur retenu muet depuis SOURCE_TIMEOUT (adresse
+                        # changee, autre PC qui prend le relais) : le nouveau
+                        # le remplace, au lieu d'etre ignore jusqu'au redemarrage.
+                        if sender is not None and sender != ip:
+                            logging.info(f"VBAN: flux « {hdr.name} » repris par {ip} (ancien émetteur : {sender})")
+                        stream['sender'] = sender = ip
                     if sender != ip:
                         if (mkey, ip) not in self._warned:
                             self._warned.add((mkey, ip))

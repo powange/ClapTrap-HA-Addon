@@ -178,3 +178,21 @@ def test_real_listener_unsubscribes_bound_method(listener):
     stop.set()
     th.join(2)
     assert ('10.0.0.5', 'Stream1') not in listener._streams
+
+
+def test_multicast_sender_replaced_after_silence(listener, monkeypatch):
+    """Emetteur multicast retenu muet depuis SOURCE_TIMEOUT : un autre PC
+    prend le relais au lieu d'etre ignore jusqu'au redemarrage."""
+    import vban_listener as vl
+    listener.add_source_callback('239.1.1.1', lambda b, sr: None, stream_name='S')
+    stream = listener._streams[('239.1.1.1', 'S')]
+    clock = [1000.0]
+    monkeypatch.setattr(vl.time, 'time', lambda: clock[0])
+    listener._handle_packet(packet('S', INT16_SILENCE), '10.0.0.1')
+    assert stream['sender'] == '10.0.0.1'
+    listener._handle_packet(packet('S', INT16_SILENCE), '10.0.0.2')   # le premier parle encore
+    assert stream['sender'] == '10.0.0.1'
+    clock[0] += vl.SOURCE_TIMEOUT + 1
+    listener._housekeeping(clock[0])                                  # purge des sources muettes
+    listener._handle_packet(packet('S', INT16_SILENCE), '10.0.0.2')   # le premier s'est tu : reprise
+    assert stream['sender'] == '10.0.0.2'

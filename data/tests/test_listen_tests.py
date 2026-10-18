@@ -84,3 +84,16 @@ def test_rtsp_test_reports_camera_audio_format(env, settings_dir):
     wait_until(lambda: len(readers) == 2)
     readers[-1].on_format(fmt)
     assert ('source_format', {'source_id': 'rtsp_A', 'format': fmt}) in emitted
+
+
+def test_rtsp_test_refused_while_detection_listens(env, monkeypatch, settings_dir):
+    """Seconde connexion RTSP refusee : certaines cameras ne servent l'audio
+    qu'a un client, la detection pouvait le perdre."""
+    import classify
+    t, c, readers, emitted = env
+    settings_dir.save_settings({'rtsp_sources': [{'id': 'A', 'name': 'Cam', 'url': 'rtsp://a', 'enabled': True}]})
+    monkeypatch.setattr(classify, 'detector_for', lambda sid: object() if sid == 'rtsp_A' else None)
+    r = c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
+    assert r.status_code == 409 and readers == []
+    # Adresse en cours de modification (autre flux) : test autorise
+    assert c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a2'}).status_code == 200

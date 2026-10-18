@@ -360,27 +360,31 @@ class AudioDetector:
                     except Exception as e:
                         logging.error(f"Erreur callback labels ({self.label}): {e}")
 
-            if events:
-                winner = next(e for e in events if not e['ignored'])
-                logging.debug(f"[{self.label}] CLAP groupe={winner['group']['name']}: "
-                             f"{winner['clap_count']} pic(s), score={winner['score']:.2f}")
-            for ev in events:
-                if not self._detection_callback:
-                    break
-                group = ev['group']
-                try:
-                    self._detection_callback({
-                        'timestamp': time.time(),
-                        'score': ev['score'],
-                        'source_id': self.source_id,
-                        'clap_count': ev['clap_count'],
-                        'labels': ev['labels'],
-                        'group_slug': group['slug'],
-                        'group_name': group['name'],
-                        'group_clap_counts': list(group['clap_counts']),   # garanti par normalize_group
-                        'ignored': ev['ignored'],
-                    })
-                except Exception as e:
-                    logging.error(f"Erreur callback détection ({self.label}): {e}")
+            self._dispatch(events)
         except Exception:
             logging.exception("Erreur dans le traitement du résultat")
+
+    def _dispatch(self, events):
+        """Evenements de detection (arbitrage fait) vers la session, hors verrou."""
+        if events:
+            winner = next(e for e in events if not e['ignored'])
+            logging.debug(f"[{self.label}] CLAP groupe={winner['group']['name']}: "
+                          f"{winner['clap_count']} pic(s), score={winner['score']:.2f}")
+        for ev in events:
+            if not self._detection_callback:
+                break
+            group = ev['group']
+            try:
+                self._detection_callback({
+                    'timestamp': time.time(),
+                    'score': ev['score'],
+                    'source_id': self.source_id,
+                    'clap_count': ev['clap_count'],
+                    'labels': ev['labels'],
+                    'group_slug': group['slug'],
+                    'group_name': group['name'],
+                    'group_clap_counts': list(group['clap_counts']),   # garanti par normalize_group
+                    'ignored': ev['ignored'],
+                })
+            except Exception as e:
+                logging.error(f"Erreur callback détection ({self.label}): {e}")

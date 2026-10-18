@@ -347,3 +347,55 @@ def test_event_only_group_without_peak_does_not_beat_matching_clap():
     winners = [e for e in events if not e['ignored']]
     assert any(w['group']['slug'] == 'clap' and w['clap_count'] == 1 for w in winners)
 
+
+
+def _realistic(window, claps, duration=6.0, result_every=0.975):
+    """Blocs de 100 ms, resultats YAMNet toutes les 975 ms (haut tant que des
+    claps recents)."""
+    tracker = ClapTracker(window=window)
+    tracker.set_groups([dict(GROUPS[0], clap_counts=[1, 2, 3])])
+    t, events, next_result = 1000.0, [], 1000.0 + 5.0
+    for _ in range(50):                      # bruit de fond
+        tracker.feed_peak(0.002, t)
+        t += 0.1
+    start = t
+    pending = sorted(start + c for c in claps)
+    while t < start + duration:
+        peak = 0.5 if pending and abs(pending[0] - t) < 0.05 else 0.002
+        if peak > 0.002:
+            pending.pop(0)
+        tracker.feed_peak(peak, t)
+        if t >= next_result:
+            recent = any(0 <= t - (start + c) <= 1.2 for c in claps)
+            events += tracker.on_classification([('Clapping', 0.9 if recent else 0.02)], t)
+            next_result += result_every
+        t = round(t + 0.1, 3)
+    return events
+
+
+def test_window_counts_only_its_own_claps():
+    """Deux claps puis, 1,8 s apres le premier, un clap isole : deux gestes
+    (« 2 claps » puis « 1 clap »), et non un « 3 claps » sans entite."""
+    events = _realistic(1.5, [0.0, 0.5, 1.8])
+    counts = [e['clap_count'] for e in events if not e['ignored']]
+    assert counts == [2, 1]
+
+
+def test_three_quick_claps_still_three():
+    events = _realistic(1.5, [0.0, 0.4, 0.8])
+    assert [e['clap_count'] for e in events if not e['ignored']] == [3]
+
+
+def test_removed_armed_group_does_not_break_expiry():
+    """Groupe desactive pendant que sa fenetre est ouverte : son etat est
+    oublie (il faisait echouer l'expiration et bloquait la source)."""
+    tracker = ClapTracker(window=1.5)
+    tracker.set_groups([dict(GROUPS[0], clap_counts=[1])])
+    t = 1000.0
+    for _ in range(50):
+        tracker.feed_peak(0.002, t)
+        t += 0.1
+    tracker.feed_peak(0.5, t)
+    assert tracker.on_classification([('Clapping', 0.9)], t + 0.2) == []   # arme
+    tracker.set_groups([])                                                  # groupe retire
+    assert tracker.on_classification([('Clapping', 0.9)], t + 3.0) == []   # aucune erreur

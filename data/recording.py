@@ -37,6 +37,12 @@ class RecordingError(Exception):
         self.status = status
 
 
+def saturation(max_raw, gain):
+    """(sature, limite) d'une prise : sature des l'entree (micro, camera :
+    le gain n'y peut rien), ou son fort reduit par le limiteur (gain eleve)."""
+    return max_raw >= 0.99, max_raw * gain > AGC_CEILING
+
+
 def capture(det, seconds, grace=RESULT_GRACE, audio=False):
     """Ecoute le detecteur `seconds` s, puis `grace` s pour les derniers
     resultats YAMNet. Renvoie {'blocks': [(pic_brut, gain, instant)],
@@ -127,13 +133,11 @@ def record(source_id, seconds=DEFAULT_SECONDS):
         raise RecordingError("Aucun son reçu pendant l'enregistrement : la source est-elle connectée ?", 409)
     samples = np.concatenate([block for block, _clock in cap['audio']])
     max_raw = max((b[0] for b in cap['blocks']), default=0.0)
-    gain = max((b[1] for b in cap['blocks']), default=1.0)
+    clipped, limited = saturation(max_raw, max((b[1] for b in cap['blocks']), default=1.0))
     return {
         'seconds': round(samples.size / SAMPLE_RATE, 2),
         'wav': base64.b64encode(to_wav(samples)).decode('ascii'),
         'timeline': _timeline(cap['audio'], cap['results']),
-        # Son deja sature a l'entree (micro ou camera) : le limiteur n'y peut
-        # rien. Son fort reduit par le limiteur : gain de la source eleve.
-        'clipped': max_raw >= 0.99,
-        'limited': max_raw * gain > AGC_CEILING,
+        'clipped': clipped,
+        'limited': limited,
     }

@@ -194,17 +194,24 @@ def start_rtsp_test():
     # Gain lu en direct (curseur de la carte), jamais ecrit ici.
     from classify import live_gain
     source_id = f"rtsp_{test_id}"
+    from classify import detector_for
+    # Adresse testee = celle de la camera enregistree (et non une adresse en
+    # cours de saisie, qui peut etre celle d'une autre camera).
+    try:
+        same_camera = bool(saved.get('url')) and normalize_rtsp_url(saved['url']) == rtsp_url
+    except ValueError:
+        same_camera = False
+    if same_camera and detector_for(source_id) is not None:
+        # Seconde connexion RTSP : beaucoup de cameras n'en acceptent qu'une
+        # avec le son, la detection pouvait perdre son audio. Le niveau de la
+        # carte suit deja la detection.
+        raise ApiError('La détection écoute déjà cette caméra : son niveau est affiché en direct.', 409)
     test = _Test('rtsp', 'rtsp_level', {'id': test_id})
     _replace(test)
     reader = rtsp_source(rtsp_url, tcp=tcp)
 
     # Format affiche dans les reglages de la camera pendant le test aussi
-    # (detection arretee), seulement pour son adresse enregistree : une
-    # adresse en cours de saisie peut etre celle d'une autre camera.
-    try:
-        same_camera = bool(saved.get('url')) and normalize_rtsp_url(saved['url']) == rtsp_url
-    except ValueError:
-        same_camera = False
+    # (detection arretee), seulement pour son adresse enregistree.
 
     def _on_format(fmt):
         if same_camera and _socketio and not test.stop_event.is_set():
