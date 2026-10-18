@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.70.1
+
+### Interface
+
+- **VU-mètre toujours visible dans les réglages d'une source** : avec le
+  titre et le bouton de fermeture, il reste collé en haut de la fenêtre
+  quand on la fait défiler. Il sortait de l'écran une fois descendu jusqu'à
+  « Tester le son » (sur mobile, le test semblait ne rien faire), ou en
+  réglant le gain. Le VU-mètre de la carte ne change pas.
+
 ## 6.70.0
 
 ### Sources

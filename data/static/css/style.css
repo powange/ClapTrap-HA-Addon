@@ -183,7 +183,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 
 /* ---- Carte source ---------------------------------------------------------------- */
 .source-card { display: flex; flex-direction: column; gap: 12px; }
-.source-card.is-disabled .meter, .source-card.is-disabled .groups-live { opacity: 0.45; }
+.source-card.is-disabled > .meter, .source-card.is-disabled .groups-live { opacity: 0.45; }   /* carte seulement */
 .source-card.flash { animation: flash 1.2s ease-out; }
 @keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
 .card-head { display: flex; align-items: center; gap: 10px; }
@@ -290,6 +290,13 @@ dialog.source-settings { border: 0; max-width: 640px; width: calc(100% - 32px); 
 dialog.source-settings:not([open]) { display: none; }
 dialog.source-settings::backdrop { background: rgba(0, 0, 0, 0.5); }
 .settings-body { display: flex; flex-direction: column; gap: 16px; }
+/* Bandeau colle en haut de la fenetre (titre, fermer, VU-metre) : la fenetre
+   defile avec un padding de 20 px, d'ou les marges negatives. */
+.settings-top {
+    position: sticky; top: -20px; z-index: 2; margin: -20px -20px 0; padding: 20px 20px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+}
 .field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .field-label { font-weight: 600; font-size: 0.85rem; color: var(--ink); padding: 0; }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
