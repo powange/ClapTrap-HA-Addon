@@ -8,10 +8,11 @@ s'allument à chaque clap (1, 2, 3 ou 4 claps).
 
 - **Home Assistant OS ou Supervised**, version 2025.10 ou plus récente,
   sur une machine **amd64** ou **aarch64** (Raspberry Pi 4 et 5, par exemple).
-- **Un broker MQTT** : ClapTrap crée ses entités par MQTT et refuse de
-  démarrer sans broker.
+- **Un broker MQTT** : ClapTrap crée ses entités par MQTT.
   1. Installez l'add-on **Mosquitto broker** (boutique officielle) et
-     démarrez-le.
+     démarrez-le. Vous utilisez déjà un autre broker (NAS, Docker…) ?
+     Renseignez-le dans l'onglet **Configuration** de ClapTrap (voir
+     « Broker MQTT externe »).
   2. Ajoutez l'intégration **MQTT** (Paramètres > Appareils et services) :
      Home Assistant la propose automatiquement une fois Mosquitto démarré.
 
@@ -325,7 +326,44 @@ déclencher l'automatisation. ClapTrap la masque dans ses journaux.
 
 Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 
-## Configuration
+## Broker MQTT externe
+
+Onglet **Configuration** de l'add-on (laisser vide pour utiliser Mosquitto) :
+
+| Option | Rôle |
+|---|---|
+| Broker MQTT externe (`mqtt_host`) | adresse du broker |
+| Port du broker (`mqtt_port`) | 1883 par défaut, 8883 avec TLS |
+| Utilisateur et mot de passe | identifiants du broker |
+| Connexion TLS (`mqtt_tls`) | chiffrer la connexion |
+| Vérifier le certificat (`mqtt_tls_verify`) | décocher seulement pour un certificat auto-signé |
+
+Redémarrez l'add-on après une modification. **L'intégration MQTT de Home
+Assistant doit être reliée au même broker** (Paramètres > Appareils et
+services > MQTT), sinon les entités n'apparaissent pas.
+
+Mosquitto en TLS est géré automatiquement ; si son certificat n'est pas
+reconnu (auto-signé, établi pour un autre nom), décochez « Vérifier le
+certificat ».
+
+Sans aucun broker, l'add-on fonctionne (détection, webhooks) mais sans
+entités, et le journal le rappelle toutes les 10 minutes.
+
+## Sécurité (AppArmor)
+
+ClapTrap est livré avec un profil AppArmor en mode « complain » : les accès
+inhabituels sont journalisés mais pas bloqués. Pour aider à passer en mode
+strict, après quelques jours d'utilisation complète (micro, caméras, VBAN,
+webhooks), relevez les accès signalés depuis un terminal de l'hôte :
+
+```sh
+journalctl _TRANSPORT=audit -g 'apparmor="ALLOWED".*profile="claptrap"'
+```
+
+Aucune ligne : le profil couvre tout et peut passer en mode strict. Des
+lignes : ouvrez une issue sur le dépôt avec leur contenu.
+
+## Configuration (onglet Réglages)
 
 - **Exporter** : sauvegarde complète (identifiants des caméras et adresses des
   webhooks compris), à garder en lieu sûr.
@@ -356,14 +394,16 @@ Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 | 6.47 | Au-delà de 4 claps, aucune entité n'est déclenchée (c'était « 4 claps ») | Rien. |
 | 6.48 | Un export « sans secrets » est refusé à l'import | Importer une sauvegarde complète (« Exporter »). |
 | 6.58 | Renommer un groupe renomme ses entity_id dans HA (historique conservé) | Après un renommage, adapter les automatisations (correspondances dans le journal). |
+| 6.61 | Noms affichés des entités raccourcis (« Salon · Clap · 2 claps » au lieu de « VBAN: Salon Clap 2 claps ») ; entity_id inchangés | Rien (un nom personnalisé dans HA est conservé). |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).
 
 ## Dépannage
 
-**L'add-on ne démarre pas (« service mqtt manquant »)** : installez et
-démarrez l'add-on Mosquitto broker (voir Prérequis).
+**Aucune entité, journal « aucun broker »** : installez et démarrez l'add-on
+Mosquitto broker, ou renseignez votre broker dans l'onglet Configuration
+(voir « Broker MQTT externe »).
 
 **Aucune entité dans Home Assistant** : vérifiez que l'intégration MQTT est
 configurée, puis redémarrez l'add-on (toutes les entités sont republiées à

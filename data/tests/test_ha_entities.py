@@ -125,7 +125,9 @@ def test_orphans_and_pending_removal(mqtt, monkeypatch):
     ha.unregister_source('mic')
     assert ha._pending_removal == {'mic_clap_1clap', 'mic_clap_2claps'}
     ha._mqtt_connected.set()
-    monkeypatch.setattr(ha, 'time', types.SimpleNamespace(sleep=lambda s: None, time=time.time))
+    monkeypatch.setattr(ha, 'time', types.SimpleNamespace(sleep=lambda s: None, time=time.time,
+                                                          monotonic=time.monotonic))
+    monkeypatch.setattr(ha, 'DISCOVERY_MAX_WAIT', 0)
     mqtt.published.clear()
     ha._after_connect()
     assert {'mic_clap_1clap', 'mic_clap_2claps'} <= {t.split('/')[3] for t in mqtt.deleted()}
@@ -226,3 +228,81 @@ def test_only_new_collisions_refused(mqtt):
     assert ha.find_entity_collision(changed, before=s) is None   # collision heritee
     clean = settings()
     assert ha.find_entity_collision(s, before=clean) == 'VBAN: Salon Tele'
+
+
+def test_external_broker_from_addon_options(tmp_path, monkeypatch):
+    opts = tmp_path / 'options.json'
+    opts.write_text(json.dumps({'mqtt_host': 'nas.local', 'mqtt_username': 'u', 'mqtt_password': 'p',
+                                'mqtt_tls': True, 'mqtt_tls_verify': False}))
+    monkeypatch.setattr(ha, 'OPTIONS_FILE', str(opts))
+    monkeypatch.setattr(ha.requests, 'get', lambda *a, **k: (_ for _ in ()).throw(AssertionError('service lu')))
+    info = ha._fetch_broker_info()
+    assert info['host'] == 'nas.local' and info['port'] == 8883 and info['ssl'] and info['tls_insecure']
+    opts.write_text('{}')                                    # vide : service du Supervisor
+    monkeypatch.setattr(ha.requests, 'get', lambda *a, **k: types.SimpleNamespace(
+        ok=True, json=lambda: {'data': {'host': 'core-mosquitto', 'port': 1883, 'ssl': True}}))
+    assert ha._fetch_broker_info()['host'] == 'core-mosquitto'
+
+
+def test_mqtt_client_uses_tls_fixed_id_and_qos1_will(monkeypatch, tmp_path):
+    created = []
+
+    class FakeClient:
+        def __init__(self, *a, client_id=None, **k):
+            self.client_id, self.calls = client_id, []
+            created.append(self)
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self.calls.append((name, a, k))
+    import paho.mqtt.client as mqtt_module
+    monkeypatch.setattr(mqtt_module, 'Client', FakeClient)
+    monkeypatch.setattr(ha, 'OPTIONS_FILE', str(tmp_path / 'options.json'))
+    monkeypatch.setattr(ha, '_fetch_broker_info', lambda: {'host': 'h', 'port': 8883, 'ssl': True,
+                                                           'tls_insecure': True})
+    monkeypatch.setattr(ha, '_mqtt_client', None)
+    ha._mqtt_worker()
+    c = created[-1]
+    names = [n for n, a, k in c.calls]
+    assert re.match(r'^claptrap-[0-9a-f]{12}$', c.client_id)
+    import ssl
+    assert ('tls_set', (), {'cert_reqs': ssl.CERT_NONE}) in c.calls and 'tls_insecure_set' in names
+    monkeypatch.setattr(ha, '_mqtt_client', None)
+    ha._mqtt_worker()
+    assert created[-1].client_id == c.client_id               # meme identifiant pour cette installation
+    will = next((a, k) for n, a, k in c.calls if n == 'will_set')
+    assert will[1].get('qos') == 1 and will[1].get('retain') is True
+    monkeypatch.setattr(ha, '_mqtt_client', None)
+
+
+def test_retained_publishes_use_qos1(mqtt):
+    ha.sync_sources(settings())
+    assert all(q == 1 for t, qs in mqtt.qos.items() if t.endswith('/config') for q in qs)
+    mqtt.qos.clear()
+    ha.on_clap_detected('mic', 0.9, 1)
+    assert mqtt.qos['claptrap/mic_clap_1clap/state'] == [0]     # impulsion
+
+
+def test_stale_offline_is_corrected(mqtt, monkeypatch):
+    monkeypatch.setattr(ha, '_shutting_down', False)
+    mqtt.published.clear()
+    ha._on_message(None, None, types.SimpleNamespace(topic=ha.AVAILABILITY_TOPIC, payload=b'offline', retain=False))
+    assert (ha.AVAILABILITY_TOPIC, 'online', True) in mqtt.published   # LWT tardif, en direct
+    mqtt.published.clear()
+    ha._on_message(None, None, types.SimpleNamespace(topic=ha.AVAILABILITY_TOPIC, payload=b'offline', retain=True))
+    assert mqtt.published == []                                   # retenu (arret precedent) : deja remplace
+    monkeypatch.setattr(ha, '_shutting_down', True)              # arret propre : voulu
+    ha._on_message(None, None, types.SimpleNamespace(topic=ha.AVAILABILITY_TOPIC, payload=b'offline', retain=False))
+    assert mqtt.published == []
+
+
+def test_short_entity_names(mqtt):
+    ha.sync_sources(settings())
+    names = {json.loads(p)['name'] for t, p, r in mqtt.published if t.endswith('/config') and p and '/binary_sensor/' in t}
+    assert 'Micro · Clap · 2 claps' in names and 'Cam · Bébé · 1 clap' in names
+    mqtt.published.clear()
+    ha.sync_sources(settings(rtsp_sources=[{'id': 'abcdef123456', 'name': 'Salon', 'enabled': True,
+                                            'sound_groups': [G('clap', 'Clap', [1])]}]))
+    names = {json.loads(p)['name'] for t, p, r in mqtt.published if t.endswith('/config') and p}
+    # deux sources « Salon » (RTSP et VBAN) : libelle complet pour les distinguer
+    assert 'RTSP: Salon · Clap · 1 clap' in names and 'VBAN: Salon · source active' in names
+    assert ha.short_name('VBAN: Salon') == 'Salon' and ha.short_name('Micro: alsa_input.usb-x') == 'Micro'

@@ -103,9 +103,11 @@ def settings_dir(tmp_path, monkeypatch):
 class FakeMqtt:
     def __init__(self):
         self.published = []  # (topic, payload, retain)
+        self.qos = {}        # topic -> [qos de chaque publication]
 
-    def publish(self, topic, payload, retain=False):
+    def publish(self, topic, payload, qos=0, retain=False):
         self.published.append((topic, payload, retain))
+        self.qos.setdefault(topic, []).append(qos)
         return types.SimpleNamespace(wait_for_publish=lambda *a: None)
 
     def subscribe(self, topic):

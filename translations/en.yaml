@@ -1,0 +1,23 @@
+configuration:
+  mqtt_host:
+    name: External MQTT broker
+    description: >-
+      Address of an MQTT broker other than the Mosquitto add-on (NAS, Docker…).
+      Leave empty to use Mosquitto.
+  mqtt_port:
+    name: Broker port
+    description: Port of the external broker (1883 by default, 8883 with TLS).
+  mqtt_username:
+    name: MQTT username
+    description: Username for the external broker.
+  mqtt_password:
+    name: MQTT password
+    description: Password for the external broker.
+  mqtt_tls:
+    name: TLS connection
+    description: Encrypt the connection to the external broker.
+  mqtt_tls_verify:
+    name: Verify certificate
+    description: >-
+      Uncheck only for a self-signed certificate (encrypted connection, but
+      the broker is not authenticated).
