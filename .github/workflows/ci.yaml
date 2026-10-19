@@ -144,6 +144,10 @@ jobs:
           docker network create claptrap-ci > /dev/null
           docker run -d --name supervisor --network claptrap-ci --network-alias supervisor \
             -v "$PWD/.github/ci/fake_supervisor.py:/f.py:ro" python:3.13-alpine python -u /f.py > /dev/null
+          for i in $(seq 1 30); do
+            docker exec supervisor python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1/ping')" 2> /dev/null && break
+            sleep 1
+          done
           docker run -d --name claptrap-aa --network claptrap-ci --security-opt apparmor=ci_claptrap \
             -e TZ=Europe/Paris -e SUPERVISOR_TOKEN=ci "$IMAGE"
           sleep 45
