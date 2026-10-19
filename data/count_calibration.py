@@ -67,7 +67,10 @@ def record(kind, duration=None):
     with calibration._lock:
         s = _session()
         duration = to_number(duration if duration is not None else KINDS[kind]['duration'], 'duration', 1, 15)
-        blocks = calibration.capture_take(s, duration, GRACE)['blocks']
+    blocks = calibration.capture_take(s, duration, GRACE)['blocks']   # hors du verrou (Annuler)
+    with calibration._lock:
+        if calibration._session is not s:
+            raise calibration.CalibrationError('calibrage terminé pendant la prise', 409)
         if kind == 'fond':
             s.count_takes[:] = [t for t in s.count_takes if t['kind'] != 'fond']   # un seul bruit de fond
         s.count_takes.append({'kind': kind, 'blocks': blocks})

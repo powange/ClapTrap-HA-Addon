@@ -23,7 +23,9 @@ RETRY_DELAYS = (60.0, 300.0, 900.0)   # s avant de retenter si HA est injoignabl
 MAX_MESSAGE = None        # aucune limite cote client (la limite 1009 venait du proxy)
 RECONNECTS = 3            # reprises apres une coupure pendant une operation
 BATCH = 100               # entites par appel get_entries
-DOMAINS = {'binary_sensor', 'number', 'switch', 'sensor', 'text'}   # entites de ClapTrap
+# Entites de ClapTrap (event compris : celle d'un groupe renomme, a l'entity_id
+# personnalise, etait comptee « introuvable » au lieu de « conservee »).
+DOMAINS = {'binary_sensor', 'event', 'number', 'switch', 'sensor', 'text'}
 SETTLE_DELAY = 2.0        # s laissees a HA pour traiter la nouvelle configuration MQTT
 TIMEOUT = 10.0
 
@@ -114,11 +116,19 @@ class _Session:
         except Exception as e:
             raise RegistryError(f"Home Assistant injoignable ({e})")
         self._id = 0
-        if self._receive().get('type') != 'auth_required':
-            raise RegistryError("réponse inattendue de Home Assistant")
-        self._send({'type': 'auth', 'access_token': token})
-        if self._receive().get('type') != 'auth_ok':
-            raise RegistryError("authentification refusée par Home Assistant")
+        try:
+            if self._receive().get('type') != 'auth_required':
+                raise RegistryError("réponse inattendue de Home Assistant")
+            self._send({'type': 'auth', 'access_token': token})
+            if self._receive().get('type') != 'auth_ok':
+                raise RegistryError("authentification refusée par Home Assistant")
+        except Exception:
+            # Socket ferme : il fuyait a chaque tentative (60, 300, 900 s).
+            try:
+                self.ws.close()
+            except Exception:
+                pass
+            raise
 
     def _send(self, payload):
         try:

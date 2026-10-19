@@ -45,20 +45,23 @@ def api_error_response(e):
 sources_bp.register_error_handler(Exception, api_error_response)
 
 
-def _json():
+def _json(required=True):
+    """Corps JSON en objet ; facultatif (`required=False`) : {} sinon."""
     try:
         data = request.get_json(silent=True)
     except RecursionError:
         # JSON tres imbrique ([[[[…) : 400 et non une erreur 500.
         raise ApiError('JSON trop imbriqué')
     if not isinstance(data, dict):
-        raise ApiError('Corps JSON attendu')
+        if required:
+            raise ApiError('Corps JSON attendu')
+        return {}
     return data
 
 
 # Bornes : un fichier ou un appel d'API demesure ne doit pas gonfler les
 # reglages, relus et recopies a chaque lecture (memes valeurs qu'a l'import).
-from settings_manager import MAX_SOURCES, MAX_GROUPS, MAX_LABEL, MAX_LABELS  # noqa: E402
+from settings_manager import MAX_SOURCES, MAX_GROUPS, MAX_LABEL, MAX_LABELS, rtsp_url_key  # noqa: E402
 
 
 def _source_id_for(kind, source_key=None):
@@ -251,15 +254,9 @@ def _resolve_pulse_name(settings):
     return pulse
 
 
-def _rtsp_url_key(url):
-    """URL comparee sans tenir compte de la casse du schema (RTSP:// = rtsp://)."""
-    scheme, sep, rest = str(url or '').partition('://')
-    return f"{scheme.lower()}{sep}{rest}" if sep else str(url or '')
-
-
 def _check_rtsp_unique(settings, url, exclude_id=None):
     """Une camera par URL, a l'ajout comme a la modification."""
-    if url and any(s.get('id') != exclude_id and _rtsp_url_key(s.get('url')) == _rtsp_url_key(url)
+    if url and any(s.get('id') != exclude_id and rtsp_url_key(s.get('url')) == rtsp_url_key(url)
                    for s in settings.get('rtsp_sources') or []):
         raise ApiError('Cette caméra (même URL) est déjà ajoutée', 409)
 
@@ -517,6 +514,8 @@ def update_sound_exclusions():
         g = settings.setdefault('global', {})
         lst = list(g.get('sound_exclusions', []) or [])
         if excluded and label not in lst:
+            if len(lst) >= MAX_LABELS:
+                raise ApiError(f'{MAX_LABELS} sons ignorés au plus')   # borne de l'import
             lst.append(label)
         elif not excluded and label in lst:
             lst.remove(label)
@@ -866,8 +865,8 @@ def add_microphone():
     l'assistant ajoute, regle et active le micro en une requete (une ecriture,
     une synchronisation HA) au lieu de trois.
     """
-    data = request.get_json(silent=True)
-    if isinstance(data, dict) and data:
+    data = _json(required=False)
+    if data:
         return jsonify({'success': True, 'microphone': _update_mic_fields(data, configured=True)})
 
     def _mut(settings):
@@ -936,8 +935,9 @@ def _update_mic_fields(data, configured=False):
         if not isinstance(dev, dict):
             raise ApiError('device : objet attendu')
         for field in ('name', 'pulse_name'):
-            if dev.get(field) is not None and not isinstance(dev.get(field), str):
-                raise ApiError(f'device.{field} : texte attendu')
+            if dev.get(field) is not None and (not isinstance(dev.get(field), str) or len(dev[field]) > 200):
+                # 200 : borne de l'import (une sauvegarde exportee etait refusee).
+                raise ApiError(f'device.{field} : texte de 200 caractères au plus attendu')
         changes['audio_source'] = dev.get('name') or 'default'
         changes['device_index'] = to_number(dev.get('index', 0), 'device.index', 0, 10000, integer=True)
         changes['pulse_name'] = dev.get('pulse_name') or ''

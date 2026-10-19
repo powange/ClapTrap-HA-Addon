@@ -152,6 +152,7 @@ def mqtt(monkeypatch):
     monkeypatch.setattr(ha, '_pending_removal', set())
     monkeypatch.setattr(ha, '_pending_topics', set())
     monkeypatch.setattr(ha, '_discovered_ctrl', set())
+    monkeypatch.setattr(ha, '_ctrl_state_topics', {})
     import ha_control
     monkeypatch.setattr(ha_control, '_published', {})
     monkeypatch.setattr(ha_control, '_analysis_last', {})

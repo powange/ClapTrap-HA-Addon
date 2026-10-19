@@ -448,3 +448,40 @@ def test_readded_microphone_gets_clap_sounds_and_known_sounds_route(client, sett
     assert mic['sound_groups'][0]['sound_whitelist'] == {'Clapping': True, 'Hands': True, 'Applause': True}
     labels = client.get('/api/sounds/known').json['labels']
     assert len(labels) == 521 and 'Whistling' in labels and 'Clapping' in labels
+
+
+def test_api_bounds_match_import(client, settings_dir):
+    """Ce que l'API accepte, l'import l'accepte aussi (et inversement)."""
+    deep = '[' * 100000 + ']' * 100000
+    assert client.post('/api/microphone', data=deep, content_type='application/json').status_code == 400
+    settings_dir.save_settings({'microphone': {'configured': True}})
+    r = client.patch('/api/sources/mic/mic', json={'device': {'name': 'x' * 201, 'pulse_name': 'p'}})
+    assert r.status_code == 400
+    from settings_manager import MAX_LABELS
+    settings_dir.save_settings({'global': {'sound_exclusions': [f'L{i}' for i in range(MAX_LABELS)]}})
+    assert client.put('/api/sound_exclusions', json={'label': 'Trop', 'excluded': True}).status_code == 400
+    assert client.put('/api/sound_exclusions', json={'label': 'L1', 'excluded': False}).status_code == 200
+
+    def imp(rtsp):
+        return client.post('/api/settings/import', json={'rtsp_sources': rtsp})
+    assert imp([{'name': 'x' * 81, 'url': 'rtsp://h/1'}]).status_code == 400
+    r = imp([{'id': 'a', 'url': 'rtsp://h/1'}, {'id': 'b', 'url': 'RTSP://h/1'}])
+    assert r.status_code == 400 and 'double' in r.json['error']
+    assert imp([{'id': 'a/b', 'url': 'rtsp://h/1'}, {'id': 'vban_1.2.3.4_6980', 'url': 'rtsp://h/2'}]).status_code == 200
+    ids = [s['id'] for s in settings_dir.load_settings()['rtsp_sources']]
+    assert '/' not in ids[0] and ids[1] == 'vban_1.2.3.4_6980'
+
+
+def test_sound_test_gain_validated(client, monkeypatch):
+    from flask import Flask
+    import routes.testing as rt
+    monkeypatch.setattr(rt, 'rtsp_source', lambda url, tcp=False: types.SimpleNamespace())
+    monkeypatch.setattr(rt.threading, 'Thread',
+                        lambda **kw: types.SimpleNamespace(start=lambda: None, join=lambda timeout=None: None,
+                                                           is_alive=lambda: False))
+    app = Flask(__name__)
+    app.register_blueprint(rt.testing_bp)
+    c = app.test_client()
+    for gain in ('nan', 'inf', 1e300, -1):
+        assert c.post('/api/rtsp/test/start', json={'url': 'rtsp://c/1', 'gain': gain}).status_code == 400
+    assert c.post('/api/rtsp/test/start', json={'url': 'rtsp://c/1', 'gain': 0}).status_code == 200

@@ -21,3 +21,9 @@ configuration:
     description: >-
       Décocher seulement pour un certificat auto-signé (connexion chiffrée,
       mais broker non authentifié).
+  mqtt_commands:
+    name: Commandes MQTT
+    description: >-
+      Écouter le topic claptrap/command (ajout, modification, suppression de
+      sources et de groupes). Décocher pour l'interdire ; les entités de
+      réglage (seuil, activation, nom) restent utilisables.

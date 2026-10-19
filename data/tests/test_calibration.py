@@ -6,6 +6,7 @@ import pytest
 
 import calibration
 import ha_control
+from helpers import wait_until
 
 
 class FakeDetector:
@@ -191,3 +192,28 @@ def test_muted_source_does_not_feed_sound_discovery():
         assert s.seen['vban_v1'] == set()
     finally:
         classify.mute_source('vban_v1', False)
+
+
+def test_concurrent_take_refused_and_cancel_answers_during_take(cal, monkeypatch):
+    """Une seule prise a la fois (double clic : 409 au lieu d'un fil bloque),
+    et « Annuler » repond pendant la prise ; la prise annulee est ecartee."""
+    import classify
+
+    def script(det):
+        for _ in range(8):
+            det._clock_end += 0.1
+            det.emit('block', 0.01, 1.0, det._clock_end)
+            time.sleep(0.05)
+    monkeypatch.setattr(classify, 'detector_for', lambda sid: FakeDetector(script))
+    assert cal.post('/api/calibration/start', json={'source': 'AtomSalon'}).status_code == 200
+    first = {}
+    t = threading.Thread(target=lambda: first.update(
+        r=cal.post('/api/calibration/record', json={'target': 'Clap', 'duration': 0.4})))
+    t.start()
+    wait_until(lambda: calibration._session.taking)
+    assert cal.post('/api/calibration/record', json={'target': 'Clap', 'duration': 0.4}).status_code == 409
+    start = time.monotonic()
+    assert cal.post('/api/calibration/cancel').status_code == 200
+    assert time.monotonic() - start < 0.3                     # sans attendre la fin de la prise
+    t.join(5)
+    assert first['r'].status_code == 409

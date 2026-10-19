@@ -231,7 +231,7 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes, sons cochés, entités, liste des commandes |
-| `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat |
+| `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
 
 Une modification faite dans HA est enregistrée dans les réglages de l'add-on
 et appliquée aussitôt ; une modification faite dans l'interface est
@@ -270,6 +270,12 @@ ou des sons, publiez un JSON sur le topic `claptrap/command` (service
 (et sur `claptrap/command/result`, secrets masqués). Les mêmes vérifications
 que dans l'interface s'appliquent ; les commandes sont exécutées une par une,
 dans l'ordre. Publiez-les sans `retain` : une commande retenue est ignorée.
+
+Tout client autorisé sur le broker peut envoyer ces commandes (c'est le
+modèle de confiance de MQTT). Pour les interdire, décochez **Commandes MQTT**
+(`mqtt_commands`) dans l'onglet Configuration de l'add-on, ou limitez
+l'écriture sur `claptrap/#` par les ACL du broker (option `customize` de
+l'add-on Mosquitto) au seul utilisateur de Home Assistant et de ClapTrap.
 
 ```yaml
 action: mqtt.publish
@@ -386,7 +392,8 @@ Onglet **Configuration** de l'add-on (laisser vide pour utiliser Mosquitto) :
 | Port du broker (`mqtt_port`) | 1883 par défaut, 8883 avec TLS |
 | Utilisateur et mot de passe | identifiants du broker |
 | Connexion TLS (`mqtt_tls`) | chiffrer la connexion |
-| Vérifier le certificat (`mqtt_tls_verify`) | décocher seulement pour un certificat auto-signé |
+| Vérifier le certificat (`mqtt_tls_verify`) | coché par défaut ; décocher seulement pour un certificat auto-signé |
+| Commandes MQTT (`mqtt_commands`) | coché par défaut ; décocher pour ignorer `claptrap/command` |
 
 Redémarrez l'add-on après une modification. **L'intégration MQTT de Home
 Assistant doit être reliée au même broker** (Paramètres > Appareils et

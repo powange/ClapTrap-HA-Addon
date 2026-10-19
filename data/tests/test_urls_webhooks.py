@@ -1,4 +1,5 @@
 """Validation et masquage des URL, envoi des webhooks."""
+import types
 import pytest
 
 from url_validator import is_valid_url, mask_url_credentials, mask_webhook_url
@@ -55,3 +56,12 @@ def test_async_sends_in_pool_and_contains_errors(monkeypatch):
     assert len(submitted) == 1
     submitted[0]()                                      # l'echec n'echappe pas du fil
     assert sent == [('http://ha.local:8123/api/webhook/abc', {'x': 1})]
+
+
+def test_redirect_logged_once(monkeypatch, caplog):
+    import requests
+    response = types.SimpleNamespace(status_code=302, headers={'Location': 'http://ha/api/webhook/new'})
+    monkeypatch.setattr(webhook._session, 'post', lambda *a, **k: response)
+    with pytest.raises(requests.exceptions.HTTPError):
+        webhook.send_webhook('http://ha/api/webhook/old', {})
+    assert len([r for r in caplog.records if r.levelname == 'ERROR']) == 1

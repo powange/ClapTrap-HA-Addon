@@ -26,6 +26,12 @@ def _make_session():
 
 
 _session = _make_session()
+
+
+class _Redirected(requests.exceptions.HTTPError):
+    """Redirection refusee, deja journalisee avec sa cible."""
+
+
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="webhook")
 
 
@@ -46,9 +52,11 @@ def send_webhook(url, data):
             logging.error(f"Webhook vers {mask_webhook_url(url)} redirigé (HTTP {response.status_code})"
                           + (f" vers {mask_webhook_url(target)}" if target else '')
                           + " : utilisez l'adresse finale")
-            raise requests.exceptions.HTTPError(f"redirection HTTP {response.status_code}", response=response)
+            raise _Redirected(f"redirection HTTP {response.status_code}", response=response)
         response.raise_for_status()
         return response
+    except _Redirected:
+        raise   # deja journalisee (une ligne par redirection)
     except requests.exceptions.RequestException as e:
         # Le message de requests contient l'URL complete (donc le secret).
         status = getattr(getattr(e, 'response', None), 'status_code', None)

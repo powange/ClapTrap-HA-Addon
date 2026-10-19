@@ -11,12 +11,12 @@ import threading
 import time
 import uuid
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 
 from audio_sources import mic_source, rtsp_source
 from audio_utils import level_db
 from settings_manager import load_settings
-from routes.sources import _resolve_pulse_name, api_error_response, ApiError
+from routes.sources import _json, _resolve_pulse_name, api_error_response, ApiError
 
 testing_bp = Blueprint('testing', __name__)
 testing_bp.register_error_handler(Exception, api_error_response)
@@ -120,11 +120,7 @@ def _run_process(test, reader, gain_of=lambda: 1.0):
 
 def _body():
     """Corps JSON en objet (une liste donnait une erreur 500)."""
-    try:
-        data = request.get_json(silent=True)
-    except RecursionError:
-        raise ApiError('JSON trop imbriqué')
-    return data if isinstance(data, dict) else {}
+    return _json(required=False)
 
 
 def _stop_route(kind):
@@ -177,10 +173,13 @@ def start_rtsp_test():
     data = _body()
     rtsp_url = str(data.get('url', '') or '').strip()
     test_id = str(data.get('id', ''))  # renvoye dans rtsp_level : l'UI met a jour la bonne carte
+    from settings_manager import to_number
     try:
-        initial_gain = float(data.get('gain', 10))
-    except (TypeError, ValueError):
-        raise ApiError('Gain invalide')
+        # Memes bornes que la camera enregistree (« nan » ou 1e300 donnaient
+        # un VU-metre plat, sans erreur).
+        initial_gain = to_number(data.get('gain', 10), 'gain', 0, 100)
+    except ValueError as e:
+        raise ApiError(str(e))
     if not rtsp_url:
         raise ApiError('URL RTSP requise')
     # Securite : n'accepter que rtsp:// (ffmpeg accepterait sinon file://,
@@ -267,7 +266,7 @@ def start_vban_test():
     # Gain : celui du curseur s'il a change, sinon celui des reglages, lu une
     # fois (avant : relu a chaque paquet, ~190 fois/s).
     stream_name = src.get('stream_name') or src.get('name') or ''
-    saved_gain = float(src.get('gain', 1.0) or 1.0)
+    saved_gain = float(src.get('gain', 1))   # comme la detection : 0 = source muette
     source_id = f"vban_{vban_id}"
     from classify import live_gain
 

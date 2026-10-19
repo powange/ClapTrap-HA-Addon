@@ -802,6 +802,14 @@ def _norm_source(src, path):
 # Bornes des reglages globaux (import et onglet Reglages avances).
 GLOBAL_LIMITS = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50)}
 MAX_NAME = 80   # nom affiche d'une source ou d'un groupe (API)
+_SOURCE_ID = re.compile(r'[^/\s]{1,64}')   # segment d'URL des routes (uuid, anciens « vban_<ip>_<port> »)
+
+
+def rtsp_url_key(url):
+    """URL comparee sans tenir compte de la casse du schema (RTSP:// = rtsp://) :
+    une camera par adresse, a l'ajout, a la modification et a l'import."""
+    scheme, sep, rest = str(url or '').partition('://')
+    return f"{scheme.lower()}{sep}{rest}" if sep else str(url or '')
 
 
 def to_name(value, path='Nom', default=None):
@@ -865,14 +873,24 @@ def normalize_settings(data):
             continue
         if len(lst) > MAX_SOURCES:
             raise ValueError(f"{key} : {MAX_SOURCES} sources au plus")
-        ids, entity_keys, streams = set(), set(), set()
+        ids, entity_keys, streams, urls = set(), set(), set(), set()
         for i, src in enumerate(lst):
             _norm_source(src, f"{key}[{i}]")
+            # Memes bornes que l'API : un nom importe plus long ne pouvait plus
+            # etre modifie depuis l'interface.
+            if isinstance(src.get('name'), str) and len(src['name'].strip()) > MAX_NAME:
+                raise ValueError(f"{key}[{i}].name : {MAX_NAME} caractères au plus")
             if key == 'rtsp_sources':
                 # Meme controle que l'API : « http://… » devenait « rtsp://http://… »
                 src['url'] = normalize_rtsp_url(src.get('url', ''), f"{key}[{i}].url")
                 if '***@' in src['url'] or re.search(r'=\*\*\*(&|$)', src['url']):
                     raise ValueError(f"{key}[{i}].url : identifiants masqués (export « sans secrets »)")
+                # Une camera par adresse, comme a l'ajout (modifier l'une des
+                # deux renvoyait ensuite 409).
+                url_key = rtsp_url_key(src['url'])
+                if url_key in urls:
+                    raise ValueError(f"{key}[{i}].url : caméra en double (même adresse)")
+                urls.add(url_key)
             else:
                 src['ip'] = to_ip(src.get('ip'), f"{key}[{i}].ip")
                 stream = (src.get('stream_name') or src.get('name') or '').strip()
@@ -896,9 +914,11 @@ def normalize_settings(data):
                     src.pop('entity_key', None)
                 else:
                     entity_keys.add(ek)
-            # Id absent ou en double (les routes prenaient la premiere source
-            # trouvee) : nouvel id.
-            if not isinstance(src.get('id'), str) or not src['id'] or src['id'] in ids:
+            # Id absent, en double (les routes prenaient la premiere source
+            # trouvee) ou hors du format des routes (« / » : source impossible
+            # a supprimer depuis l'interface) : nouvel id.
+            if (not isinstance(src.get('id'), str) or not _SOURCE_ID.fullmatch(src['id'])
+                    or src['id'] in ids):
                 src['id'] = str(uuid.uuid4())
             ids.add(src['id'])
     return data
