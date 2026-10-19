@@ -860,15 +860,16 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  blueprints : onglet ouvert, liste et états', !$('#panel-blueprints').hidden && $('#panel-settings').hidden && bpItems().length === 3 &&
      /Claps pour basculer une lumière/.test(bpItems()[0].textContent) && !/ClapTrap —/.test(bpItems()[0].querySelector('h3').textContent) &&
      /Pas encore dans Home Assistant/.test(bpItems()[0].textContent) && /Mise à jour disponible/.test(bpItems()[1].textContent) &&
-     /à jour/.test(bpItems()[2].textContent) && !bpItems()[2].querySelector('button'));
+     /à jour/.test(bpItems()[2].textContent) && /Réinstaller/.test(bpItems()[2].querySelector('button').textContent));
   $('[data-bp-install="a.yaml"]').click(); await tick(3);
-  ok('+  blueprints : ajout envoyé, état à jour', lastCall('POST', '/api/blueprints/install')[2].file === 'a.yaml' &&
-     !$('[data-bp-install="a.yaml"]') && /Dans Home Assistant, à jour/.test(bpItems()[0].textContent));
+  ok('+  blueprints : ajout envoyé sans confirmation, état à jour', lastCall('POST', '/api/blueprints/install')[2].file === 'a.yaml' &&
+     /Réinstaller/.test($('[data-bp-install="a.yaml"]').textContent) && /Dans Home Assistant, à jour/.test(bpItems()[0].textContent));
   $('[data-bp-install="b.yaml"]').click(); await tick();
   ok('+  blueprints : mise à jour confirmée d\'abord', !!$('.modal-backdrop [data-r="ok"]') && /automatisations qui l'utilisent/.test($('.modal-backdrop [data-r="ok"]').closest('.modal').textContent) &&
      calls.filter(c => c[1] === '/api/blueprints/install').length === 1);
   $('.modal-backdrop [data-r="ok"]').click(); await tick(3);
-  ok('+  blueprints : mise à jour envoyée', calls.filter(c => c[1] === '/api/blueprints/install').length === 2 && !$('[data-bp-install="b.yaml"]'));
+  ok('+  blueprints : mise à jour envoyée', calls.filter(c => c[1] === '/api/blueprints/install').length === 2 &&
+     /Réinstaller/.test($('[data-bp-install="b.yaml"]').textContent));
   w.__bpError = "Home Assistant injoignable : l'onglet ne fonctionne que dans l'add-on.";
   $('#tab-settings').click(); await tick(); $('#tab-blueprints').click(); await tick(3);
   ok('+  blueprints : Home Assistant injoignable, import par my.home-assistant',

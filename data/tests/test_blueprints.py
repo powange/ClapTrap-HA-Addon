@@ -69,7 +69,6 @@ def test_add_then_up_to_date_then_update(ha):
     save = next(c for c in ha.calls if c['type'] == 'blueprint/save')
     assert save['path'] == 'claptrap/claps_actions.yaml'[:-5] and save['allow_override'] is False
     assert save['source_url'].endswith('/claps_actions.yaml') and 'blueprint:' in save['yaml']
-    assert {'type': 'call_service', 'domain': 'automation', 'service': 'reload'} in ha.calls
     assert out == {'file': 'claps_actions.yaml', 'status': 'a_jour', 'path': 'claptrap/claps_actions.yaml', 'updated': False}
     assert _by_file(blueprints.list_blueprints()[0])['claps_actions.yaml']['status'] == 'a_jour'
     # Nouvelle version livree (autre empreinte) : mise a jour proposee, au meme chemin.
@@ -84,6 +83,7 @@ def test_add_then_up_to_date_then_update(ha):
         assert blueprints.install('claps_actions.yaml')['updated'] is True
         save = next(c for c in ha.calls if c['type'] == 'blueprint/save')
         assert save['allow_override'] is True and save['path'] == 'claptrap/claps_actions'
+        assert {'type': 'call_service', 'domain': 'automation', 'service': 'reload'} in ha.calls
         assert _by_file(blueprints.list_blueprints()[0])['claps_actions.yaml']['status'] == 'a_jour'
     finally:
         blueprints.bundled = real
@@ -100,11 +100,29 @@ def test_blueprint_imported_from_the_docs_is_recognised_and_kept_in_place(ha):
     assert _by_file(blueprints.list_blueprints()[0])['claps_basculer_lumiere.yaml']['status'] == 'a_jour'
     ha.installed['powange/claps_basculer_lumiere.yaml']['metadata']['description'] = 'Ancienne description'
     item = _by_file(blueprints.list_blueprints()[0])['claps_basculer_lumiere.yaml']
-    assert item['status'] == 'mise_a_jour' and item['path'] == 'powange/claps_basculer_lumiere.yaml'
+    assert item['status'] == 'different' and item['path'] == 'powange/claps_basculer_lumiere.yaml'
     blueprints.install('claps_basculer_lumiere.yaml')
     save = next(c for c in ha.calls if c['type'] == 'blueprint/save')
     assert save['path'] == 'powange/claps_basculer_lumiere' and save['allow_override'] is True
     assert 'claptrap/claps_basculer_lumiere.yaml' not in ha.installed
+
+
+def test_status_different_and_reinstall_rules(ha):
+    # Meme nom de fichier sous claptrap/, autre origine : « different », remplacable.
+    ha.installed['claptrap/claps_assist.yaml'] = {'metadata': {'name': 'Copie', 'source_url': 'https://ailleurs/x.yaml'}}
+    item = _by_file(blueprints.list_blueprints()[0])['claps_assist.yaml']
+    assert (item['status'], item['path']) == ('different', 'claptrap/claps_assist.yaml')
+    blueprints.install('claps_assist.yaml')
+    save = next(c for c in ha.calls if c['type'] == 'blueprint/save')
+    assert save['allow_override'] is True
+    # Installe par ClapTrap puis modifie dans HA (ou sauvegarde restauree) : « different ».
+    ha.installed['claptrap/claps_assist.yaml']['metadata']['description'] = 'modifiee'
+    assert _by_file(blueprints.list_blueprints()[0])['claps_assist.yaml']['status'] == 'different'
+
+
+def test_first_install_does_not_reload_automations(ha):
+    blueprints.install('claps_confirmation_vocale.yaml')
+    assert not [c for c in ha.calls if c['type'] == 'call_service']
 
 
 def test_errors(ha, monkeypatch):
@@ -120,11 +138,18 @@ def test_errors(ha, monkeypatch):
     monkeypatch.setattr(blueprints, '_connect', down)
     items, error = blueprints.list_blueprints()
     assert error == 'Home Assistant injoignable' and items and {b['status'] for b in items} == {'inconnu'}
+    # Echec de connexion ou d'authentification (RegistryError) : meme chose, pas une erreur 500.
+    import ha_registry
+    monkeypatch.undo()
+    monkeypatch.setattr(ha_registry, '_connect', lambda: (_ for _ in ()).throw(ha_registry.RegistryError('authentification refusée')))
+    items, error = blueprints.list_blueprints()
+    assert error == 'authentification refusée' and items
 
 
 def test_reload_failure_does_not_fail_the_install(ha):
+    blueprints.install('claps_assist.yaml')
     ha.fail = 'call_service'
-    assert blueprints.install('claps_assist.yaml')['status'] == 'a_jour'
+    assert blueprints.install('claps_assist.yaml')['status'] == 'a_jour'   # mise a jour : rechargement en echec, sans erreur
 
 
 def test_routes(settings_dir, monkeypatch):

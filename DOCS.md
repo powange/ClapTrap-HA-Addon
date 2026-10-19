@@ -322,7 +322,10 @@ et les ajoute ou les met à jour en un clic.
   remplace l'ancienne au même endroit, et les automatisations qui l'utilisent
   en profitent tout de suite. Si elle demande un nouveau réglage, ouvrez-les
   pour le renseigner.
-- **Dans Home Assistant, à jour** : rien à faire.
+- **Version différente** (importée ailleurs, modifiée dans Home Assistant,
+  ou peut-être plus récente) → « Remplacer par la version de ClapTrap ».
+- **Dans Home Assistant, à jour** : rien à faire (« Réinstaller » remet la
+  version de ClapTrap si besoin).
 
 L'onglet reconnaît aussi un blueprint déjà importé par le bouton
 **Importer** ci-dessous. Vous pouvez aussi les importer sans l'onglet (bouton

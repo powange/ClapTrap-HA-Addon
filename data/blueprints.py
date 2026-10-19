@@ -8,11 +8,14 @@ bouton de la documentation ou installe d'ici). Installer ou mettre a jour
 passe par blueprint/save, au meme chemin que l'existant : les automatisations
 qui l'utilisent le gardent, puis sont rechargees.
 
-Version installee : empreinte du fichier enregistree a chaque installation
-par ClapTrap (/data/blueprints_state.json) ; pour un blueprint importe
-ailleurs, comparaison de ce que Home Assistant en montre (nom, description,
-entrees).
+Etat : empreinte du fichier enregistree a chaque installation par ClapTrap
+(/data/blueprints_state.json), confrontee a ce que Home Assistant en montre
+(nom, description, entrees). Un blueprint importe ailleurs (bouton de la
+documentation) qui differe est « different » (peut-etre plus recent : on ne
+parle pas de mise a jour). Home Assistant n'expose pas le contenu complet :
+« Reinstaller » reste possible sur un blueprint a jour.
 """
+import functools
 import hashlib
 import json
 import logging
@@ -60,6 +63,9 @@ def parse_header(text):
     i += 1
     while i < n:
         line = lines[i]
+        if line.lstrip().startswith('#'):
+            i += 1
+            continue
         if line and not line.startswith(' '):
             break                                   # fin du bloc blueprint
         m = re.match(r'^  (\w+):\s*(.*)$', line)
@@ -76,13 +82,13 @@ def parse_header(text):
                 continue
             if key == 'input':
                 i += 1
-                while i < n and (lines[i].startswith('    ') or not lines[i].strip()):
-                    k = re.match(r'^    ([\w-]+):\s*$', lines[i])
+                while i < n and (lines[i].startswith('    ') or not lines[i].strip() or lines[i].lstrip().startswith('#')):
+                    k = re.match(r'^    ([\w-]+):', lines[i])
                     if k:
                         meta['input'].append(k.group(1))
                     i += 1
                 continue
-            if key in ('name', 'source_url'):
+            if key in ('name', 'source_url', 'description'):
                 meta[key] = value.strip('"\'')
         i += 1
     return meta
@@ -90,8 +96,13 @@ def parse_header(text):
 
 def bundled():
     """Blueprints livres : [{file, yaml, sha, name, description, source_url, input}]."""
+    return [dict(b) for b in _read_bundled(_dir())]
+
+
+@functools.lru_cache(maxsize=2)
+def _read_bundled(folder):
+    """Fichiers de l'image (inchanges pendant sa vie) : lus une fois."""
     out = []
-    folder = _dir()
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         if not name.endswith('.yaml'):
             continue
@@ -99,7 +110,7 @@ def bundled():
             text = f.read()
         out.append(dict(parse_header(text), file=name, yaml=text,
                         sha=hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]))
-    return out
+    return tuple(out)
 
 
 # ===== Etat dans Home Assistant ====================================================
@@ -124,11 +135,17 @@ def _write_state(state):
 
 
 def _connect():
+    """Session WebSocket simple : sans nouvel envoi automatique apres une
+    coupure (un blueprint/save renvoye repondrait « existe deja » alors qu'il
+    a ete enregistre)."""
     import ha_registry
-    session = ha_registry._connect()
+    try:
+        session = ha_registry._connect()
+    except ha_registry.RegistryError as e:
+        raise BlueprintError(str(e), 503)
     if session is None:
         raise BlueprintError("Home Assistant injoignable : l'onglet ne fonctionne que dans l'add-on.", 503)
-    return ha_registry._Conn(session)
+    return session
 
 
 def _call(conn, payload):
@@ -149,19 +166,30 @@ def _same_file(url, file):
     return bool(url) and url.rstrip('/').rsplit('/', 1)[-1] == file and 'ClapTrap-HA-Addon' in url
 
 
+def _same_meta(meta, bp):
+    return (meta.get('name') == bp['name'] and ' '.join((meta.get('description') or '').split()) == bp['description']
+            and sorted((meta.get('input') or {}).keys()) == sorted(bp['input']))
+
+
 def _status(bp, installed, state):
-    """'absent', 'a_jour' ou 'mise_a_jour' (+ chemin dans HA)."""
+    """(etat, chemin dans HA). Etats : 'absent' ; 'a_jour' ; 'mise_a_jour'
+    (installe par ClapTrap dans une version plus ancienne) ; 'different'
+    (importe ailleurs, ou modifie : version inconnue, peut-etre plus recente)."""
     path, meta = next(((p, m) for p, m in installed.items() if _same_file(m.get('source_url'), bp['file'])),
                       (None, None))
     if path is None:
-        return 'absent', None
+        default = f"claptrap/{bp['file']}"
+        # Meme nom de fichier, autre origine (copie, fork) : ne pas l'ecraser
+        # en silence, mais permettre de le remplacer.
+        return ('different', default) if default in installed else ('absent', None)
     known = state.get(bp['file'])
     if known and known.get('path') == path:
-        return ('a_jour' if known.get('sha') == bp['sha'] else 'mise_a_jour'), path
-    # Importe ailleurs (bouton de la documentation) : ce que HA en montre.
-    same = (meta.get('name') == bp['name'] and ' '.join((meta.get('description') or '').split()) == bp['description']
-            and sorted((meta.get('input') or {}).keys()) == sorted(bp['input']))
-    return ('a_jour' if same else 'mise_a_jour'), path
+        if known.get('sha') != bp['sha']:
+            return 'mise_a_jour', path
+        # Installe par ClapTrap : HA montre-t-il encore la meme chose
+        # (sauvegarde restauree, modifie dans HA) ?
+        return ('a_jour' if _same_meta(meta, bp) else 'different'), path
+    return ('a_jour' if _same_meta(meta, bp) else 'different'), path
 
 
 def _installed(conn):
@@ -207,11 +235,13 @@ def install(file):
             target = path or f"claptrap/{file}"
             _call(conn, {'type': 'blueprint/save', 'domain': DOMAIN, 'path': target[:-5] if target.endswith('.yaml') else target,
                          'yaml': bp['yaml'], 'source_url': bp['source_url'], 'allow_override': path is not None})
-            # Automatisations qui l'utilisent : nouvelle version tout de suite.
-            try:
-                _call(conn, {'type': 'call_service', 'domain': 'automation', 'service': 'reload'})
-            except BlueprintError as e:
-                logging.warning(f"Blueprint {file} installé, automatisations non rechargées : {e}")
+            if path is not None:
+                # Automatisations qui l'utilisent : nouvelle version tout de
+                # suite (un premier ajout n'en a aucune).
+                try:
+                    _call(conn, {'type': 'call_service', 'domain': 'automation', 'service': 'reload'})
+                except BlueprintError as e:
+                    logging.warning(f"Blueprint {file} installé, automatisations non rechargées : {e}")
         finally:
             conn.close()
         state = _read_state()

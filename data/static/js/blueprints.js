@@ -9,7 +9,14 @@
     var STATUS = {
         absent: ['Pas encore dans Home Assistant', ''],
         mise_a_jour: ['Mise à jour disponible', 'is-warn'],
+        different: ['Dans Home Assistant, version différente', 'is-warn'],
         a_jour: ['Dans Home Assistant, à jour', 'is-ok']
+    };
+    var ACTIONS = {
+        absent: ['Ajouter à Home Assistant', 'btn-primary'],
+        mise_a_jour: ['Mettre à jour', 'btn-primary'],
+        different: ['Remplacer par la version de ClapTrap', 'btn-ghost'],
+        a_jour: ['Réinstaller', 'btn-ghost']
     };
 
     function title(name) { return String(name || '').replace(/^ClapTrap\s+—\s+/, ''); }
@@ -31,12 +38,12 @@
         if (!items.length) { box.innerHTML = '<p class="hint">' + (loading ? 'Chargement…' : 'Aucun blueprint fourni.') + '</p>'; return; }
         box.innerHTML = items.map(function (b) {
             var st = STATUS[b.status] || STATUS.absent;
-            var action = b.status === 'absent' ? 'Ajouter à Home Assistant' : b.status === 'mise_a_jour' ? 'Mettre à jour' : '';
+            var act = ACTIONS[b.status] || ACTIONS.absent;
             return '<article class="bp-item" data-file="' + esc(b.file) + '"><div class="bp-main">' +
                 '<h3>' + esc(title(b.name)) + '</h3><p class="hint">' + esc(b.description) + '</p>' +
                 '<span class="pill ' + st[1] + '">' + st[0] + '</span></div>' +
-                (action ? '<button type="button" class="btn ' + (b.status === 'absent' ? 'btn-primary' : 'btn-ghost') + '" data-bp-install="' + esc(b.file) + '"' +
-                    (busy[b.file] ? ' disabled' : '') + '>' + (busy[b.file] ? 'Envoi…' : action) + '</button>' : '') +
+                '<button type="button" class="btn ' + act[1] + '" data-bp-install="' + esc(b.file) + '"' +
+                    (busy[b.file] ? ' disabled' : '') + '>' + (busy[b.file] ? 'Envoi…' : act[0]) + '</button>' +
                 '</article>';
         }).join('');
     }
@@ -46,7 +53,11 @@
         loading = true;
         render();
         CT.api('GET', '/api/blueprints').then(function (d) {
-            items = d.blueprints || [];
+            // Envoi en cours : l'etat d'avant l'envoi ne remplace pas le sien.
+            var before = items;
+            items = (d.blueprints || []).map(function (n) {
+                return busy[n.file] ? (before.filter(function (o) { return o.file === n.file; })[0] || n) : n;
+            });
             failed = d.error || '';
         }).catch(function (err) {
             failed = err.message;
@@ -60,17 +71,25 @@
     function install(file) {
         var b = items.filter(function (x) { return x.file === file; })[0];
         if (!b || busy[file]) return;
-        var go = b.status === 'mise_a_jour'
-            ? CT.dialog('Mettre à jour « ' + title(b.name) + ' » ? Les automatisations qui l\'utilisent passent tout de suite à la ' +
-                        'nouvelle version (si elle demande un nouveau réglage, ouvrez-les pour le renseigner).', {okLabel: 'Mettre à jour'})
-            : Promise.resolve(true);
+        var name = '« ' + title(b.name) + ' »';
+        var msg = {
+            mise_a_jour: 'Mettre à jour ' + name + ' ? Les automatisations qui l\'utilisent passent tout de suite à la ' +
+                         'nouvelle version (si elle demande un nouveau réglage, ouvrez-les pour le renseigner).',
+            different: 'La version de ' + name + ' dans Home Assistant diffère de celle de ClapTrap (importée ailleurs, ' +
+                       'modifiée, ou plus récente). La remplacer par celle de ClapTrap ? Les automatisations qui ' +
+                       'l\'utilisent la prendront tout de suite.',
+            a_jour: 'Réinstaller la version de ClapTrap de ' + name + ' ? Utile si elle a été modifiée dans Home Assistant.'
+        }[b.status];
+        var go = msg ? CT.dialog(msg, {okLabel: ACTIONS[b.status][0]}) : Promise.resolve(true);
         go.then(function (ok) {
             if (!ok) return;
             busy[file] = true;
             render();
             return CT.api('POST', '/api/blueprints/install', {file: file}).then(function (d) {
-                b.status = 'a_jour';
-                b.path = d.path;
+                // Element actuel (la liste a pu etre rechargee pendant l'envoi).
+                var cur = items.filter(function (x) { return x.file === file; })[0] || b;
+                cur.status = 'a_jour';
+                cur.path = d.path;
                 CT.success('« ' + title(b.name) + ' » ' + (d.updated ? 'mis à jour' : 'ajouté à Home Assistant'));
             }).catch(function (err) {
                 CT.error('Blueprint non envoyé : ' + err.message);

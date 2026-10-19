@@ -9,7 +9,11 @@
   Assistant :
   - pas encore ajouté → **Ajouter à Home Assistant** ;
   - mise à jour disponible → **Mettre à jour**, après une confirmation ;
-  - à jour.
+  - version différente (importée ailleurs ou modifiée, peut-être plus
+    récente) → **Remplacer par la version de ClapTrap**, après une
+    confirmation ;
+  - à jour → **Réinstaller** possible : Home Assistant ne montre pas tout le
+    contenu d'un blueprint.
 - Les blueprints sont maintenant inclus dans l'image, à la version de
   l'add-on. Ils sont envoyés par l'API WebSocket de Home Assistant
   (`blueprint/save`), puis les automatisations sont rechargées.
