@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.89.0
+
+### Détection plus réactive et plus économe
+
+- **Décision anticipée** : quand un seul groupe est en cours et qu'il a déjà
+  son nombre maximal de claps (un groupe « 1 clap » dès le premier),
+  l'événement part 0,5 à 1 s après le dernier clap (calme confirmé par une
+  analyse) au lieu d'attendre la fin de la fenêtre : environ 1 s de moins
+  pour un clap simple. Un double clap rapide sur un groupe « 1 clap » reste
+  « 2 claps », comme avant ; un clap plus tardif dans la même fenêtre est
+  ignoré. Désactivée avec l'arbitrage entre pièces (les sources doivent
+  finir en même temps pour être comparées).
+- **Fenêtres sur l'horloge audio** : la fin d'une fenêtre de comptage est
+  vérifiée tous les 100 ms (dans le fil d'analyse, après une analyse en
+  attente), et non plus à l'analyse suivante (jusqu'à 0,5 s de moins).
+- **Économie de processeur** : sans onglet ouvert, YAMNet ne tourne qu'après
+  un pic sonore, quand ses résultats peuvent servir ; dans une pièce calme,
+  presque toutes les analyses disparaissent (Raspberry Pi plus disponible).
+  Analyse continue pour les groupes d'alerte, sans nombre de claps ou qui
+  ajoutent les sons entendus.
+
 ## 6.88.0
 
 ### Diagnostics de performance

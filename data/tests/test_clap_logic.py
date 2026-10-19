@@ -485,3 +485,95 @@ def test_events_carry_peak_strength_over_noise():
     t.on_classification([('Clapping', 0.9)], 100.2)
     ev = [e for e in t.on_classification([('Clapping', 0.9)], 101.8) if not e['ignored']]
     assert ev and 15 < ev[0]['strength'] < 25                  # ~0,2 / 0,01
+
+
+def _counting_tracker(counts):
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5, 'clap_counts': counts}])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    return t
+
+
+def test_early_decision_for_single_clap_group():
+    """Groupe « 1 clap » seul arme : l'evenement part apres 0,5 s de calme
+    couvert par un resultat YAMNet (et non a la fin de la fenetre de 1,5 s) ;
+    un double clap rapide reste « 2 claps » (aucune entite), comme avant."""
+    t = _counting_tracker([1])
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    assert t.on_classification([('Clapping', 0.9)], 100.3) == []
+    assert t.poll(100.4) == []                                # pas encore 0,5 s de calme
+    assert t.poll(100.6) == []                                # aucun resultat ne couvre le calme
+    t.on_classification([('Clapping', 0.6)], 100.8)
+    ev = [e for e in t.poll(100.85) if not e['ignored']]
+    assert [e['clap_count'] for e in ev] == [1]
+    t2 = _counting_tracker([1])
+    t2.feed_peak(0.3, 100.0, pre_level=0.01)
+    t2.on_classification([('Clapping', 0.9)], 100.3)
+    t2.feed_peak(0.01, 100.2)
+    t2.feed_peak(0.3, 100.35, pre_level=0.01)                  # 2e clap avant la decision
+    t2.on_classification([('Clapping', 0.9)], 100.9)
+    assert t2.poll(100.95) == []                               # 2 > 1 : pas de decision anticipee
+    ev = [e for e in t2.poll(101.6) if not e['ignored']]       # fin de fenetre sur l'horloge audio
+    assert [e['clap_count'] for e in ev] == [2]
+
+
+def test_slow_double_clap_after_early_decision_toggles_once():
+    """Clap tardif dans la fenetre deja decidee : ignore, pas un 2e geste."""
+    t = _counting_tracker([1])
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.on_classification([('Clapping', 0.6)], 100.8)
+    assert [e['clap_count'] for e in t.poll(100.85) if not e['ignored']] == [1]
+    t.feed_peak(0.01, 100.9)
+    t.feed_peak(0.3, 101.2, pre_level=0.01)                    # dans la fenetre d'origine
+    t.on_classification([('Clapping', 0.9)], 101.3)
+    t.on_classification([('Clapping', 0.9)], 101.8)
+    assert t.poll(103.5) == []
+
+
+def test_no_early_decision_when_another_group_arms_later():
+    """Un groupe reconnu seulement au resultat suivant entre en arbitrage."""
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([
+        {'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5, 'clap_counts': [1]},
+        {'slug': 'toc', 'name': 'Toc', 'whitelist': {'Knock': True}, 'threshold': 0.5, 'clap_counts': [1]},
+    ])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.6)], 100.3)
+    t.on_classification([('Knock', 0.95), ('Clapping', 0.6)], 100.8)
+    assert t.poll(100.85) == []                                # deux groupes armes
+    ev = [e for e in t.poll(101.55) if not e['ignored']]
+    assert [e['group']['slug'] for e in ev] == ['toc']
+
+
+def test_no_early_decision_with_room_arbitration():
+    t = _counting_tracker([1])
+    t.early_decision = False
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.on_classification([('Clapping', 0.6)], 100.8)
+    assert t.poll(100.85) == []
+    assert [e['clap_count'] for e in t.poll(101.55) if not e['ignored']] == [1]
+
+
+def test_window_expires_on_audio_clock_without_new_result():
+    t = _counting_tracker([1, 2])
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    assert t.poll(101.0) == []
+    ev = [e for e in t.poll(101.55) if not e['ignored']]       # sans attendre un resultat YAMNet
+    assert [e['clap_count'] for e in ev] == [1]
+
+
+def test_results_needed_only_after_a_peak_in_quiet_room():
+    t = _counting_tracker([1, 2])
+    assert not t.needs_results(100.0, 0.5)                     # piece calme : analyse inutile
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    assert t.needs_results(101.6, 0.5) and not t.needs_results(101.8, 0.5)
+    t.set_groups([{'slug': 'f', 'name': 'F', 'whitelist': {}, 'threshold': 0.5, 'count_mode': 'alerte'}])
+    assert t.needs_results(200.0, 0.5)                         # alerte : toujours

@@ -42,6 +42,7 @@ PRE_WINDOW = 320   # 20 ms : niveau mesure juste avant un pic (attaque)
 YAMNET_WINDOW_MS = 975
 WINDOW_SAMPLES = YAMNET_WINDOW_MS * 16   # 15 600 a 16 kHz (seule frequence du modele)
 HOP_BLOCKS = 5
+ANALYSIS_HOP = HOP_BLOCKS * BLOCK_SAMPLES / 16000   # s entre deux analyses
 WINDOW_BLOCKS = -(-WINDOW_SAMPLES // BLOCK_SAMPLES)   # blocs gardes pour une fenetre
 JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne est jetee)
 # Horloge audio : coupure si elle a plus de CUT_GAP s de retard sur l'heure ;
@@ -238,6 +239,16 @@ class AudioDetector:
                 attacks, sustains = self.tracker.attack_count, self.tracker.sustain_count
                 self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
                 attacks, sustains = self.tracker.attack_count - attacks, self.tracker.sustain_count - sustains
+                pending = self.tracker.pending()
+            if pending and self._jobs.empty():
+                # Fenetre ouverte : fin sur l'horloge audio et decision
+                # anticipee, verifiees dans le fil d'analyse (les rappels ne
+                # retardent pas la lecture, et une analyse en attente passe
+                # avant : elle couvre peut-etre la fin de la fenetre).
+                try:
+                    self._jobs.put_nowait((None, self._clock_end))
+                except queue.Full:
+                    pass
             if self._taps:
                 self._tap('block', raw_peak, gain, peak_time, pre_level)
                 if attacks:
@@ -366,7 +377,7 @@ class AudioDetector:
         if len(self._blocks) < WINDOW_BLOCKS or self._since_hop < HOP_BLOCKS:
             return
         self._since_hop = 0
-        if self.analysis_wanted is not None and not self.analysis_wanted():
+        if self.analysis_wanted is not None and not self.analysis_wanted(end_clock):
             return   # aucun groupe actif et aucun onglet ouvert : rien a reconnaitre
         self._submit((np.concatenate(self._blocks)[-WINDOW_SAMPLES:], end_clock))
 
@@ -377,9 +388,9 @@ class AudioDetector:
         except queue.Full:
             pass
         try:
-            self._jobs.get_nowait()   # analyse en retard (Pi surcharge) : la plus ancienne saute
+            old = self._jobs.get_nowait()   # analyse en retard (Pi surcharge) : la plus ancienne saute
             self._jobs.task_done()
-            if job is not None:
+            if job is not None and old is not None and old[0] is not None:
                 self._dropped += 1
                 if self._dropped <= 5 or self._dropped % 100 == 0:
                     logging.warning(f"[{self.label}] analyse en retard : fenêtre ignorée ({self._dropped}x)")
@@ -405,9 +416,22 @@ class AudioDetector:
                     if not self.running:
                         return
                     continue
-                self._analyze(*job)
+                if job[0] is None:
+                    self._poll(job[1])
+                else:
+                    self._analyze(*job)
             finally:
                 self._jobs.task_done()
+
+    def _poll(self, clock):
+        if not self.running:
+            return
+        try:
+            with self.lock:
+                events = self.tracker.poll(clock)
+            self._dispatch(events)
+        except Exception:
+            logging.exception("Erreur dans la fin des fenêtres de comptage")
 
     def wait_idle(self, timeout=5.0):
         """Attend que les fenetres en attente soient analysees (tests, autotest)."""
