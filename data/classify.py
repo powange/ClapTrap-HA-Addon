@@ -232,11 +232,16 @@ class DetectionSession:
         self.source_status = {}  # source_id -> connecting|connected|reconnecting|error
         self.audio_formats = {}  # source_id -> format audio recu (cameras : codec, frequence)
         self.source_errors = {}  # source_id -> cause de la derniere erreur (affichee sur la carte)
+        self.reconnects = {}     # source_id -> reconnexions du flux (diagnostic)
         self.webhooks = {s['source_id']: s.get('webhook_url') or '' for s in sources}
         _live_gains.clear()
         _live_gains.update({s['source_id']: float(s['gain']) for s in sources if 'gain' in s})
 
     def _set_status(self, source_id, status, error=None):
+        if status == 'reconnecting' or (status == 'error' and self.source_status.get(source_id) != 'error'):
+            # Relance du flux (ou nouvelle erreur, chaque relance qui echoue
+            # passant par « error ») : compteur de diagnostic.
+            self.reconnects[source_id] = self.reconnects.get(source_id, 0) + 1
         self.source_status[source_id] = status
         if status == 'error' and error:
             self.source_errors[source_id] = error
@@ -654,7 +659,7 @@ class DetectionSession:
         duree des analyses)."""
         with self._lock:
             dets = dict(self.detectors)
-        return {sid: det.stats() for sid, det in dets.items()}
+        return {sid: dict(det.stats(), reconnexions=self.reconnects.get(sid, 0)) for sid, det in dets.items()}
 
     def _start_runner(self, src, settings=None):
         runner = {'src': src, 'stop': threading.Event(), 'reader': None,
@@ -902,13 +907,14 @@ def _current():
 
 
 def get_status():
+    import perf
     s = _current()
     if s is None:
-        return {'running': False, 'source': None}
+        return {'running': False, 'source': None, 'perf': perf.latest()}
     return {'running': True, 'source': s.label, 'since': s.started_at,
             'sources': [src['source_id'] for src in list(s.sources)],
             'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats),
-            'source_errors': dict(s.source_errors), 'source_stats': s.source_stats()}
+            'source_errors': dict(s.source_errors), 'source_stats': s.source_stats(), 'perf': perf.latest()}
 
 
 def get_detection_history():

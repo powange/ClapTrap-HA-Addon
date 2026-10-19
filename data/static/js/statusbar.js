@@ -54,11 +54,15 @@
             });
         });
         var emptyText = empty ? ' · ' + empty + ' groupe' + (empty > 1 ? 's' : '') + ' sans son' : '';
+        // Processeur et memoire de l'add-on (tout le conteneur : ffmpeg compris).
+        var perf = st.perf || {};
+        var perfText = perf.processeur != null ? ' · processeur ' + String(perf.processeur).replace('.', ',') + ' %' +
+            (perf.memoire_mo != null ? ', ' + Math.round(perf.memoire_mo) + ' Mo' : '') : '';
         setText(CT.$('#status-detail'), (running
             ? n + ' source' + (n > 1 ? 's' : '') + (bad ? ' · ' + bad + ' en erreur' : '') + ' · ' + sinceText(st.since)
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
                               : hasSources ? 'Activez une source pour pouvoir démarrer'
-                                           : 'Ajoutez une source pour pouvoir démarrer')) + emptyText);
+                                           : 'Ajoutez une source pour pouvoir démarrer')) + emptyText + (running ? perfText : ''));
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
         if (wasRunning !== null && wasRunning !== running && CT.announce) {
             CT.announce(running ? 'Détection démarrée' : 'Détection arrêtée', true);

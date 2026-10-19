@@ -280,7 +280,8 @@ def test_device_payload_and_component_removal(ctl, mqtt):
     ha.republish_all()
     hub = json.loads(last(mqtt, 'homeassistant/device/claptrap/hub/config'))
     assert hub['dev']['identifiers'] == ['claptrap'] and {'detection', 'detection_active', 'configuration',
-                                                          'derniere_commande', 'derniere_piece'} == set(hub['cmps'])
+                                                          'derniere_commande', 'derniere_piece', 'processeur',
+                                                          'memoire'} == set(hub['cmps'])
     s = ctl.load_settings()
     s['microphone']['sound_groups'][0]['ha_entities'] = [1]
     ctl.save_settings(s)
@@ -442,3 +443,37 @@ def test_rooms_over_mqtt_and_last_room_sensor(ctl, mqtt):
     ha_control.publish_last_room({'source_name': 'Cuisine', 'entity_key': 'rtsp_x', 'clap_count': 2, 'group_name': 'Clap'})
     msg = json.loads(last(mqtt, ha_control.ROOM_TOPIC))
     assert msg['piece'] == 'Cuisine' and msg['claps'] == 2
+
+
+def test_performance_sensors_published(ctl, mqtt, monkeypatch):
+    """Capteurs de performance : processeur et memoire, et par source duree
+    d'analyse, analyses perdues, coupures, reconnexions."""
+    import types
+    import classify
+    import perf
+    monkeypatch.setattr(perf, 'latest', lambda: {'processeur': 12.5, 'memoire_mo': 210.0})
+    session = types.SimpleNamespace(
+        sources=[{'source_id': 'mic', 'entity_key': 'mic'}],
+        source_stats=lambda: {'mic': {'analyse_ms': 4.2, 'analyses_sautees': 2, 'blocs_perdus': 1,
+                                      'coupures': 3, 'reconnexions': 1}})
+    monkeypatch.setattr(classify, '_current', lambda: session)
+    sensors = configs(mqtt, 'sensor')
+    assert sensors['mic_analyse_ms']['unit_of_measurement'] == 'ms'
+    assert sensors['mic_reconnexions']['state_class'] == 'total_increasing'
+    ha_control.publish_diagnostics()
+    assert json.loads(last(mqtt, ha_control.PERF_TOPIC)) == {'processeur': 12.5, 'memoire_mo': 210.0}
+    assert json.loads(last(mqtt, 'claptrap/mic/diagnostic')) == {'analyse_ms': 4.2, 'perdues': 3, 'coupures': 3, 'reconnexions': 1}
+    n = len(mqtt.published)
+    ha_control.publish_diagnostics()
+    assert len(mqtt.published) == n                            # rien de nouveau : rien republie
+
+
+def test_perf_reads_cgroup_without_page_cache(tmp_path):
+    import perf
+    (tmp_path / 'cpu.stat').write_text('usage_usec 1500000\nuser_usec 1\n')
+    (tmp_path / 'memory.current').write_text(str(300 * 1024 * 1024))
+    (tmp_path / 'memory.stat').write_text(f'anon 1\ninactive_file {100 * 1024 * 1024}\n')
+    assert perf._cpu_seconds(str(tmp_path)) == 1.5
+    assert perf._memory_mb(str(tmp_path)) == 200.0              # cache recuperable retire
+    assert perf.cpu_percent((10.0, 1.0), (12.0, 2.0)) == 50.0
+    assert perf.cpu_percent(None, (12.0, 2.0)) is None

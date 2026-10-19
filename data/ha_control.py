@@ -23,6 +23,7 @@ commandes sont executees une par une, dans l'ordre de reception.
 """
 
 import json
+import os
 import logging
 import queue
 import threading
@@ -35,6 +36,8 @@ RESULT_TOPIC = 'claptrap/command/result'
 RESULT_ATTRIBUTES_TOPIC = 'claptrap/command/result/attributs'
 CONFIG_TOPIC = 'claptrap/configuration'
 ROOM_TOPIC = 'claptrap/derniere_piece'
+PERF_TOPIC = 'claptrap/performance'
+DIAG_INTERVAL = 30.0      # s entre deux publications des capteurs de performance
 DETECTION_SET_TOPIC = 'claptrap/detection/set'
 SUBSCRIPTIONS = (COMMAND_TOPIC, DETECTION_SET_TOPIC, 'claptrap/+/source_active/set',
                  'claptrap/+/+/seuil/set', 'claptrap/+/+/groupe_actif/set', 'claptrap/+/+/nom/set')
@@ -97,6 +100,43 @@ def init(api_caller, notify_ui=None):
     _api, _notify_ui = api_caller, notify_ui
     from settings_manager import add_change_listener
     add_change_listener(schedule_states)
+    if os.environ.get('SUPERVISOR_TOKEN'):   # dans l'add-on seulement (pas dans les tests)
+        threading.Thread(target=_diagnostics_loop, daemon=True, name='ha-diagnostic').start()
+
+
+def _diagnostics_loop():
+    while True:
+        time.sleep(DIAG_INTERVAL)
+        try:
+            publish_diagnostics()
+        except Exception as e:
+            logging.debug(f"Diagnostic de performance non publié: {e}")
+
+
+def publish_diagnostics():
+    """Capteurs de performance : processeur et memoire de l'add-on, et par
+    source ecoutee duree des analyses, analyses perdues, coupures et
+    reconnexions (seulement si une valeur change)."""
+    if not ha._mqtt_connected.is_set():
+        return
+    import perf
+    import classify
+    _publish_state(PERF_TOPIC, perf.latest())
+    session = classify._current()
+    if session is None:
+        return   # detection arretee : dernieres valeurs gardees
+    stats = session.source_stats()
+    # Identifiants de la session (source_id et entity_key), sans les recalculer.
+    for src in list(session.sources):
+        st = stats.get(src['source_id'])
+        if st is None:
+            continue
+        _publish_state(f"claptrap/{ha._make_slug(src['entity_key'])}/diagnostic", {
+            'analyse_ms': st.get('analyse_ms'),
+            'perdues': st.get('analyses_sautees', 0) + st.get('blocs_perdus', 0),
+            'coupures': st.get('coupures', 0),
+            'reconnexions': st.get('reconnexions', 0),
+        })
 
 
 # ===== Entites de reglage ===================================================
@@ -139,6 +179,18 @@ def source_entities(info):
             value_template='{{ value_json.top3 | map(attribute="resume") | join(", ") }}',
             entity_category='diagnostic', icon='mdi:format-list-numbered')),
     ]
+    # Performance de la source (tableaux et historique de HA) : un Raspberry
+    # Pi surcharge se voit tout de suite.
+    diag = f'claptrap/{slug}/diagnostic'
+    for obj, name, field, extra in (
+            ('analyse_ms', "Durée d'analyse", 'analyse_ms',
+             dict(unit_of_measurement='ms', state_class='measurement', icon='mdi:timer-outline')),
+            ('analyses_perdues', 'Analyses perdues', 'perdues', dict(state_class='total_increasing', icon='mdi:alert-circle-outline')),
+            ('coupures', 'Coupures du flux', 'coupures', dict(state_class='total_increasing', icon='mdi:lan-disconnect')),
+            ('reconnexions', 'Reconnexions', 'reconnexions', dict(state_class='total_increasing', icon='mdi:restart'))):
+        out.append(('sensor', f'{slug}_{obj}', _base_config(
+            'sensor', f'{slug}_{obj}', name, state_topic=diag,
+            value_template='{{ value_json.' + field + ' }}', entity_category='diagnostic', **extra)))
     for g_slug, g in info['groups'].items():
         base, ebase = f'{slug}_{g_slug}', f"{slug}_{g.get('entity_slug') or g_slug}"
         name = g['name']   # HA prefixe du nom de l'appareil de la source
@@ -185,7 +237,8 @@ def source_entity_ids(info):
     """object_id des entites de reglage et de diagnostic d'une source (memes
     que source_entities, sans construire les configurations)."""
     slug = info['slug']
-    ids = {f'{slug}_source_active', f'{slug}_derniere_classe', f'{slug}_top3'}
+    ids = {f'{slug}_source_active', f'{slug}_derniere_classe', f'{slug}_top3', f'{slug}_analyse_ms',
+           f'{slug}_analyses_perdues', f'{slug}_coupures', f'{slug}_reconnexions'}
     for g_slug, g in info['groups'].items():
         ids |= {f'{slug}_{g_slug}_{s}' for s in ('seuil', 'groupe_actif', 'score', 'nom', 'sons')}
         if g.get('clap_counts'):
@@ -197,7 +250,7 @@ def control_state_topics(info):
     """Topics d'etat retenus des entites de reglage et de diagnostic d'une
     source, a vider quand la source ou le groupe disparait."""
     slug = info['slug']
-    topics = {f'claptrap/{slug}/source_active', f'claptrap/{slug}/analyse'}
+    topics = {f'claptrap/{slug}/source_active', f'claptrap/{slug}/analyse', f'claptrap/{slug}/diagnostic'}
     for g_slug in info['groups']:
         topics |= {f'claptrap/{slug}/{g_slug}/{t}' for t in ('seuil', 'groupe_actif', 'nom', 'sons')}
     return topics
@@ -226,6 +279,14 @@ def global_entities():
             json_attributes_topic=CONFIG_TOPIC,
             json_attributes_template='{{ value_json.details | tojson }}',
             entity_category='diagnostic', icon='mdi:cog')),
+        ('sensor', 'processeur', _base_config(
+            'sensor', 'processeur', 'Processeur', state_topic=PERF_TOPIC,
+            value_template='{{ value_json.processeur }}', unit_of_measurement='%', state_class='measurement',
+            entity_category='diagnostic', icon='mdi:cpu-64-bit')),
+        ('sensor', 'memoire', _base_config(
+            'sensor', 'memoire', 'Mémoire', state_topic=PERF_TOPIC,
+            value_template='{{ value_json.memoire_mo }}', unit_of_measurement='MB', device_class='data_size',
+            state_class='measurement', entity_category='diagnostic', icon='mdi:memory')),
         ('sensor', 'derniere_piece', _base_config(
             'sensor', 'derniere_piece', 'Pièce du dernier clap',
             state_topic=ROOM_TOPIC, value_template='{{ value_json.piece }}',

@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.88.0
+
+### Diagnostics de performance
+
+- **Capteurs Home Assistant par source** (diagnostic, toutes les 30 s) :
+  durée moyenne d'une analyse YAMNet, analyses perdues faute de processeur,
+  coupures et reconnexions du flux. Avec l'historique de HA, on voit tout de
+  suite si une source de trop dégrade un Raspberry Pi.
+- **Processeur et mémoire de l'add-on** (`sensor.claptrap_processeur`,
+  `sensor.claptrap_memoire`), ffmpeg et parecord compris.
+- Dans l'interface : durée d'analyse (moyenne et maximum) et reconnexions
+  sur la carte de chaque source, processeur et mémoire dans la barre d'état
+  pendant la détection.
+
 ## 6.87.0
 
 ### Blueprints Home Assistant (retours d'usage)
