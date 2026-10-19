@@ -198,3 +198,65 @@ def test_watchdog_without_format_says_no_sound():
     src = ProcessSource(emitter(0, then='hang'), 'fake', stall_timeout=1)
     list(src.iter_blocks(threading.Event()))
     assert src.last_error == 'aucun son reçu en 1 s'
+
+
+def _probe_with(monkeypatch, blocks, stderr, then='exit', **kw):
+    import audio_sources
+    monkeypatch.setattr(audio_sources, '_rtsp_cmd', lambda url, tcp, extra=(): emitter(blocks, then=then, stderr=stderr))
+    return audio_sources.probe_rtsp('rtsp://u:secret@cam/x', **kw)
+
+
+def test_probe_reports_format_and_sound(monkeypatch):
+    r = _probe_with(monkeypatch, 20, FFMPEG_INFO)
+    assert r['ok'] and r['error'] is None and r['audio_seconds'] == 2.0
+    assert r['format'] == {'codec': 'pcm_mulaw', 'sample_rate': 8000, 'channels': 'mono'}
+
+
+@pytest.mark.parametrize('stderr,expected', [
+    ("[rtsp @ 0x5640401a] [error] method DESCRIBE failed: 401 Unauthorized\n", 'mot de passe refusés'),
+    ("[rtsp @ 0x5640401a] [error] method DESCRIBE failed: 404 Not Found\n", 'Chemin du flux introuvable'),
+    ("[tcp @ 0x5640404a] [error] Connection to tcp://cam:554 failed: Connection refused\n", 'refuse la connexion'),
+    ("[error] Output file #0 does not contain any stream\n", 'aucune piste audio'),
+    ("[rtsp @ 0x5640401a] [error] method SETUP failed: 461 Unsupported transport\n", 'Connexion impossible : method SETUP'),
+])
+def test_probe_explains_errors(monkeypatch, stderr, expected):
+    r = _probe_with(monkeypatch, 0, stderr)
+    assert not r['ok'] and expected in r['error'] and 'secret' not in r['error']
+
+
+def test_probe_hex_context_is_not_an_http_status(monkeypatch):
+    """« [rtsp @ 0x55d4040c] » contient 404 : pas « chemin introuvable »."""
+    r = _probe_with(monkeypatch, 0, "[rtsp @ 0x55d4040c] [error] method SETUP failed: 461 Unsupported transport\n")
+    assert 'Chemin' not in r['error']
+
+
+def test_probe_announced_audio_without_sound_times_out(monkeypatch):
+    info = ("[info] Input #0, rtsp, from 'rtsp://cam/x':\n"
+            "[info]   Stream #0:1: Audio: aac (LC), 16000 Hz, mono, fltp\n"
+            "[info] Stream mapping:\n")
+    t0 = time.monotonic()
+    r = _probe_with(monkeypatch, 0, info, then='hang', timeout=1)
+    assert time.monotonic() - t0 < 5
+    assert not r['ok'] and r['format']['sample_rate'] == 16000 and 'un autre lecteur RTSP' in r['error']
+
+
+def test_probe_url_digits_are_not_http_status(monkeypatch):
+    """Chemin Hikvision « Channels/401 » : port ferme, pas « mot de passe refuse »."""
+    r = _probe_with(monkeypatch, 0, "[tcp @ 0x1] [error] Connection to tcp://cam:554 failed: Connection refused\n"
+                                    "[error] rtsp://***@cam:554/Streaming/Channels/401: Connection refused\n")
+    assert 'refuse la connexion' in r['error']
+
+
+def test_probe_can_be_cancelled(monkeypatch):
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+    t0 = time.monotonic()
+    r = _probe_with(monkeypatch, 0, '', then='hang', cancel=cancel)
+    assert time.monotonic() - t0 < 3 and not r['ok']
+
+
+def test_probe_reports_missing_ffmpeg(monkeypatch):
+    import audio_sources
+    monkeypatch.setattr(audio_sources, '_rtsp_cmd', lambda url, tcp, extra=(): ['/nonexistent/ffmpeg'])
+    r = audio_sources.probe_rtsp('rtsp://cam/x')
+    assert not r['ok'] and "ffmpeg n'a pas pu être lancé" in r['error']

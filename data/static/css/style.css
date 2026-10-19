@@ -72,6 +72,8 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
 .muted { color: var(--ink-3); }
 .hint { color: var(--ink-3); font-size: 0.85rem; }
 .text-warn { color: var(--warn); }   /* avertissement en texte (calibrage, format audio) */
+.text-ok { color: var(--ok); }
+#wz-probe-result p { margin: 6px 0 0; }
 .audio-format { margin: 2px 0 4px; font-weight: 600; }
 .record-result audio { width: 100%; margin-top: 8px; }
 .record-timeline { margin: 4px 0 0; padding-left: 18px; font-size: 0.85rem; }

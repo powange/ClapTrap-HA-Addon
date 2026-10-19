@@ -40,6 +40,29 @@ def parse_audio_format(line):
             'channels': (m.group(3) or '').strip()}
 
 
+def scan_ffmpeg_line(line, state):
+    """Ligne de ffmpeg (-loglevel level+info) : ('error', texte), ('format',
+    format audio de l'entree) ou None. `state` ({'input', 'format_done'}) suit
+    la description du flux d'entree (« Input #0 » ... « Stream mapping » /
+    « Output #0 ») : la sortie f32le 16 kHz n'est pas la camera."""
+    m = _LEVEL_RE.search(line)
+    text = (line[:m.start()] + line[m.end():]).strip() if m else line
+    if m and m.group(1) in ('panic', 'fatal', 'error'):
+        return 'error', text[-200:]
+    if state['format_done']:
+        return None
+    if text.startswith('Input #'):
+        state['input'] = True
+    elif text.startswith(('Output #', 'Stream mapping')):
+        state['input'], state['format_done'] = False, True
+    elif state['input']:
+        fmt = parse_audio_format(text)
+        if fmt:
+            state['format_done'] = True
+            return 'format', fmt
+    return None
+
+
 class ProcessSource:
     def __init__(self, cmd, name, stall_timeout=15, sanitize=None, levels=False):
         self.cmd = cmd
@@ -82,29 +105,18 @@ class ProcessSource:
             # avertissements RTP d'un flux Wi-Fi peuvent etre frequents).
             if state['format_done'] and not any(t in line for t in ('[error]', '[fatal]', '[panic]')):
                 return
-            m = _LEVEL_RE.search(line)
-            text = (line[:m.start()] + line[m.end():]).strip() if m else line
-            if m and m.group(1) in ('panic', 'fatal', 'error'):
-                self.last_error = text[-200:]
+            found = scan_ffmpeg_line(line, state)
+            if not found:
                 return
-            if state['format_done']:
+            if found[0] == 'error':
+                self.last_error = found[1]
                 return
-            # Flux d'entree seulement (« Input #0 » ... « Stream mapping » /
-            # « Output #0 ») : la sortie f32le 16 kHz n'est pas la camera.
-            if text.startswith('Input #'):
-                state['input'] = True
-            elif text.startswith(('Output #', 'Stream mapping')):
-                state['input'], state['format_done'] = False, True
-            elif state['input']:
-                fmt = parse_audio_format(text)
-                if fmt:
-                    state['format_done'] = True
-                    self.audio_format = fmt
-                    if self.on_format:
-                        try:
-                            self.on_format(fmt)
-                        except Exception as e:
-                            logging.debug(f"{self.name}: format audio non transmis : {e}")
+            fmt = self.audio_format = found[1]
+            if self.on_format:
+                try:
+                    self.on_format(fmt)
+                except Exception as e:
+                    logging.debug(f"{self.name}: format audio non transmis : {e}")
         drain_stderr(proc, self.name, sanitize=self.sanitize, on_line=_on_line)
         last_data = [time.monotonic()]
         got_data = [False]
@@ -168,8 +180,8 @@ def mic_source(pulse_name):
     return ProcessSource(cmd, 'parecord', stall_timeout=10)
 
 
-def rtsp_source(url, tcp=False):
-    cmd = [
+def _rtsp_cmd(url, tcp, extra=()):
+    return [
         # level+info : erreurs reconnaissables (niveau) et description du flux
         # recu (format audio de la camera, affiche dans ses reglages).
         'ffmpeg', '-nostdin', '-nostats', '-loglevel', 'level+info',
@@ -182,11 +194,108 @@ def rtsp_source(url, tcp=False):
         # (compile sans decodeur video) ne la sonde plus ~5 s a chaque
         # connexion avant de livrer l'audio.
         '-allowed_media_types', 'audio',
-        '-i', url,
+        '-i', url, *extra,
         '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ac', '1', '-ar', '16000',
         'pipe:1',
     ]
-    return ProcessSource(cmd, 'ffmpeg', stall_timeout=15, sanitize=mask_url_credentials, levels=True)
+
+
+def rtsp_source(url, tcp=False):
+    return ProcessSource(_rtsp_cmd(url, tcp), 'ffmpeg', stall_timeout=15, sanitize=mask_url_credentials, levels=True)
+
+
+PROBE_SECONDS = 2.0    # son lu pour verifier qu'il arrive vraiment
+PROBE_TIMEOUT = 15.0   # connexion comprise (une camera lente met plusieurs secondes)
+
+# « [rtsp @ 0x55d4040c] » et adresses (« rtsp://***@cam/Channels/401: ... ») :
+# leurs chiffres ne sont pas des codes d'erreur (401, 404).
+_CONTEXT_RE = re.compile(r'\[[^\]]*@ 0x[0-9a-fA-F]+\]\s*|\b[a-z]+://\S+')
+# Erreur de ffmpeg -> explication (premier motif trouve, minuscules).
+_PROBE_ERRORS = (
+    (('401', 'unauthorized', 'authorization failed'), "Identifiant ou mot de passe refusés par la caméra."),
+    (('404', 'not found'), "Chemin du flux introuvable sur la caméra (la fin de l'adresse, après le port)."),
+    (('connection refused',), "La caméra refuse la connexion sur ce port (554 en général)."),
+    (('name or service not known', 'failed to resolve', 'temporary failure in name resolution'),
+     "Nom de la caméra introuvable sur le réseau : essayez son adresse IP."),
+    (('no route to host', 'network is unreachable', 'timed out', 'timeout'),
+     "Caméra injoignable : vérifiez l'adresse IP, le port et le réseau."),
+    (('does not contain any stream', 'matches no streams', 'no audio'),
+     "Le flux ne contient aucune piste audio : activez le son (micro) dans les réglages de la caméra."),
+)
+
+
+def _probe_message(errors, fmt, received, timed_out):
+    """Explication d'un echec a partir des lignes d'erreur de ffmpeg (la
+    cause est la premiere : les suivantes sont « Error opening input... »)."""
+    errors = [_CONTEXT_RE.sub('', e).strip(' :') for e in errors]
+    error = errors[0] if errors else ''
+    low = ' '.join(errors).lower()
+    for needles, text in _PROBE_ERRORS:
+        if any(n in low for n in needles):
+            return text
+    if not fmt and 'play failed' in low:
+        # Aucune piste audio a demander (video seule) : PLAY refuse.
+        return _PROBE_ERRORS[-1][1]
+    if fmt and not received:
+        return ("La caméra annonce une piste audio mais n'a envoyé aucun son : un autre lecteur RTSP "
+                "a peut-être l'audio (certaines caméras ne le servent qu'à un client à la fois).")
+    if error:
+        return f"Connexion impossible : {error}"
+    if timed_out:
+        return "La caméra ne répond pas : vérifiez l'adresse IP, le port et le réseau."
+    if not fmt:
+        return "Le flux ne contient aucune piste audio : activez le son (micro) dans les réglages de la caméra."
+    return "Connexion impossible."
+
+
+def probe_rtsp(url, tcp=False, seconds=PROBE_SECONDS, timeout=PROBE_TIMEOUT, cancel=None):
+    """Verifie une adresse RTSP avant de l'ajouter : connexion, format audio
+    annonce et son vraiment recu pendant `seconds` s (au plus `timeout` s ;
+    `cancel`, un Event, l'interrompt). Retourne {ok, format, audio_seconds,
+    error} ; `error` est une explication en francais (sans identifiants)."""
+    cmd = _rtsp_cmd(url, tcp, extra=('-t', str(seconds)))
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as e:
+        logging.error(f"ffmpeg non lancé : {e}")
+        return {'ok': False, 'format': None, 'audio_seconds': 0.0,
+                'error': "ffmpeg n'a pas pu être lancé (voir le journal de l'add-on)."}
+    state = {'input': False, 'format_done': False}
+    found = {'format': None, 'errors': []}
+
+    def _on_line(line):
+        hit = scan_ffmpeg_line(line, state)
+        if hit and hit[0] == 'error':
+            found['errors'].append(hit[1])
+        elif hit:
+            found['format'] = hit[1]
+    reader = drain_stderr(proc, 'ffmpeg (vérification)', sanitize=mask_url_credentials, on_line=_on_line)
+    timed_out, done = threading.Event(), threading.Event()
+    deadline = time.monotonic() + timeout
+
+    def _guard():
+        while not done.wait(0.2):
+            if time.monotonic() > deadline or (cancel is not None and cancel.is_set()):
+                timed_out.set()
+                proc.kill()
+                return
+    threading.Thread(target=_guard, daemon=True).start()
+    received = 0
+    try:
+        for chunk in iter(lambda: proc.stdout.read(65536), b''):
+            received += len(chunk)
+    finally:
+        done.set()
+        terminate_process(proc)
+        reader.join(timeout=2)
+    audio_seconds = round(received / 4 / 16000, 1)
+    ok = received > 0
+    return {
+        'ok': ok,
+        'format': found['format'],
+        'audio_seconds': audio_seconds,
+        'error': None if ok else _probe_message(found['errors'], found['format'], received, timed_out.is_set()),
+    }
 
 
 class VbanSource:
