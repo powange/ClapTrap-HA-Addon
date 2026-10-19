@@ -484,3 +484,24 @@ def test_yamnet_init_failure_reported(session_env, monkeypatch):
     session._runners.pop('rtsp_c')
     session._run_one({'type': 'rtsp', 'source_id': 'rtsp_c', 'label': 'Cam'}, runner)
     assert session.source_errors == {}
+
+
+def test_error_before_reading_reported_and_detector_freed(session_env, monkeypatch):
+    """Exception apres l'initialisation de YAMNet (reglages, auto-volume) :
+    erreur sur la carte, detecteur arrete et retire (il tournait pour rien)."""
+    classify, sock, emitted, calls, sm = session_env
+    stopped = []
+    fake_det = types.SimpleNamespace(stop=lambda: stopped.append(1))
+
+    def create(self, src, stop=None):
+        self.detectors[src['source_id']] = fake_det
+        return fake_det
+    monkeypatch.setattr(classify.DetectionSession, '_create_detector', create)
+    monkeypatch.setattr(classify.DetectionSession, '_prepare_mic',
+                        lambda self, stop: (_ for _ in ()).throw(RuntimeError('pactl absent')))
+    session = classify.DetectionSession([], sock)
+    runner = {'stop': __import__('threading').Event()}
+    session._runners['mic'] = runner
+    session._run_guarded({'type': 'mic', 'source_id': 'mic', 'label': 'Micro'}, runner)
+    assert 'pactl absent' in session.source_errors['mic']
+    assert stopped == [1] and 'mic' not in session.detectors

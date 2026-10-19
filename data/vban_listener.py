@@ -26,6 +26,8 @@ VBAN_CODEC_PCM = 0x00        # octet 7, bits 4-7
 VBAN_DATATYPES = {1: (2, 'INT16'), 2: (3, 'INT24'), 3: (4, 'INT32'),
                   4: (4, 'FLOAT32'), 5: (8, 'FLOAT64')}
 
+FILL_MAX = 1.0       # s : trou au-dela duquel les paquets perdus ne sont pas combles (redemarrage)
+LATE_FRAMES = 64     # trames : paquet en retard (desordre UDP) ignore ; au-dela, emetteur redemarre
 SOURCE_TIMEOUT = 5   # s sans paquet avant de retirer une source de la decouverte
 
 VBANHeader = namedtuple('VBANHeader', 'name sample_rate channels datatype')
@@ -396,6 +398,7 @@ class VBANDetector:
                         if sender is not None and sender != ip:
                             logging.info(f"VBAN: flux « {hdr.name} » repris par {ip} (ancien émetteur : {sender})")
                         stream['sender'] = sender = ip
+                        stream['frame'] = None   # compteur de trames de l'ancien emetteur
                     if sender != ip:
                         if (mkey, ip) not in self._warned:
                             self._warned.add((mkey, ip))
@@ -433,6 +436,21 @@ class VBANDetector:
         if hdr.channels > 1:
             frames = len(audio) // hdr.channels
             audio = audio[:frames * hdr.channels].reshape(-1, hdr.channels).mean(axis=1)
+
+        # Paquets UDP perdus (Wi-Fi) : le compteur de trames (octets 24-27)
+        # saute. Silence insere a leur place (jusqu'a FILL_MAX s) : le son
+        # n'est plus raccourci, l'ecart entre deux claps reste juste et
+        # l'horloge audio ne prend pas de retard.
+        frame = int.from_bytes(data[24:28], 'little')
+        last = stream.get('frame')
+        if last is not None:
+            if 0 < (last - frame) & 0xFFFFFFFF <= LATE_FRAMES:
+                return   # paquet arrive en retard (deja remplace par du silence) : ignore
+            missing = (frame - last - 1) & 0xFFFFFFFF
+            if 0 < missing and missing * len(audio) <= hdr.sample_rate * FILL_MAX:
+                audio = np.concatenate((np.zeros(missing * len(audio), dtype=audio.dtype), audio))
+                stream['lost'] = stream.get('lost', 0) + missing
+        stream['frame'] = frame
 
         resampler = stream['resampler']
         if resampler is None or resampler.sample_rate != hdr.sample_rate:

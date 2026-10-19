@@ -256,6 +256,7 @@
             // Cause d'une erreur (« 401 Unauthorized », camera sans audio...) :
             // « Erreur de flux » seul ne disait pas quoi corriger.
             '<p class="hint text-warn source-error" data-role="error" hidden></p>' +
+            '<p class="hint source-diag" data-role="diag" hidden></p>' +
             meterHtml() +
             '<p class="live-line" data-role="live">' + idleText(src.enabled) + '</p>' +
             '<div class="groups-live">' + groups.map(function (g) { return liveGroupHtml(src, g); }).join('') + '</div>' +
@@ -368,6 +369,19 @@
                                   : ((CT.state.status || {}).source_errors || {})[src.sourceId] || '';
                 errEl.textContent = detail;
                 errEl.hidden = !(st.cls === 'err' && detail);
+            }
+            var diagEl = card.querySelector('[data-role="diag"]');
+            if (diagEl) {
+                // Diagnostic de la detection : analyses sautees (processeur
+                // trop charge) et coupures du flux, seulement s'il y en a.
+                var ds = CT.state.status.running ? ((CT.state.status.source_stats || {})[src.sourceId] || {}) : {};
+                var parts = [];
+                var late = (ds.analyses_sautees || 0) + (ds.blocs_perdus || 0);
+                if (late) parts.push(late + ' analyse(s) ou bloc(s) perdu(s) : processeur trop chargé');
+                if (ds.coupures) parts.push(ds.coupures + ' coupure(s) du flux depuis le démarrage');
+                var diag = parts.join(' · ');
+                if (diagEl.textContent !== diag) diagEl.textContent = diag;
+                diagEl.hidden = !diag;
             }
             var el = card.querySelector('[data-role="status"]');
             el.className = 'source-status status-' + st.cls;

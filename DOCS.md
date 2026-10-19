@@ -238,7 +238,7 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_<groupe>_score` | dernier score du groupe, même sous le seuil (diagnostic) |
 | `text.claptrap_<source>_<groupe>_nom` | nom du groupe (modifiable : voir « Renommer un groupe ») |
 | `sensor.claptrap_<source>_<groupe>_sons` | nombre de sons (classes YAMNet) cochés ; attributs : leur liste, le nombre de sons non cochés, le mode de comptage (diagnostic) |
-| `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe |
+| `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe, `diagnostic` (analyses sautées et blocs perdus faute de processeur, coupures du flux, durée moyenne et maximale d'une analyse) |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes, sons cochés, entités, liste des commandes |
 | `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
@@ -337,6 +337,7 @@ qu'un webhook :
   "entity_key": "rtsp_4f2c9a1e",
   "source_name": "Salon",
   "timestamp": 1790000000.12,
+  "clap_time": 1789999998.46,
   "score": 0.82,
   "clap_count": 2,
   "labels": [{"label": "Clapping", "score": 0.82}],
@@ -348,7 +349,9 @@ qu'un webhook :
 
 - `entity_key` : même clé que dans les entity_id (`binary_sensor.claptrap_<entity_key>_…`) ;
   c'est le champ le plus pratique pour filtrer une source.
-- `timestamp` : secondes depuis le 1er janvier 1970 (UTC).
+- `timestamp` : instant de l'envoi, en secondes depuis le 1er janvier 1970
+  (UTC) ; `clap_time` : instant du premier clap du geste (1,5 à 2,5 s plus
+  tôt, la fenêtre de comptage).
 - `clap_count` : nombre de claps comptés (0 pour un groupe sans entité qui
   reconnaît un son sans aucun pic).
 - `labels` : sons reconnus (noms YAMNet en anglais) et leur score.

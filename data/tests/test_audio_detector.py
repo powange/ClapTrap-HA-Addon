@@ -97,16 +97,28 @@ def test_agc_stays_up_on_isolated_weak_clap(fake_classifier):
     assert np.abs(heard(det)).max() < 1.0   # son fort : pas d'ecretage
 
 
-def test_sliding_window_every_half_second_dated_at_its_end(fake_classifier):
+def _fake_clock(monkeypatch):
+    """Horloge simulee : on avance le temps a la main (blocs de 100 ms)."""
+    import time as _time
+    import types
+    import audio_detector
+    clock = [1000.0]
+    monkeypatch.setattr(audio_detector, 'time', types.SimpleNamespace(monotonic=lambda: clock[0], time=_time.time))
+    return clock
+
+
+def test_sliding_window_every_half_second_dated_at_its_end(fake_classifier, monkeypatch):
     """Une fenetre de 0,975 s analysee toutes les 0,5 s, des la premiere
     seconde recue, datee a sa fin sur l'horloge audio, y compris quand
     plusieurs blocs arrivent d'un coup (rafale ffmpeg)."""
+    clock = _fake_clock(monkeypatch)
     det, clf, _ = make(fake_classifier)
     seen = []
     orig = det.tracker.on_classification
     det.tracker.on_classification = lambda cats, now: seen.append(now) or orig(cats, now)
 
-    def feed(b):
+    def feed(b, dt=0.1):
+        clock[0] += dt
         det.process_audio(b)
         det.wait_idle()
     for _ in range(9):
@@ -117,8 +129,72 @@ def test_sliding_window_every_half_second_dated_at_its_end(fake_classifier):
     for _ in range(10):
         feed(block(0.002, 0.001))
     assert np.allclose(np.diff(seen), 0.5) and seen[-1] == det._clock_end
-    feed(np.concatenate([block(0.002, 0.001)] * 7))     # rafale de 0,7 s
+    feed(np.concatenate([block(0.002, 0.001)] * 7), dt=0.7)   # rafale de 0,7 s
     assert abs(seen[-1] - (det._clock_end - 0.2)) < 1e-9          # fin de la fenetre, pas de la rafale
+
+
+def test_jitter_and_drift_never_lose_analyses(fake_classifier, monkeypatch):
+    """Regression 6.77 : l'horloge etait calee pile sur le seuil de coupure,
+    la moindre gigue videait la fenetre (2 a 33 % des analyses perdues).
+    Gigue de +-10 ms et source 0,5 % trop lente : aucune coupure, aucune
+    analyse perdue, horloge qui reste proche de l'heure."""
+    import random
+    clock = _fake_clock(monkeypatch)
+    det, clf, _ = make(fake_classifier)
+    rnd = random.Random(1)
+    for i in range(3000):                                 # 5 min de son
+        clock[0] = 1000.0 + (i + 1) * 0.1005 + rnd.uniform(-0.01, 0.01)
+        det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    assert det._cuts == 0
+    assert det.stats()['analyses'] == (3000 - 10) // 5 + 1
+    assert abs(det._clock_end - clock[0]) < 0.1
+
+
+def test_real_gap_restarts_window_and_closes_armed_group(fake_classifier, monkeypatch):
+    """Coupure d'une seconde juste apres un clap reconnu : la fenetre de
+    comptage est close avec les pics connus (evenement aussitot), au lieu de
+    partir au premier resultat apres la reprise."""
+    clock = _fake_clock(monkeypatch)
+    det, clf, events = make(fake_classifier, [{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True},
+                                               'threshold': 0.5, 'clap_counts': [1, 2]}])
+    for i in range(25):
+        clock[0] += 0.1
+        det.process_audio(block(0.6 if i == 18 else 0.003, 0.001))
+        det.wait_idle()
+    assert any(st['armed_at'] for st in det.tracker._group_state.values()) and not events
+    clock[0] += 1.6                                      # coupure (reconnexion)
+    det.process_audio(block(0.003, 0.001))
+    assert det._cuts == 1 and len(det._blocks) == 1
+    assert [e['clap_count'] for e in events if not e['ignored']] == [1]
+    assert events[0]['clap_time'] is not None and events[0]['clap_time'] < events[0]['timestamp']
+    det2, _c, ev2 = make(fake_classifier, [{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True},
+                                            'threshold': 0.5, 'clap_counts': [1, 2]}])
+    for i in range(25):
+        clock[0] += 0.1
+        det2.process_audio(block(0.6 if i == 18 else 0.003, 0.001))
+        det2.wait_idle()
+    clock[0] += 30                                       # longue coupure : fenetre abandonnee
+    det2.process_audio(block(0.003, 0.001))
+    assert ev2 == [] and not any(st['armed_at'] for st in det2.tracker._group_state.values())
+
+
+def test_no_analysis_without_active_group(fake_classifier, monkeypatch):
+    clock = _fake_clock(monkeypatch)
+    det, clf, _ = make(fake_classifier)
+    wanted = [False]
+    det.analysis_wanted = lambda: wanted[0]
+    for _ in range(20):
+        clock[0] += 0.1
+        det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    assert clf.blocks == []
+    wanted[0] = True
+    for _ in range(5):
+        clock[0] += 0.1
+        det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    assert len(clf.blocks) == 1
 
 
 def test_window_restarts_after_a_gap(fake_classifier):

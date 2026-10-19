@@ -247,3 +247,40 @@ def test_real_udp_port_already_taken():
         assert d._socket is None and not d.running and d.get_sources() == []
     finally:
         other.close()
+
+
+def test_lost_packets_filled_with_silence(listener):
+    """Paquets UDP perdus (compteur de trames qui saute) : silence insere, le
+    son n'est pas raccourci ; au-dela d'une seconde (redemarrage de
+    l'emetteur), rien n'est comble."""
+    out = {'S': 0, 'R': 0}
+    for name in out:
+        listener.add_source_callback('10.0.0.5', lambda c, t, n=name: out.__setitem__(n, out[n] + len(c)),
+                                     stream_name=name)
+
+    def send(name, frame):
+        p = bytearray(packet(name, (np.ones(256) * 8000).astype('<i2').tobytes(), sr_idx=3))
+        p[24:28] = struct.pack('<I', frame)
+        listener._handle_packet(bytes(p), '10.0.0.5')
+    for f in range(130):
+        send('R', f)                                     # reference sans perte
+        if not 60 <= f < 70:
+            send('S', f)                                 # 10 paquets perdus
+    stream = listener._streams[('10.0.0.5', 'S')]
+    total = lambda n: out[n] + len(listener._streams[('10.0.0.5', n)]['out'])  # noqa: E731
+    assert stream['lost'] == 10 and total('S') == total('R')   # trou comble par du silence
+    send('S', 100000)                                    # saut enorme (redemarrage) : rien de comble
+    assert stream['lost'] == 10
+
+
+def test_late_packet_ignored_not_filled_twice(listener):
+    out = []
+    listener.add_source_callback('10.0.0.5', lambda c, t: out.append(len(c)), stream_name='S')
+    def send(frame):
+        p = bytearray(packet('S', (np.ones(256) * 8000).astype('<i2').tobytes(), sr_idx=3))
+        p[24:28] = struct.pack('<I', frame)
+        listener._handle_packet(bytes(p), '10.0.0.5')
+    for f in (1, 2, 3, 5, 4, 6):                         # 4 arrive apres 5
+        send(f)
+    stream = listener._streams[('10.0.0.5', 'S')]
+    assert stream['lost'] == 1 and stream['frame'] == 6    # un seul trou comble, paquet en retard ignore

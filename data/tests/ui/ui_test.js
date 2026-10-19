@@ -573,6 +573,15 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await new Promise(r => setTimeout(r, 1100));
   ok('+  couleur de l\'étape : bleu pendant l\'analyse', listening === 'listen' && probe.getAttribute('data-state') === 'analyze' &&
      /Analyse de la prise/.test(probe.textContent));
+  // --- 6.80 : diagnostic de la detection sur la carte
+  status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
+             source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100 } } };
+  await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
+  const diag = $('#src-mic [data-role="diag"]');
+  ok('+  diagnostic : analyses sautées et coupures sur la carte', !!diag && !diag.hidden &&
+     /3 analyse\(s\) ou bloc\(s\) perdu\(s\)/.test(diag.textContent) && /2 coupure\(s\)/.test(diag.textContent));
+  status = { running: false, sources: [] }; await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
+  ok('+  diagnostic : masqué détection arrêtée', diag.hidden);
   $('#tab-listen').click(); await tick(2);
   // --- 6.75 : ajouter un son connu par la recherche ; confirmation : focus sur Annuler
   {

@@ -399,3 +399,21 @@ def test_removed_armed_group_does_not_break_expiry():
     assert tracker.on_classification([('Clapping', 0.9)], t + 0.2) == []   # arme
     tracker.set_groups([])                                                  # groupe retire
     assert tracker.on_classification([('Clapping', 0.9)], t + 3.0) == []   # aucune erreur
+
+
+def test_interrupt_fires_finished_gesture_and_drops_after_long_cut():
+    from clap_logic import ClapTracker
+    def armed_tracker():
+        t = ClapTracker(window=1.5)
+        t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True},
+                       'threshold': 0.5, 'clap_counts': [1, 2]}])
+        t._group_state['clap'] = {'armed_at': 10.0, 'score': 0.9, 'labels': {}}
+        t.peak_times = [10.0, 10.4]
+        return t
+    t = armed_tracker()
+    ev = t.interrupt(11.7, 3.0)                          # geste termine avant la reprise
+    assert [e['clap_count'] for e in ev if not e['ignored']] == [2] and ev[0]['start'] == 10.0
+    t = armed_tracker()
+    assert t.interrupt(10.6, 0.6) == [] and t._group_state['clap']['armed_at'] == 10.0   # fenetre encore ouverte
+    t = armed_tracker()
+    assert t.interrupt(11.7, 30.0) == [] and not t._group_state['clap']['armed_at']    # trop tard : abandonne

@@ -30,9 +30,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.
 
 MODEL_PATH = "yamnet.tflite"
 
-# Effets de bord d'une detection (evenement HA, MQTT, webhook) : executes hors
-# du thread d'inference. 1 worker : conserve l'ordre des evenements.
+# Effets de bord d'une detection : executes hors du thread d'inference.
+# 1 worker chacun : ordre conserve. MQTT (entites) et evenement REST separes :
+# un Core ou un Supervisor lent (POST jusqu'a 3 s) ne retarde plus
+# l'entite du clap suivant.
 _side_effects = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clap-effects")
+_event_effects = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clap-events")
 # Connexion HTTP reutilisee vers le Supervisor (une par clap sinon).
 _http = requests.Session()
 # Sons nouvellement entendus, enregistres par lots (une ecriture toutes les
@@ -150,17 +153,19 @@ def detection_params_from_settings(settings):
 
 def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, group_slug,
                       group_clap_counts, webhook_url):
-    """Entite MQTT + evenement HA + webhook d'une detection (worker dedie).
-
-    Le pulse MQTT passe en premier : il ne doit pas attendre l'API REST (Core
-    qui redemarre, Supervisor lent).
-    """
+    """Entite MQTT d'une detection (worker dedie), puis evenement HA et
+    webhook sur leur propre worker."""
     try:
         from ha_entities import on_clap_detected
         on_clap_detected(entity_key, score, clap_count, group_slug=group_slug,
                          group_clap_counts=group_clap_counts, labels=base_payload.get('labels'))
     except Exception as e:
         logging.warning(f"Entite HA non mise a jour pour {source_id}: {e}")
+    _event_effects.submit(_send_event, base_payload, webhook_url)
+
+
+def _send_event(base_payload, webhook_url):
+    """Evenement claptrap_clap (API REST du Core) et webhook."""
     token = os.environ.get('SUPERVISOR_TOKEN')
     if token:
         try:
@@ -290,6 +295,8 @@ class DetectionSession:
             'entity_key': src['entity_key'],
             'source_name': src['name'],
             'timestamp': data['timestamp'],
+            # Instant du 1er clap (timestamp : envoi, 1,5 a 2,5 s plus tard).
+            'clap_time': data.get('clap_time'),
             'score': data['score'],
             'clap_count': data.get('clap_count', 1),
             'labels': data.get('labels') or [],
@@ -361,7 +368,11 @@ class DetectionSession:
             sound_seen_callback=lambda d: self._on_sound_seen(src, d),
             scores_callback=lambda scores: self._emit_live(
                 src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}),
-            analysis_callback=lambda top, scores: _publish_analysis(src['entity_key'], top, scores))
+            analysis_callback=lambda top, scores: _publish_analysis(src['entity_key'], top, scores, det.stats()))
+        # Aucun groupe actif : rien ne peut se declencher, YAMNet ne tourne
+        # que pour un onglet ouvert (sons entendus en direct, decouverte).
+        # Enregistrement ou calibrage en cours (ecoutes) : analyser aussi.
+        det.analysis_wanted = lambda: bool(det.tracker.groups) or _clients > 0 or bool(det._taps)
         det.start()
         with self._lock:
             # L'initialisation de YAMNet peut durer plus que l'attente de
@@ -507,8 +518,25 @@ class DetectionSession:
     def _run_guarded(self, src, runner):
         try:
             self._run_one(src, runner)
-        except Exception:
+        except Exception as e:
             logging.exception(f"Source {src['label']} arrêtée sur erreur")
+            # Erreur avant la lecture (reglages, auto-volume du micro) : la
+            # carte restait sur « Connexion… » et YAMNet tournait pour rien.
+            sid = src['source_id']
+            with self._lock:
+                still_mine = self._runners.get(sid) is runner and not runner['stop'].is_set()
+                det = self.detectors.pop(sid, None) if still_mine else None
+            if still_mine:   # le statut d'erreur retire aussi la source de l'ecoute
+                self._set_status(sid, 'error', f"source arrêtée sur erreur : {e}")
+            if det is not None:
+                det.stop()
+
+    def source_stats(self):
+        """Diagnostic de chaque source ecoutee (analyses sautees, coupures,
+        duree des analyses)."""
+        with self._lock:
+            dets = dict(self.detectors)
+        return {sid: det.stats() for sid, det in dets.items()}
 
     def _start_runner(self, src, settings=None):
         runner = {'src': src, 'stop': threading.Event(), 'reader': None,
@@ -761,7 +789,7 @@ def get_status():
     return {'running': True, 'source': s.label, 'since': s.started_at,
             'sources': [src['source_id'] for src in list(s.sources)],
             'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats),
-            'source_errors': dict(s.source_errors)}
+            'source_errors': dict(s.source_errors), 'source_stats': s.source_stats()}
 
 
 def get_detection_history():
@@ -798,10 +826,10 @@ def live_gain(source_id, default):
 
 # --- Sons "vus" (auto-decouverte) -----------------------------------------------
 
-def _publish_analysis(entity_key, top, scores):
+def _publish_analysis(entity_key, top, scores, stats=None):
     """Derniere analyse d'une source vers ses capteurs de diagnostic HA."""
     from ha_control import on_analysis
-    on_analysis(entity_key, top, scores)
+    on_analysis(entity_key, top, scores, stats)
 
 
 def _discovery_seen(groups):
