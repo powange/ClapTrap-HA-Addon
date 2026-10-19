@@ -42,6 +42,10 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            data/requirements-dev.txt
+            data/constraints.txt
       - run: pip install -r data/requirements-dev.txt
       - run: python scripts/check_lock.py
       - run: python -m pytest -q data/tests
@@ -75,11 +79,17 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Semaine en cours
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
       - uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           arch: amd64
           image: ghcr.io/${{ github.repository_owner }}/amd64-claptrap
           image-tags: pr
+          # Meme semaine que la publication : paquets Debian a jour, comme
+          # l'image qui sera publiee.
+          build-args: APT_REFRESH=${{ steps.week.outputs.week }}
           push: "false"
           version: pr
 
@@ -97,6 +107,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.version.outputs.publish }}
+      week: ${{ steps.version.outputs.week }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -125,6 +136,7 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
           echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
       - name: Matrice
         id: matrix
         uses: home-assistant/builder/actions/prepare-multi-arch-matrix@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
@@ -190,6 +202,8 @@ jobs:
             ${{ needs.init.outputs.version }}
             latest
           labels: org.opencontainers.image.revision=${{ github.sha }}
+          # Paquets Debian rafraichis au moins chaque semaine (couche apt).
+          build-args: APT_REFRESH=${{ needs.init.outputs.week }}
           push: "true"
           skip-existing: ${{ needs.init.outputs.version }}
           version: ${{ needs.init.outputs.version }}

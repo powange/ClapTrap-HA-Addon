@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.74.0
+
+### Image
+
+- **Image environ 35 % plus légère** (580 Mo installés au lieu de 880) :
+  OpenCV et matplotlib ne sont plus installés. MediaPipe les importait
+  seulement pour ses outils de dessin vidéo, jamais utilisés par ClapTrap :
+  des modules vides les remplacent, et l'autotest du build vérifie que la
+  reconnaissance fonctionne. Le chargement de la reconnaissance au
+  démarrage de la détection passe d'environ 0,6 s à 0,2 s et de 83 à 30 Mo
+  de mémoire.
+- **Correctifs de sécurité Debian** : les paquets sont mis à jour à chaque
+  construction, et une version construite plus d'une semaine après la
+  précédente refait vraiment cette étape (elle restait figée tant que le
+  Dockerfile ne changeait pas : 28 paquets en retard dans la 6.70.1).
+- **Scan des images publiées** (Trivy, amd64 et aarch64) ajouté à l'audit
+  hebdomadaire : entre deux versions, il signale qu'une nouvelle s'impose
+  pour embarquer des correctifs. L'outil `tempio` de l'image de base,
+  inutilisé et porteur de failles connues, est retiré.
+- Outils de test épinglés et cache pip dans la CI.
+
 ## 6.73.0
 
 ### Calibrer le comptage

@@ -1,7 +1,8 @@
 # Failles connues dans les dependances Python de l'image (requirements.lock,
-# que Dependabot ne lit pas) et version corrective de ffmpeg (compile dans
-# l'image, hors des mises a jour Debian). Chaque semaine et a la demande ; un
-# echec signale une version a remonter.
+# que Dependabot ne lit pas), version corrective de ffmpeg (compile dans
+# l'image, hors des mises a jour Debian) et failles corrigees mais encore
+# presentes dans l'image publiee (Trivy). Chaque semaine et a la demande ; un
+# echec signale une version a remonter (ou une image a reconstruire).
 name: Audit des dépendances
 
 on:
@@ -47,3 +48,22 @@ jobs:
           if [ "$latest" != "$current" ]; then
             echo "::error file=Dockerfile::ffmpeg $latest disponible : mettre à jour FFMPEG_VERSION et FFMPEG_SHA256"; exit 1
           fi
+
+  image:
+    name: Image publiée (Trivy)
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      # Failles HAUTES ou CRITIQUES ayant un correctif : l'image doit etre
+      # reconstruite (paquets Debian rafraichis chaque semaine au build).
+      - name: Scanner les images amd64 et aarch64 (latest)
+        run: |
+          status=0
+          for arch in amd64:linux/amd64 aarch64:linux/arm64; do
+            echo "::group::${arch%%:*}"
+            docker run --rm aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa \
+              image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              --platform "${arch#*:}" "ghcr.io/powange/${arch%%:*}-claptrap:latest" || status=1
+            echo "::endgroup::"
+          done
+          exit $status

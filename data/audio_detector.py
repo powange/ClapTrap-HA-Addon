@@ -12,11 +12,13 @@ _mediapipe = None
 
 
 def _load_mediapipe():
-    """Import de mediapipe au premier detecteur cree : il charge aussi cv2 et
-    matplotlib (plus d'une seconde, davantage sur Raspberry Pi) et ralentissait
-    le demarrage de l'add-on meme si la detection n'etait jamais lancee."""
+    """Import de mediapipe au premier detecteur cree (il ralentissait le
+    demarrage de l'add-on meme si la detection n'etait jamais lancee), sans
+    OpenCV ni matplotlib (voir mp_light)."""
     global _mediapipe
     if _mediapipe is None:
+        import mp_light
+        mp_light.install_stubs()
         from mediapipe.tasks import python
         from mediapipe.tasks.python import audio
         from mediapipe.tasks.python.components import containers

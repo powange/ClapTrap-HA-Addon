@@ -76,13 +76,14 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # version d'une dependance ne peut plus casser l'installation.
 COPY data/requirements.lock /tmp/requirements.lock
 # --no-deps : le lock est complet ; les dependances declarees de mediapipe
-# (opencv-contrib, sounddevice) sont volontairement remplacees ou ecartees.
+# (opencv-contrib, matplotlib, sounddevice) sont volontairement ecartees : seul
+# son module de dessin video les importe (voir data/mp_light.py).
 RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --no-deps -r /tmp/requirements.lock
 # Lock complet (installe en --no-deps) : une nouvelle dependance de mediapipe
 # absente du lock echoue ici, pas chez l'utilisateur. Puis pip retire du venv
 # (12 Mo, inutile a l'execution).
 RUN out="$(pip check 2>&1 || true)"; \
-    bad="$(echo "$out" | grep -vE 'opencv-contrib-python|sounddevice' | grep . || true)"; \
+    bad="$(echo "$out" | grep -vE 'opencv-contrib-python|matplotlib|sounddevice' | grep . || true)"; \
     if [ -n "$bad" ]; then echo "$bad"; exit 1; fi; \
     pip uninstall -y -q pip
 
@@ -96,9 +97,18 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # 1, OpenSSL pour rtsps://) ; YAMNet : mediapipe lie libEGL et libGLESv2
 # (glvnd) sans s'en servir pour l'audio. libegl1 est extrait sans ses
 # dependances : il tire Mesa et LLVM (libegl-mesa0) ; meme depot, meme
-# version que libglvnd0 installe a cote. cv2 « headless » n'a besoin
-# d'aucune bibliotheque graphique. Ni PortAudio ni sounddevice.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# version que libglvnd0 installe a cote. Ni PortAudio ni sounddevice.
+# Paquets mis a jour a chaque build (correctifs de securite Debian) ; la
+# CI passe la semaine en cours (APT_REFRESH) : une version construite plus
+# d'une semaine apres la precedente refait cette couche, qui restait figee
+# tant que le Dockerfile ne changeait pas. Entre deux versions, le scan
+# hebdomadaire de l'image (audit.yaml) signale qu'une nouvelle s'impose.
+ARG APT_REFRESH=
+# confdef/confold : un fichier de configuration modifie par l'image de base
+# n'arrete pas le build sur une question de dpkg.
+RUN echo "Paquets Debian (semaine ${APT_REFRESH:-locale})" && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+    && apt-get install -y --no-install-recommends \
     python3 \
     libssl3t64 \
     libpulse0 \
@@ -107,7 +117,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cd /tmp && apt-get download libegl1 \
     && dpkg-deb -x libegl1_*.deb / && rm libegl1_*.deb \
     && ldconfig \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/tempio
+# tempio (gabarits Go de l'image de base) : utilise nulle part ici (ni par
+# bashio ni par run.sh), et ses dependances Go portaient des failles connues
+# (scan Trivy de l'audit hebdomadaire).
 COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 # Ce que l'add-on demande a ffmpeg (audio_sources.rtsp_source) : demuxeur
 # rtsp, sortie f32le, decodeurs audio courants. Sorties lues en entier (un
@@ -137,11 +151,6 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # Version de l'add-on (BUILD_VERSION fourni par l'action de build en CI)
 ARG BUILD_VERSION
 ENV CLAPTRAP_VERSION=${BUILD_VERSION}
-# Cache de polices de matplotlib (importe par mediapipe) cree au build : il
-# etait regenere a chaque demarrage du conteneur.
-ENV MPLCONFIGDIR=/usr/src/app/.matplotlib
-RUN python -c "import matplotlib.pyplot" && chmod -R a+rX /usr/src/app/.matplotlib
-
 # Autotest du vrai YAMNet : classification et decoupage en fenetres (la
 # datation des claps en depend ; les tests unitaires utilisent un faux).
 # Fichiers montes depuis le contexte (pas de couche) : l'etape ne se relance
@@ -150,6 +159,7 @@ RUN --mount=type=bind,source=data/selftest_yamnet.py,target=/selftest/selftest_y
     --mount=type=bind,source=data/audio_detector.py,target=/selftest/audio_detector.py \
     --mount=type=bind,source=data/audio_utils.py,target=/selftest/audio_utils.py \
     --mount=type=bind,source=data/clap_logic.py,target=/selftest/clap_logic.py \
+    --mount=type=bind,source=data/mp_light.py,target=/selftest/mp_light.py \
     --mount=type=bind,source=data/yamnet.tflite,target=/selftest/yamnet.tflite \
     PYTHONDONTWRITEBYTECODE=1 python /selftest/selftest_yamnet.py
 
@@ -161,9 +171,9 @@ ENV S6_KILL_GRACETIME=9000
 COPY data/ ./
 # .pyc precompiles : Python ne tente plus d'ecrire dans /usr/src/app a chaque
 # demarrage (refuse par AppArmor en mode strict).
-RUN python -m compileall -q -x '/(venv|tests|\.matplotlib)/' /usr/src/app
-# Test de fumee : imports reels.
-RUN python -c "from mediapipe.tasks.python import audio; import cv2, matplotlib.pyplot, flask_socketio, paho.mqtt.client, simple_websocket"
+RUN python -m compileall -q -x '/(venv|tests)/' /usr/src/app
+# Test de fumee : imports reels (MediaPipe sans OpenCV ni matplotlib).
+RUN python -c "import mp_light; mp_light.install_stubs(); from mediapipe.tasks.python import audio; import flask_socketio, paho.mqtt.client, simple_websocket"
 
 # Copier le script de démarrage
 COPY run.sh /
