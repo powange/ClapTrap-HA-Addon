@@ -548,11 +548,33 @@
         }, 1000);
         return function () { clearInterval(timer); };
     };
+    // Etat d'une prise, en couleur : 'wait' (orange, compte a rebours avant une
+    // prise enchainee), 'listen' (vert, ecoute), 'analyze' (bleu), '' (neutre).
+    CT.calState = function (out, state, text) {
+        if (state) out.setAttribute('data-state', state); else out.removeAttribute('data-state');
+        if (text !== undefined) out.textContent = text;
+    };
+
+    // Prise en cours : ecoute (vert) pendant `seconds` s, puis analyse (bleu)
+    // jusqu'a la reponse. Retourne la fonction d'arret.
+    CT.recordCountdown = function (out, seconds, label) {
+        var left = seconds;
+        CT.calState(out, 'listen', label + left + ' s');
+        var timer = setInterval(function () {
+            left -= 1;
+            if (left > 0) { CT.calState(out, 'listen', label + left + ' s'); return; }
+            clearInterval(timer);
+            CT.calState(out, 'analyze', 'Analyse de la prise…');
+        }, 1000);
+        return function () { clearInterval(timer); };
+    };
+
     // Ecran d'une prise en mode enchaine : compte a rebours dans .cal-countdown,
     // bouton Pause (data-c="pause"), puis start(). Retourne la fonction d'arret.
     CT.autoTake = function (body, rec, start) {
         var pause = body.querySelector('[data-c="pause"]');
         var out = body.querySelector('.cal-countdown');
+        CT.calState(out, 'wait');
         var stop = CT.countdown(out, CT.AUTO_DELAY, 'Début de la prise dans ', function () {
             if (pause) pause.remove();
             start();
@@ -561,7 +583,7 @@
             // Prise lancee a la main ; les suivantes s'enchainent de nouveau.
             stop();
             pause.remove();
-            out.textContent = 'En pause : cliquez sur « Enregistrer » quand vous êtes prêt.';
+            CT.calState(out, '', 'En pause : cliquez sur « Enregistrer » quand vous êtes prêt.');
             rec.focus();
         });
         pause.focus();

@@ -485,3 +485,31 @@ def test_sound_test_gain_validated(client, monkeypatch):
     for gain in ('nan', 'inf', 1e300, -1):
         assert c.post('/api/rtsp/test/start', json={'url': 'rtsp://c/1', 'gain': gain}).status_code == 400
     assert c.post('/api/rtsp/test/start', json={'url': 'rtsp://c/1', 'gain': 0}).status_code == 200
+
+
+def test_detection_start_errors_and_degraded_status(client, settings_dir, monkeypatch):
+    """« Déjà en cours » (409), paramètres invalides (400), démarrage réussi
+    annoncé à l'interface, et statut dégradé si les réglages sont illisibles."""
+    import classify
+    import routes.detection as rd
+    emitted = []
+    monkeypatch.setattr(rd, '_socketio', types.SimpleNamespace(emit=lambda *a, **k: emitted.append(a)))
+    mic = [{'label': 'Micro'}, {'label': 'Cam'}]
+    monkeypatch.setattr(classify, 'start_from_settings', lambda sio: (False, mic))
+    r = client.post('/api/detection/start')
+    assert r.status_code == 409 and 'déjà en cours' in r.json['error']
+
+    def bad(sio):
+        raise ValueError('seuil illisible')
+    monkeypatch.setattr(classify, 'start_from_settings', bad)
+    r = client.post('/api/detection/start')
+    assert r.status_code == 400 and 'seuil illisible' in r.json['error']
+    monkeypatch.setattr(classify, 'start_from_settings', lambda sio: (True, mic))
+    r = client.post('/api/detection/start')
+    assert r.json == {'success': True, 'source': 'Micro + Cam'}
+    assert emitted[-1] == ('detection_status', {'status': 'running', 'source': 'Micro + Cam'})
+    open(settings_dir.SETTINGS_FILE, 'w').write('{corrompu')
+    open(settings_dir.SETTINGS_BACKUP, 'w').write('{aussi')
+    settings_dir._cache = None
+    settings_dir.load_settings()
+    assert client.get('/status').json['settings_degraded'] is True

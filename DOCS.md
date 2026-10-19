@@ -25,7 +25,7 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
    `https://github.com/powange/ClapTrap-HA-Addon`
 2. Recherchez **ClapTrap**, cliquez sur **Installer**, puis **Démarrer**.
    L'image est précompilée : l'installation ne prend que le temps du
-   téléchargement (environ 130 Mo, 580 Mo une fois installée ; compter
+   téléchargement (environ 120 Mo, 370 Mo une fois installée ; compter
    quelques minutes sur un Raspberry Pi).
 3. Activez **Afficher dans la barre latérale** et, si vous le souhaitez,
    **Watchdog** (Home Assistant relance alors l'add-on s'il s'arrête : le
@@ -127,9 +127,10 @@ de vos propres bruits.
 1. Cochez les groupes à calibrer, ou saisissez le nom d'un nouveau bruit
    (un groupe sera créé), avec le nombre de pics faits à chaque essai
    (2 pour « 2 claps »).
-2. Pour chaque bruit, faites les essais demandés (5 par défaut, 4 s chacun),
-   puis quelques secondes du bruit de fond habituel de la pièce. Pendant le
-   calibrage, la source ne déclenche rien. Avec **Enchaîner les prises
+2. D'abord quelques secondes du bruit de fond habituel de la pièce (5 s,
+   option « Enregistrer aussi le bruit de fond », recommandée), puis, pour
+   chaque bruit, les essais demandés (5 par défaut, 4 s chacun).
+   Pendant le calibrage, la source ne déclenche rien. Avec **Enchaîner les prises
    automatiquement**, chaque prise commence seule après un compte à rebours
    de 3 s, sans cliquer sur « Enregistrer » (bouton **Pause** pour souffler) ;
    le choix est mémorisé par le navigateur, pour les deux calibrages.
@@ -165,8 +166,9 @@ l'interface de ClapTrap.
 - `<source>` vaut `mic` pour le micro, `rtsp_` suivi des 8 premiers caractères
   de l'identifiant de la caméra, `vban_` suivi du nom affiché saisi à l'ajout
   du flux (avec 4 caractères de son identifiant en plus si deux flux portent
-  le même nom ; renommer ensuite la source ne le change pas) ; `<groupe>` est
-  l'identifiant du groupe (`clap` pour le groupe par défaut). Les identifiants
+  le même nom ; renommer ensuite la source ne le change pas) ; `<groupe>` vient
+  du nom du groupe (`clap` pour le groupe par défaut) et suit ses renommages
+  (voir « Renommer un groupe »). Les identifiants
   exacts sont affichés dans les réglages de chaque groupe, avec un bouton pour
   les copier.
 - Les nombres de claps publiés se choisissent par groupe (1 et 2 par défaut).
@@ -293,7 +295,7 @@ data:
 |---|---|
 | `help`, `get_settings` | liste des commandes ; réglages complets (secrets masqués) |
 | `start_detection`, `stop_detection` | — |
-| `add_rtsp` | `name`, `url`, `enabled` |
+| `add_rtsp` | `name`, `url`, `enabled`, `rtsp_tcp` (transport TCP, pour une caméra qui coupe en UDP) |
 | `add_vban` | `name`, `ip`, `port` (6980), `stream_name`, `enabled` |
 | `add_microphone` | `device`, `enabled` |
 | `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) |

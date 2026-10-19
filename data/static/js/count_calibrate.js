@@ -125,15 +125,10 @@
         busy = true;
         btn.disabled = true;
         var out = body.querySelector('.cal-countdown');
-        var left = p.duration;
-        out.textContent = 'Enregistrement… ' + left + ' s';
-        var timer = setInterval(function () {
-            left -= 1;
-            out.textContent = left > 0 ? 'Enregistrement… ' + left + ' s' : 'Analyse de la prise…';
-        }, 1000);
+        var stopTimer = CT.recordCountdown(out, p.duration, 'Enregistrement… ');
         CT.api('POST', '/api/calibration/count/record', {kind: p.kind, duration: p.duration})
             .then(function (d) {
-                clearInterval(timer);
+                stopTimer();
                 busy = false;
                 var found = d.claps_found == null ? '' : p.kind === 'fond'
                     ? (d.claps_found ? d.claps_found + ' pic(s) parasite(s) avec les réglages actuels' : 'aucun pic parasite')
@@ -141,10 +136,10 @@
                 next(esc(p.title) + ' enregistré' + (found ? ' : ' + found + '.' : '.'));
             })
             .catch(function (err) {
-                clearInterval(timer);
+                stopTimer();
                 busy = false;
                 btn.disabled = false;
-                out.textContent = '';
+                CT.calState(out, '', '');
                 CT.error('Prise impossible : ' + err.message);
             });
     }
@@ -158,7 +153,7 @@
     // ---- 3. Proposition --------------------------------------------------------
     function analyze() {
         setTitle('Calibrer le comptage · résultat');
-        body.innerHTML = '<p class="cal-countdown" aria-live="polite">Analyse des prises…</p>';
+        body.innerHTML = '<p class="cal-countdown" data-state="analyze" aria-live="polite">Analyse des prises…</p>';
         var mine = run;
         CT.api('POST', '/api/calibration/count/analyze', {})
             .then(function (d) { if (mine === run) showProposal(d); })

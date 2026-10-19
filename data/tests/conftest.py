@@ -107,6 +107,7 @@ def settings_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, 'SETTINGS_TEMP', str(tmp_path / 'settings.json.tmp'))
     monkeypatch.setattr(sm, '_cache', None)
     monkeypatch.setattr(sm, '_cache_time', 0)
+    monkeypatch.setattr(sm, '_degraded', False)   # mode degrade d'un test : pas transmis aux suivants
     # Pas de republication HA en arriere-plan (enregistree par l'import d'app.py).
     monkeypatch.setattr(sm, '_change_listeners', [])
     yield sm
