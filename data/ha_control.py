@@ -42,8 +42,11 @@ STATES_DELAY = 0.3        # regroupement des republications apres une ecriture
 
 _api = None               # fonction (method, path, body) -> (status, dict)
 _notify_ui = None         # previent l'interface ouverte d'un changement venu de HA
-_commands = queue.Queue()
-_worker = None
+# Deux files, un fil chacune (ordre conserve dans chaque file) : les entites
+# de reglage (interrupteurs, seuils, noms) ne patientent plus derriere une
+# commande JSON longue (prise de calibrage : jusqu'a ~17 s).
+_queues = {'entity': queue.Queue(), 'command': queue.Queue()}
+_workers = {}
 _worker_lock = threading.Lock()
 _published = {}           # topic -> dernier etat publie (evite les doublons)
 _published_lock = threading.Lock()
@@ -51,8 +54,8 @@ _analysis_last = {}       # entity_key -> (instant, charge publiee)
 _states_timer = None
 _states_lock = threading.Lock()
 
-# Aide publiee dans le capteur « Configuration » : un assistant IA y trouve
-# la liste des commandes et leurs champs.
+# Liste des commandes et de leurs champs (commande `help`, et reponse a une
+# commande mal formee) : un assistant IA y trouve tout.
 ACTIONS = {
     'help': 'Liste des commandes.',
     'get_settings': 'Réglages complets (secrets masqués) et références des sources.',
@@ -61,7 +64,7 @@ ACTIONS = {
     'add_rtsp': '{name, url, enabled?, rtsp_tcp?} : ajoute une caméra RTSP.',
     'add_vban': '{name, ip, port?=6980, stream_name?, enabled?} : ajoute un flux VBAN.',
     'add_microphone': '{device?: {name, index, pulse_name}, enabled?} : ajoute le micro.',
-    'update_source': '{source, name?, url?, enabled?, gain?, webhook_url?, device?, volume?, auto_volume?, '
+    'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
                      'rtsp_tcp?(caméra)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
     'add_group': '{source, name, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons.',
@@ -305,10 +308,21 @@ def publish_states(settings=None):
             _publish_state(f"claptrap/{slug}/{g['slug']}/sons", {
                 'nombre': len(checked), 'sons': checked, 'non_coches': len(wl) - len(checked),
                 'comptage': g.get('count_mode', 'attaques')})
-    _publish_state(CONFIG_TOPIC, _configuration_payload(settings, sources))
+    config = _configuration_payload(settings, sources)
+    details = config['details']
+    where = "voir la commande get_settings" if ha.commands_enabled() else "voir l'interface de ClapTrap"
+    # Sous la limite de 16 Ko du recorder de HA : listes longues remplacees
+    # par leur taille (sons ignores, puis sources).
+    for key in ('sound_exclusions', 'sources'):
+        if len(json.dumps(config, ensure_ascii=False).encode()) <= ATTRIBUTES_MAX * 3:
+            break
+        details[key] = f"{len(details[key])} élément(s) : {where}"
+    _publish_state(CONFIG_TOPIC, config)
 
 
-def _configuration_payload(settings, sources=None):
+def _configuration_payload(settings, sources=None, full=False):
+    """Resume et details. `full` : listes de sons completes (get_settings) ;
+    sinon leur nombre (attributs du capteur, limites par le recorder)."""
     sources = sources if sources is not None else _published_sources(settings)
     entity_ids = ha.entity_ids_for_settings(settings)
     details_sources = []
@@ -319,12 +333,16 @@ def _configuration_payload(settings, sources=None):
             if not isinstance(g, dict) or not g.get('slug'):
                 continue
             n_groups += 1
+            wl = g.get('sound_whitelist') or {}
             groups.append({
                 'group': g['slug'], 'name': g.get('name') or g['slug'],
                 'enabled': g.get('enabled', True) is not False,
                 'threshold': g.get('threshold'),
-                'sounds': sorted(l for l, on in (g.get('sound_whitelist') or {}).items() if on),
-                'unchecked_sounds': len([l for l, on in (g.get('sound_whitelist') or {}).items() if not on]),
+                # Nombre seulement (la liste est dans le capteur « sons » du
+                # groupe) : avec beaucoup de groupes, les attributs depassaient
+                # la limite du recorder de HA.
+                'sounds': sorted(l for l, on in wl.items() if on) if full else sum(1 for on in wl.values() if on),
+                'unchecked_sounds': sum(1 for on in wl.values() if not on),
                 'auto_add_sounds': bool(g.get('auto_add_sounds')),
                 'count_mode': g.get('count_mode', 'attaques'),
                 'ha_entities': (entity_ids.get(ui_key) or {}).get(g['slug'], []),
@@ -341,7 +359,6 @@ def _configuration_payload(settings, sources=None):
             'commandes': (f"mqtt.publish sur {COMMAND_TOPIC} : {{\"action\": ..., \"id\"?: ...}}. {SOURCE_HELP} "
                           f"Résultat dans sensor.claptrap_derniere_commande." if ha.commands_enabled()
                           else "désactivées (option « Commandes MQTT » de l'add-on)"),
-            'actions': ACTIONS,
         },
     }
 
@@ -398,7 +415,6 @@ def handle_message(topic, payload, retained=False):
     commande retenue sur le broker serait rejouee a chaque reconnexion
     (camera ajoutee en double) : ignoree, et effacee du broker.
     """
-    global _worker
     if retained:
         if payload:
             logging.warning(f"Commande retenue ignorée sur {topic} (publiez sans retain)")
@@ -409,16 +425,19 @@ def handle_message(topic, payload, retained=False):
     if topic == COMMAND_TOPIC and not ha.commands_enabled():
         logging.warning(f"Commande ignorée sur {topic} : option « Commandes MQTT » décochée")
         return
-    _commands.put((topic, payload))
+    kind = 'command' if topic == COMMAND_TOPIC else 'entity'
+    _queues[kind].put((topic, payload))
     with _worker_lock:
-        if _worker is None or not _worker.is_alive():
-            _worker = threading.Thread(target=_work, daemon=True, name='ha-commands')
-            _worker.start()
+        worker = _workers.get(kind)
+        if worker is None or not worker.is_alive():
+            _workers[kind] = threading.Thread(target=_work, args=(_queues[kind],), daemon=True,
+                                              name=f'ha-{kind}')
+            _workers[kind].start()
 
 
-def _work():
+def _work(q):
     while True:
-        topic, payload = _commands.get()
+        topic, payload = q.get()
         _handle(topic, payload)
 
 
@@ -458,6 +477,8 @@ def _entity_call(what, request):
     reel est republie (HA revient a la valeur precedente) et l'erreur est
     visible dans « Dernière commande »."""
     status, data = _call(*request)
+    if what == 'detection' and status == 409:
+        status = 200   # ON alors qu'elle tourne deja (automatisation du matin) : rien a signaler
     if status >= 400:
         _entity_failed(what, status, (data or {}).get('error') or f'HTTP {status}')
         return
@@ -524,6 +545,9 @@ def _masked(obj):
 ATTRIBUTES_MAX = 4096   # octets : le recorder de HA refuse les attributs de plus de 16 Ko
 
 
+_result_lock = threading.Lock()   # resultat et ses attributs publies ensemble (deux fils de commandes)
+
+
 def _publish_result(result):
     """Resultat complet sur le topic ; en attributs du capteur, le detail
     seulement s'il reste petit (bilan d'un renommage) : get_settings ou help
@@ -533,8 +557,9 @@ def _publish_result(result):
     if len(json.dumps(result, ensure_ascii=False).encode()) > ATTRIBUTES_MAX:
         attributes = {k: v for k, v in result.items() if k not in ('data', 'actions')}
         attributes['detail'] = f"résultat complet sur le topic {RESULT_TOPIC}"
-    ha._mqtt_publish(RESULT_ATTRIBUTES_TOPIC, attributes, retain=True)
-    ha._mqtt_publish(RESULT_TOPIC, result, retain=True)
+    with _result_lock:
+        ha._mqtt_publish(RESULT_ATTRIBUTES_TOPIC, attributes, retain=True)
+        ha._mqtt_publish(RESULT_TOPIC, result, retain=True)
 
 
 def _run_command(text):
@@ -607,7 +632,10 @@ def _api_or_raise(method, path, body=None):
     return data
 
 
-_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'webhook_url', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
+# Sans webhook_url : tout client du broker pourrait faire envoyer par
+# l'add-on (reseau de l'hote) une requete a chaque clap vers l'adresse de son
+# choix. Elle se regle dans l'interface.
+_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
 _GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode')
 
 
@@ -625,7 +653,7 @@ def execute(action, cmd):
     if action == 'get_settings':
         settings = load_settings()
         return {'settings': shareable_settings(settings),
-                'overview': _configuration_payload(settings)['details']['sources']}
+                'overview': _configuration_payload(settings, full=True)['details']['sources']}
     if action == 'start_detection':
         return _api_or_raise('POST', '/api/detection/start')
     if action == 'stop_detection':
@@ -653,6 +681,8 @@ def execute(action, cmd):
     kind, key, src = _resolve_source(settings, cmd.get('source'))
     source_key = None if kind == 'mic' else key
     if action == 'update_source':
+        if 'webhook_url' in cmd:
+            raise CommandError("webhook_url ne se règle pas par MQTT (sécurité) : utilisez l'interface de ClapTrap", 403)
         body = _pick(cmd, _SOURCE_FIELDS)
         if not body:
             raise CommandError('aucun champ à modifier : ' + ', '.join(_SOURCE_FIELDS))

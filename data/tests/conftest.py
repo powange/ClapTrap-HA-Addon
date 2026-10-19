@@ -150,7 +150,8 @@ class FakeMqtt:
                 self.published.append((virtual, '', True))
                 known.pop(cid, None)
                 continue
-            cfg = {k: v for k, v in c.items() if k != 'p'}
+            import ha_entities
+            cfg = {k: v for k, v in ha_entities.expand_component(c).items() if k != 'p'}
             cfg.update(device=msg['dev'], origin=msg['o'])
             self.published.append((virtual, _json.dumps(cfg), True))
             known[cid] = platform

@@ -353,3 +353,15 @@ def test_event_config_removed_when_group_loses_clap_counts(mqtt):
     mqtt.published.clear()
     ha.sync_sources(s)
     assert ('homeassistant/event/claptrap/mic_clap_evenement/config', '', True) in mqtt.published
+
+
+def test_broker_refusals_logged_rarely_with_explicit_auth_message(monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(ha, '_fail_streak_warned', -1e9)
+    monkeypatch.setattr(ha, '_auth_failures', 0)
+    monkeypatch.setattr(ha.threading, 'Thread', lambda *a, **k: types.SimpleNamespace(start=lambda: None))
+    with caplog.at_level(logging.WARNING):
+        for _ in range(30):
+            ha._connection_failed(None, 'Not authorized')
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and 'identifiants refusés' in warnings[0]

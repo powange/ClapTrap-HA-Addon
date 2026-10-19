@@ -81,7 +81,9 @@ def test_states_published_from_settings_and_only_when_changed(ctl, mqtt):
     conf = json.loads(last(mqtt, ha_control.CONFIG_TOPIC))
     vban = next(s for s in conf['details']['sources'] if s['source'] == 'vban:v1')
     assert vban['groups'][0]['ha_entities'] == ['binary_sensor.claptrap_vban_atomsalon_clap_1clap']
-    assert 'actions' in conf['details']
+    assert 'actions' not in conf['details']                        # deja dans la commande help
+    mic = next(s for s in conf['details']['sources'] if s['source'] == 'mic')
+    assert mic['groups'][0]['sounds'] == 1                         # nombre seulement (liste : capteur sons)
     mqtt.published.clear()
     ha_control.publish_states()
     assert mqtt.published == []   # rien n'a change
@@ -271,7 +273,8 @@ def test_device_payload_and_component_removal(ctl, mqtt):
     assert dev['dev']['identifiers'] == ['claptrap_mic'] and dev['dev']['via_device'] == 'claptrap'
     assert dev['o']['name'] == 'ClapTrap'
     c = dev['cmps']['mic_clap_2claps']
-    assert c['p'] == 'binary_sensor' and c['unique_id'] == 'claptrap_mic_clap_2claps'
+    assert c['p'] == 'binary_sensor' and c['uniq_id'] == 'claptrap_mic_clap_2claps'   # cles abregees
+    assert c['def_ent_id'] == 'binary_sensor.claptrap_mic_clap_2claps' and 'unique_id' not in c
     assert not {'device', 'origin'} & set(c)
     assert dev['cmps']['mic_siffler_seuil']['p'] == 'number'
     ha.republish_all()
@@ -373,3 +376,53 @@ def test_disabled_commands_ignored_on_reception(ctl, mqtt, monkeypatch):
     ha_control.handle_message(ha_control.COMMAND_TOPIC, b'{"action": "add_rtsp", "url": "rtsp://h/z"}')
     assert last(mqtt, ha_control.RESULT_TOPIC) is None
     assert 'désactivées' in ha_control._configuration_payload(ctl.load_settings())['details']['commandes']
+
+
+def test_detection_switch_on_while_running_is_not_an_error(ctl, mqtt, monkeypatch):
+    monkeypatch.setattr(ha_control, '_api', lambda m, p, b=None: (409, {'error': 'La détection est déjà en cours'})
+                        if p == '/api/detection/start' else (200, {}))
+    ha_control._handle(ha_control.DETECTION_SET_TOPIC, b'ON')
+    assert last(mqtt, ha_control.RESULT_TOPIC) is None            # pas de « Dernière commande : erreur »
+
+
+def test_webhook_refused_over_mqtt(ctl, mqtt):
+    command({'action': 'update_source', 'source': 'Cam', 'webhook_url': 'http://192.168.1.1/x'})
+    r = result(mqtt)
+    assert not r['success'] and 'interface' in r['error'] and r['status'] == 403
+    assert not ctl.load_settings()['rtsp_sources'][0].get('webhook_url')
+
+
+def test_unknown_sound_refused_and_case_fixed(ctl, mqtt):
+    command({'action': 'set_sound', 'source': 'Cam', 'group': 'Clap', 'label': 'clapping', 'enabled': True})
+    assert result(mqtt)['success']
+    wl = ctl.load_settings()['rtsp_sources'][0]['sound_groups'][0]['sound_whitelist']
+    assert wl.get('Clapping') is True and 'clapping' not in wl     # forme exacte de YAMNet
+    command({'action': 'set_sound', 'source': 'Cam', 'group': 'Clap', 'label': 'Claping', 'enabled': True})
+    r = result(mqtt)
+    assert not r['success'] and 'Clapping' in r['error']           # suggestion
+    command({'action': 'set_exclusion', 'label': 'speech', 'excluded': True})
+    assert 'Speech' in ctl.load_settings()['global']['sound_exclusions']
+
+
+def test_entity_commands_not_blocked_by_long_json_command(ctl, mqtt, monkeypatch):
+    """Une prise de calibrage (longue) n'empeche plus un interrupteur de HA
+    de repondre : deux files, deux fils."""
+    import threading
+    gate = threading.Event()
+    real = ha_control._handle
+
+    def handle(topic, payload):
+        if topic == ha_control.COMMAND_TOPIC:
+            gate.wait(5)
+        real(topic, payload)
+    monkeypatch.setattr(ha_control, '_handle', handle)
+    ha_control.handle_message(ha_control.COMMAND_TOPIC, b'{"action": "help"}')
+    ha_control.handle_message('claptrap/mic/clap/seuil/set', b'42')
+    wait_until(lambda: ctl.load_settings()['microphone']['sound_groups'][0]['threshold'] == 0.42)
+    gate.set()
+
+
+def test_get_settings_keeps_full_sound_lists(ctl, mqtt):
+    command({'action': 'get_settings'})
+    mic = next(s for s in result(mqtt)['data']['overview'] if s['source'] == 'mic')
+    assert mic['groups'][0]['sounds'] == ['Clapping']
