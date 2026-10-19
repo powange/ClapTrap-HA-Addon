@@ -23,9 +23,14 @@ import urllib.request
 
 
 # Tirees par les dependances declarees de mediapipe, inutiles a l'add-on :
-# opencv-contrib (remplace par opencv-python-headless), sounddevice (jamais
-# importe) et ses dependances, scipy (reechantillonnage fait en numpy).
-EXCLUDED = {'opencv-contrib-python', 'opencv-python', 'sounddevice', 'cffi', 'pycparser', 'scipy'}
+# OpenCV et matplotlib (et leurs dependances : seul le dessin video de
+# mediapipe les importe, voir data/mp_light.py), sounddevice (jamais importe)
+# et ses dependances, scipy (reechantillonnage fait en numpy).
+# Si une dependance reellement utilisee en a besoin un jour, le `pip check`
+# du build (Dockerfile) echoue en la nommant : la retirer alors d'ici.
+EXCLUDED = {'opencv-contrib-python', 'opencv-python', 'opencv-python-headless', 'sounddevice', 'cffi',
+            'pycparser', 'scipy', 'matplotlib', 'contourpy', 'cycler', 'fonttools', 'kiwisolver', 'pillow',
+            'pyparsing', 'python-dateutil', 'six'}
 
 
 def main(path):

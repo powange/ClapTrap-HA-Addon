@@ -2,7 +2,12 @@
 # les dependances indirectes (constraints.txt), sans mediapipe (simule par
 # data/tests/conftest.py).
 -c constraints.txt
-pytest>=8,<9
+# Outils de test epingles (absents du lock) : une nouvelle version ne peut
+# plus casser la CI sans changement du depot.
+pytest==8.4.2
+pluggy==1.7.0
+iniconfig==2.3.1
+Pygments==2.21.0
 packaging
 numpy
 scipy==1.18.1   # reference des tests de reechantillonnage (absente de l'image)

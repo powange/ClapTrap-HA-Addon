@@ -23,6 +23,8 @@ BLOCK_MS = int(BLOCK_SAMPLES / SAMPLE_RATE * 1000)
 
 
 def main():
+    import mp_light   # comme l'add-on : sans OpenCV ni matplotlib
+    mp_light.install_stubs()
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import audio
     from mediapipe.tasks.python.components import containers
