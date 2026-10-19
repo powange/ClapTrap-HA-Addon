@@ -7,7 +7,8 @@ import threading
 import uuid
 
 from settings_manager import (load_settings, modify_settings, SettingsSaveError, with_default_groups,
-                              to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url)
+                              to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url,
+                              MAX_NR_LEVEL)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
 
@@ -149,7 +150,7 @@ def _source_effects(source_id, fields, restart, gain=None):
     etait applique deux fois, les reglages relus a chaque etape)."""
     if restart or 'name' in fields:
         running = _sync_and_apply()          # entites HA + detection (gain compris)
-    elif fields & {'webhook_url', 'gain'}:
+    elif fields & {'webhook_url', 'gain', 'noise_reduction'}:
         running = _apply_live()
     else:
         return
@@ -340,6 +341,8 @@ def _update_rtsp(stream_id, data):
             stream['enabled'] = new_enabled
         if 'gain' in data:
             stream['gain'] = to_number(data['gain'], 'gain', 0, 100, integer=True)
+        if 'noise_reduction' in data:
+            stream['noise_reduction'] = to_number(data['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
         # Redemarrage si la source est (des)activee, ou si l'URL ou le
         # transport d'une source active change (ffmpeg doit se reconnecter).
         state['restart'] = enabled_changed or ((url_changed or transport_changed) and stream.get('enabled', False))
@@ -439,6 +442,8 @@ def _update_vban(vban_id, source):
             s['enabled'] = new_enabled
         if 'gain' in source:
             s['gain'] = to_number(source['gain'], 'gain', 0, 100, integer=True)
+        if 'noise_reduction' in source:
+            s['noise_reduction'] = to_number(source['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
         state['restart'] = restart
         return dict(s)
 
@@ -1007,11 +1012,11 @@ def toggle_auto_start():
 _PATCH_FIELDS = {
     # Seuil et entites se reglent par groupe (/api/source/sound_groups) : les
     # champs de source equivalents etaient acceptes sans aucun effet.
-    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled'},
-    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp'},
+    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled', 'noise_reduction'},
+    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp', 'noise_reduction'},
     # VBAN : `name` n'est que le nom affiche ; le routage utilise stream_name
     # et les entity_id la cle fixee a la creation.
-    'vban': {'name', 'webhook_url', 'enabled', 'gain'},
+    'vban': {'name', 'webhook_url', 'enabled', 'gain', 'noise_reduction'},
 }
 
 
@@ -1050,6 +1055,8 @@ def _update_mic_fields(data, configured=False):
         changes['webhook_url'] = to_webhook(data['webhook_url'])
     if 'enabled' in data:
         changes['enabled'] = to_bool(data['enabled'], 'enabled')
+    if 'noise_reduction' in data:
+        changes['noise_reduction'] = to_number(data['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
     if configured:
         changes['configured'] = True
 
@@ -1098,7 +1105,7 @@ def _update_mic_fields(data, configured=False):
         # Une seule synchronisation HA (disponibilite, nom du micro affiche,
         # meme desactive) : la relance la fait deja.
         _after_change(needs_restart)
-    elif 'webhook_url' in changes:
+    elif changes.keys() & {'webhook_url', 'noise_reduction'}:
         _apply_live()
     return mic
 

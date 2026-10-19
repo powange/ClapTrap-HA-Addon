@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.92.0
+
+### Réduction du bruit de fond
+
+- Nouveau réglage par source : **Réduction du bruit de fond** (Désactivée,
+  Légère, Moyenne, Forte ; désactivée par défaut). Il atténue un bruit
+  continu (souffle, ventilation, réfrigérateur) avant YAMNet, par
+  « spectral gating ». Le traitement se fait en continu sur le son brut,
+  avant le gain. Pour chaque fréquence, le niveau du bruit est le plus faible
+  des 30 dernières secondes : une alarme qui bipe ou des pleurs ne sont donc
+  jamais pris pour du bruit.
+- Essai sur un bruit stationnaire : de 5 à 8 dB de mieux selon le niveau,
+  avec le clap gardé à environ 90 %.
+- Le comptage des claps garde le son brut.
+- **Enregistrer 5 s** donne l'extrait avant la réduction (même gain) et
+  après, exactement ce que YAMNet reçoit, chacun téléchargeable.
+- Chaque son appris indique le niveau de réduction actif quand il a été
+  appris.
+- Essai sur un extrait réel de caméra : moins de classes parasites
+  (« Animal » de 0,41 à 0,15, « Klaxon » de 0,50 à 0,15).
+  Les aigus coupés par une caméra à 8 kHz ne sont pas recréés.
+
 ## 6.91.0
 
 ### Sons appris

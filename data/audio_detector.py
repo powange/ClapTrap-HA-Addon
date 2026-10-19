@@ -48,6 +48,7 @@ JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne es
 # Classes gardees par resultat (groupes, decouverte, capteurs) ; le classifieur
 # rend les 521 (max_results=-1) pour les sons appris.
 TOP_RESULTS = 30
+DENOISE_KEEP = 120.0   # s : reduction du bruit reactivee dans ce delai : profil repris
 # Horloge audio : coupure si elle a plus de CUT_GAP s de retard sur l'heure ;
 # sinon, ecart corrige en douceur (SLEW_STEP s par bloc au plus, au-dela de
 # SLEW_DEADBAND) sans vider la fenetre d'analyse.
@@ -95,6 +96,10 @@ class AudioDetector:
         # pour la decouverte des sons). None : toujours.
         self.analysis_wanted = None
         self.learned = None       # sons appris (learned.Matcher), remplace d'un bloc
+        self.denoise = None       # reduction du bruit de fond (denoise.SpectralGate), entree de YAMNet seulement
+        self._denoise_errors = 0
+        self._denoise_kept = None     # (reduction coupee, instant) : profil repris si on la reactive vite
+        self._denoise_switched = False
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
@@ -116,7 +121,8 @@ class AudioDetector:
         """fn('block', pic_brut, gain, instant, niveau_avant_pic), fn('peak', 'attack'|'sustain',
         instant), fn('result', [(classe, score)], instant) : instants sur
         l'horloge audio ; fn('scores', [(classe, score)] des 521 classes,
-        instant) : empreinte des sons appris ; fn('audio', bloc) : le son donne a YAMNet (gain,
+        instant) : empreinte des sons appris ; fn('audio_raw', bloc) : le meme
+        sans reduction du bruit (si active) ; fn('audio', bloc) : le son donne a YAMNet (gain,
         auto-gain et limiteur appliques), pour l'enregistrement d'extraits.
         `events` : evenements voulus (tous si None)."""
         self._taps = self._taps + [(fn, frozenset(events) if events else None)]
@@ -269,21 +275,40 @@ class AudioDetector:
             target = min(AGC_TARGET / loudest, AGC_MAX) if 0 < loudest < AGC_TARGET / 2 else 1.0
             self._agc = target if target < self._agc else 0.95 * self._agc + 0.05 * target
             total = gain * self._agc
-            if raw_peak * total > AGC_CEILING:
+            raw = audio_data
+            if self._denoise_switched:
+                # Reduction activee ou coupee : pas de fenetre melant les deux
+                # (son decale de 24 ms, ou tranches en attente perdues).
+                self._denoise_switched = False
+                self._reset_window()
+                self._pending = np.zeros(0, dtype=np.float32)
+            clean = self._denoised(raw)
+            delay = self.denoise.delay if clean is not None else 0
+            if clean is not None:
+                audio_data = clean   # reduction du bruit : entree du classifieur seulement
+            # Pic du son effectivement amplifie (traite : en retard de 24 ms,
+            # un clap de la fin du bloc precedent peut y etre).
+            out_peak = float(np.abs(audio_data).max()) if clean is not None and audio_data.size else raw_peak
+            if out_peak * total > AGC_CEILING:
                 # Bloc trop fort pour le gain de la source (camera a x10) :
                 # reduit plutot qu'ecrete (un clap sature est moins bien
                 # reconnu). Ce bloc seulement : les sons suivants ne sont pas
                 # attenues par un bruit fort isole.
-                total = AGC_CEILING / raw_peak
-            if total > self._last_total + 1e-3 and audio_data.size:
-                # Remontee en rampe sur le bloc : pas de marche toutes les 100 ms.
-                ramp = np.linspace(self._last_total, total, audio_data.size, dtype=np.float32)
-                audio_data = np.clip(audio_data * ramp, -1.0, 1.0)
-            elif abs(total - 1.0) > 1e-3:
-                audio_data = np.clip(audio_data * np.float32(total), -1.0, 1.0)
+                total = AGC_CEILING / out_peak
+            last_total = self._last_total
+            audio_data = self._amplify(audio_data, last_total, total)
             self._last_total = total
             if self._taps and self._wants('audio'):
                 self._tap('audio', audio_data)   # tableau neuf, non modifie ensuite
+            if self._taps and self._wants('audio_raw'):
+                # Extrait « avant » : meme gain sans reduction du bruit (limiteur
+                # sur son propre pic), et le niveau de reduction du bloc.
+                if clean is None:
+                    self._tap('audio_raw', audio_data, 0)
+                else:
+                    raw_total = min(total, AGC_CEILING / raw_peak) if raw_peak > 0 else total
+                    self._tap('audio_raw', self._amplify(raw, min(last_total, raw_total), raw_total),
+                              self.denoise.level)
 
             if self._pending.size:
                 audio_data = np.concatenate((self._pending, audio_data))
@@ -291,13 +316,38 @@ class AudioDetector:
             for i in range(n_blocks):
                 # Fin de ce bloc sur l'horloge audio (les blocs suivants du
                 # meme envoi sont encore a venir).
-                rest = audio_data.size - (i + 1) * BLOCK_SAMPLES
+                # Son reduit : en retard de `delay` echantillons sur l'horloge.
+                rest = audio_data.size - (i + 1) * BLOCK_SAMPLES + delay
                 self._push(audio_data[i * BLOCK_SAMPLES:(i + 1) * BLOCK_SAMPLES],
                            self._clock_end - rest / self.sample_rate)
             self._pending = audio_data[n_blocks * BLOCK_SAMPLES:].copy()
         except Exception:
             logging.exception(f"Erreur dans le traitement audio ({self.label})")
         return raw_peak
+
+    @staticmethod
+    def _amplify(x, last_total, total):
+        if total > last_total + 1e-3 and x.size:
+            # Remontee en rampe sur le bloc : pas de marche toutes les 100 ms.
+            return np.clip(x * np.linspace(last_total, total, x.size, dtype=np.float32), -1.0, 1.0)
+        if abs(total - 1.0) > 1e-3:
+            return np.clip(x * np.float32(total), -1.0, 1.0)
+        return x
+
+    def _denoised(self, raw):
+        """Son reduit (denoise.SpectralGate), ou None (desactivee, erreur)."""
+        gate = self.denoise
+        if gate is None:
+            return None
+        try:
+            return gate.process(raw)
+        except Exception as e:
+            # Limite : une erreur a chaque bloc ferait 10 lignes/s.
+            self._denoise_errors += 1
+            if self._denoise_errors <= 3 or self._denoise_errors % 3000 == 0:
+                logging.warning(f"[{self.label}] réduction du bruit en échec ({self._denoise_errors}x), "
+                                f"son brut utilisé : {e}")
+            return None
 
     def _locate_peak(self, x):
         """(pic, instant du pic, niveau juste avant lui) d'un bloc.
@@ -358,6 +408,9 @@ class AudioDetector:
             self._cuts += 1
         self._reset_window()
         self._prev_tail = np.zeros(0, dtype=np.float32)   # niveau d'avant le trou : sans objet
+        gate = self.denoise
+        if gate is not None:
+            gate.reset()   # pas de tranche a cheval sur le trou
         with self.lock:
             events = self.tracker.interrupt(last_clock, gap)
         self._dispatch(events)
@@ -442,6 +495,30 @@ class AudioDetector:
         """Attend que les fenetres en attente soient analysees (tests, autotest)."""
         with self._jobs.all_tasks_done:
             self._jobs.all_tasks_done.wait_for(lambda: not self._jobs.unfinished_tasks, timeout)
+
+    def set_denoise(self, level):
+        """Reduction du bruit de fond avant YAMNet : 0 (desactivee) a 3
+        (valeur hors bornes ramenee). Le profil du bruit est garde quand seul
+        le niveau change."""
+        from denoise import SpectralGate, clamp_level
+        level = clamp_level(level)
+        if not level:
+            if self.denoise is not None:
+                self._denoise_kept = (self.denoise, time.monotonic())
+                self.denoise = None
+                self._denoise_switched = True
+        elif self.denoise is None:
+            kept, since = self._denoise_kept or (None, 0.0)
+            # Coupee il y a peu (comparaison avec/sans) : profil du bruit
+            # repris plutot que reappris sur le son du moment.
+            gate = kept if kept is not None and time.monotonic() - since < DENOISE_KEEP else SpectralGate(level)
+            gate.level = level
+            gate.reset()
+            self._denoise_kept = None
+            self.denoise = gate
+            self._denoise_switched = True
+        else:
+            self.denoise.level = level
 
     def _analyze(self, window, end_clock):
         container = self._containers.AudioData.create_from_array(window, self.sample_rate)

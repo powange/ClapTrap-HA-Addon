@@ -31,6 +31,8 @@
         return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
     };
     CT.pct = function (n) { return Math.round((n || 0) * 100) + ' %'; };
+    // Reduction du bruit de fond : nom de chaque niveau (denoise.LEVELS, 0 a 3).
+    CT.NR_NAMES = ['Désactivée', 'Légère', 'Moyenne', 'Forte'];
     // Nom francais d'un son YAMNet (sounds_fr.js), le nom anglais a defaut.
     CT.soundLabel = function (label) { return (CT.SOUNDS_FR || {})[label] || label; };
     // Filtre de pastilles par recherche (nom YAMNet ou francais) ; `labelOf`

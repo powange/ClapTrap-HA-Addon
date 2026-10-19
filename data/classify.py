@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 from audio_detector import ANALYSIS_HOP, AudioDetector
+from denoise import clamp_level
 from clap_logic import default_group, normalize_group
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
 from audio_utils import BLOCK_SAMPLES, level_db
@@ -96,6 +97,7 @@ def build_sources_from_settings(settings):
             'source_key': str(mic.get('device_index', 0)),
             'entity_key': source_entity_key('mic', mic),
             'webhook_url': mic.get('webhook_url', ''),
+            'noise_reduction': clamp_level(mic.get('noise_reduction')),
             'groups': _build_groups_for_source(mic, global_threshold),
             'label': source_label('mic', mic),
             'name': mic.get('audio_source') if mic.get('audio_source') not in (None, '', 'default') else 'Microphone',
@@ -113,6 +115,7 @@ def build_sources_from_settings(settings):
                 'rtsp_tcp': bool(src.get('rtsp_tcp', False)),
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 10)),
+                'noise_reduction': clamp_level(src.get('noise_reduction')),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('rtsp', src),
                 'name': src.get('name') or 'RTSP',
@@ -130,6 +133,7 @@ def build_sources_from_settings(settings):
                 'stream_name': src.get('stream_name') or src.get('name', ''),
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 1)),
+                'noise_reduction': clamp_level(src.get('noise_reduction')),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('vban', src),
                 'name': src.get('name') or src.get('ip', ''),
@@ -547,6 +551,10 @@ class DetectionSession:
                         self.webhooks[sid] = current.get('webhook_url') or ''
                     if 'gain' in current:
                         _live_gains[sid] = float(current['gain'])
+                    try:
+                        det.set_denoise(current.get('noise_reduction', 0))
+                    except Exception as e:   # les autres reglages sont appliques quand meme
+                        logging.warning(f"Réduction du bruit non appliquée ({src['label']}) : {e}")
                 p = detection_params_from_settings(settings)
                 # Arbitrage entre pieces : pas de decision anticipee (les
                 # sources doivent finir en meme temps pour etre comparees).

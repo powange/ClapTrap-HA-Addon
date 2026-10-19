@@ -18,8 +18,16 @@
         if (!ul) return;
         ul.innerHTML = sounds.length ? sounds.map(function (s) {
             var q = s.quality || {};
+            // Source d'apprentissage dont la reduction du bruit a change : les
+            // empreintes ne correspondent plus.
+            var src = s.source_ref ? CT.sourceList().filter(function (x) {
+                return (x.kind === 'mic' ? 'mic' : x.kind + ':' + x.key) === s.source_ref;
+            })[0] : null;
+            var changed = src && (src.data.noise_reduction || 0) !== (s.noise_reduction || 0);
             return '<li class="learned-item"><div class="learned-main"><strong>' + esc(s.label) + '</strong>' +
                 '<span class="hint">' + s.examples + ' exemples' + (s.source ? ' · ' + esc(s.source) : '') +
+                (s.noise_reduction ? ' · réduction du bruit ' + esc((CT.NR_NAMES[s.noise_reduction] || '').toLowerCase()) : '') +
+                (changed ? ' · <span class="text-warn">la réduction du bruit de cette source a changé depuis : apprenez-le à nouveau</span>' : '') +
                 (q.warnings && q.warnings.length ? ' · <span class="text-warn">' + esc(q.warnings[0]) + '</span>' : '') +
                 '</span></div><button type="button" class="btn btn-ghost" data-forget="' + esc(s.id) + '">Supprimer</button></li>';
         }).join('') : '<li class="hint">Aucun son appris pour l\'instant.</li>';

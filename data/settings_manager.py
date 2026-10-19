@@ -7,6 +7,8 @@ import time
 import logging
 from threading import RLock
 
+MAX_NR_LEVEL = 3   # reduction du bruit de fond : niveaux 0 a 3 (denoise.LEVELS)
+
 # /data est le volume persistant HA (survit aux mises à jour de l'addon)
 PERSISTENT_DIR = '/data'
 # Fallback sur le répertoire de l'app pour le dev local
@@ -463,10 +465,11 @@ _GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 's
                 'room_arbitration', 'room_window'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
-                   'auto_volume', 'auto_start', 'configured', 'sound_groups'},
-    'rtsp_sources': {'id', 'name', 'url', 'enabled', 'gain', 'webhook_url', 'rtsp_tcp', 'sound_groups'},
+                   'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction'},
+    'rtsp_sources': {'id', 'name', 'url', 'enabled', 'gain', 'webhook_url', 'rtsp_tcp', 'sound_groups',
+                     'noise_reduction'},
     'saved_vban_sources': {'id', 'name', 'ip', 'port', 'stream_name', 'enabled', 'gain', 'webhook_url',
-                           'entity_key', 'sound_groups'},
+                           'entity_key', 'sound_groups', 'noise_reduction'},
 }
 _GROUP_KEYS = {'slug', 'name', 'threshold', 'ha_entities', 'clap_counts', 'sound_whitelist', 'enabled',
                'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from', 'alert_confirm', 'device_class'}
@@ -818,6 +821,8 @@ def _norm_source(src, path):
         src['gain'] = to_number(src['gain'], f"{path}.gain", 0, 100)
     if 'volume' in src:
         src['volume'] = to_number(src['volume'], f"{path}.volume", 0, 150, integer=True)
+    if 'noise_reduction' in src:
+        src['noise_reduction'] = to_number(src['noise_reduction'], f"{path}.noise_reduction", 0, MAX_NR_LEVEL, integer=True)
     if 'device_index' in src:
         src['device_index'] = to_number(src['device_index'], f"{path}.device_index", 0, 10000, integer=True)
     if 'port' in src:
