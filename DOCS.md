@@ -605,26 +605,44 @@ broker par installation (l'add-on Mosquitto de chacune, par exemple).
 
 ## Sécurité (AppArmor)
 
-ClapTrap est livré avec un profil AppArmor en mode « complain » : les accès
-inhabituels sont journalisés mais pas bloqués. Pour vérifier qu'il couvre
-tout, depuis l'add-on « Terminal & SSH » :
+Depuis la 6.94, ClapTrap fonctionne sous un profil AppArmor **strict** : il
+ne peut lire, écrire ou lancer que ce dont il a besoin (son dossier `/data`,
+ses programmes, l'audio et le réseau). Le profil a été établi en mode
+« complain » sur une installation réelle, avec toutes les fonctions.
 
-1. Lancez `ha host logs --identifier audit -n 1 -f > /tmp/aa.txt` (le
-   terminal écoute).
-2. Redémarrez ClapTrap et utilisez toutes ses fonctions sur toutes vos
-   sources : détection (micro, caméras RTSP ou rtsps, VBAN), un clap qui
-   déclenche une entité et un webhook, Tester le son, Enregistrer 5 s,
-   assistant (Vérifier l'adresse), calibrage, son appris. Avec un broker MQTT
-   externe en TLS, laissez la connexion s'établir. Puis Ctrl+C.
-3. Résumez les accès signalés :
+Si une fonction échoue alors qu'elle marchait avant la 6.94, regardez si
+AppArmor a refusé un accès, depuis l'add-on « Terminal & SSH » :
 
 ```sh
-grep 'apparmor="ALLOWED"' /tmp/aa.txt | grep claptrap | awk '{o="";for(i=1;i<=NF;i++) if($i~/^(operation|class|name|requested_mask|signal|peer|capname|family|sock_type|protocol|target|info)=/) o=o" "$i; print o}' | sed -E 's/init:[A-Za-z0-9]+/init:X/; s#/proc/[0-9]+/#/proc/N/#' | sort | uniq -c | sort -rn
+ha host logs --identifier audit -n 200000 | grep 'apparmor="DENIED"' | grep claptrap | tail -20
 ```
 
-Aucune ligne : le profil couvre tout et peut passer en mode strict. Des
-lignes : ouvrez une issue sur le dépôt avec leur contenu. Le profil est
-chargé sous le nom `<dépôt>_claptrap` (par exemple `691ff2c3_claptrap`).
+Lancez-la peu après l'échec : le journal d'audit de l'hôte est partagé avec
+les autres add-ons, une ligne ancienne finit par en sortir. Des lignes :
+ouvrez une issue sur le dépôt avec leur contenu (le profil est chargé sous
+le nom `<dépôt>_claptrap`, par exemple `691ff2c3_claptrap`) ; une version
+corrective suit. En attendant, si vous avez une sauvegarde de l'add-on faite
+avant la mise à jour (case « Sauvegarder avant la mise à jour »), restaurez-la
+(Paramètres › Système › Sauvegardes). Home Assistant ne permet pas de
+désactiver AppArmor pour un seul add-on, et le « Mode protection » n'y change
+rien.
+
+**Mesurer les accès d'une nouvelle version du profil** (pour les
+contributeurs) : remettre `complain` dans les `flags` de `apparmor.txt`,
+installer l'add-on depuis cette copie, puis :
+
+1. `ha host logs --identifier audit -n 50000 | grep 'apparmor="ALLOWED"' | grep claptrap > /tmp/avant.txt`
+2. Redémarrer ClapTrap et utiliser toutes ses fonctions sur toutes les
+   sources (micro, caméras RTSP ou rtsps, VBAN, webhook, broker MQTT externe
+   en TLS, Tester le son, Enregistrer 5 s, assistant, calibrage, son appris).
+3. Même commande vers `/tmp/apres.txt`, puis résumer les nouvelles lignes :
+
+```sh
+grep -vxFf /tmp/avant.txt /tmp/apres.txt | awk '{o="";for(i=1;i<=NF;i++) if($i~/^(operation|class|name|requested_mask|signal|peer|capname|family|sock_type|protocol|target|info)=/) o=o" "$i; print o}' | sed -E 's/init:[A-Za-z0-9]+/init:X/; s#/proc/[0-9]+/#/proc/N/#' | sort | uniq -c | sort -rn
+```
+
+(`ha host logs -f` renvoie tout l'historique, d'où la comparaison avant /
+après.)
 
 ## Configuration (onglet Réglages)
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.94.0
+
+### AppArmor en mode strict
+
+- Le profil AppArmor de ClapTrap passe en mode **strict** : les accès hors du
+  profil sont refusés, et non plus seulement journalisés. ClapTrap ne peut
+  lire, écrire ou lancer que ce dont il a besoin.
+- Les règles ont été établies sur une installation réelle : mesure de 26
+  démarrages avec toutes les fonctions, règles ajoutées en 6.93, puis
+  nouvelle mesure vide après redémarrage.
+- La CI démarre chaque image de pull request sous le profil strict, avec un
+  fuseau horaire et un faux Supervisor. L'add-on démarre alors complètement :
+  bashio, Gunicorn, MQTT, plus l'autotest YAMNet et ffmpeg. La CI échoue si
+  un accès est refusé ou si l'interface ne répond pas. Elle détecte ainsi une
+  image de base ou des paquets Debian qui changeraient le démarrage.
+- **En cas de problème** (une fonction qui échoue depuis cette version), la
+  section « Sécurité (AppArmor) » de la documentation montre comment voir
+  les accès refusés. Elle donne aussi la procédure de mesure pour étendre
+  le profil.
+
 ## 6.93.0
 
 ### AppArmor : profil complété (avant le mode strict)

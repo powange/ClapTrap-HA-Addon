@@ -119,7 +119,60 @@ jobs:
           # l'image qui sera publiee.
           build-args: APT_REFRESH=${{ steps.week.outputs.week }}
           push: "false"
+          load: "true"
           version: pr
+      # Profil AppArmor strict : l'image demarre sous le profil (fuseau
+      # horaire different de celui de l'image : tzdata reconfigure, comme
+      # chez un utilisateur) et aucun acces n'est refuse. Une image de base
+      # ou des paquets Debian qui changent ce que les scripts de demarrage
+      # touchent cassaient sinon le demarrage chez tout le monde.
+      - name: Démarrage sous le profil AppArmor strict
+        if: steps.changes.outputs.image == 'true'
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-claptrap:pr
+        run: |
+          set -u
+          command -v apparmor_parser > /dev/null || { sudo apt-get update -q && sudo apt-get install -y -q apparmor; }
+          if grep -q 'flags=(.*complain' apparmor.txt; then echo "Profil en mode complain : rien a verifier"; exit 0; fi
+          # Nom donne comme le Supervisor (<depot>_claptrap) : les regles qui
+          # visent le profil par motif (signaux) sont verifiees aussi.
+          sed 's/^profile claptrap /profile ci_claptrap /' apparmor.txt > /tmp/apparmor-ci.txt
+          sudo apparmor_parser -r -W /tmp/apparmor-ci.txt
+          since=$(date -u '+%Y-%m-%d %H:%M:%S')
+          # Faux Supervisor : l'add-on demarre completement (bashio, run.sh,
+          # Gunicorn, MQTT), pas seulement les scripts de l'image de base.
+          docker network create claptrap-ci > /dev/null
+          docker run -d --name supervisor --network claptrap-ci --network-alias supervisor \
+            -v "$PWD/.github/ci/fake_supervisor.py:/f.py:ro" python:3.13-alpine python -u /f.py > /dev/null
+          for i in $(seq 1 30); do
+            docker exec supervisor python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1/ping')" 2> /dev/null && break
+            sleep 1
+          done
+          # /data : volume persistant de l'add-on, comme sous le Supervisor (sans
+          # lui, les reglages iraient dans /usr/src/app, refuse a juste titre).
+          docker run -d --name claptrap-aa --network claptrap-ci --security-opt apparmor=ci_claptrap \
+            -v "$(mktemp -d):/data" -e TZ=Europe/Paris -e SUPERVISOR_TOKEN=ci "$IMAGE"
+          sleep 45
+          docker logs claptrap-aa 2>&1 | tail -30
+          # Sous le profil aussi : interface, YAMNet (mediapipe) et ffmpeg.
+          code=$(docker exec claptrap-aa curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:16045/ || true)
+          echo "Interface : HTTP $code"
+          docker exec -w /usr/src/app claptrap-aa venv/bin/python selftest_yamnet.py 2>&1 | tail -2
+          docker exec claptrap-aa ffmpeg -hide_banner -version | head -1
+          running=$(docker inspect -f '{{.State.Running}}' claptrap-aa)
+          docker rm -f claptrap-aa supervisor > /dev/null
+          docker network rm claptrap-ci > /dev/null
+          if [ "$running" != "true" ] || [ "$code" != "403" ]; then
+            echo "::error::ClapTrap ne tourne pas sous le profil AppArmor (conteneur en marche : $running, interface : HTTP $code ; 403 attendu hors ingress)"
+            exit 1
+          fi
+          denied=$(sudo journalctl -k --since "$since" --no-pager | grep 'apparmor="DENIED"' | grep 'ci_claptrap' || true)
+          if [ -n "$denied" ]; then
+            echo "::error::Accès refusés par le profil AppArmor :"
+            echo "$denied"
+            exit 1
+          fi
+          echo "Aucun accès refusé par le profil AppArmor"
 
   init:
     name: Version à publier
