@@ -12,10 +12,7 @@
         return 'depuis ' + h + ' h ' + String(min % 60).padStart(2, '0');
     }
 
-    function setText(el, text) {
-        // N'ecrire que si le texte change (evite des mutations inutiles).
-        if (el.textContent !== text) el.textContent = text;
-    }
+    var setText = CT.setText;   // n'ecrit que si le texte change
     var wasRunning = null;
 
     var degradedShown = false;
@@ -35,7 +32,12 @@
         var enabled = allSources.filter(function (s) { return s.enabled; });
         var running = !!st.running;
         bar.classList.toggle('is-running', running);
-        setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : running ? 'Détection en cours' : 'Détection arrêtée');
+        // Demarrage (YAMNet, connexion des cameras : plusieurs secondes) ou
+        // arret en cours : dit tel quel, au lieu de « Détection arrêtée ».
+        var pending = CT.state.detectionPending;
+        var pendingText = pending === 'start' ? 'Démarrage…' : pending === 'stop' ? 'Arrêt…' : '';
+        setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : pendingText ||
+                (running ? 'Détection en cours' : 'Détection arrêtée'));
         var n = running ? (st.sources || []).length : enabled.length;
         // Sources en erreur ou en reconnexion : la barre ne dit plus « tout va
         // bien » en vert quand plus rien n'arrive.
@@ -63,10 +65,15 @@
         }
         wasRunning = running;
         var btn = CT.$('#toggle-detection');
-        btn.textContent = running ? 'Arrêter la détection' : 'Démarrer la détection';
+        btn.textContent = pendingText || (running ? 'Arrêter la détection' : 'Démarrer la détection');
         btn.classList.toggle('btn-danger', running);
         btn.classList.toggle('btn-primary', !running);
-        btn.disabled = !running && enabled.length === 0;
+        // Pendant la requete : aria-disabled (et non disabled, qui renvoyait
+        // le focus clavier au debut de la page) ; un statut recu entre-temps
+        // ne le reactive plus.
+        btn.setAttribute('aria-disabled', pending ? 'true' : 'false');
+        btn.setAttribute('aria-busy', pending ? 'true' : 'false');
+        btn.disabled = !pending && !running && enabled.length === 0;
         btn.title = btn.disabled ? (hasSources ? 'Activez au moins une source pour démarrer'
                                                : 'Ajoutez une source pour démarrer') : '';
         var auto = CT.$('#auto-start');
@@ -86,8 +93,9 @@
         btn.addEventListener('click', function () {
             if (btn.dataset.busy) return;   // anti double-clic
             btn.dataset.busy = '1';
-            btn.disabled = true;
             var running = CT.state.status.running;
+            CT.state.detectionPending = running ? 'stop' : 'start';
+            CT.renderStatus();
             // Le serveur demarre avec les reglages ENREGISTRES (corps ignore).
             CT.api('POST', running ? '/api/detection/stop' : '/api/detection/start', {})
                 .then(function () { return CT.reloadStatus(); })
@@ -100,7 +108,7 @@
                         CT.error((running ? 'Arrêt' : 'Démarrage') + ' impossible : ' + err.message);
                     });
                 })
-                .finally(function () { delete btn.dataset.busy; CT.renderStatus(); });
+                .finally(function () { delete btn.dataset.busy; CT.state.detectionPending = null; CT.renderStatus(); });
         });
         var auto = CT.$('#auto-start');
         auto.addEventListener('change', function () {

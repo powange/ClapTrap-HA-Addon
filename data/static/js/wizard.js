@@ -326,6 +326,17 @@
         var back = document.getElementById('wizard');
         back.addEventListener('click', function (e) { if (e.target === back) close(); });
         back.querySelector('[data-w="close"]').addEventListener('click', close);
+        // Entree (ou « OK » du clavier mobile) dans un champ : action principale
+        // de l'etape (« Ajouter ce flux » dans l'ajout VBAN a la main).
+        back.addEventListener('keydown', function (e) {
+            var t = e.target;
+            if (e.key !== 'Enter' || e.isComposing || t.tagName !== 'INPUT' || t.type === 'checkbox') return;
+            var manual = t.closest('details');
+            var target = manual ? manual.querySelector('#wz-v-add') : back.querySelector('[data-w="ok"]');
+            if (!target || target.disabled) return;
+            e.preventDefault();
+            target.click();
+        });
         var emptyAdd = document.getElementById('empty-add');
         if (emptyAdd) emptyAdd.addEventListener('click', open);
     };

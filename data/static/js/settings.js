@@ -34,10 +34,26 @@
             });
         });
         CT.$('#adv-defaults').addEventListener('click', function () {
+            // Confirmation : un toucher ecrasait les valeurs d'un calibrage du
+            // comptage de deux minutes, sans retour possible.
+            var g = CT.state.settings.global || {};
+            var line = function (v) {
+                return 'fenêtre ' + String(v.delay).replace('.', ',') + ' s, écart ' + String(v.peak_cooldown).replace('.', ',') +
+                    ' s, force ×' + String(v.peak_ratio).replace('.', ',');
+            };
+            var current = {delay: g.delay != null ? g.delay : DEFAULTS.delay,
+                           peak_cooldown: g.peak_cooldown != null ? g.peak_cooldown : DEFAULTS.peak_cooldown,
+                           peak_ratio: g.peak_ratio != null ? g.peak_ratio : DEFAULTS.peak_ratio};
+            CT.confirm('Rétablir les valeurs par défaut du comptage ? Actuelles : ' + line(current) +
+                       '. Par défaut : ' + line(DEFAULTS) + '.', 'Rétablir').then(function (ok) {
+                if (ok) resetDefaults();
+            });
+        });
+        function resetDefaults() {
             CT.api('PUT', '/api/settings/advanced', DEFAULTS)
                 .then(function () { Object.assign(CT.state.settings.global = CT.state.settings.global || {}, DEFAULTS); fillAdvanced(); CT.success('Valeurs par défaut rétablies'); })
                 .catch(function (err) { CT.error('Réinitialisation impossible : ' + err.message); });
-        });
+        }
     }
 
     // ---- Exclusions -----------------------------------------------------------
@@ -128,9 +144,19 @@
         });
         // Le telechargement peut etre bloque dans l'app Companion : afficher
         // la configuration pour la copier.
+        // Par defaut sans secrets (copie a partager pour demander de l'aide) :
+        // les mots de passe des cameras s'affichaient en clair alors que
+        // l'interface les masque partout ailleurs.
         CT.$('#show-config').addEventListener('click', function () {
-            CT.api('GET', '/api/settings').then(function (s) {
-                showText('Configuration ClapTrap', JSON.stringify(s, null, 2));
+            CT.api('GET', '/api/settings/export?secrets=0').then(function (s) {
+                showText('Configuration ClapTrap', JSON.stringify(s, null, 2), {
+                    note: 'Copie sans secrets (identifiants des caméras et adresses des webhooks masqués), à partager pour demander de l\'aide.',
+                    label: 'Afficher la sauvegarde complète',
+                    warn: 'Sauvegarde complète : elle contient les mots de passe des caméras et les adresses des webhooks. Ne la partagez pas.',
+                    load: function () {
+                        return CT.api('GET', '/api/settings/export').then(function (full) { return JSON.stringify(full, null, 2); });
+                    }
+                });
             }).catch(function (err) { CT.error('Configuration indisponible : ' + err.message); });
         });
         var input = CT.$('#import-config');
@@ -162,17 +188,36 @@
         });
     }
 
-    function showText(title, text) {
+    // `alt` : {note, label, warn, load()} — texte par defaut accompagne d'une
+    // note, et bouton qui charge une autre version (avec un avertissement).
+    function showText(title, text, alt) {
         var back = document.createElement('div');
         back.className = 'modal-backdrop';
         back.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="txt-title">' +
             '<div class="modal-head"><h2 id="txt-title"></h2></div>' +
+            (alt ? '<p class="hint" data-r="note"></p>' : '') +
             '<textarea class="input textarea" readonly aria-labelledby="txt-title"></textarea>' +
-            '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-r="copy">Copier</button>' +
+            '<div class="modal-actions">' + (alt ? '<button type="button" class="btn btn-ghost" data-r="alt"></button>' : '') +
+            '<button type="button" class="btn btn-ghost" data-r="copy">Copier</button>' +
             '<button type="button" class="btn btn-primary" data-r="close">Fermer</button></div></div>';
         back.querySelector('#txt-title').textContent = title;
         var ta = back.querySelector('textarea');
         ta.value = text;
+        if (alt) {
+            var note = back.querySelector('[data-r="note"]');
+            var altBtn = back.querySelector('[data-r="alt"]');
+            note.textContent = alt.note;
+            altBtn.textContent = alt.label;
+            altBtn.addEventListener('click', function () {
+                altBtn.disabled = true;
+                alt.load().then(function (t) {
+                    text = ta.value = t;
+                    note.textContent = alt.warn;
+                    note.classList.add('text-warn');
+                    altBtn.remove();
+                }).catch(function (err) { altBtn.disabled = false; CT.error(err.message); });
+            });
+        }
         document.body.appendChild(back);
         var release = CT.trapFocus(back.querySelector('.modal'), close);
         function close() { release(); back.remove(); }
