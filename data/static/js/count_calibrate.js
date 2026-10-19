@@ -7,6 +7,9 @@
     var esc = CT.esc;
     var back, body, release, plan, step, srcName, active = false, busy = false, starting = false;
     var run = 0;   // ouverture en cours : une reponse d'une ouverture precedente est ignoree
+    var auto = false, stopAuto = null;   // prises enchainees ; arret du compte a rebours en cours
+
+    function cancelAuto() { if (stopAuto) stopAuto(); stopAuto = null; }
 
     var STEPS = [
         {kind: 'fond', title: 'Bruit de fond', duration: 5,
@@ -39,6 +42,7 @@
     function close() {
         if (!back || back.hidden) return;
         if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
+        cancelAuto();
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;
         run += 1;
@@ -62,6 +66,7 @@
                   }).join('') + '</select></div>'
                 : '<p class="hint text-warn">Aucune source active : activez une source pour calibrer le comptage.</p>') +
             '<label class="check"><input type="checkbox" id="cc-separe" checked> Vérifier aussi deux commandes séparées (recommandé)</label>' +
+            CT.autoTakesHtml('cc-auto') +
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
             (sources.length ? '<button type="button" class="btn btn-primary" data-c="start">Commencer</button>' : '') + '</div>';
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
@@ -71,6 +76,7 @@
             var sel = CT.$('#cc-source');
             srcName = sel.options[sel.selectedIndex].textContent;
             var withSepare = CT.$('#cc-separe').checked;
+            auto = CT.autoTakes(CT.$('#cc-auto').checked);
             plan = [];
             STEPS.forEach(function (s) {
                 if (s.optional && !withSepare) return;
@@ -93,25 +99,29 @@
 
     // ---- 2. Prises -------------------------------------------------------------
     function takeStep(lastResult) {
+        cancelAuto();
         var p = plan[step];
         setTitle('Calibrer le comptage · prise ' + (step + 1) + '/' + plan.length);
         body.innerHTML =
             (lastResult ? '<p class="hint cal-last">' + lastResult + '</p>' : '') +
             '<h3 class="cal-target">' + esc(p.title) + (p.of > 1 ? ' · essai ' + p.n + '/' + p.of : '') + '</h3>' +
-            '<p>' + p.text + ' Commencez juste après avoir cliqué.</p>' +
+            '<p>' + p.text + (auto ? ' Commencez à la fin du compte à rebours.' : ' Commencez juste après avoir cliqué.') + '</p>' +
             '<p class="cal-countdown" aria-live="polite"></p>' +
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
             (p.kind === 'separe' ? '<button type="button" class="btn btn-ghost" data-c="skip">Passer</button>' : '') +
+            (auto ? '<button type="button" class="btn btn-ghost" data-c="pause">Pause</button>' : '') +
             '<button type="button" class="btn btn-primary" data-c="record">Enregistrer (' + p.duration + ' s)</button></div>';
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
         var skip = body.querySelector('[data-c="skip"]');
-        if (skip) skip.addEventListener('click', next);
+        if (skip) skip.addEventListener('click', function () { cancelAuto(); next(); });
         var rec = body.querySelector('[data-c="record"]');
         rec.addEventListener('click', function () { record(p, rec); });
-        rec.focus();
+        if (auto) stopAuto = CT.autoTake(body, rec, function () { record(p, rec); });
+        else rec.focus();
     }
 
     function record(p, btn) {
+        cancelAuto();
         busy = true;
         btn.disabled = true;
         var out = body.querySelector('.cal-countdown');

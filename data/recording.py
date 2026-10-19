@@ -24,7 +24,7 @@ SAMPLE_RATE = 16000
 DEFAULT_SECONDS = 5.0
 MIN_SECONDS = 1.0
 MAX_SECONDS = 10.0
-RESULT_GRACE = 1.6       # derniers resultats YAMNet de la prise (fenetre de 0,975 s)
+RESULT_GRACE = 1.6       # derniers resultats YAMNet de la prise (fenetre de 0,975 s, toutes les 0,5 s, + retard du flux)
 YAMNET_WINDOW = YAMNET_WINDOW_MS / 1000
 
 _busy = set()            # sources en cours d'enregistrement (requete bloquante)

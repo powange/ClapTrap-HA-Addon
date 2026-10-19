@@ -17,6 +17,11 @@ def make(fake_classifier, groups=None):
     return det, fake_classifier.instances[-1], events
 
 
+def heard(det):
+    """Dernier bloc donne au classifieur (fin de la fenetre glissante)."""
+    return det._blocks[-1]
+
+
 def block(level, noise=0.0):
     b = np.random.default_rng(0).normal(0, noise, BLOCK_SAMPLES).astype(np.float32) if noise else \
         np.zeros(BLOCK_SAMPLES, np.float32)
@@ -32,7 +37,7 @@ def test_gain_applied_to_classifier_only(fake_classifier):
         det.process_audio(block(0.003, 0.001), gain=10)
     raw_floor = det.tracker.avg_level
     assert raw_floor < 0.01          # bruit mesure avant gain
-    assert np.abs(clf.blocks[-1]).max() > 0.02   # le classifieur recoit le signal amplifie
+    assert np.abs(heard(det)).max() > 0.02   # le classifieur recoit le signal amplifie
 
 
 def test_agc_does_not_clip_clap_onset(fake_classifier):
@@ -44,7 +49,7 @@ def test_agc_does_not_clip_clap_onset(fake_classifier):
         det.process_audio(block(0.02, 0.0005))    # son faible, net au-dessus du bruit
     assert det._agc > 2              # auto-gain monte sur les sons faibles
     det.process_audio(block(0.5, 0.002))
-    assert np.abs(clf.blocks[-1]).max() < 1.0    # pas d'ecretage du clap
+    assert np.abs(heard(det)).max() < 1.0    # pas d'ecretage du clap
 
 
 def test_counts_claps_end_to_end(fake_classifier):
@@ -87,37 +92,75 @@ def test_agc_stays_up_on_isolated_weak_clap(fake_classifier):
     for _ in range(30):
         det.process_audio(block(0.002, 0.0005))
     det.process_audio(block(0.03, 0.0005))
-    assert np.abs(clf.blocks[-1]).max() > 0.1   # clap 0,03 amplifie
+    assert np.abs(heard(det)).max() > 0.1   # clap 0,03 amplifie
     det.process_audio(block(0.5, 0.0005))
-    assert np.abs(clf.blocks[-1]).max() < 1.0   # son fort : pas d'ecretage
+    assert np.abs(heard(det)).max() < 1.0   # son fort : pas d'ecretage
 
 
-def test_results_dated_at_end_of_yamnet_window(fake_classifier):
-    """MediaPipe 1.0 (mesure) : un resultat par fenetre de 975 ms, horodate au
-    DEBUT de la fenetre. Il est date a la fin de celle-ci, sur l'horloge audio,
-    meme s'il arrive apres d'autres blocs (rafale)."""
+def test_sliding_window_every_half_second_dated_at_its_end(fake_classifier):
+    """Une fenetre de 0,975 s analysee toutes les 0,5 s, des la premiere
+    seconde recue, datee a sa fin sur l'horloge audio, y compris quand
+    plusieurs blocs arrivent d'un coup (rafale ffmpeg)."""
     det, clf, _ = make(fake_classifier)
-    det.process_audio(block(0.002, 0.001))
-    ts_first = det._timestamp_ms
-    for _ in range(15):
-        det.process_audio(block(0.002, 0.001))
     seen = []
     orig = det.tracker.on_classification
     det.tracker.on_classification = lambda cats, now: seen.append(now) or orig(cats, now)
-    import types
-    cat = types.SimpleNamespace(category_name='Speech', score=0.9)
-    res = types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])])
-    det._handle_result(res, ts_first)
-    # fin de fenetre = 975 ms apres le debut du premier bloc
-    start_clock = det._ts_clock[ts_first] - 0.1
-    assert abs(seen[0] - (start_clock + 0.975)) < 1e-6 and seen[0] < det._clock_end
-    # fenetre pas encore complete (faux classifieur synchrone) : fin du dernier bloc
-    det._handle_result(res, det._timestamp_ms)
-    assert seen[1] == det._clock_end
+
+    def feed(b):
+        det.process_audio(b)
+        det.wait_idle()
+    for _ in range(9):
+        feed(block(0.002, 0.001))
+    assert seen == []                                    # premiere seconde incomplete
+    feed(block(0.002, 0.001))
+    assert seen == [det._clock_end] and len(clf.blocks[-1]) == 15600
+    for _ in range(10):
+        feed(block(0.002, 0.001))
+    assert np.allclose(np.diff(seen), 0.5) and seen[-1] == det._clock_end
+    feed(np.concatenate([block(0.002, 0.001)] * 7))     # rafale de 0,7 s
+    assert abs(seen[-1] - (det._clock_end - 0.2)) < 1e-9          # fin de la fenetre, pas de la rafale
+
+
+def test_window_restarts_after_a_gap(fake_classifier):
+    """Audio perdu (VBAN) ou flux interrompu : la seconde d'avant n'est pas
+    analysee avec le son d'apres (un clap d'avant la coupure, date maintenant,
+    pouvait declencher une detection)."""
+    det, clf, _ = make(fake_classifier)
+    for _ in range(12):
+        det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    n = len(clf.blocks)
+    det.skip_audio(30 * BLOCK_SAMPLES)
+    for _ in range(9):
+        det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    assert len(clf.blocks) == n                          # nouvelle seconde pas encore complete
+    det.process_audio(block(0.002, 0.001))
+    det.wait_idle()
+    assert len(clf.blocks) == n + 1
+
+
+def test_slow_analysis_never_blocks_audio(fake_classifier):
+    """Analyse lente (Pi surcharge) : la lecture du son continue, les
+    fenetres en retard sautent (la plus ancienne)."""
+    import threading
+    det, clf, _ = make(fake_classifier)
+    gate = threading.Event()
+    orig = clf.classify
+    clf.classify = lambda w: gate.wait(5) and orig(w)
+    import time
+    t = time.monotonic()
+    for _ in range(60):
+        det.process_audio(block(0.002, 0.001))
+    assert time.monotonic() - t < 1.0                    # rien n'a attendu l'analyse
+    gate.set()
+    det.wait_idle()
+    assert det._dropped >= 1 and len(clf.blocks) <= 3
 
 
 def test_no_result_after_stop(fake_classifier):
-    """close() rappelle encore le callback avec une fenetre completee de silence."""
+    """Detecteur arrete pendant une analyse : son resultat est ignore, et le
+    fil d'analyse s'arrete."""
     det, clf, _ = make(fake_classifier)
     calls = []
     det.tracker.on_classification = lambda cats, now: calls.append(now) or []
@@ -126,6 +169,9 @@ def test_no_result_after_stop(fake_classifier):
     cat = types.SimpleNamespace(category_name='Silence', score=0.8)
     det._handle_result(types.SimpleNamespace(classifications=[types.SimpleNamespace(categories=[cat])]), 10 ** 15)
     assert calls == []
+    det.stop()
+    det._worker.join(2)
+    assert not det._worker.is_alive()
 
 
 def test_skip_audio_advances_clock(fake_classifier):
@@ -144,11 +190,11 @@ def test_loud_block_reduced_not_clipped_and_next_sounds_not_attenuated(fake_clas
     for _ in range(12):
         det.process_audio(block(0.002, 0.0005), gain=10.0)
     det.process_audio(block(0.5, 0.0005), gain=10.0)
-    loud = np.abs(clf.blocks[-1]).max()
+    loud = np.abs(heard(det)).max()
     assert 0.5 < loud <= 0.91
     det.process_audio(block(0.002, 0.0005), gain=10.0)
     det.process_audio(block(0.05, 0.0005), gain=10.0)    # clap normal : 0,05 x10 = 0,5
-    assert np.abs(clf.blocks[-1]).max() > 0.4
+    assert np.abs(heard(det)).max() > 0.4
 
 
 def test_audio_tap_gets_exactly_what_the_classifier_gets(fake_classifier):
@@ -157,7 +203,8 @@ def test_audio_tap_gets_exactly_what_the_classifier_gets(fake_classifier):
     det, clf, _ = make(fake_classifier)
     heard = []
     det.add_tap(lambda event, *data: heard.append(data[0]) if event == 'audio' else None)
-    for i in range(5):
+    for i in range(10):
         det.process_audio(block(0.6 if i == 2 else 0.003, 0.001), gain=10)
-    assert len(heard) == 5 == len(clf.blocks)
-    assert all(np.array_equal(h, c) for h, c in zip(heard, clf.blocks))
+    det.wait_idle()
+    assert len(heard) == 10 and len(clf.blocks) == 1
+    assert np.array_equal(np.concatenate(heard)[-15600:], clf.blocks[0])

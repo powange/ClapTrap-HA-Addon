@@ -53,8 +53,8 @@ class ClapTracker:
     # ce n'est pas le son que YAMNet est en train de reconnaitre (choix assume :
     # un bruit sans rapport dans cette seconde peut encore etre compte).
     # Marge de 0,2 s : les resultats sont dates a la fin de leur fenetre
-    # (MediaPipe 1.0 : un resultat par fenetre de 975 ms), donc un pic au
-    # debut de la fenetre date de ~0,975 s.
+    # (glissante, analysee toutes les 0,5 s), donc un pic au debut de la
+    # fenetre date de ~0,975 s.
     PEAK_LOOKBACK = 1.2
     # Blocs (100 ms) servant a mesurer le bruit de fond au demarrage : aucun
     # pic n'est compte pendant ce temps. Sans cela, le niveau partait de 0.001

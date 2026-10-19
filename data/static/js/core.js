@@ -525,6 +525,52 @@
     // ---- Temps reel : une seule connexion, reconnexion illimitee ---------------
     CT.socket = typeof io === 'function' ? io({path: basePath + '/socket.io'}) : null;
     CT.on = function (event, handler) { if (CT.socket) CT.socket.on(event, handler); };
+
+    // ---- Calibrages : prises enchainees automatiquement ----------------------
+    // Choix memorise par navigateur (commun aux deux calibrages).
+    var AUTO_KEY = 'claptrap-auto-takes';
+    CT.autoTakes = function (on) {
+        try {
+            if (on !== undefined) localStorage.setItem(AUTO_KEY, on ? '1' : '0');
+            return localStorage.getItem(AUTO_KEY) === '1';
+        } catch (e) { return !!on; }
+    };
+    CT.AUTO_DELAY = 3;   // s pour se preparer avant une prise enchainee
+    // Compte a rebours dans `out`, puis done() ; retourne la fonction d'arret.
+    CT.countdown = function (out, seconds, label, done) {
+        var left = seconds;
+        out.textContent = label + left + ' s';
+        var timer = setInterval(function () {
+            left -= 1;
+            if (left > 0) { out.textContent = label + left + ' s'; return; }
+            clearInterval(timer);
+            done();
+        }, 1000);
+        return function () { clearInterval(timer); };
+    };
+    // Ecran d'une prise en mode enchaine : compte a rebours dans .cal-countdown,
+    // bouton Pause (data-c="pause"), puis start(). Retourne la fonction d'arret.
+    CT.autoTake = function (body, rec, start) {
+        var pause = body.querySelector('[data-c="pause"]');
+        var out = body.querySelector('.cal-countdown');
+        var stop = CT.countdown(out, CT.AUTO_DELAY, 'Début de la prise dans ', function () {
+            if (pause) pause.remove();
+            start();
+        });
+        pause.addEventListener('click', function () {
+            // Prise lancee a la main ; les suivantes s'enchainent de nouveau.
+            stop();
+            pause.remove();
+            out.textContent = 'En pause : cliquez sur « Enregistrer » quand vous êtes prêt.';
+            rec.focus();
+        });
+        pause.focus();
+        return function () { stop(); if (pause.parentNode) pause.remove(); };
+    };
+    CT.autoTakesHtml = function (id) {
+        return '<label class="check"><input type="checkbox" id="' + id + '"' + (CT.autoTakes() ? ' checked' : '') + '> ' +
+            'Enchaîner les prises automatiquement (' + CT.AUTO_DELAY + ' s pour se préparer, sans cliquer entre deux prises)</label>';
+    };
     (function () {
         var connectedOnce = false;
         // Reglage modifie depuis Home Assistant (entite, commande MQTT).

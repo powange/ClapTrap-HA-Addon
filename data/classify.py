@@ -331,7 +331,7 @@ class DetectionSession:
             if not label or seen is None or label in seen or label in self.exclusions:
                 return  # chemin chaud : deja vu, aucun acces disque
             seen.add(label)
-        # Ecriture disque groupee, hors du thread de resultats MediaPipe.
+        # Ecriture disque groupee, hors du fil d'analyse YAMNet.
         _queue_sound_seen(src['kind'], src['source_key'], label)
         self._emit('sound_seen', {'source_id': source_id, 'kind': src['kind'],
                                   'source_key': src['source_key'], 'label': label,
