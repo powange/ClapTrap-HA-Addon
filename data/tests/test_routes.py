@@ -121,7 +121,8 @@ def test_detection_routes_errors(client):
     r = client.post('/api/detection/start')
     assert r.status_code == 400 and r.json == {'success': False, 'error': 'Aucune source audio activée'}
     assert client.post('/api/detection/stop').json == {'success': True}
-    assert client.get('/status').json == {'running': False, 'source': None}
+    st = client.get('/status').json
+    assert st['running'] is False and st['source'] is None and set(st['perf']) == {'processeur', 'memoire_mo'}
 
 
 def test_legacy_routes_are_gone(client):

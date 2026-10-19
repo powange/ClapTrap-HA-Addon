@@ -380,9 +380,14 @@
                 // trop charge) et coupures du flux, seulement s'il y en a.
                 var ds = CT.state.status.running ? ((CT.state.status.source_stats || {})[src.sourceId] || {}) : {};
                 var parts = [];
+                // Duree d'analyse YAMNet (performance) : toujours visible pendant
+                // la detection, le reste seulement s'il y a eu un probleme.
+                if (ds.analyse_ms != null) parts.push('Analyse : ' + String(ds.analyse_ms).replace('.', ',') + ' ms en moyenne' +
+                    (ds.analyse_max_ms != null ? ' (max ' + String(ds.analyse_max_ms).replace('.', ',') + ' ms)' : ''));
                 var late = (ds.analyses_sautees || 0) + (ds.blocs_perdus || 0);
                 if (late) parts.push(late + ' analyse(s) ou bloc(s) perdu(s) : processeur trop chargé');
                 if (ds.coupures) parts.push(ds.coupures + ' coupure(s) du flux depuis le démarrage');
+                if (ds.reconnexions) parts.push(ds.reconnexions + ' reconnexion(s)');
                 var diag = parts.join(' · ');
                 setText(diagEl, diag);
                 diagEl.hidden = !diag;
