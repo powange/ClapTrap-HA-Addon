@@ -81,6 +81,7 @@ class ClapTracker:
     SUSTAIN_RESET = 0.3
 
     WINDOW_EPS = 1e-6   # pic pile a la fin de la fenetre : compte (arrondis)
+    LATE_MAX = 5.0      # s : coupure au-dela de laquelle un geste en cours est abandonne (interrupt)
 
     def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0):
         self.window = window
@@ -238,6 +239,7 @@ class ClapTracker:
                       if state['armed_at'] <= t <= end and t > self._consumed_until]
             candidates.append({
                 '_end': end,
+                'start': state['armed_at'],   # instant du 1er clap (horloge audio)
                 'group': group,
                 # 0 : son reconnu sans aucun pic (groupe sans entites)
                 'clap_count': len(recent),
@@ -270,3 +272,20 @@ class ClapTracker:
         for c in candidates:
             c.pop('_end', None)
         return candidates
+
+    def interrupt(self, last_clock, gap):
+        """Flux interrompu apres `last_clock` (horloge audio) pendant `gap` s.
+
+        Un groupe arme n'expirait qu'au resultat YAMNet suivant : apres une
+        coupure (camera qui se reconnecte, emetteur VBAN arrete), l'evenement
+        partait des dizaines de secondes apres le geste, et la fenetre
+        d'analyse videe repoussait encore le resultat d'une seconde. A la
+        reprise, les fenetres terminees (pendant la coupure ou avant) sont
+        closes aussitot avec les pics deja connus (evenements retournes) ; une
+        fenetre encore ouverte continue. Coupure de plus de LATE_MAX s : un
+        geste envoye si tard surprendrait plus qu'il ne servirait, abandonne."""
+        if gap > self.LATE_MAX:
+            for st in self._group_state.values():
+                st.update(armed_at=0.0, score=0.0, labels={})
+            return []
+        return self._expire(last_clock + gap)

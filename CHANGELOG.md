@@ -1,5 +1,37 @@
 # Changelog
 
+## 6.80.0
+
+### Détection audio
+
+- **Plus d'analyses perdues** (régression de la 6.77) : l'horloge audio
+  était calée pile sur le seuil qui signale une coupure du flux. La moindre
+  milliseconde de retard d'un bloc passait pour une coupure et vidait la
+  fenêtre d'analyse : YAMNet restait aveugle au moins 1 s, et 2 à 33 % des
+  analyses étaient perdues selon le flux (claps ratés). L'horloge suit
+  maintenant l'heure en douceur ; seule une vraie coupure (plus de 0,5 s)
+  remet la fenêtre à zéro.
+- **Plus de clap déclenché en retard après une coupure** : un geste reconnu
+  juste avant qu'une caméra se reconnecte partait au retour du flux, des
+  dizaines de secondes plus tard. Il est maintenant envoyé dès la reprise
+  avec les claps déjà comptés, ou abandonné si la coupure dépasse 5 s.
+- **Paquets VBAN perdus compensés** (Wi-Fi) : remplacés par du silence
+  d'après le compteur de trames, un paquet arrivé en retard est ignoré. Le
+  son n'est plus raccourci : l'écart entre deux claps reste juste.
+- Une erreur pendant la préparation d'une source (micro) s'affiche sur sa
+  carte, et YAMNet est libéré au lieu de tourner pour rien.
+- Une source dont tous les groupes sont désactivés n'est plus analysée (sauf
+  onglet de l'interface ouvert, pour les sons entendus en direct).
+- Un Home Assistant lent ne retarde plus l'entité du clap suivant
+  (événement et webhook envoyés à part).
+- Événement et webhook : nouveau champ `clap_time`, l'instant du premier
+  clap (`timestamp` est celui de l'envoi, 1,5 à 2,5 s plus tard).
+- **Diagnostic** : analyses ou blocs perdus (processeur trop chargé) et
+  coupures du flux affichés sur la carte de la source (relus toutes les
+  30 s), et dans l'attribut `diagnostic` du capteur « Dernière classe »
+  (avec la durée des analyses).
+- Le fil d'analyse s'arrête toujours avec sa source.
+
 ## 6.79.0
 
 ### Home Assistant

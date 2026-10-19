@@ -124,7 +124,8 @@ def source_entities(info):
             state_topic=analyse, value_template='{{ value_json.classe }}',
             json_attributes_topic=analyse,
             json_attributes_template='{{ {"score": value_json.score, "top3": value_json.top3, '
-                                     '"groupes": value_json.groupes, "heure": value_json.heure} | tojson }}',
+                                     '"groupes": value_json.groupes, "heure": value_json.heure, '
+                                     '"diagnostic": value_json.diagnostic | default({})} | tojson }}',
             entity_category='diagnostic', icon='mdi:waveform')),
         ('sensor', f'{slug}_top3', _base_config(
             'sensor', f'{slug}_top3', '3 classes probables',
@@ -347,7 +348,7 @@ def _configuration_payload(settings, sources=None):
 
 # ===== Diagnostic (detection -> HA) =========================================
 
-def on_analysis(entity_key, top, group_scores):
+def on_analysis(entity_key, top, group_scores, stats=None):
     """Resultat YAMNet d'une source : met a jour ses capteurs de diagnostic.
 
     Le silence ne remplace pas le dernier son entendu ; au plus une mise a
@@ -370,11 +371,16 @@ def on_analysis(entity_key, top, group_scores):
         'top3': [{'classe': n, 'score': round(float(s), 2), 'resume': f'{n} {round(float(s) * 100)} %'}
                  for n, s in top],
         'groupes': {k: round(float(v), 2) for k, v in (group_scores or {}).items()},
+        # Analyses sautees (Pi surcharge), coupures du flux, duree des analyses.
+        'diagnostic': stats or {},
     }
     # Mise a jour seulement si le son change (classes) ou si le score d'un
     # groupe bouge nettement : un bruit de fond qui fluctue de quelques
     # points republiait toutes les 2 s, indefiniment.
-    key = (tuple(n for n, _ in top), {k: round(v * 10) for k, v in payload['groupes'].items()})
+    diag = payload['diagnostic']
+    key = (tuple(n for n, _ in top), {k: round(v * 10) for k, v in payload['groupes'].items()},
+           # nouvelle coupure ou analyse sautee : diagnostic republie aussi
+           (diag.get('analyses_sautees'), diag.get('blocs_perdus'), diag.get('coupures')))
     if last and last[1] == key:
         return
     _analysis_last[entity_key] = (now, key)

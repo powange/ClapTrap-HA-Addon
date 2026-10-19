@@ -44,6 +44,12 @@ WINDOW_SAMPLES = YAMNET_WINDOW_MS * 16   # 15 600 a 16 kHz (seule frequence du m
 HOP_BLOCKS = 5
 WINDOW_BLOCKS = -(-WINDOW_SAMPLES // BLOCK_SAMPLES)   # blocs gardes pour une fenetre
 JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne est jetee)
+# Horloge audio : coupure si elle a plus de CUT_GAP s de retard sur l'heure ;
+# sinon, ecart corrige en douceur (SLEW_STEP s par bloc au plus, au-dela de
+# SLEW_DEADBAND) sans vider la fenetre d'analyse.
+CUT_GAP = 0.5
+SLEW_DEADBAND = 0.05
+SLEW_STEP = 0.002
 PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
 AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
 AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
@@ -74,6 +80,16 @@ class AudioDetector:
         self._jobs = queue.Queue(maxsize=JOBS_MAX)
         self._worker = None
         self._dropped = 0
+        # Diagnostic (carte de la source, capteur HA) : analyses sautees,
+        # coupures du flux, duree des analyses.
+        self._cuts = 0
+        self._lost_blocks = 0
+        self._analyses = 0
+        self._analysis_total = 0.0
+        self._analysis_max = 0.0
+        # Faut-il analyser ? (session : un groupe actif, ou un onglet ouvert
+        # pour la decouverte des sons). None : toujours.
+        self.analysis_wanted = None
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
@@ -264,18 +280,29 @@ class AudioDetector:
 
         L'instant suit une horloge audio (duree des blocs recus) et non l'heure
         de traitement : des blocs livres en rafale par ffmpeg gardent leur
-        espacement reel. Elle n'est recalee (vers l'avant seulement) que si le
-        flux s'est interrompu (plus de 0,5 s de retard). Les resultats de YAMNet
-        sont dates sur la meme horloge (fin du dernier bloc recu).
+        espacement reel. Elle n'est recalee que si le flux s'est interrompu
+        (plus de CUT_GAP s de retard), et suit l'heure en douceur sinon. Les
+        resultats de YAMNet sont dates sur la meme horloge.
         """
         now = time.monotonic()
         n = x.size
         dur = n / self.sample_rate
-        start = max(self._clock_end, now - 0.5 - dur)
-        if start > self._clock_end and self._clock_end:
-            # Flux interrompu (reconnexion) : la seconde d'avant la coupure ne
-            # doit pas etre analysee avec le son d'apres, datee maintenant.
-            self._reset_window()
+        if not self._clock_end:
+            start = now - dur   # 1er bloc : il vient de se terminer
+        else:
+            start = self._clock_end
+            lag = now - (start + dur)   # > 0 : horloge en retard sur l'heure
+            if lag > CUT_GAP:
+                # Flux interrompu (reconnexion) : recalage, et la seconde
+                # d'avant la coupure n'est pas analysee avec le son d'apres.
+                # (Avant 6.80, l'horloge etait calee pile sur ce seuil : la
+                # moindre gigue passait pour une coupure et videait la fenetre.)
+                self._on_gap(self._clock_end, lag)
+                start = now - dur
+            elif abs(lag) > SLEW_DEADBAND:
+                # Source un peu lente ou rapide, rafale de ffmpeg : rattrapage
+                # progressif, borne dans les deux sens.
+                start += max(-SLEW_STEP, min(SLEW_STEP, lag))
         self._clock_end = start + dur
         if not n:
             return 0.0, now, None
@@ -292,8 +319,32 @@ class AudioDetector:
     def skip_audio(self, samples):
         """Audio perdu en amont (blocs VBAN jetes) : l'horloge audio avance
         d'autant, l'espacement des claps suivants reste juste."""
-        self._clock_end += samples / self.sample_rate
-        self._reset_window()   # pas de fenetre a cheval sur un trou
+        gap = samples / self.sample_rate
+        # File pleine (consommateur en retard, souvent le processeur) : compte
+        # a part, ce n'est pas une coupure du flux.
+        self._lost_blocks += samples // BLOCK_SAMPLES
+        self._on_gap(self._clock_end, gap, cut=False)
+        self._clock_end += gap
+
+    def _on_gap(self, last_clock, gap, cut=True):
+        """Coupure apres `last_clock` : pas de fenetre a cheval sur le trou, et
+        les fenetres de comptage terminees sont closes (ou abandonnees si la
+        coupure est longue) au lieu de partir au resultat suivant."""
+        if cut:
+            self._cuts += 1
+        self._reset_window()
+        self._prev_tail = np.zeros(0, dtype=np.float32)   # niveau d'avant le trou : sans objet
+        with self.lock:
+            events = self.tracker.interrupt(last_clock, gap)
+        self._dispatch(events)
+
+    def stats(self):
+        """Compteurs de diagnostic depuis le demarrage de la source."""
+        n = self._analyses
+        return {'analyses_sautees': self._dropped, 'blocs_perdus': self._lost_blocks, 'coupures': self._cuts,
+                'analyses': n,
+                'analyse_ms': round(self._analysis_total / n * 1000, 1) if n else None,
+                'analyse_max_ms': round(self._analysis_max * 1000, 1) if n else None}
 
     def _reset_window(self):
         self._blocks.clear()
@@ -307,6 +358,8 @@ class AudioDetector:
         if len(self._blocks) < WINDOW_BLOCKS or self._since_hop < HOP_BLOCKS:
             return
         self._since_hop = 0
+        if self.analysis_wanted is not None and not self.analysis_wanted():
+            return   # aucun groupe actif et aucun onglet ouvert : rien a reconnaitre
         self._submit((np.concatenate(self._blocks)[-WINDOW_SAMPLES:], end_clock))
 
     def _submit(self, job):
@@ -331,7 +384,14 @@ class AudioDetector:
 
     def _work(self):
         while True:
-            job = self._jobs.get()
+            try:
+                # Delai : le marqueur d'arret peut etre perdu (file pleine,
+                # fenetre deposee au meme moment) ; le fil s'arrete quand meme.
+                job = self._jobs.get(timeout=1.0)
+            except queue.Empty:
+                if not self.running:
+                    return
+                continue
             try:
                 if job is None:
                     if not self.running:
@@ -352,7 +412,12 @@ class AudioDetector:
             if not self.running or not self.classifier:
                 return
             try:
+                t0 = time.monotonic()
                 results = self.classifier.classify(container)
+                spent = time.monotonic() - t0
+                self._analyses += 1
+                self._analysis_total += spent
+                self._analysis_max = max(self._analysis_max, spent)
             except Exception as e:
                 # Limite : une erreur persistante produisait 2 lignes/s.
                 self._errors_logged += 1
@@ -437,6 +502,9 @@ class AudioDetector:
             try:
                 self._detection_callback({
                     'timestamp': time.time(),
+                    # Instant du 1er clap (et non de l'envoi, 1,5 a 2,5 s plus
+                    # tard) : horloge audio (monotone) ramenee a l'heure reelle.
+                    'clap_time': time.time() - max(0.0, time.monotonic() - ev['start']) if ev.get('start') else None,
                     'score': ev['score'],
                     'source_id': self.source_id,
                     'clap_count': ev['clap_count'],

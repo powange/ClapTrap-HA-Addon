@@ -73,7 +73,13 @@
         if (!auto.dataset.busy) auto.checked = !!((CT.state.settings.microphone || {}).auto_start);
         if (CT.renderSourceStatuses) CT.renderSourceStatuses();
     };
-    setInterval(function () { if (CT.state.status.running) CT.renderStatus(); }, 30000);
+    // Toutes les 30 s pendant la detection : duree affichee et diagnostic des
+    // sources (analyses sautees, coupures), relus du serveur ; page cachee
+    // (application mobile en arriere-plan) : rien.
+    setInterval(function () {
+        if (!CT.state.status.running || document.hidden) return;
+        CT.reloadStatus().then(CT.renderStatus, CT.renderStatus);
+    }, 30000);
 
     function bindStatusbar() {
         var btn = CT.$('#toggle-detection');
