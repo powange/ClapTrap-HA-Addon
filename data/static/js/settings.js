@@ -59,7 +59,7 @@
             }
             renderExclusions(data);
         }).catch(function (err) {
-            if (seq === exclusionsSeq) CT.error('Exclusions indisponibles : ' + err.message);
+            if (seq === exclusionsSeq) CT.error('Sons ignorés indisponibles : ' + err.message);
         });
     }
     function renderExclusions(data) {
@@ -67,8 +67,8 @@
         var ex = CT.$('#excluded-list'), av = CT.$('#available-list');
         ex.innerHTML = excluded.length ? excluded.map(function (l) {
             return '<span class="chip is-on"><span title="' + CT.esc(l) + '">' + CT.esc(CT.soundLabel(l)) + '</span>' +
-                '<button type="button" class="chip-remove" data-unexclude="' + CT.esc(l) + '" aria-label="Ne plus exclure ' + CT.esc(CT.soundLabel(l)) + '">×</button></span>';
-        }).join('') : '<p class="hint">Aucun son exclu.</p>';
+                '<button type="button" class="chip-remove" data-unexclude="' + CT.esc(l) + '" aria-label="Ne plus ignorer ' + CT.esc(CT.soundLabel(l)) + '">×</button></span>';
+        }).join('') : '<p class="hint">Aucun son ignoré.</p>';
         // Ordre du nom affiche (francais) ; un son coche dans un groupe le dit.
         available = available.slice().sort(function (a, b) { return CT.soundLabel(a).localeCompare(CT.soundLabel(b), 'fr'); });
         av.innerHTML = available.length ? available.map(function (l) {
@@ -108,7 +108,7 @@
                 if (!ok) return;
                 CT.api('PUT', '/api/sound_exclusions', {label: label, excluded: !!add})
                     .then(loadExclusions)
-                    .catch(function (err) { CT.error('Exclusion non enregistrée : ' + err.message); });
+                    .catch(function (err) { CT.error('Réglage des sons ignorés non enregistré : ' + err.message); });
             });
         });
         CT.$('#available-search').addEventListener('input', filterAvailable);

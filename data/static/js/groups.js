@@ -75,11 +75,15 @@
                 '<label class="switch-inline"><input type="checkbox" role="switch" data-role="auto-add"' + (g.auto_add_sounds ? ' checked' : '') +
                     ' aria-label="Ajouter les sons entendus au groupe ' + gname + '"> Ajouter les sons entendus</label>' +
                 '<p class="hint">Seuls les sons reconnus au-dessus du seuil du groupe sont ajoutés.</p>' +
+                // Libelles courts : coupes sur mobile (« claps, coups (attaques ne »).
                 '<label class="field-row-inline">Comptage <select class="input" data-role="count-mode" aria-label="Comptage du groupe ' + gname + '">' +
-                    '<option value="attaques"' + (g.count_mode !== 'tenus' ? ' selected' : '') + '>claps, coups (attaques nettes)</option>' +
-                    '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>sons tenus (sifflement)</option></select></label>' +
-                (labels.length > 8 ? '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher un son…" aria-label="Rechercher un son" value="' +
-                    esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' : '') +
+                    '<option value="attaques"' + (g.count_mode !== 'tenus' ? ' selected' : '') + '>Attaques (claps, coups)</option>' +
+                    '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>Sons tenus (sifflement)</option></select></label>' +
+                // Recherche dans la liste, et parmi tous les sons connus : un son
+                // s'ajoute sans avoir ete entendu (« Applaudissement »...).
+                '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher ou ajouter un son…" aria-label="Rechercher ou ajouter un son au groupe ' + gname + '" value="' +
+                    esc(CT.state.search[src.domId + '|' + g.slug] || '') + '">' +
+                '<div class="chips sound-suggest" data-role="suggest" aria-live="polite"></div>' +
                 '<div class="chips">' + (chips || '<p class="hint">' + (g.auto_add_sounds
                     ? 'Les sons entendus pendant la détection apparaîtront ici.'
                     : 'Activez « Ajouter les sons entendus » puis lancez la détection : les sons entendus apparaîtront ici.') + '</p>') + '</div>' +
@@ -106,8 +110,44 @@
         CT.$$('.sound-search', box).forEach(function (input) { if (input.value) filterChips(input); });
     }
 
+    // Sons connus (les 521 classes de YAMNet, chargees une fois) correspondant
+    // a la recherche : un toucher les ajoute coches. Sauf ceux deja dans le
+    // groupe, actifs dans un autre groupe de la source (refuses par le
+    // serveur) ou ignores partout (sans effet).
+    var allSounds = null;
+    function knownSounds() {
+        if (!allSounds) {
+            allSounds = Object.keys(CT.SOUNDS_FR || {});   // en attendant la liste complete
+            CT.api('GET', '/api/sounds/known').then(function (d) {
+                if (d && d.labels && d.labels.length) allSounds = d.labels;
+            }).catch(function () {});
+        }
+        return allSounds;
+    }
+    function renderSuggestions(search, wl, src) {
+        var box = search.closest('.group-card').querySelector('[data-role="suggest"]');
+        var q = search.value.trim().toLowerCase();
+        if (!box) return;
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        var slug = search.closest('.group-card').getAttribute('data-slug');
+        var elsewhere = {};
+        ((src && src.data.sound_groups) || []).forEach(function (g) {
+            if (g && g.slug !== slug) Object.keys(g.sound_whitelist || {}).forEach(function (l) { if (g.sound_whitelist[l]) elsewhere[l] = true; });
+        });
+        var excluded = (CT.state.settings.global || {}).sound_exclusions || [];
+        var found = knownSounds().filter(function (l) {
+            return !(l in wl) && !elsewhere[l] && excluded.indexOf(l) === -1 &&
+                (l + ' ' + CT.soundLabel(l)).toLowerCase().indexOf(q) !== -1;
+        }).sort(function (a, b) { return CT.soundLabel(a).localeCompare(CT.soundLabel(b), 'fr'); }).slice(0, 8);
+        box.innerHTML = found.length ? '<span class="hint">Ajouter :</span>' + found.map(function (l) {
+            return '<button type="button" class="chip chip-add" data-group-action="add-sound" data-label="' + esc(l) + '" title="' + esc(l) + '">+ ' +
+                esc(CT.soundLabel(l)) + '</button>';
+        }).join('') : '';
+    }
+
     function filterChips(search) {
-        CT.filterChips(CT.$$('.chip', search.closest('.group-card')), search.value,
+        // Pastilles du groupe seulement (pas les boutons « + son » proposes).
+        CT.filterChips(CT.$$('label.chip', search.closest('.group-card')), search.value,
                        function (chip) { return chip.querySelector('input').getAttribute('data-label'); });
     }
 
@@ -164,6 +204,23 @@
                     .then(function () { CT.success('Groupe supprimé'); })
                     .catch(function (err) { CT.error('Suppression impossible : ' + err.message); });
             });
+        } else if (action === 'add-sound') {
+            var label = btn.getAttribute('data-label');
+            var box = btn.closest('[data-role="groups"]');
+            var group = box && (box._ctx.groups || []).filter(function (g) { return g.slug === slug; })[0];
+            if (!group) return;
+            btn.disabled = true;
+            CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.key, group_slug: slug,
+                                                          label: label, enabled: true})
+                .then(function () {
+                    (group.sound_whitelist = group.sound_whitelist || {})[label] = true;
+                    CT.state.search[src.domId + '|' + slug] = '';
+                    CT.renderGroupsManage(box.closest('.source-card'), src);
+                    if (CT.renderStatus) CT.renderStatus();
+                    CT.renderWhenIdle();
+                    CT.success('« ' + CT.soundLabel(label) + ' » ajouté au groupe');
+                })
+                .catch(function (err) { btn.disabled = false; CT.error('Son non ajouté : ' + err.message); });
         } else if (action === 'cleanup') {
             CT.api('POST', '/api/source/sound_whitelist/cleanup', {kind: src.kind, source_key: src.key, group_slug: slug})
                 .then(function (d) { return refreshGroups(src).then(function () { CT.success((d.removed || 0) + ' son(s) retiré(s)'); }); })
@@ -273,7 +330,9 @@
                 search.addEventListener('input', function () {
                     CT.state.search[src.domId + '|' + slug] = search.value;
                     filterChips(search);
+                    renderSuggestions(search, group.sound_whitelist || {}, src);
                 });
+                if (search.value) renderSuggestions(search, group.sound_whitelist || {}, src);
             }
         });
     }

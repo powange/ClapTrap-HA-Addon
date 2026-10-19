@@ -183,7 +183,8 @@
                 if (r) close(r === 'ok');
             });
             if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter') close(true); });
-            (input || back.querySelector('[data-r="ok"]')).focus();
+            // Action destructive : focus sur « Annuler » (Entree supprimait aussitot).
+            (input || back.querySelector(opts.danger ? '[data-r="cancel"]' : '[data-r="ok"]')).focus();
         });
     };
     CT.confirm = function (message, okLabel) {

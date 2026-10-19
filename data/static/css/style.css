@@ -34,7 +34,7 @@
     --surface-2: #1b2522;
     --ink: #e4ece9;
     --ink-2: #aab8b3;
-    --ink-3: #7c8c87;
+    --ink-3: #8a9a95;   /* >= 4,5:1 aussi sur --surface-2 (aides, code) */
     --line: #2a3531;
     --accent: #4cc3a8;
     --accent-ink: #06201a;
@@ -145,7 +145,11 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
 .status { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .status div { display: flex; flex-direction: column; min-width: 0; }
 .status strong { font-size: 1rem; }
-.status .muted { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status .muted {
+    /* Trois lignes au plus : sur mobile, la duree et « groupes sans son »
+       disparaissaient derriere « … ». */
+    font-size: 0.85rem; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+}
 .status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ink-3); flex: none; }
 .statusbar.is-running .status-dot {
     background: var(--ok);
@@ -191,7 +195,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 .tag {
     display: inline-block; padding: 2px 8px; border-radius: 6px;
     font: 700 0.7rem var(--font); letter-spacing: 0.04em; text-transform: uppercase;
-    background: var(--accent-soft); color: var(--accent);
+    /* accent rapproche du texte : contraste >= 4,5:1 sur le fond pale (4,36 auparavant) */
+    background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 80%, var(--ink));
 }
 .tag-rtsp { background: color-mix(in srgb, #5a47c2 14%, transparent); color: #4c3aad; }
 .tag-vban { background: color-mix(in srgb, #b3380a 12%, transparent); color: #9a3008; }
@@ -337,6 +342,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
 .chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .chip-note { display: block; font-size: 0.72rem; color: var(--ink-3); }   /* son utilise par un groupe */
 .chip-used { flex-direction: column; align-items: flex-start; gap: 0; padding-block: 4px; border-radius: 12px; }
+.sound-suggest { align-items: center; }
+.sound-suggest:empty { display: none; }
+.chip-add { border-style: dashed; color: var(--accent); }   /* son connu a ajouter au groupe */
 .chip:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
 .chip.is-excluded span:first-of-type { text-decoration: line-through; }
@@ -373,7 +381,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
 .settings-grid .card { display: flex; flex-direction: column; gap: 12px; }
 .form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 600; }
-.diagram { width: 100%; max-width: 440px; height: auto; font: 8px var(--font); }
+.diagram { width: 100%; max-width: 440px; height: auto; font: 12px var(--font); }   /* lisible a 390 px (8 px auparavant) */
 .diagram .d-noise-bg { fill: color-mix(in srgb, var(--ok) 10%, transparent); }
 .diagram .d-noise { stroke: var(--ok); stroke-dasharray: 4; }
 .diagram .d-noise-t { fill: var(--ok); }
@@ -383,9 +391,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
 .diagram .d-clap { stroke: var(--accent); stroke-width: 2; fill: none; }
 .diagram .d-clap-t { fill: var(--accent); font-weight: 700; }
 .diagram .d-cool { stroke: var(--danger); }
-.diagram .d-cool-t { fill: var(--danger); font-size: 7px; }
+.diagram .d-cool-t { fill: var(--danger); font-size: 11px; }
+.diagram .d-win-t { font-size: 11px; font-weight: 600; fill: var(--ink); }
 .diagram .d-win { fill: color-mix(in srgb, var(--accent) 22%, transparent); }
-.diagram .d-win-t { fill: var(--accent); font-size: 7px; }
 
 /* ---- Fenetres ------------------------------------------------------------------ */
 .modal-backdrop {
@@ -427,7 +435,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
     color: var(--ink); font: 0.9rem var(--font); cursor: pointer; text-align: left;
 }
 .vban-item:hover { border-color: var(--accent); }
-details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 36px; display: flex; align-items: center; }
+details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 36px; display: flex; align-items: center; gap: 6px; }
+/* display:flex retire le triangle : chevron explicite (ouvert / ferme). */
+details.field > summary { list-style: none; }
+details.field > summary::-webkit-details-marker { display: none; }   /* Safari, iOS : un seul triangle */
+details.field > summary::before { content: "▸"; color: var(--ink-3); transition: transform 0.15s; }
+details.field[open] > summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { details.field > summary::before { transition: none; } }
 
 /* ---- Messages ------------------------------------------------------------------- */
 .toasts {

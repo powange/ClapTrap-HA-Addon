@@ -30,7 +30,9 @@
         }
         var bar = document.getElementById('statusbar');
         if (!bar) return;
-        var enabled = CT.sourceList().filter(function (s) { return s.enabled; });
+        var allSources = CT.sourceList();   // une seule fois par rendu
+        var hasSources = allSources.length > 0;
+        var enabled = allSources.filter(function (s) { return s.enabled; });
         var running = !!st.running;
         bar.classList.toggle('is-running', running);
         setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : running ? 'Détection en cours' : 'Détection arrêtée');
@@ -53,7 +55,8 @@
         setText(CT.$('#status-detail'), (running
             ? n + ' source' + (n > 1 ? 's' : '') + (bad ? ' · ' + bad + ' en erreur' : '') + ' · ' + sinceText(st.since)
             : (enabled.length ? enabled.length + ' source' + (enabled.length > 1 ? 's' : '') + ' prête' + (enabled.length > 1 ? 's' : '')
-                              : 'Activez une source pour pouvoir démarrer')) + emptyText);
+                              : hasSources ? 'Activez une source pour pouvoir démarrer'
+                                           : 'Ajoutez une source pour pouvoir démarrer')) + emptyText);
         if (wasRunning === true && !running && CT.resetLive) CT.resetLive();
         if (wasRunning !== null && wasRunning !== running && CT.announce) {
             CT.announce(running ? 'Détection démarrée' : 'Détection arrêtée', true);
@@ -64,7 +67,8 @@
         btn.classList.toggle('btn-danger', running);
         btn.classList.toggle('btn-primary', !running);
         btn.disabled = !running && enabled.length === 0;
-        btn.title = btn.disabled ? 'Activez au moins une source pour démarrer' : '';
+        btn.title = btn.disabled ? (hasSources ? 'Activez au moins une source pour démarrer'
+                                               : 'Ajoutez une source pour démarrer') : '';
         var auto = CT.$('#auto-start');
         if (!auto.dataset.busy) auto.checked = !!((CT.state.settings.microphone || {}).auto_start);
         if (CT.renderSourceStatuses) CT.renderSourceStatuses();

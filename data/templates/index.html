@@ -101,26 +101,28 @@
                     <h2 id="adv-title">Comptage des claps</h2>
                     <p class="hint">Ces réglages s'appliquent à toutes les sources. La sensibilité aux sons se règle, elle,
                        avec le seuil de confiance de chaque groupe, directement sur les cartes.</p>
-                    <svg class="diagram" viewBox="0 0 400 120" role="img" aria-label="Schéma : trois claps comptés dans la fenêtre multi-clap, au-dessus de la force minimale">
-                        <rect class="d-noise-bg" x="0" y="85" width="400" height="30"/>
-                        <line class="d-noise" x1="0" y1="85" x2="400" y2="85"/>
-                        <text class="d-noise-t" x="5" y="105">Bruit de fond</text>
-                        <line class="d-thr" x1="0" y1="55" x2="400" y2="55"/>
-                        <text class="d-thr-t" x="5" y="52">Force minimale (bruit × facteur)</text>
-                        <polyline class="d-sig" points="0,90 10,88 20,92 30,87 40,91 50,89 60,90 70,88 80,91 90,89"/>
-                        <polyline class="d-clap" points="90,89 95,85 100,40 105,20 110,35 115,60 120,75 125,85 130,89"/>
-                        <text class="d-clap-t" x="95" y="15">Clap 1</text>
-                        <polyline class="d-sig" points="130,89 140,91 150,88 160,90 170,89"/>
-                        <line class="d-cool" x1="105" y1="110" x2="175" y2="110"/>
-                        <text class="d-cool-t" x="112" y="119">écart minimal</text>
-                        <polyline class="d-clap" points="170,89 175,85 180,45 185,25 190,40 195,65 200,80 205,88"/>
-                        <text class="d-clap-t" x="175" y="15">Clap 2</text>
-                        <polyline class="d-sig" points="205,88 215,91 225,89 235,90 245,88"/>
-                        <polyline class="d-clap" points="245,88 250,84 255,50 260,30 265,48 270,70 275,83 280,89"/>
-                        <text class="d-clap-t" x="250" y="15">Clap 3</text>
-                        <polyline class="d-sig" points="280,89 290,91 300,88 310,90 320,89 330,91 340,88 350,90 360,89 370,91 380,88 390,90 400,89"/>
-                        <rect class="d-win" x="100" y="0" width="200" height="8" rx="4"/>
-                        <text class="d-win-t" x="150" y="7">Fenêtre multi-clap</text>
+                    <svg class="diagram" viewBox="0 0 400 150" role="img" aria-label="Schéma : trois claps comptés dans la fenêtre multi-clap, au-dessus de la force minimale">
+                        <rect class="d-win" x="100" y="0" width="200" height="16" rx="8"/>
+                        <text class="d-win-t" x="148" y="12">Fenêtre multi-clap</text>
+                        <g transform="translate(0 28)">
+                            <rect class="d-noise-bg" x="0" y="85" width="400" height="30"/>
+                            <line class="d-noise" x1="0" y1="85" x2="400" y2="85"/>
+                            <text class="d-noise-t" x="5" y="105">Bruit de fond</text>
+                            <line class="d-thr" x1="0" y1="55" x2="400" y2="55"/>
+                            <text class="d-thr-t" x="292" y="50">Force minimale</text>
+                            <polyline class="d-sig" points="0,90 10,88 20,92 30,87 40,91 50,89 60,90 70,88 80,91 90,89"/>
+                            <polyline class="d-clap" points="90,89 95,85 100,40 105,20 110,35 115,60 120,75 125,85 130,89"/>
+                            <text class="d-clap-t" x="95" y="15">Clap 1</text>
+                            <polyline class="d-sig" points="130,89 140,91 150,88 160,90 170,89"/>
+                            <line class="d-cool" x1="105" y1="110" x2="175" y2="110"/>
+                            <text class="d-cool-t" x="112" y="119">écart minimal</text>
+                            <polyline class="d-clap" points="170,89 175,85 180,45 185,25 190,40 195,65 200,80 205,88"/>
+                            <text class="d-clap-t" x="175" y="15">Clap 2</text>
+                            <polyline class="d-sig" points="205,88 215,91 225,89 235,90 245,88"/>
+                            <polyline class="d-clap" points="245,88 250,84 255,50 260,30 265,48 270,70 275,83 280,89"/>
+                            <text class="d-clap-t" x="250" y="15">Clap 3</text>
+                            <polyline class="d-sig" points="280,89 290,91 300,88 310,90 320,89 330,91 340,88 350,90 360,89 370,91 380,88 390,90 400,89"/>
+                        </g>
                     </svg>
                     <div class="form-grid">
                         <div class="field">

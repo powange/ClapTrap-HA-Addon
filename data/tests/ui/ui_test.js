@@ -345,6 +345,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('[data-w="ok"]').click(); await tick(5);
   const micPost = lastCall('POST', '/api/microphone');
   ok('+  assistant micro : une seule requête', !!micPost && micPost[2].enabled === true && !!micPost[2].device && calls.filter(c => c[0] === 'PATCH').length === patchesBefore);
+  // --- 6.75 : consigne de fin selon que le groupe reconnait deja des sons
+  {
+    const micGroups = (dom.window.CT.state.settings.microphone.sound_groups || []);
+    const ready = micGroups.some(g => g.enabled !== false && dom.window.CT.groupHasSounds(g));
+    ok('+  assistant : consigne de fin adaptée (groupe déjà prêt ou à remplir)',
+       ready ? /reconnaît déjà les applaudissements/.test($('#wz-hint').textContent) : /Ajouter les sons entendus/.test($('#wz-hint').textContent));
+  }
   $('[data-w="done"]').click(); await tick(5);
   // le micro a un groupe vide (« Snap », cree plus haut) : reglages ouverts sur ce groupe
   ok('+  assistant terminé : réglages de la nouvelle carte ouverts sur le groupe vide',
@@ -520,6 +527,31 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  calibrage du comptage : valeurs ajustées appliquées, champs mis à jour', !!ccApply && ccApply[2].values.delay === 1.6 &&
      ccApply[2].values.peak_ratio === 6.2 && ccBox().hidden && $('#adv-delay').value === '1.6');
   $('#tab-listen').click(); await tick(2);
+  // --- 6.75 : ajouter un son connu par la recherche ; confirmation : focus sur Annuler
+  {
+    const micCard = $('#src-mic');
+    if (!micCard.querySelector('dialog').open) { micCard.querySelector('[data-role="settings-open"]').click(); await tick(2); }
+    const search = micCard.querySelector('.group-card [data-role="sound-search"]');
+    const slug = search.closest('.group-card').getAttribute('data-slug');
+    search.value = 'si'; search.dispatchEvent(new w.Event('input', { bubbles: true })); await tick();
+    const errsBefore = errors.length;
+    // 2e frappe avec des suggestions affichees : le filtre des pastilles
+    // plantait sur les boutons « + son » (classe chip, sans case a cocher).
+    search.value = 'siffl'; search.dispatchEvent(new w.Event('input', { bubbles: true })); await tick();
+    ok('+  recherche : frappes successives avec suggestions, sans erreur', errors.length === errsBefore);
+    const add = micCard.querySelector('.group-card[data-slug="' + slug + '"] [data-group-action="add-sound"][data-label="Whistling"]');
+    ok('+  recherche : sons connus proposés à l’ajout (« Sifflement »)', !!add);
+    if (add) { add.click(); await tick(3); }
+    const put = lastCall('PUT', '/api/source/sound_whitelist');
+    ok('+  son connu ajouté coché au groupe', !!put && put[2].label === 'Whistling' && put[2].enabled === true && put[2].group_slug === slug);
+    const del = micCard.querySelector('[data-group-action="delete"]');
+    if (del) {
+      del.click(); await tick();
+      ok('+  confirmation de suppression : focus sur « Annuler »', d.activeElement && d.activeElement.getAttribute('data-r') === 'cancel');
+      $('.modal-backdrop [data-r="cancel"]').click(); await tick();
+    }
+    micCard.querySelector('[data-action="close-settings"]').click(); await tick(2);
+  }
   // --- 6.71 : reglages recharges fusionnes dans les objets existants
   {
     const M = dom.window.CT.mergeInto;

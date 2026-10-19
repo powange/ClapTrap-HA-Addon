@@ -47,6 +47,9 @@ DEFAULT_SETTINGS = {
 # « Clap » par _ensure_source_groups puis retires (double source de verite :
 # acceptes et enregistres, ils n'avaient plus aucun effet).
 LEGACY_SOURCE_FIELDS = ('threshold', 'ha_entities', 'sound_whitelist')
+# Sons du groupe « Clap » d'une nouvelle source (YAMNet : applaudissement,
+# mains, applaudissements de foule).
+DEFAULT_CLAP_SOUNDS = {"Clapping": True, "Hands": True, "Applause": True}
 
 # RLock (reentrant) : permet a atomic_update() de tenir le verrou pendant tout
 # le cycle load -> mutate -> save, alors que load_settings/save_settings
@@ -117,11 +120,12 @@ def _ensure_source_groups(source, default_threshold=0.5):
             g.setdefault('ha_entities', source.get('ha_entities', [1, 2]))
         return
 
-    # Source historique (champs monogroupe) : ses sons d'origine. Source
-    # neuve : groupe « Clap » vide, a remplir en activant « Ajouter les sons
-    # entendus » puis en lancant la detection.
+    # Source historique (champs monogroupe) : ses sons d'origine. Sinon
+    # (source chargee sans groupe : sauvegarde, fichier edite) : groupe vide,
+    # rien n'est coche a sa place. Une source AJOUTEE recoit les sons
+    # d'applaudissement (with_default_groups).
     if any(k in source for k in LEGACY_SOURCE_FIELDS):
-        legacy_whitelist = source.get('sound_whitelist') or {"Clapping": True, "Hands": True, "Applause": True}
+        legacy_whitelist = source.get('sound_whitelist') or dict(DEFAULT_CLAP_SOUNDS)
     else:
         legacy_whitelist = {}
     source['sound_groups'] = [{
@@ -131,6 +135,21 @@ def _ensure_source_groups(source, default_threshold=0.5):
         'threshold': _safe_float(source.get('threshold'), default_threshold),
         'ha_entities': list(source.get('ha_entities', [1, 2]) or []),
     }]
+
+
+def with_default_groups(source):
+    """Source ajoutee (interface, assistant, commande) : groupe « Clap » avec
+    les sons d'applaudissement deja coches. Il etait vide, et il fallait
+    ouvrir les reglages, activer « Ajouter les sons entendus », lancer la
+    detection, taper dans ses mains puis cocher avant de detecter quoi que
+    ce soit. Un groupe « Clap » vide et seul (micro remis) est complete."""
+    groups = source.get('sound_groups')
+    if not groups:
+        _ensure_source_groups(source)
+        groups = source['sound_groups']
+    if len(groups) == 1 and not any((groups[0].get('sound_whitelist') or {}).values()):
+        groups[0]['sound_whitelist'] = dict(DEFAULT_CLAP_SOUNDS)
+    return source
 
 
 def ascii_slug(text):
