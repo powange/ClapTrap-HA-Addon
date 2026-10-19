@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.81.0
+
+### Home Assistant, MQTT et API
+
+- **Interrupteur « Détection »** : l'allumer alors qu'elle tourne déjà
+  (automatisation du matin) n'affiche plus « erreur » dans « Dernière
+  commande ».
+- **Noms de sons vérifiés** (API, MQTT) : « clapping » devient « Clapping »
+  (la détection compare exactement, le groupe ne réagissait jamais) ; un son
+  inconnu de YAMNet est refusé avec une suggestion.
+- **Webhook non modifiable par MQTT** : un client du broker pouvait faire
+  envoyer par l'add-on une requête à chaque clap vers l'adresse de son choix.
+  Elle se règle dans l'interface.
+- Les entités de réglage (interrupteurs, seuils, noms) répondent même
+  pendant une commande longue (prise de calibrage par MQTT).
+- Un nouveau groupe ne reprend plus l'entity_id d'un groupe dont le
+  renommage dans HA est en attente (entités « _2 » pour toujours).
+- Capteur « Configuration » allégé : nombre de sons par groupe (la liste
+  est dans le capteur « sons »), plus de liste des commandes (commande
+  `help`), plafond sous la limite du recorder de HA.
+- Messages d'appareil plus courts (abréviations de HA : environ 40 % de
+  moins), vérifiés sur un vrai Home Assistant.
+- Broker qui refuse la connexion : attente croissante jusqu'à 5 min et un
+  message toutes les 10 min au lieu d'environ 11 000 lignes par jour ;
+  message explicite si les identifiants sont refusés.
+- Documentation : une seule installation de ClapTrap par broker.
+
 ## 6.80.0
 
 ### Détection audio

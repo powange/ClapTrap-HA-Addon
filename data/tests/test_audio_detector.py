@@ -145,9 +145,12 @@ def test_jitter_and_drift_never_lose_analyses(fake_classifier, monkeypatch):
     for i in range(3000):                                 # 5 min de son
         clock[0] = 1000.0 + (i + 1) * 0.1005 + rnd.uniform(-0.01, 0.01)
         det.process_audio(block(0.002, 0.001))
+        if i % 5 == 4:
+            det.wait_idle()                               # comme en temps reel : la file ne deborde pas
     det.wait_idle()
-    assert det._cuts == 0
-    assert det.stats()['analyses'] == (3000 - 10) // 5 + 1
+    st = det.stats()
+    assert det._cuts == 0 and st['analyses_sautees'] == 0
+    assert st['analyses'] == (3000 - 10) // 5 + 1
     assert abs(det._clock_end - clock[0]) < 0.1
 
 

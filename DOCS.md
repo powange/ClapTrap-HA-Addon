@@ -240,7 +240,7 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_<groupe>_sons` | nombre de sons (classes YAMNet) cochés ; attributs : leur liste, le nombre de sons non cochés, le mode de comptage (diagnostic) |
 | `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe, `diagnostic` (analyses sautées et blocs perdus faute de processeur, coupures du flux, durée moyenne et maximale d'une analyse) |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
-| `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes, sons cochés, entités, liste des commandes |
+| `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes (nombre de sons cochés), entités, sons ignorés ; listes complètes par la commande `get_settings` |
 | `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
 
 Une modification faite dans HA est enregistrée dans les réglages de l'add-on
@@ -286,6 +286,12 @@ modèle de confiance de MQTT). Pour les interdire, décochez **Commandes MQTT**
 (`mqtt_commands`) dans l'onglet Configuration de l'add-on, ou limitez
 l'écriture sur `claptrap/#` par les ACL du broker (option `customize` de
 l'add-on Mosquitto) au seul utilisateur de Home Assistant et de ClapTrap.
+L'adresse d'un webhook ne se règle pas par MQTT (seulement dans
+l'interface) : un client du broker ne peut pas faire envoyer de requêtes par
+l'add-on vers l'adresse de son choix. Les noms de sons sont vérifiés (casse
+corrigée, son inconnu refusé avec une suggestion). Les entités de réglage
+(interrupteurs, seuils, noms) répondent même pendant une commande longue
+(prise de calibrage).
 
 ```yaml
 action: mqtt.publish
@@ -303,7 +309,7 @@ data:
 | `add_rtsp` | `name`, `url`, `enabled`, `rtsp_tcp` (transport TCP, pour une caméra qui coupe en UDP) |
 | `add_vban` | `name`, `ip`, `port` (6980), `stream_name`, `enabled` |
 | `add_microphone` | `device`, `enabled` |
-| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `webhook_url`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) |
+| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) ; pas `webhook_url` (interface seulement) |
 | `delete_source` | `source` |
 | `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`) |
 | `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques` ou `tenus`) |
@@ -419,7 +425,16 @@ reconnu (auto-signé, établi pour un autre nom), décochez « Vérifier le
 certificat ».
 
 Sans aucun broker, l'add-on fonctionne (détection, webhooks) mais sans
-entités, et le journal le rappelle toutes les 10 minutes.
+entités, et le journal le rappelle toutes les 10 minutes. Si le broker refuse
+la connexion (mauvais identifiants), l'add-on retente avec une attente
+croissante (jusqu'à 5 minutes) et ne l'écrit au journal qu'une fois toutes
+les 10 minutes.
+
+**Une seule installation de ClapTrap par broker.** Deux Home Assistant qui
+partagent un même broker externe, chacun avec ClapTrap, se gêneraient : mêmes
+topics (`claptrap/…`, `homeassistant/device/claptrap/…`) et mêmes unique_id,
+le nettoyage de l'un supprimerait les appareils de l'autre. Utilisez un
+broker par installation (l'add-on Mosquitto de chacune, par exemple).
 
 ## Sécurité (AppArmor)
 

@@ -68,6 +68,9 @@ _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability e
 _pending_devices = set()    # appareils a supprimer des que le broker est joignable
 _pending_topics = set()     # topics d'etat retenus a vider de meme
 _auth_failures = 0
+_fresh_cycles = 0           # recreations du client sans connexion reussie (attente croissante)
+_fail_streak_warned = -1e9  # dernier avertissement d'une serie d'echecs (instant monotone)
+FAIL_WARN_INTERVAL = 600    # s : un echec de connexion au journal, puis un rappel toutes les 10 min
 _warned_collisions = set()  # (cle, source en conflit) deja signales
 _shutting_down = False      # arret propre : « offline » voulu, ne pas le corriger
 OPTIONS_FILE = '/data/options.json'   # options de l'add-on (onglet Configuration)
@@ -265,17 +268,28 @@ def _client_id():
     return f"claptrap-{suffix}"
 
 
-def _connection_failed(client, reason):
+def _connection_failed(client, reason, refused=False):
     """Refus du broker ou echec TCP : apres 3 echecs, relire les infos du
     broker (identifiants changes apres reinstallation de Mosquitto, hote ou
     port differents). Elles n'etaient lues qu'une fois : echecs en boucle
     jusqu'au redemarrage de l'add-on."""
-    global _auth_failures
+    global _auth_failures, _fail_streak_warned
     _auth_failures += 1
-    logging.warning(f"MQTT: connexion impossible ({reason})")
+    low = str(reason).lower()
+    if 'author' in low or 'password' in low or 'identif' in low:
+        reason = (f"{reason} : identifiants refusés par le broker (vérifiez mqtt_username et mqtt_password, "
+                  "ou réinstallez l'intégration MQTT si Mosquitto a été réinstallé)")
+    # Mauvais mot de passe : un avertissement par echec (~11 000 lignes par
+    # jour) ; le premier d'une serie, puis un rappel toutes les 10 min.
+    now = time.monotonic()
+    if now - _fail_streak_warned >= FAIL_WARN_INTERVAL:
+        logging.warning(f"MQTT: connexion impossible ({reason}) ; nouvel essai régulier")
+        _fail_streak_warned = now
+    else:
+        logging.debug(f"MQTT: connexion impossible ({reason})")
     if _auth_failures >= 3:
         _auth_failures = 0
-        threading.Thread(target=_reconnect_fresh, args=(client,), daemon=True).start()
+        threading.Thread(target=_reconnect_fresh, args=(client, refused), daemon=True).start()
 
 
 def _on_connect_fail(client, userdata, *args):
@@ -286,9 +300,12 @@ def _on_connect(client, userdata, flags, rc, *args):
     global _auth_failures
     failed = getattr(rc, 'is_failure', rc != 0)
     if failed:
-        _connection_failed(client, f"refus : {rc}")
+        _connection_failed(client, f"refus : {rc}", refused=True)
         return
+    global _fresh_cycles, _fail_streak_warned
     _auth_failures = 0
+    _fresh_cycles = 0
+    _fail_streak_warned = -1e9   # prochain echec : de nouveau au journal
     logging.info("MQTT connecté")
     global _session
     _discovery_ready.clear()   # nouvelle session : attendre les configurations retenues
@@ -313,9 +330,15 @@ def _on_connect(client, userdata, flags, rc, *args):
 
 
 def _on_disconnect(client, userdata, *args):
+    was_connected = _mqtt_connected.is_set()
     _mqtt_connected.clear()
     _discovery_ready.clear()
-    logging.warning("MQTT déconnecté, reconnexion automatique...")
+    # Apres un refus (mauvais identifiants), paho appelle aussi ce rappel a
+    # chaque essai : seule une vraie deconnexion merite un avertissement.
+    if was_connected:
+        logging.warning("MQTT déconnecté, reconnexion automatique...")
+    else:
+        logging.debug("MQTT : connexion refusée ou interrompue avant d'aboutir")
 
 
 def _on_message(client, userdata, msg):
@@ -385,7 +408,7 @@ def _discovery_message(component, item, topic, payload):
             _device_cmps.pop(item, None)
             return
         # Composants reduits a {"p": …} : retraits, sans etat.
-        cmps = {cid: c for cid, c in (cfg.get('cmps') or {}).items()
+        cmps = {cid: expand_component(c) for cid, c in (cfg.get('cmps') or {}).items()
                 if isinstance(c, dict) and len(c) > 1 and c.get('p')}
         _seen_devices[item] = sorted({t for c in cmps.values() for t in _state_topics(c)})
         if not _discovery_ready.is_set():
@@ -493,8 +516,13 @@ def _mqtt_worker():
             delay = min(delay * 2, 300)
 
 
-def _reconnect_fresh(old_client):
-    global _mqtt_client
+def _reconnect_fresh(old_client, refused=False):
+    """Nouveau client (infos du broker relues) apres 3 echecs. Le nouveau
+    client repartait de 1 s : l'attente ne depassait jamais ~8 s. Broker qui
+    REFUSE (identifiants) : attente croissante entre deux recreations, jusqu'a
+    5 min. Broker injoignable (redemarrage de Mosquitto) : aussitot, pour
+    reprendre des son retour."""
+    global _mqtt_client, _fresh_cycles
     try:
         old_client.loop_stop()
         old_client.disconnect()
@@ -502,6 +530,9 @@ def _reconnect_fresh(old_client):
         pass
     _mqtt_connected.clear()
     _mqtt_client = None
+    if refused:
+        time.sleep(min(300, 15 * 2 ** _fresh_cycles))
+        _fresh_cycles += 1
     _mqtt_worker()
 
 
@@ -539,10 +570,30 @@ def _device_topic(dev):
     return f"{MQTT_TOPIC_PREFIX}/device/claptrap/{dev}/config"
 
 
+# Abreviations de HA (homeassistant/components/mqtt/abbreviations.py, toutes
+# presentes en 2025.10) : le message d'une source a 20 groupes faisait 89 Ko.
+ABBREVIATIONS = {
+    'unique_id': 'uniq_id', 'default_entity_id': 'def_ent_id', 'state_topic': 'stat_t',
+    'command_topic': 'cmd_t', 'availability': 'avty', 'availability_mode': 'avty_mode',
+    'availability_topic': 'avty_t', 'json_attributes_topic': 'json_attr_t',
+    'json_attributes_template': 'json_attr_tpl', 'value_template': 'val_tpl', 'device_class': 'dev_cla',
+    'entity_category': 'ent_cat', 'icon': 'ic', 'payload_on': 'pl_on', 'payload_off': 'pl_off',
+    'unit_of_measurement': 'unit_of_meas', 'event_types': 'evt_typ',
+}
+_EXPANSIONS = {v: k for k, v in ABBREVIATIONS.items()}
+
+
 def _component(platform, cfg):
-    """Configuration d'une entite dans `cmps` (appareil et origine sont
-    portes par le message de l'appareil)."""
-    return {**cfg, 'p': platform}
+    """Configuration d'une entite dans `cmps`, abregee (appareil et origine
+    sont portes par le message de l'appareil)."""
+    c = {ABBREVIATIONS.get(k, k): v for k, v in cfg.items()}
+    c['p'] = platform
+    return c
+
+
+def expand_component(c):
+    """Composant d'un message retenu, cles completes (abregees ou non)."""
+    return {_EXPANSIONS.get(k, k): v for k, v in c.items()}
 
 
 def _component_ids(info):

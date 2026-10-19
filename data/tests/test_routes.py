@@ -513,3 +513,12 @@ def test_detection_start_errors_and_degraded_status(client, settings_dir, monkey
     settings_dir._cache = None
     settings_dir.load_settings()
     assert client.get('/status').json['settings_degraded'] is True
+
+
+def test_new_group_never_takes_an_id_pending_rename(client, settings_dir):
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [
+        {'slug': 'clap', 'name': 'Clap'},
+        {'slug': 'siffler', 'name': 'Tac', 'entity_slug': 'tac', '_renamed_from': 'siffler toc'}]}})
+    r = client.post('/api/source/sound_groups', json={'kind': 'mic', 'name': 'Toc'})
+    g = r.json['group']
+    assert r.status_code == 200 and g['slug'] == 'toc' and g['entity_slug'] == 'toc2'   # unique_id intact

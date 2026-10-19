@@ -460,10 +460,9 @@ def refresh_vban_sources():
 _YAMNET_LABELS = None
 
 
-@sources_bp.route('/api/sounds/known', methods=['GET'])
-def known_sounds():
-    """Les 521 classes de YAMNet (liste embarquee dans le modele) : la
-    recherche d'un groupe propose tous les sons, meme jamais entendus."""
+def yamnet_labels():
+    """Les 521 classes de YAMNet (liste embarquee dans le modele) ; [] si
+    illisible."""
     global _YAMNET_LABELS
     if _YAMNET_LABELS is None:
         import os
@@ -473,9 +472,38 @@ def known_sounds():
             with zipfile.ZipFile(model) as z:
                 _YAMNET_LABELS = [l for l in z.read('yamnet_label_list.txt').decode('utf-8').splitlines() if l.strip()]
         except (OSError, KeyError, zipfile.BadZipFile) as e:
-            logging.warning(f"Liste des sons de YAMNet illisible : {e}")
-            return jsonify({'labels': []})
-    return jsonify({'labels': _YAMNET_LABELS})
+            logging.warning(f"Liste des sons de YAMNet illisible (noms de sons non vérifiés) : {e}")
+            _YAMNET_LABELS = []   # une fois : ni relecture ni avertissement a chaque requete
+    return _YAMNET_LABELS
+
+
+def canonical_label(label, existing=(), removing=False):
+    """Nom exact d'un son YAMNet. « clapping » envoye par un assistant etait
+    accepte tel quel, mais la detection compare exactement : le groupe ne
+    reagissait jamais. Casse corrigee (meme pour un nom mal ecrit deja
+    enregistre, qu'on reactive) ; son inconnu refuse avec une suggestion. Pour
+    decocher ou retirer (`removing`), le nom enregistre tel quel est garde."""
+    labels = yamnet_labels()
+    if removing and label in existing:
+        return label
+    if not labels or label in labels:
+        return label
+    folded = {l.casefold(): l for l in labels}
+    if label.casefold() in folded:
+        return folded[label.casefold()]
+    if label in existing:
+        return label   # ancien nom hors YAMNet deja enregistre : modifiable
+    import difflib
+    close = difflib.get_close_matches(label, labels, n=3, cutoff=0.6)
+    hint = f" : vouliez-vous dire {', '.join(f'« {c} »' for c in close)} ?" if close else \
+        " (liste : GET /api/sounds/known)"
+    raise ApiError(f"son « {label} » inconnu de YAMNet{hint}")
+
+
+@sources_bp.route('/api/sounds/known', methods=['GET'])
+def known_sounds():
+    """La recherche d'un groupe propose tous les sons, meme jamais entendus."""
+    return jsonify({'labels': yamnet_labels()})
 
 
 @sources_bp.route('/api/sound_exclusions', methods=['GET'])
@@ -509,6 +537,13 @@ def update_sound_exclusions():
         # Borne a l'ajout seulement : un nom trop long deja enregistre doit
         # pouvoir etre retire.
         raise ApiError(f'label : nom de son de {MAX_LABEL} caractères au plus attendu')
+    stored = load_settings().get('global', {}).get('sound_exclusions') or []
+    if excluded:
+        label = canonical_label(label, stored)
+    elif label not in stored:
+        # Retrait : rien a valider (un nom absent ne fait rien), casse corrigee
+        # si le nom enregistre differe seulement par elle.
+        label = next((s for s in stored if s.casefold() == label.casefold()), label)
 
     def _mut(settings):
         g = settings.setdefault('global', {})
@@ -629,6 +664,11 @@ def update_source_sound_whitelist():
     if not isinstance(label, str) or not label or len(label) > MAX_LABEL:
         raise ApiError('label : nom de son attendu')
     enabled = to_bool(data.get('enabled', False), 'enabled')
+    known_here = set()
+    for g in (_require_source(load_settings(), kind, source_key).get('sound_groups') or []):
+        if isinstance(g, dict):
+            known_here.update((g.get('sound_whitelist') or {}).keys())
+    label = canonical_label(label, known_here, removing=not enabled)
 
     def _mut(settings):
         source_dict = _require_source(settings, kind, source_key)
@@ -692,12 +732,7 @@ def _rename_entity_slug(groups, target):
     current = target.get('entity_slug') or target['slug']
     # Ids pris par les autres groupes, y compris ceux qu'ils ont encore dans
     # HA (renommage en attente) : deux groupes ne visent jamais le meme id.
-    others = set()
-    for g in groups:
-        if isinstance(g, dict) and g is not target:
-            others.add(g.get('entity_slug') or g.get('slug'))
-            others.update((g.get('_renamed_from') or '').split())
-    new = _slugify_group(target['name'], others)
+    new = _slugify_group(target['name'], _taken_entity_slugs(groups, exclude=target))
     if new == current:
         return False
     previous = [s for s in (target.get('_renamed_from') or '').split() if s != new]
@@ -706,6 +741,17 @@ def _rename_entity_slug(groups, target):
     target['_renamed_from'] = ' '.join(previous)
     target['entity_slug'] = new
     return True
+
+
+def _taken_entity_slugs(groups, exclude=None):
+    """Fins d'entity_id prises par les groupes (hors `exclude`), y compris
+    celles qu'ils ont encore dans HA (renommage en attente)."""
+    taken = set()
+    for g in groups:
+        if isinstance(g, dict) and g is not exclude:
+            taken.add(g.get('entity_slug') or g.get('slug'))
+            taken.update((g.get('_renamed_from') or '').split())
+    return taken
 
 
 def _slugify_group(name, existing_slugs):
@@ -741,10 +787,16 @@ def create_source_sound_group():
         _check_unique_group_name(groups, name)
         existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)} | \
             {g.get('entity_slug') for g in groups if isinstance(g, dict) and g.get('entity_slug')}
+        slug = _slugify_group(name, existing_slugs)
+        # entity_id propose : jamais l'ancien nom d'un groupe dont le
+        # renommage dans HA est en attente (« _2 » pour toujours). Le slug
+        # (unique_id, topics) n'est pas concerne.
+        entity_slug = _slugify_group(name, _taken_entity_slugs(groups) | existing_slugs)
         # Groupe vide : ses sons s'ajoutent en activant « Ajouter les sons
         # entendus » (auto_add_sounds) pendant la detection.
         new_group = {
-            'slug': _slugify_group(name, existing_slugs), 'name': name,
+            'slug': slug, 'name': name,
+            **({'entity_slug': entity_slug} if entity_slug != slug else {}),
             'sound_whitelist': {}, 'auto_add_sounds': False,
             'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
             # [] = aucune entite (un `or` le remplacait par 1 et 2 claps)
