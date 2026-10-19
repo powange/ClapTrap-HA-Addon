@@ -6,7 +6,7 @@ import logging
 import threading
 import uuid
 
-from settings_manager import (load_settings, modify_settings, SettingsSaveError,
+from settings_manager import (load_settings, modify_settings, SettingsSaveError, with_default_groups,
                               to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
@@ -301,6 +301,7 @@ def add_rtsp_stream():
         'gain': to_number(data.get('gain', 10), 'gain', 0, 100, integer=True),
         'rtsp_tcp': to_bool(data.get('rtsp_tcp', False), 'rtsp_tcp'),
     }
+    with_default_groups(new_stream)   # groupe « Clap » deja utilisable
 
     def _mut(settings):
         # Doublon : un assistant ferme pendant l'ajout faisait recommencer
@@ -390,6 +391,7 @@ def save_vban_source():
         'webhook_url': to_webhook(source.get('webhook_url', '')),
         'enabled': to_bool(source.get('enabled', True), 'enabled'),
     }
+    with_default_groups(new_source)   # groupe « Clap » deja utilisable
 
     def _mut(settings):
         lst = settings.setdefault('saved_vban_sources', [])
@@ -457,6 +459,27 @@ def refresh_vban_sources():
 
 
 # --- Exclusions globales -----------------------------------------------------
+
+_YAMNET_LABELS = None
+
+
+@sources_bp.route('/api/sounds/known', methods=['GET'])
+def known_sounds():
+    """Les 521 classes de YAMNet (liste embarquee dans le modele) : la
+    recherche d'un groupe propose tous les sons, meme jamais entendus."""
+    global _YAMNET_LABELS
+    if _YAMNET_LABELS is None:
+        import os
+        import zipfile
+        model = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'yamnet.tflite')
+        try:
+            with zipfile.ZipFile(model) as z:
+                _YAMNET_LABELS = [l for l in z.read('yamnet_label_list.txt').decode('utf-8').splitlines() if l.strip()]
+        except (OSError, KeyError, zipfile.BadZipFile) as e:
+            logging.warning(f"Liste des sons de YAMNet illisible : {e}")
+            return jsonify({'labels': []})
+    return jsonify({'labels': _YAMNET_LABELS})
+
 
 @sources_bp.route('/api/sound_exclusions', methods=['GET'])
 def get_sound_exclusions():
@@ -850,6 +873,7 @@ def add_microphone():
     def _mut(settings):
         mic = settings.setdefault('microphone', {})
         mic['configured'] = True
+        with_default_groups(mic)
         return dict(mic)
     mic = modify_settings(_mut)
     _sync_ha_entities()  # publie ses entites (indisponibles tant qu'il est desactive)
@@ -952,6 +976,8 @@ def _update_mic_fields(data, configured=False):
         m = settings.setdefault('microphone', {})
         before = dict(m)
         m.update(changes)
+        if configured:
+            with_default_groups(m)   # micro ajoute par l'assistant : groupe « Clap » utilisable
         return before, dict(m)
 
     before, mic = modify_settings(_mut)

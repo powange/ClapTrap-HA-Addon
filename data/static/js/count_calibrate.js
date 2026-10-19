@@ -38,7 +38,7 @@
 
     function close() {
         if (!back || back.hidden) return;
-        if (busy) { CT.error('Prise en cours : patientez quelques secondes.'); return; }
+        if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;
         run += 1;

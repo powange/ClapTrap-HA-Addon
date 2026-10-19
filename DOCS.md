@@ -73,12 +73,14 @@ La dernière étape affiche le niveau sonore : tapez dans vos mains, il doit
 monter nettement. Lancez ensuite la détection avec **Démarrer la détection** (ou
 cochez **Démarrer au lancement de l'add-on**).
 
-Le groupe « Clap » d'une nouvelle source est vide : la carte l'indique
-(« Aucun son choisi »), et l'assistant ouvre à la fin les réglages de la
-source sur ce groupe. Activez **Ajouter les sons entendus**, tapez dans vos
-mains pendant la détection, puis cochez les sons qui doivent déclencher le
-groupe (par exemple « Applaudissement », « Mains »). Le bouton **Choisir les
-sons** de la carte ramène au même endroit.
+Le groupe « Clap » d'une nouvelle source reconnaît déjà les applaudissements
+(« Applaudissement », « Mains » et « Applaudissements » cochés) : démarrez la
+détection et tapez deux fois dans vos mains pour essayer. Pour d'autres sons,
+ouvrez les réglages de la source : la recherche d'un groupe propose tous les
+sons connus (« siffl » propose « Sifflement »), ajoutés d'un toucher ; ou
+activez **Ajouter les sons entendus**, faites le son pendant la détection,
+puis cochez-le. Un groupe sans son le signale sur la carte (« Aucun son
+choisi ») avec un bouton **Choisir les sons**.
 
 Le mot de passe d'une adresse RTSP est masqué à l'écran : le bouton
 **Afficher le mot de passe** révèle l'adresse complète pour la modifier. Il reste dans la

@@ -213,7 +213,7 @@
                 return '<button type="button" class="vban-item" data-i="' + i + '"' + (added ? ' disabled data-added="1"' : '') + '><strong>' +
                     esc(s.name || '(sans nom)') + (added ? ' <span class="pill">déjà ajouté</span>' : '') + '</strong>' +
                     '<span class="muted">' + esc(s.ip) + (s.sample_rate ? ' · ' + esc(s.sample_rate) + ' Hz' : '') +
-                    (s.channels ? ' · ' + esc(s.channels) + ' canal' + (s.channels > 1 ? 'x' : '') : '') + '</span></button>';
+                    (s.channels ? ' · ' + esc(s.channels) + (s.channels > 1 ? ' canaux' : ' canal') : '') + '</span></button>';
             }).join('');
             CT.$$('.vban-item', list).forEach(function (b) {
                 b.addEventListener('click', function () {
@@ -247,8 +247,24 @@
     // ---- Etape 3 : verification ---------------------------------------------------
     // Repere « bon niveau » du VU-metre : un clap doit depasser -20 dB.
     var GOOD_DB = -20;
-    // Consigne de la derniere etape (choix des sons), selon l'etat de la detection.
+    // Consigne de la derniere etape. Le groupe « Clap » d'une nouvelle source
+    // reconnait deja les applaudissements ; un groupe encore vide (source
+    // reprise d'une sauvegarde) garde la consigne de choix des sons.
     function nextSteps(intro, running) {
+        var groups = ((created && created.data && created.data.sound_groups) || []).filter(function (g) { return g && g.enabled !== false; });
+        var clapGroup = groups.filter(function (g) {
+            var wl = g.sound_whitelist || {};
+            return wl.Clapping || wl.Hands || wl.Applause;
+        })[0];
+        if (clapGroup) {
+            return intro + ' Le groupe « ' + (clapGroup.name || clapGroup.slug) + ' » reconnaît déjà les applaudissements : ' +
+                (running ? '' : 'démarrez la détection, puis ') + 'tapez deux fois dans vos mains pour l\'essayer. ' +
+                'D\'autres sons se choisissent dans « Réglages de la source ».';
+        }
+        if (groups.some(function (g) { return CT.groupHasSounds(g); })) {
+            return intro + ' Les groupes de cette source ont déjà leurs sons : ' +
+                (running ? '' : 'démarrez la détection, puis ') + 'faites-les pour vérifier qu\'ils sont reconnus.';
+        }
         return intro + ' Ensuite, dans « Réglages de la source », activez « Ajouter les sons entendus » sur le groupe, ' +
             (running ? '' : 'démarrez la détection, ') + 'tapez dans vos mains et cochez les sons qui doivent le déclencher.';
     }

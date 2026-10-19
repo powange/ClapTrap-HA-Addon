@@ -18,7 +18,9 @@
     }
 
     function close() {
-        if (!back || back.hidden || busy) return;
+        if (!back || back.hidden) return;
+        // × et Echap ne faisaient rien pendant une prise, sans retour.
+        if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
         // Fermee pendant le demarrage : le calibrage sera annule a la reponse.
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;

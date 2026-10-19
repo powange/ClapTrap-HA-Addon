@@ -150,7 +150,10 @@ def test_several_vban_without_entity_key(settings_dir):
     assert all(keys) and len(set(keys)) == 2
 
 
-def test_new_source_group_empty_legacy_source_keeps_sounds(settings_dir):
+def test_loaded_source_without_groups_gets_empty_group_legacy_keeps_sounds(settings_dir):
+    """Source chargee sans groupe (sauvegarde, fichier edite) : groupe vide,
+    rien n'est coche a sa place (seule une source ajoutee recoit les sons
+    d'applaudissement)."""
     sm = settings_dir
     sm.save_settings({'rtsp_sources': [{'id': 'new', 'url': 'rtsp://h/1'},
                                        {'id': 'old', 'url': 'rtsp://h/2', 'threshold': 0.6}]})

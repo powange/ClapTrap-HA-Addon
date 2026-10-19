@@ -1,5 +1,35 @@
 # Changelog
 
+## 6.75.0
+
+### Premiers pas
+
+- **Une nouvelle source détecte tout de suite les applaudissements** : son
+  groupe « Clap » a déjà « Applaudissement », « Mains » et
+  « Applaudissements » cochés. Il était vide, et il fallait ouvrir les
+  réglages, activer « Ajouter les sons entendus », lancer la détection,
+  taper dans ses mains puis cocher avant de détecter quoi que ce soit. La
+  consigne de fin de l'assistant le dit.
+- **Ajouter n'importe quel son connu** : la recherche d'un groupe propose
+  aussi les sons pas encore entendus, parmi les 521 de YAMNet (« siffl »
+  propose « Sifflement »), ajoutés cochés d'un toucher ; sauf ceux d'un autre
+  groupe de la source ou ignorés partout.
+- Les sources déjà enregistrées ne changent pas : seule une source ajoutée
+  (ou un micro remis par l'assistant avec un groupe vide) reçoit ces sons.
+
+### Interface
+
+- Barre d'état lisible sur mobile (jusqu'à trois lignes, la durée et les
+  « groupes sans son » étaient coupés) ; sans source, elle dit « Ajoutez
+  une source » au lieu de « Activez une source ».
+- Schéma « Comptage des claps » lisible (textes de 6 à 9 px auparavant),
+  menu « Comptage » à libellés courts, « Ajouter à la main » avec un
+  chevron, « 2 canaux » au lieu de « 2 canalx ».
+- Contrastes portés à 4,5:1 (étiquette « Micro », textes secondaires en
+  sombre) ; « ignorer » partout pour les sons ignorés.
+- Confirmation de suppression : le focus est sur « Annuler » ; fermer le
+  calibrage pendant une prise explique pourquoi c'est impossible.
+
 ## 6.74.0
 
 ### Image

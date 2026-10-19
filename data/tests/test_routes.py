@@ -427,3 +427,24 @@ def test_auto_volume_saves_corrected_pulse_name_with_change(client, settings_dir
     assert r.status_code == 200, r.json
     mic = settings_dir.load_settings()['microphone']
     assert mic['auto_volume'] is True and mic['pulse_name'] == 'alsa.new'
+
+
+def test_new_source_gets_clap_sounds_immediately(client, settings_dir):
+    """Groupe « Clap » coche (applaudissements) des l'ajout, sans attendre le
+    prochain chargement du fichier (la carte s'affichait sans groupe)."""
+    assert client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://h/new'}).status_code == 200
+    cam = next(s for s in settings_dir.load_settings()['rtsp_sources'] if s['url'] == 'rtsp://h/new')
+    assert cam['sound_groups'][0]['slug'] == 'clap'
+    assert cam['sound_groups'][0]['sound_whitelist'] == {'Clapping': True, 'Hands': True, 'Applause': True}
+
+
+def test_readded_microphone_gets_clap_sounds_and_known_sounds_route(client, settings_dir):
+    """Micro remis par l'assistant : groupe « Clap » vide complete ; liste
+    complete des sons de YAMNet (521, embarquee dans le modele)."""
+    settings_dir.save_settings({'microphone': {'configured': False, 'enabled': False}})
+    r = client.post('/api/microphone', json={'enabled': True})
+    assert r.status_code == 200
+    mic = settings_dir.load_settings()['microphone']
+    assert mic['sound_groups'][0]['sound_whitelist'] == {'Clapping': True, 'Hands': True, 'Applause': True}
+    labels = client.get('/api/sounds/known').json['labels']
+    assert len(labels) == 521 and 'Whistling' in labels and 'Clapping' in labels
