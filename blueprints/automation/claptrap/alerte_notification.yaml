@@ -1,0 +1,97 @@
+blueprint:
+  name: ClapTrap — Alerte sonore sur le téléphone
+  description: >-
+    Prévient sur le téléphone quand un capteur d'alerte ClapTrap s'allume
+    (détecteur de fumée, pleurs de bébé, aboiement, sonnette…), avec un flash
+    des lumières en option (elles reprennent ensuite leur état). Une pause
+    évite une notification à chaque reprise du son. Ce n'est pas un système
+    de sécurité certifié.
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/alerte_notification.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur d'alerte
+      description: Capteur ClapTrap « …_alerte » d'un groupe en mode alerte.
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class:
+                - smoke
+                - safety
+                - sound
+                - problem
+                - occupancy
+    telephone:
+      name: Téléphone
+      description: Appareil de l'application mobile Home Assistant à prévenir.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    titre:
+      name: Titre de la notification
+      default: "Alerte sonore"
+      selector:
+        text:
+    lumieres:
+      name: Lumières à faire clignoter (facultatif)
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: light
+    pause:
+      name: Pause entre deux notifications
+      description: Une alerte qui reprend pendant ce temps ne renvoie rien.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+
+mode: single
+max_exceeded: silent
+
+variables:
+  lumieres: !input lumieres
+
+triggers:
+  # Aussi depuis « indisponible » : une alarme toujours en cours apres une
+  # reconnexion (ou un redemarrage de HA) previent quand meme.
+  - trigger: state
+    entity_id: !input capteur
+    to: "on"
+    not_from: "on"
+
+actions:
+  - domain: mobile_app
+    type: notify
+    device_id: !input telephone
+    title: !input titre
+    message: "{{ state_attr(trigger.entity_id, 'friendly_name') }} détecté à {{ now().strftime('%H:%M') }}."
+  - if:
+      - condition: template
+        value_template: "{{ lumieres | count > 0 }}"
+    then:
+      - action: scene.create
+        data:
+          scene_id: claptrap_avant_alerte
+          snapshot_entities: "{{ lumieres }}"
+      - action: light.turn_on
+        target:
+          entity_id: "{{ lumieres }}"
+        data:
+          flash: long
+      - delay: 5
+      - action: scene.turn_on
+        target:
+          entity_id: scene.claptrap_avant_alerte
+  - delay:
+      minutes: !input pause

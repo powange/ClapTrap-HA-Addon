@@ -1,0 +1,59 @@
+blueprint:
+  name: ClapTrap — Claps pour basculer une lumière
+  description: >-
+    Allume ou éteint des lumières (ou des prises) quand un capteur de claps
+    ClapTrap se déclenche, par exemple « binary_sensor.claptrap_mic_clap_2claps »
+    pour deux claps devant le micro. Toutes vont dans le même sens : si l'une
+    est allumée, tout s'éteint ; sinon tout s'allume.
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/claps_basculer_lumiere.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur de claps
+      description: Capteur ClapTrap « … clap(s) » d'une source et d'un groupe.
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class: sound
+    cibles:
+      name: Lumières ou prises
+      description: >-
+        Entités seulement (une pièce entière ferait aussi basculer la
+        télévision, les volets…).
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain:
+                - light
+                - switch
+
+mode: single
+max_exceeded: silent
+
+variables:
+  cibles: !input cibles
+
+triggers:
+  - trigger: state
+    entity_id: !input capteur
+    from: "off"
+    to: "on"
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ cibles | select('is_state', 'on') | list | count > 0 }}"
+    then:
+      - action: homeassistant.turn_off
+        target:
+          entity_id: "{{ cibles }}"
+    else:
+      - action: homeassistant.turn_on
+        target:
+          entity_id: "{{ cibles }}"

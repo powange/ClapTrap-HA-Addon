@@ -254,6 +254,25 @@ déclenchent bien deux fois.
 **Supprimer les entités orphelines** (onglet Réglages) retire les entités
 ClapTrap qui ne correspondent plus à aucune source.
 
+## Automatisations prêtes à l'emploi (blueprints)
+
+Quatre blueprints s'importent en un clic dans Home Assistant (bouton
+**Importer**, ou Paramètres › Automatisations et scènes › Blueprints ›
+Importer, avec l'adresse du fichier dans le dossier `blueprints/` du dépôt),
+puis **Créer une automatisation** à partir du blueprint :
+
+| | |
+|---|---|
+| [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_basculer_lumiere.yaml) | **Claps pour basculer une lumière** : des claps allument ou éteignent des lumières ou des prises. |
+| [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Falerte_notification.yaml) | **Alerte sonore sur le téléphone** : un capteur d'alerte (fumée, pleurs, aboiement, sonnette) envoie une notification, avec flash des lumières en option. |
+| [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_confirmation_vocale.yaml) | **Confirmation vocale après un clap** : une enceinte dit une phrase quand le geste est compris. |
+| [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_assist.yaml) | **Un clap pour parler à Assist** : un clap lance une conversation sur un satellite vocal, à la place du mot d'activation. |
+
+Ils se déclenchent sur un capteur ClapTrap (`binary_sensor.claptrap_…`) qui
+s'allume ; seuls les capteurs de claps (ou d'alerte) sont proposés. Nécessite Home Assistant 2025.10 ou plus
+récent ; la confirmation vocale demande un moteur de synthèse vocale (Piper…)
+et l'appel à Assist un satellite vocal.
+
 ## Piloter ClapTrap depuis Home Assistant
 
 Les réglages sont aussi exposés dans Home Assistant : tableaux de bord,
