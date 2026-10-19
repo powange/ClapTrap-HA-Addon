@@ -465,7 +465,7 @@ _SOURCE_KEYS = {
                            'entity_key', 'sound_groups'},
 }
 _GROUP_KEYS = {'slug', 'name', 'threshold', 'ha_entities', 'clap_counts', 'sound_whitelist', 'enabled',
-               'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from'}
+               'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from', 'alert_confirm', 'device_class'}
 
 
 def strip_unknown_keys(data):
@@ -597,7 +597,36 @@ def atomic_update(mutator):
 
 # --- Validation ----------------------------------------------------------------
 
-COUNT_MODES = ('attaques', 'tenus')
+COUNT_MODES = ('attaques', 'tenus', 'alerte')
+# Mode « alerte » : classe du capteur dans HA (icone, libelles « Détecté »).
+ALERT_DEVICE_CLASSES = ('sound', 'smoke', 'safety', 'problem', 'occupancy')
+
+# Modeles de groupes (ajout d'un groupe) : sons YAMNet deja coches, seuil et
+# comptage adaptes. Gestes : capteurs « N claps » ; alarmes : mode alerte,
+# capteur allume tant que le son dure (`confirm` : reconnaissances sur les 4
+# dernieres analyses, ~2 s, pour l'allumer).
+GROUP_PRESETS = {
+    'claps': {'name': 'Applaudissements', 'sounds': ['Clapping', 'Hands', 'Applause'],
+              'threshold': 0.5, 'ha_entities': [1, 2], 'count_mode': 'attaques'},
+    'doigts': {'name': 'Claquement de doigts', 'sounds': ['Finger snapping'],
+               'threshold': 0.4, 'ha_entities': [1, 2], 'count_mode': 'attaques'},
+    'toc': {'name': 'Toc-toc', 'sounds': ['Knock', 'Tap'],
+            'threshold': 0.4, 'ha_entities': [2, 3], 'count_mode': 'attaques'},
+    'sifflement': {'name': 'Sifflement', 'sounds': ['Whistling', 'Whistle'],
+                   'threshold': 0.4, 'ha_entities': [1], 'count_mode': 'tenus'},
+    'fumee': {'name': 'Détecteur de fumée', 'sounds': ['Smoke detector, smoke alarm', 'Fire alarm'],
+              'threshold': 0.3, 'count_mode': 'alerte', 'alert_confirm': 3, 'device_class': 'smoke'},
+    'verre': {'name': 'Bris de glace', 'sounds': ['Glass', 'Shatter'],
+              'threshold': 0.4, 'count_mode': 'alerte', 'alert_confirm': 1, 'device_class': 'safety'},
+    'bebe': {'name': 'Pleurs de bébé', 'sounds': ['Baby cry, infant cry', 'Crying, sobbing'],
+             'threshold': 0.4, 'count_mode': 'alerte', 'alert_confirm': 3, 'device_class': 'sound'},
+    'aboiement': {'name': 'Aboiement', 'sounds': ['Bark', 'Dog'],
+                  'threshold': 0.4, 'count_mode': 'alerte', 'alert_confirm': 2, 'device_class': 'sound'},
+    'sonnette': {'name': 'Sonnette', 'sounds': ['Doorbell', 'Ding-dong'],
+                 'threshold': 0.4, 'count_mode': 'alerte', 'alert_confirm': 1, 'device_class': 'sound'},
+    'alarme': {'name': 'Alarme ou sirène', 'sounds': ['Alarm', 'Siren', 'Car alarm', 'Civil defense siren'],
+               'threshold': 0.4, 'count_mode': 'alerte', 'alert_confirm': 3, 'device_class': 'safety'},
+}
 # Bornes d'un import (memes valeurs que les routes)
 MAX_SOURCES = 32           # par type
 MAX_GROUPS = 20            # par source
@@ -606,9 +635,16 @@ MAX_LABEL = 200            # longueur d'un nom de son
 
 
 def to_count_mode(value, path='count_mode'):
-    """Comptage d'un groupe : « attaques » (claps) ou « tenus » (sifflements)."""
+    """Comptage d'un groupe : « attaques » (claps), « tenus » (sifflements) ou
+    « alerte » (capteur allume tant que le son dure : alarme, pleurs)."""
     if value not in COUNT_MODES:
-        raise ValueError(f"{path} : « attaques » ou « tenus » attendu")
+        raise ValueError(f"{path} : « attaques », « tenus » ou « alerte » attendu")
+    return value
+
+
+def to_device_class(value, path='device_class'):
+    if value not in ALERT_DEVICE_CLASSES:
+        raise ValueError(f"{path} : {', '.join(ALERT_DEVICE_CLASSES)} attendu")
     return value
 
 
@@ -741,6 +777,10 @@ def _norm_groups(src, path):
                 g[flag] = to_bool(g[flag], f"{gp}.{flag}")
         if 'count_mode' in g:
             g['count_mode'] = to_count_mode(g['count_mode'], f"{gp}.count_mode")
+        if 'alert_confirm' in g:
+            g['alert_confirm'] = to_number(g['alert_confirm'], f"{gp}.alert_confirm", 1, 4, integer=True)
+        if 'device_class' in g:
+            g['device_class'] = to_device_class(g['device_class'], f"{gp}.device_class")
         # Identifiant des entity_id (suit le nom du groupe ; le slug, lui,
         # porte les unique_id et ne change jamais) et renommage HA en attente.
         if 'entity_slug' in g and (not isinstance(g['entity_slug'], str) or not _VALID_SLUG.match(g['entity_slug'])):

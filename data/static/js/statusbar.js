@@ -164,7 +164,7 @@
         var n = ev.clap_count || 1;
         li.innerHTML =
             '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
-            '<span class="history-main"><strong>' + n + ' clap' + (n > 1 ? 's' : '') + '</strong> · ' +
+            '<span class="history-main"><strong>' + (ev.alert ? 'Alerte' : n + ' clap' + (n > 1 ? 's' : '')) + '</strong> · ' +
             CT.esc(sourceNameFor(ev.source_id)) + ' · ' + CT.esc(ev.group_name || ev.group_slug || '') +
             (ev.ignored ? ' <span class="muted">(non retenu : autre groupe prioritaire)</span>' : '') + '</span>' +
             '<span class="history-score">' + CT.pct(ev.score) + '</span>';
@@ -204,11 +204,14 @@
             if (wasConnected || !loaded) loadHistory();
             wasConnected = true;
         });
-        CT.on('clap', function (ev) {
+        function addHistory(ev) {
             list.insertBefore(historyItem(ev || {}), list.firstChild);
             while (list.children.length > 20) list.removeChild(list.lastChild);
             renderHistoryEmpty();
-        });
+        }
+        CT.on('clap', addHistory);
+        // Alerte : au debut seulement (comme l'historique du serveur).
+        CT.on('alert', function (ev) { if (ev && ev.alert === 'on') addHistory(ev); });
         CT.$('#history-clear').addEventListener('click', function () {
             if (!list.children.length) return;
             // Dialogue de l'interface : window.confirm est peu fiable dans

@@ -563,3 +563,33 @@ def test_hot_reload_outcomes(client, settings_dir, monkeypatch):
     monkeypatch.setattr(classify, 'apply_settings_if_running', boom)
     assert rs._sync_and_apply() is None
     assert notes == ['stopped', 'ok', 'failed']
+
+
+def test_group_presets_and_alert_settings(client, settings_dir):
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [
+        {'slug': 'clap', 'name': 'Clap', 'sound_whitelist': {'Clapping': True}, 'ha_entities': [1, 2]}]}})
+    presets = client.get('/api/sound_groups/presets').json['presets']
+    assert {'claps', 'fumee', 'verre', 'bebe'} <= {p['id'] for p in presets}
+    r = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'claps', 'name': 'Bravo'})
+    g = r.json['group']
+    assert g['name'] == 'Bravo' and g['sound_whitelist'] == {'Clapping': False, 'Hands': True, 'Applause': True}
+    assert r.json['skipped_sounds'] == ['Clapping']                # deja coche dans « Clap »
+    r = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'fumee'})
+    g = r.json['group']
+    assert g['name'] == 'Détecteur de fumée' and g['count_mode'] == 'alerte' and g['ha_entities'] == []
+    assert g['alert_confirm'] == 3 and g['device_class'] == 'smoke'
+    assert client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'inconnu'}).status_code == 400
+    r = client.put('/api/source/sound_groups', json={'kind': 'mic', 'source_key': None, 'group_slug': g['slug'],
+                                                     'alert_confirm': 2, 'device_class': 'safety'})
+    assert r.status_code == 200
+    assert client.put('/api/source/sound_groups', json={'kind': 'mic', 'source_key': None, 'group_slug': g['slug'],
+                                                        'device_class': 'lampe'}).status_code == 400
+    ids = client.get('/api/ha/entity-ids').json['mic']
+    assert ids[g['slug']] == ['binary_sensor.claptrap_mic_detecteur_de_fumee_alerte']
+
+
+def test_same_preset_twice_gets_numbered_name(client, settings_dir):
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [{'slug': 'clap', 'name': 'Clap'}]}})
+    first = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'aboiement'}).json['group']
+    second = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'aboiement'})
+    assert second.status_code == 200 and (first['name'], second.json['group']['name']) == ('Aboiement', 'Aboiement 2')

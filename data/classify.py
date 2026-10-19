@@ -164,18 +164,28 @@ def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, gr
     _event_effects.submit(_send_event, base_payload, webhook_url)
 
 
-def _send_event(base_payload, webhook_url):
+def _run_alert_effects(source_id, entity_key, payload, webhook_url):
+    """Capteur d'alerte MQTT, puis evenement HA et webhook a part."""
+    try:
+        from ha_entities import set_alert
+        set_alert(entity_key, payload['group_slug'], payload['alert'] == 'on')
+    except Exception as e:
+        logging.warning(f"Alerte HA non mise a jour pour {source_id}: {e}")
+    _event_effects.submit(_send_event, payload, webhook_url, 'claptrap_alert', 'alert')
+
+
+def _send_event(base_payload, webhook_url, event_type='claptrap_clap', webhook_event='clap'):
     """Evenement claptrap_clap (API REST du Core) et webhook."""
     token = os.environ.get('SUPERVISOR_TOKEN')
     if token:
         try:
-            _http.post('http://supervisor/core/api/events/claptrap_clap',
+            _http.post(f'http://supervisor/core/api/events/{event_type}',
                        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
                        json=base_payload, timeout=3)
         except Exception as e:
-            logging.warning(f"Evenement HA claptrap_clap non envoye: {e}")
+            logging.warning(f"Evenement HA {event_type} non envoye: {e}")
     if webhook_url:
-        send_webhook_async(webhook_url, {**base_payload, 'event': 'clap'})
+        send_webhook_async(webhook_url, {**base_payload, 'event': webhook_event})
 
 
 # --- Session -------------------------------------------------------------------
@@ -286,8 +296,10 @@ class DetectionSession:
         self._emit_live(src['source_id'], 'source_level', {'peak': round(level, 4), 'db': level_db(level)})
 
     def _on_detection(self, src, data):
-        if src['source_id'] in _muted_sources:
-            return   # calibrage en cours : pas d'entite, d'evenement ni de webhook
+        if src['source_id'] in _muted_sources and data.get('alert') != 'off':
+            # Calibrage en cours : pas d'entite, d'evenement ni de webhook (une
+            # fin d'alerte passe : le capteur restait sinon allume).
+            return
         base_payload = {
             'source_id': src['source_id'],
             # Pour filtrer dans une automation sans connaitre l'id interne :
@@ -304,6 +316,8 @@ class DetectionSession:
             'group_name': data.get('group_name', 'Clap'),
             'ignored': bool(data.get('ignored', False)),
         }
+        if data.get('alert'):
+            return self._on_alert(src, base_payload, data['alert'])
         if not base_payload['clap_count'] and data.get('group_clap_counts'):
             # Son reconnu sans pic par un groupe qui a des entites : aucune
             # entite ne peut le representer ; l'evenement HA et le webhook
@@ -321,6 +335,20 @@ class DetectionSession:
         _side_effects.submit(_run_side_effects, src['source_id'], src['entity_key'], base_payload,
                              data['score'], base_payload['clap_count'], base_payload['group_slug'],
                              data['group_clap_counts'],
+                             self.webhooks.get(src['source_id'], ''))
+
+    def _on_alert(self, src, base_payload, state):
+        """Mode alerte : capteur allume ou eteint, evenement claptrap_alert et
+        webhook (event « alert »), historique au debut seulement."""
+        payload = dict(base_payload, alert=state)
+        payload.pop('clap_count', None)
+        logging.info(f"ALERTE {'début' if state == 'on' else 'fin'} sur {src['label']} "
+                     f"({payload['group_name']})" + (f": score={payload['score']:.2f}" if state == 'on' else ''))
+        self._emit('alert', payload)
+        if state == 'on':
+            with _history_lock:
+                _detection_history.appendleft({**payload, 'score': round(payload['score'], 3)})
+        _side_effects.submit(_run_alert_effects, src['source_id'], src['entity_key'], payload,
                              self.webhooks.get(src['source_id'], ''))
 
     def _on_sound_seen(self, src, data):
@@ -529,6 +557,7 @@ class DetectionSession:
             if still_mine:   # le statut d'erreur retire aussi la source de l'ecoute
                 self._set_status(sid, 'error', f"source arrêtée sur erreur : {e}")
             if det is not None:
+                det.stop_alerts()
                 det.stop()
 
     def source_stats(self):
@@ -581,6 +610,7 @@ class DetectionSession:
         if runner is not None:
             runner['thread'].join(timeout=max(0.0, deadline - time.monotonic()))
         if det is not None:
+            det.stop_alerts()   # capteurs d'alerte eteints (sinon allumes pour toujours)
             det.stop()
 
     def _stop_runner(self, source_id, wait=False):

@@ -64,6 +64,7 @@ _session = 0          # numero de connexion (une reconnexion pendant l'attente a
 MIGRATE_CLEAR_DELAY = 1.0   # s entre la configuration d'un appareil et l'effacement des anciennes
 _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage des orphelines
 _off_timers = {}      # topic -> threading.Timer
+_alerts_on = set()    # capteurs d'alerte allumes (republication : etat garde)
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
 _pending_devices = set()    # appareils a supprimer des que le broker est joignable
 _pending_topics = set()     # topics d'etat retenus a vider de meme
@@ -617,6 +618,15 @@ def _source_components(info):
     slug = info['slug']
     cmps = {}
     for g_slug, g_info in info['groups'].items():
+        if g_info.get('alert'):
+            obj = alert_object_id(slug, g_slug)
+            cfg = _entity_config(obj, g_info['name'], slug, alert_object_id(slug, g_info.get('entity_slug') or g_slug))
+            # Classe du modele (fumee, securite, son) : icone et libelle
+            # « Détecté » de HA ; plus d'impulsion de 2 s, l'etat dure.
+            cfg['device_class'] = g_info.get('device_class') or 'sound'
+            cfg.pop('icon', None)
+            cmps[obj] = ('binary_sensor', cfg)
+            continue
         for n in g_info['clap_counts']:
             obj = _group_object_id(slug, g_slug, n)
             cmps[obj] = ('binary_sensor', _entity_config(
@@ -717,8 +727,10 @@ def _entity_config(obj, name, source_slug, entity_obj=None):
 def _publish_source(info):
     slug = info['slug']
     _publish_device(slug, source_device(info), _source_components(info))
-    for obj in _object_ids(info):
-        _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
+    with _lock:
+        for obj in _object_ids(info):
+            # Alerte en cours (republication pendant une alarme) : reste allumee.
+            _mqtt_publish(f'claptrap/{obj}/state', 'ON' if obj in _alerts_on else 'OFF', retain=True)
     # Sous le verrou, comme set_source_listening : une camera qui se
     # connectait pendant une republication pouvait voir « online » ecrase par
     # un « offline » calcule juste avant, et retenu.
@@ -795,14 +807,30 @@ def _normalise_groups(groups):
         if not isinstance(g, dict):
             continue
         slug = g.get('slug') or f'group{idx + 1}'
-        out[slug] = {'name': g.get('name') or slug, 'clap_counts': clap_counts_of(g),
+        alert = g.get('count_mode') == 'alerte'
+        out[slug] = {'name': g.get('name') or slug,
+                     # Mode alerte : un capteur « … détecté », ni « N claps » ni event.
+                     'clap_counts': [] if alert else clap_counts_of(g),
                      'entity_slug': g.get('entity_slug') or slug}
+        if alert:
+            out[slug].update(alert=True, device_class=g.get('device_class') or 'sound')
     return out or {'clap': {'name': 'Clap', 'clap_counts': [1, 2], 'entity_slug': 'clap'}}
 
 
+def _group_objs(source_slug, g_slug, g):
+    """Fins d'identifiant des capteurs d'un groupe : un par nombre de claps,
+    ou le capteur d'alerte."""
+    if g.get('alert'):
+        return [alert_object_id(source_slug, g_slug)]
+    return [_group_object_id(source_slug, g_slug, n) for n in g['clap_counts']]
+
+
 def _object_ids(info):
-    return {_group_object_id(info['slug'], g_slug, n)
-            for g_slug, g in info['groups'].items() for n in g['clap_counts']}
+    return {obj for g_slug, g in info['groups'].items() for obj in _group_objs(info['slug'], g_slug, g)}
+
+
+def alert_object_id(source_slug, group_slug):
+    return f'{source_slug}_{group_slug}_alerte'
 
 
 def state_topics(info):
@@ -818,8 +846,8 @@ def group_entity_ids(source_slug, g_slug, g_info, entity_slug=None):
     celui du groupe). Source unique des formats d'identifiants."""
     es = entity_slug or g_info.get('entity_slug') or g_slug
     g = dict(g_info, entity_slug=es)
-    out = [(f'claptrap_{_group_object_id(source_slug, g_slug, n)}',
-            f'binary_sensor.claptrap_{_group_object_id(source_slug, es, n)}') for n in g['clap_counts']]
+    out = [(f'claptrap_{uid}', f'binary_sensor.claptrap_{eid}')
+           for uid, eid in zip(_group_objs(source_slug, g_slug, g), _group_objs(source_slug, es, g))]
     from ha_control import source_entities
     for component, obj, cfg in source_entities({'slug': source_slug, 'label': '', 'groups': {g_slug: g}}):
         if obj.startswith(f'{source_slug}_{g_slug}_'):
@@ -829,8 +857,8 @@ def group_entity_ids(source_slug, g_slug, g_info, entity_slug=None):
 
 def _entity_object_ids(info):
     """Fins d'entity_id proposees (suivent le nom des groupes)."""
-    return {_group_object_id(info['slug'], g.get('entity_slug') or g_slug, n)
-            for g_slug, g in info['groups'].items() for n in g['clap_counts']}
+    return {obj for g_slug, g in info['groups'].items()
+            for obj in _group_objs(info['slug'], g.get('entity_slug') or g_slug, g)}
 
 
 def register_source(source_id, label=None, groups=None, available=None):
@@ -1045,8 +1073,7 @@ def entity_ids_for_settings(settings):
     out = {}
     for ui_key, key, _, _, _, norm in _resolve_sources(settings)[0]:
         slug = _make_slug(key)
-        out[ui_key] = {g_slug: [f'binary_sensor.claptrap_{_group_object_id(slug, g["entity_slug"], n)}'
-                                for n in g['clap_counts']]
+        out[ui_key] = {g_slug: [f'binary_sensor.claptrap_{obj}' for obj in _group_objs(slug, g['entity_slug'], g)]
                        for g_slug, g in norm.items()}
     return out
 
@@ -1080,6 +1107,25 @@ def _pulse(topic):
         t.daemon = True
         _off_timers[topic] = t
         t.start()
+
+
+def set_alert(entity_key, group_slug, on):
+    """Mode alerte : capteur du groupe allume ou eteint (etat retenu)."""
+    with _lock:
+        info = _source_info.get(entity_key)
+        obj = alert_object_id(info['slug'] if info else _make_slug(entity_key), group_slug)
+        if not on:
+            # Toujours oublie (groupe passe a un autre mode, retire) : sinon
+            # republie « ON » au retour du mode alerte, pour toujours.
+            _alerts_on.discard(obj)
+        if info is None or not (info.get('groups') or {}).get(group_slug, {}).get('alert'):
+            logging.info(f"Alerte sur {entity_key}/{group_slug} : pas de capteur d'alerte publié")
+            return
+        if on:
+            _alerts_on.add(obj)
+        # Sous le verrou, comme la republication : un « OFF » calcule juste
+        # avant ne passe plus apres ce « ON ».
+        _mqtt_publish(f'claptrap/{obj}/state', 'ON' if on else 'OFF', retain=True)
 
 
 def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_clap_counts=None, labels=None):

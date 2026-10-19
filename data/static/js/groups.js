@@ -66,9 +66,24 @@
                 (isDefault ? '<span class="pill">Groupe principal</span>'
                            : '<button type="button" class="btn-link danger" data-group-action="delete">Supprimer le groupe</button>') +
             '</div>' +
-            '<fieldset class="field"><legend class="field-label">Entités Home Assistant à créer</legend><div class="checks">' + claps + '</div>' +
-            (entities ? '<ul class="entity-list">' + entities + '</ul>' : '<p class="hint">Aucune entité : cochez au moins un nombre de claps.</p>') +
-            '</fieldset>' +
+            (g.count_mode === 'alerte'
+                // Mode alerte : un capteur allume tant que le son dure, pas de
+                // nombres de claps.
+                ? '<fieldset class="field"><legend class="field-label">Capteur Home Assistant</legend>' +
+                  '<p class="hint">Allumé tant que le son est reconnu, éteint après quelques secondes de silence.</p>' +
+                  (entities ? '<ul class="entity-list">' + entities + '</ul>' : '') +
+                  '<label class="field-row-inline">Allumer après <select class="input" data-role="alert-confirm" aria-label="Confirmation de l\'alerte du groupe ' + gname + '">' +
+                  [1, 2, 3, 4].map(function (n) {
+                      return '<option value="' + n + '"' + ((g.alert_confirm || 2) === n ? ' selected' : '') + '>' + n + ' reconnaissance' + (n > 1 ? 's' : '') +
+                          ' sur 4 analyses' + (n === 1 ? ' (son bref)' : n >= 3 ? ' (son qui dure)' : '') + '</option>';
+                  }).join('') + '</select></label>' +
+                  '<label class="field-row-inline">Type <select class="input" data-role="device-class" aria-label="Type du capteur du groupe ' + gname + '">' +
+                  [['sound', 'Son'], ['smoke', 'Fumée'], ['safety', 'Sécurité'], ['problem', 'Problème'], ['occupancy', 'Présence']].map(function (o) {
+                      return '<option value="' + o[0] + '"' + ((g.device_class || 'sound') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+                  }).join('') + '</select></label></fieldset>'
+                : '<fieldset class="field"><legend class="field-label">Entités Home Assistant à créer</legend><div class="checks">' + claps + '</div>' +
+                  (entities ? '<ul class="entity-list">' + entities + '</ul>' : '<p class="hint">Aucune entité : cochez au moins un nombre de claps.</p>') +
+                  '</fieldset>') +
             '<div class="field" role="group" aria-labelledby="' + src.domId + '-' + esc(g.slug) + '-sounds">' +
                 '<div class="field-row"><span class="field-label" id="' + src.domId + '-' + esc(g.slug) + '-sounds">Sons qui déclenchent le groupe ' + gname + '</span>' +
                 '<button type="button" class="btn-link" data-group-action="cleanup">Vider la liste des sons non cochés</button></div>' +
@@ -77,8 +92,9 @@
                 '<p class="hint">Seuls les sons reconnus au-dessus du seuil du groupe sont ajoutés.</p>' +
                 // Libelles courts : coupes sur mobile (« claps, coups (attaques ne »).
                 '<label class="field-row-inline">Comptage <select class="input" data-role="count-mode" aria-label="Comptage du groupe ' + gname + '">' +
-                    '<option value="attaques"' + (g.count_mode !== 'tenus' ? ' selected' : '') + '>Attaques (claps, coups)</option>' +
-                    '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>Sons tenus (sifflement)</option></select></label>' +
+                    '<option value="attaques"' + (g.count_mode !== 'tenus' && g.count_mode !== 'alerte' ? ' selected' : '') + '>Attaques (claps, coups)</option>' +
+                    '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>Sons tenus (sifflement)</option>' +
+                    '<option value="alerte"' + (g.count_mode === 'alerte' ? ' selected' : '') + '>Alerte (alarme, pleurs)</option></select></label>' +
                 // Recherche dans la liste, et parmi tous les sons connus : un son
                 // s'ajoute sans avoir ete entendu (« Applaudissement »...).
                 '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher ou ajouter un son…" aria-label="Rechercher ou ajouter un son au groupe ' + gname + '" value="' +
@@ -312,8 +328,32 @@
             mode.addEventListener('change', function () {
                 var value = mode.value, before = group.count_mode || 'attaques';
                 putGroup(src, slug, {count_mode: value})
-                    .then(function () { group.count_mode = value; CT.markSaved(mode, 'Comptage enregistré'); })
-                    .catch(function (err) { mode.value = before; CT.error('Réglage non enregistré : ' + err.message); });
+                    .then(function () {
+                        group.count_mode = value;
+                        if ((value === 'alerte') === (before === 'alerte')) { CT.markSaved(mode, 'Comptage enregistré'); return; }
+                        // Alerte <-> claps : autres entites dans HA, autre panneau
+                        // (un echec ici n'est pas un echec de l'enregistrement).
+                        CT.reloadEntityIds().then(function () {
+                            var card = box.closest('.source-card');
+                            CT.renderGroupsManage(card, src);
+                            CT.markSaved(card.querySelector('.group-card[data-slug="' + CT.cssEscape(slug) + '"] [data-role="count-mode"]'),
+                                         value === 'alerte' ? 'Mode alerte : un capteur tant que le son dure' : 'Comptage enregistré');
+                        }).catch(function () {});
+                    }, function (err) { mode.value = before; CT.error('Réglage non enregistré : ' + err.message); });
+            });
+            var confirmSel = cardEl.querySelector('[data-role="alert-confirm"]');
+            if (confirmSel) confirmSel.addEventListener('change', function () {
+                var value = parseInt(confirmSel.value, 10), before = group.alert_confirm || 2;
+                putGroup(src, slug, {alert_confirm: value})
+                    .then(function () { group.alert_confirm = value; CT.markSaved(confirmSel, 'Confirmation enregistrée'); })
+                    .catch(function (err) { confirmSel.value = String(before); CT.error('Réglage non enregistré : ' + err.message); });
+            });
+            var dcSel = cardEl.querySelector('[data-role="device-class"]');
+            if (dcSel) dcSel.addEventListener('change', function () {
+                var value = dcSel.value, before = group.device_class || 'sound';
+                putGroup(src, slug, {device_class: value})
+                    .then(function () { group.device_class = value; CT.markSaved(dcSel, 'Type enregistré'); })
+                    .catch(function (err) { dcSel.value = before; CT.error('Réglage non enregistré : ' + err.message); });
             });
             var auto = cardEl.querySelector('[data-role="auto-add"]');
             auto.addEventListener('change', function () {
@@ -351,15 +391,62 @@
         });
     }
 
-    CT.addGroup = function (src) {
+    // Ajout d'un groupe : modele pret a l'emploi (sons deja coches, comptage
+    // ou alerte) ou groupe vide a nommer.
+    var presetsCache = null;
+    function loadPresets() {
+        if (presetsCache) return Promise.resolve(presetsCache);
+        return CT.api('GET', '/api/sound_groups/presets').then(function (d) { presetsCache = d.presets || []; return presetsCache; });
+    }
+    function createGroup(src, body, label) {
+        return CT.api('POST', '/api/source/sound_groups', Object.assign({kind: src.kind, source_key: src.key}, body))
+            .then(function (d) { return refreshGroups(src).then(function () { return d; }); })
+            .then(function (d) {
+                var skipped = (d && d.skipped_sounds) || [];
+                CT.success('Groupe « ' + ((d && d.group && d.group.name) || label) + ' » créé' +
+                           (skipped.length ? ' (déjà dans un autre groupe, non cochés : ' + skipped.map(CT.soundLabel).join(', ') + ')' : ''));
+            })
+            .catch(function (err) { CT.error('Création impossible : ' + err.message); });
+    }
+    function askName(src) {
         CT.prompt('Nom du nouveau groupe (ex. « Toc sur la table ») :', '', 'Créer').then(function (name) {
             name = (name || '').trim();
-            if (!name) return;
-            CT.api('POST', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, name: name})
-                .then(function () { return refreshGroups(src); })
-                .then(function () { CT.success('Groupe « ' + name + ' » créé'); })
-                .catch(function (err) { CT.error('Création impossible : ' + err.message); });
+            if (name) createGroup(src, {name: name}, name);
         });
+    }
+    CT.addGroup = function (src) {
+        loadPresets().then(function (presets) {
+            var back = document.createElement('div');
+            back.className = 'modal-backdrop';
+            var item = function (p) {
+                var kind = p.count_mode === 'alerte' ? 'Alerte : capteur tant que le son dure'
+                    : 'Gestes : ' + (p.ha_entities || []).join(', ') + ' clap(s)';
+                return '<button type="button" class="choice choice-preset" data-preset="' + esc(p.id) + '"><strong>' + esc(p.name) + '</strong>' +
+                    '<span class="muted">' + esc(kind) + ' · ' + esc(p.sounds.map(CT.soundLabel).join(', ')) + '</span></button>';
+            };
+            back.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="gp-title">' +
+                '<div class="modal-head"><h2 id="gp-title">Nouveau groupe</h2></div>' +
+                '<p class="hint">Un modèle coche déjà les bons sons et règle le comptage. Tout reste modifiable ensuite.</p>' +
+                '<div class="choice-grid">' + presets.map(item).join('') +
+                '<button type="button" class="choice choice-preset" data-preset=""><strong>Groupe vide</strong><span class="muted">Nom libre, sons à choisir</span></button></div>' +
+                '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-r="close">Annuler</button></div></div>';
+            // Dans la fenetre native ouverte (reglages de la source) : ajoutee au
+            // document, elle restait cachee dessous.
+            (document.querySelector('dialog[open]') || document.body).appendChild(back);
+            var release = CT.trapFocus(back.querySelector('.modal'), close);
+            function close() { release(); back.remove(); }
+            back.addEventListener('click', function (e) {
+                var choice = e.target.closest('[data-preset]');
+                if (e.target === back || (e.target.getAttribute && e.target.getAttribute('data-r') === 'close')) return close();
+                if (!choice) return;
+                var id = choice.getAttribute('data-preset');
+                close();
+                if (!id) return askName(src);
+                var p = presets.filter(function (x) { return x.id === id; })[0];
+                createGroup(src, {preset: id}, p ? p.name : id);
+            });
+            CT.focusFirst(back.querySelector('.modal'));
+        }).catch(function () { askName(src); });   // liste indisponible : groupe vide
     };
 
     // Auto-decouverte : un nouveau son entendu apparait dans les groupes qui

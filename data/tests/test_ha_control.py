@@ -426,3 +426,11 @@ def test_get_settings_keeps_full_sound_lists(ctl, mqtt):
     command({'action': 'get_settings'})
     mic = next(s for s in result(mqtt)['data']['overview'] if s['source'] == 'mic')
     assert mic['groups'][0]['sounds'] == ['Clapping']
+
+
+def test_add_group_from_preset_over_mqtt(ctl, mqtt):
+    command({'action': 'add_group', 'source': 'Cam', 'preset': 'bebe'})
+    r = result(mqtt)
+    assert r['success'] and r['data']['group']['count_mode'] == 'alerte'
+    command({'action': 'update_group', 'source': 'Cam', 'group': 'Pleurs de bébé', 'alert_confirm': 4})
+    assert result(mqtt)['success']

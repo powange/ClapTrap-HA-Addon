@@ -417,3 +417,59 @@ def test_interrupt_fires_finished_gesture_and_drops_after_long_cut():
     assert t.interrupt(10.6, 0.6) == [] and t._group_state['clap']['armed_at'] == 10.0   # fenetre encore ouverte
     t = armed_tracker()
     assert t.interrupt(11.7, 30.0) == [] and not t._group_state['clap']['armed_at']    # trop tard : abandonne
+
+
+def _alert_tracker(confirm=3):
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5, 'clap_counts': [1, 2]},
+                  {'slug': 'fumee', 'name': 'Détecteur de fumée', 'whitelist': {'Smoke detector, smoke alarm': True},
+                   'threshold': 0.3, 'count_mode': 'alerte', 'alert_confirm': confirm}])
+    return t
+
+
+def test_alert_turns_on_after_confirmations_and_off_after_silence():
+    from clap_logic import ALERT_OFF_DELAY
+    t = _alert_tracker(confirm=3)
+    smoke = [('Smoke detector, smoke alarm', 0.6)]
+    states = []
+    now = 100.0
+    for cats in (smoke, [], smoke, smoke):                # 3 reconnaissances sur 4 analyses
+        states += [(e['alert'], e['group']['slug']) for e in t.on_classification(cats, now)]
+        now += 0.5
+    assert states == [('on', 'fumee')]
+    for _ in range(int(ALERT_OFF_DELAY / 0.5) - 1):      # silence, pas encore assez long
+        assert t.on_classification([], now) == []
+        now += 0.5
+    ev = t.on_classification([], now + 0.5)
+    assert [(e['alert'], e['group']['slug']) for e in ev] == [('off', 'fumee')]
+
+
+def test_alert_group_never_counts_claps_nor_blocks_them():
+    t = _alert_tracker(confirm=1)
+    t.feed_peak(0.001, 99.0)
+    for i in range(12):
+        t.feed_peak(0.001, 99.0 + i * 0.01)               # bruit de fond (echauffement)
+    t.feed_peak(0.8, 100.0, pre_level=0.001)
+    ev = t.on_classification([('Clapping', 0.9), ('Smoke detector, smoke alarm', 0.9)], 100.2)
+    assert [e['alert'] for e in ev if e.get('alert')] == ['on']
+    ev = t.on_classification([('Clapping', 0.9)], 101.8)
+    claps = [e for e in ev if not e.get('alert') and not e['ignored']]
+    assert claps and claps[0]['group']['slug'] == 'clap' and claps[0]['clap_count'] == 1
+
+
+def test_alert_switched_off_when_group_removed_or_detection_stops():
+    t = _alert_tracker(confirm=1)
+    t.on_classification([('Smoke detector, smoke alarm', 0.9)], 100.0)
+    assert [e['alert'] for e in t.stop_alerts()] == ['off'] and t.stop_alerts() == []
+    t.on_classification([('Smoke detector, smoke alarm', 0.9)], 101.0)
+    t.on_classification([('Smoke detector, smoke alarm', 0.9)], 101.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5}])
+    assert [(e['alert'], e['group']['slug']) for e in t.drop_alerts()] == [('off', 'fumee')]
+
+
+def test_long_cut_switches_alerts_off():
+    t = _alert_tracker(confirm=1)
+    t.on_classification([('Smoke detector, smoke alarm', 0.9)], 100.0)
+    ev = t.interrupt(100.0, 60.0)
+    assert [e['alert'] for e in ev] == ['off']

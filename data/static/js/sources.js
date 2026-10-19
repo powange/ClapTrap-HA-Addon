@@ -967,6 +967,27 @@
         }, delay);
     }
 
+    // Mode alerte : mention sur la carte et le groupe tant que le son dure.
+    CT.on('alert', function (d) {
+        var c = d && cardIndex[d.source_id];
+        if (!c || !c.card) return;
+        var on = d.alert === 'on';
+        var line = c.card.querySelector('[data-role="live"]');
+        if (on) {
+            line.textContent = '🚨 ' + (d.group_name || d.group_slug) + ' détecté (' + CT.pct(d.score) + ')';
+            CT.announce((d.group_name || d.group_slug) + ' détecté sur ' + c.src.name, true);
+        } else if (/^🚨/.test(line.textContent)) {
+            line.textContent = idleText(true);
+        }
+        var row = c.card.querySelector('.group-live[data-slug="' + CT.cssEscape(d.group_slug) + '"]');
+        var badge = row && row.querySelector('.clap-badge');
+        if (badge) {
+            clearTimeout(badge._t);
+            badge.textContent = 'Alerte';
+            badge.hidden = !on;
+        }
+    });
+
     CT.on('clap', function (d) {
         var c = d && cardIndex[d.source_id];
         if (!c || !c.card) return;

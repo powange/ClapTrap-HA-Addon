@@ -533,3 +533,5 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 /* Requete en cours (bouton de detection, interrupteur d'une source) :
    aria-disabled garde le focus clavier, l'aspect dit « occupe ». */
 [aria-disabled="true"] { opacity: 0.6; cursor: progress; }
+/* Modeles de groupes : titre puis description (cote a cote, tasse sur mobile). */
+.choice.choice-preset { grid-template-columns: 1fr; min-height: 0; padding: 12px 14px; }
