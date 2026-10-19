@@ -199,6 +199,8 @@ bip du lave-linge, le carillon de la porte), **Apprendre un son…** l'apprend
 4. **Enregistrer le son** : il apparaît comme un son de plus, **« Appris :
    <nom> »**, à cocher dans un groupe comme n'importe quel son (seuil conseillé
    50 à 60 %, comptage, mode alerte, sons ignorés), sur toutes les sources.
+   Si vous changez ensuite la réduction du bruit de fond de la source,
+   apprenez le son à nouveau.
 
 Comment ça marche : pour chaque fenêtre analysée, YAMNet donne un score à
 chacune de ses 521 classes. Cette « empreinte » est comparée à celles de vos
@@ -210,6 +212,30 @@ une autre source (autre micro, autre pièce), mieux vaut l'apprendre à nouveau
 sous un autre nom. Les sons appris ne font pas partie de l'export de la
 configuration (fichier `learned_sounds.json` du dossier de l'add-on, inclus
 dans les sauvegardes de Home Assistant).
+
+## Réduction du bruit de fond (réglages d'une source)
+
+**Réduction du bruit de fond** (Désactivée, Légère, Moyenne, Forte ;
+désactivée par défaut) atténue un bruit continu avant la reconnaissance :
+souffle d'une caméra, ventilation, réfrigérateur, ronflement électrique.
+ClapTrap suit le niveau du bruit à chaque fréquence (le plus faible des
+30 dernières secondes) et atténue ce qui reste à ce niveau ; un son qui le
+dépasse nettement (clap, sonnette) est gardé.
+
+- Seul le son donné à YAMNet est traité : le comptage des claps (pics)
+  utilise toujours le son brut.
+- **Enregistrer 5 s** donne alors deux extraits, avant et après la
+  réduction, et les sons reconnus après. Commencez par « Légère » et
+  comparez : une réduction forte peut aussi effacer des sons faibles.
+- Elle retire surtout des classes parasites dues au bruit (« Animal »,
+  « Vent », « Eau »). En revanche, elle ne recrée pas les aigus qu'une caméra
+  à 8 kHz a déjà coupés (voir « Sons aigus mal reconnus » dans le Dépannage).
+- Le bruit qui change vite (voix, télévision, musique) n'est pas un bruit de
+  fond : il n'est pas retiré. Un son continu (sirène) n'est atténué qu'après
+  30 s sans aucune interruption ; une alarme qui bipe, des pleurs ou une
+  sonnette ne le sont jamais.
+- Les sons appris dépendent de ce réglage : apprenez-les avec le niveau de
+  réduction que la source utilisera (la liste des sons appris l'indique).
 
 ## Entités Home Assistant
 

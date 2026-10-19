@@ -245,9 +245,20 @@ def _changed():
         logging.warning(f"Sons appris non transmis à la détection : {e}")
 
 
+def _source_noise_reduction(session):
+    try:
+        import classify
+        det = classify.detector_for(session.source_id)
+        gate = det.denoise if det is not None else None
+        return gate.level if gate is not None else 0
+    except Exception:
+        return 0
+
+
 def summary(sound):
     return {'id': sound['id'], 'name': sound['name'], 'label': PREFIX + sound['name'],
             'examples': len(sound['examples']), 'source': sound.get('source', ''),
+            'noise_reduction': sound.get('noise_reduction', 0), 'source_ref': sound.get('source_ref', ''),
             'created': sound.get('created'), 'quality': sound.get('quality')}
 
 
@@ -366,6 +377,10 @@ def save(name):
         floor, ceiling = calibrate(ex, bg)
         quality = _quality(ex, floor, ceiling)
         sound = {'id': uuid.uuid4().hex[:12], 'name': '', 'source': s.label,
+                 # Reduction du bruit de la source pendant l'apprentissage :
+                 # les empreintes en dependent (l'interface signale un
+                 # reglage different sur cette source).
+                 'noise_reduction': _source_noise_reduction(s), 'source_ref': s.ref,
                  'created': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                  'floor': round(floor, 4), 'ceiling': round(ceiling, 4), 'center': center,
                  'examples': s.learn_examples, 'quality': quality}

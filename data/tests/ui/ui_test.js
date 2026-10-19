@@ -32,6 +32,7 @@ const dom = new JSDOM(html, {
         score: { current: 4, proposed: 9, takes: 9 }, rows: [{ kind: 'simple', label: 'Clap simple', expected: [1], current: [2], proposed: [1], current_ok: false, proposed_ok: true }] };
       else if (url === '/api/calibration/count/apply') res = { success: true, applied: body.values, active: false };
       else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
+        ...(w.__denoised ? { wav_denoised: 'UklGRg==', noise_reduction: 2 } : {}),
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
       else if (url === '/api/learned' && method === 'GET') res = { success: true, sounds: w.__learned || [], limits: { min_examples: 3, max_examples: 10, max_sounds: 20 } };
@@ -567,6 +568,18 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /déjà saturé/.test(recOutNow().textContent) && recBtn().textContent === 'Enregistrer 5 s' && !recBtn().disabled);
   dom.window.CT.render(); await tick();
   ok('+  extrait conservé après reconstruction de la carte', !!recOutNow().querySelector('audio'));
+  // --- 6.92 : reduction du bruit de fond
+  const nrSel = $('#' + cam.domId + ' [data-field="noise_reduction"]');
+  ok('+  réduction du bruit : désactivée par défaut', !!nrSel && nrSel.value === '0');
+  nrSel.value = '2'; nrSel.dispatchEvent(new w.Event('change')); await tick(3);
+  const nrCall = calls.filter(c => c[0] === 'PATCH' && c[2] && 'noise_reduction' in c[2]).pop();
+  ok('+  réduction du bruit : enregistrée (nombre)', !!nrCall && nrCall[2].noise_reduction === 2);
+  w.__denoised = true;
+  recBtn().click(); await tick(3);
+  ok('+  extrait : avant et après la réduction du bruit', recOutNow().querySelectorAll('audio').length === 2 &&
+     !!recOutNow().querySelector('audio[data-role="denoised"]') && /Après la réduction du bruit \(moyenne\)/.test(recOutNow().textContent) &&
+     /Sons reconnus après la réduction/.test(recOutNow().textContent) && !!recOutNow().querySelector('a[download$="-reduit.wav"]'));
+  w.__denoised = false;
   status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'pcm_mulaw', sample_rate: 8000, channels: 'mono' } }); await tick();
   ok('+  format audio 8 kHz : affiché et signalé', /G\.711 µ-law · 8 kHz · mono/.test(fmtEl().textContent) &&
@@ -832,6 +845,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('[data-forget="l1"]').click(); await tick();
   $('.modal-backdrop [data-r="ok"]').click(); await tick(4);
   ok('+  sons appris : supprimé après confirmation', !!lastCall('DELETE', '/api/learned/l1') && /Aucun son appris/.test($('#learned-list').textContent));
+  w.__learned = [{ id: 'l2', name: 'Bip', label: 'Appris : Bip', examples: 5, source: 'Micro', source_ref: 'mic', noise_reduction: 2, quality: { warnings: [] } }];
+  await w.CT.reloadLearned(); await tick(2);
+  ok('+  son appris : réduction du bruit de la source changée signalée',
+     /réduction du bruit moyenne/.test($('#learned-list').textContent) && /a changé depuis/.test($('#learned-list').textContent));
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

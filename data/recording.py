@@ -50,8 +50,8 @@ def capture(det, seconds, grace=RESULT_GRACE, audio=False, scores=False):
     'audio': [(bloc, horloge_apres_bloc)], 'scores': [(521 classes,
     instant)], 't0', 't1'} ; instants sur l'horloge audio du detecteur.
     Blocs, pics et son : pendant la prise seulement."""
-    events = {'block', 'peak', 'result'} | ({'audio'} if audio else set()) | ({'scores'} if scores else set())
-    out = {'blocks': [], 'peaks': [], 'results': [], 'audio': [], 'scores': []}
+    events = {'block', 'peak', 'result'} | ({'audio', 'audio_raw'} if audio else set()) | ({'scores'} if scores else set())
+    out = {'blocks': [], 'peaks': [], 'results': [], 'audio': [], 'audio_raw': [], 'scores': []}
     lock = threading.Lock()
     capturing = [True]
 
@@ -62,8 +62,8 @@ def capture(det, seconds, grace=RESULT_GRACE, audio=False, scores=False):
             elif event == 'scores':
                 out['scores'].append(data)
             elif capturing[0]:
-                if event == 'audio':
-                    out['audio'].append((data[0], det._clock_end))
+                if event in ('audio', 'audio_raw'):
+                    out[event].append((data[0], det._clock_end) + tuple(data[1:]))
                 else:
                     out['blocks' if event == 'block' else 'peaks'].append(data)
     out['t0'] = det._clock_end
@@ -136,7 +136,16 @@ def record(source_id, seconds=DEFAULT_SECONDS):
     samples = np.concatenate([block for block, _clock in cap['audio']])
     max_raw = max((b[0] for b in cap['blocks']), default=0.0)
     clipped, limited = saturation(max_raw, max((b[1] for b in cap['blocks']), default=1.0))
+    out = {}
+    level = max((item[2] for item in cap['audio_raw'] if len(item) > 2), default=0)
+    if level:
+        # Reduction du bruit active : « avant » (meme gain, sans reduction) et
+        # « apres » (exactement ce que YAMNet a recu), bloc pour bloc, pour
+        # comparer. Les sons reconnus sont ceux du son reduit.
+        out = {'wav_denoised': base64.b64encode(to_wav(samples)).decode('ascii'), 'noise_reduction': level}
+        samples = np.concatenate([item[0] for item in cap['audio_raw']])
     return {
+        **out,
         'seconds': round(samples.size / SAMPLE_RATE, 2),
         'wav': base64.b64encode(to_wav(samples)).decode('ascii'),
         'timeline': _timeline(cap['audio'], cap['results']),

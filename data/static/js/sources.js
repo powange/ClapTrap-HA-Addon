@@ -86,6 +86,15 @@
                 '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>' +
                 gainField(src, d.gain != null ? d.gain : 1, 100);
         }
+        var nr = d.noise_reduction || 0;
+        html += field('Réduction du bruit de fond',
+            '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr">' +
+            CT.NR_NAMES.map(function (label, level) {
+                return '<option value="' + level + '"' + (level === nr ? ' selected' : '') + '>' + label + '</option>';
+            }).join('') + '</select>' +
+            '<p class="hint">Atténue un bruit continu (souffle, ventilation, réfrigérateur) avant la reconnaissance. ' +
+            'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
+            'une réduction trop forte peut aussi effacer des sons faibles.</p>', src.domId + '-nr');
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
             '<p class="hint" data-role="test-hint"></p></div>' +   // texte : renderSourceStatuses
@@ -178,6 +187,7 @@
     // Ce que la reconnaissance recoit (gain compris) : on l'ecoute pour
     // reperer echo, saturation ou reduction de bruit, avec les sons reconnus.
     var RECORD_SECONDS = 5;
+    var NR_NAMES = CT.NR_NAMES;
     function recordHint(listening) {
         return listening
             ? 'Enregistre ' + RECORD_SECONDS + ' s de ce que reçoit la reconnaissance (gain compris) : faites le son pendant ' +
@@ -195,8 +205,9 @@
         CT.api('POST', '/api/source/record', {source_id: src.sourceId, seconds: RECORD_SECONDS})
             .then(function (d) {
                 var prev = lastRecording[src.sourceId];
-                if (prev && prev.url && window.URL) URL.revokeObjectURL(prev.url);
-                lastRecording[src.sourceId] = {d: d, url: wavUrl(d.wav), name: recordingName(src)};
+                if (prev && window.URL) [prev.url, prev.urlDenoised].forEach(function (u) { if (u) URL.revokeObjectURL(u); });
+                lastRecording[src.sourceId] = {d: d, url: wavUrl(d.wav), name: recordingName(src),
+                                               urlDenoised: d.wav_denoised ? wavUrl(d.wav_denoised) : ''};
             })
             .catch(function (err) { CT.error('Enregistrement impossible : ' + err.message); })
             .then(function () {
@@ -225,13 +236,20 @@
             return '<li><span class="mono">' + w.t.toFixed(1).replace('.', ',') + ' s</span> ' +
                 (w.top || []).map(function (c) { return esc(CT.soundLabel(c.classe)) + ' ' + pct(c.score); }).join(' · ') + '</li>';
         }).join('');
-        return (rec.url ? '<audio controls src="' + rec.url + '"></audio>' +
+        var nrName = (NR_NAMES[d.noise_reduction] || '').toLowerCase();
+        return (rec.url ? (rec.urlDenoised ? '<p class="hint">Avant la réduction du bruit :</p>' : '') +
+                '<audio controls src="' + rec.url + '"></audio>' +
                 '<p><a href="' + rec.url + '" download="' + esc(rec.name) + '">Télécharger l\'extrait (WAV)</a></p>' : '') +
+            (rec.urlDenoised ? '<p class="hint">Après la réduction du bruit (' + esc(nrName || '') + '), ce que YAMNet reçoit :</p>' +
+                '<audio controls src="' + rec.urlDenoised + '" data-role="denoised"></audio>' +
+                '<p><a href="' + rec.urlDenoised + '" download="' + esc(rec.name.replace(/\.wav$/, '-reduit.wav')) + '">' +
+                'Télécharger l\'extrait réduit (WAV)</a></p>' : '') +
             (d.clipped ? '<p class="hint text-warn">Le son arrive déjà saturé du micro ou de la caméra : éloignez la source ' +
                          'du bruit ou baissez le volume du micro dans la caméra (le gain de ClapTrap n\'y peut rien).</p>'
              : d.limited ? '<p class="hint">Des sons forts ont été atténués par le limiteur (gain de la source élevé) : ' +
                            'baissez le gain si cela arrive souvent.</p>' : '') +
-            '<p class="hint">Sons reconnus (une fenêtre d\'environ 1 s par ligne, depuis le début) :</p>' +
+            '<p class="hint">Sons reconnus' + (rec.urlDenoised ? ' après la réduction du bruit' : '') +
+            ' (une fenêtre d\'environ 1 s par ligne, depuis le début) :</p>' +
             (rows ? '<ul class="record-timeline">' + rows + '</ul>' : '<p class="hint">Aucun son reconnu.</p>');
     }
 
@@ -588,7 +606,7 @@
                     body.device = dev;
                 } else if (input.type === 'checkbox') {
                     body[name] = input.checked;
-                } else if (input.type === 'range') {
+                } else if (input.type === 'range' || name === 'noise_reduction') {
                     body[name] = parseInt(input.value, 10);
                 } else {
                     body[name] = input.value.trim();
