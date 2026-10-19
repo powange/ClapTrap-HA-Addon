@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.93.0
+
+### AppArmor : profil complété (avant le mode strict)
+
+- Accès relevés sur une vraie installation, en mode « complain », sur 26
+  démarrages et toutes les fonctions. Ils sont maintenant autorisés :
+  - dossier `/data/` lui-même : écriture durable des réglages et des sons
+    appris ;
+  - réglage du fuseau horaire au démarrage par l'image de base (lien
+    `/etc/localtime`, `/etc/timezone`, `dpkg-reconfigure tzdata`, debconf).
+    Sans ces règles, ce réglage aurait échoué en mode strict ;
+  - lecture des scripts exécutés (with-contenv, scripts de dpkg).
+- Correction : la règle des signaux entre processus de ClapTrap visait le
+  nom `claptrap`, mais le Supervisor charge le profil sous le nom
+  `<dépôt>_claptrap`. Elle utilise maintenant un motif.
+- Le profil reste en mode « complain ». Le mode strict viendra en 6.94, si
+  une nouvelle mesure ne signale plus rien. La procédure de mesure dans la
+  documentation est corrigée.
+
 ## 6.92.0
 
 ### Réduction du bruit de fond

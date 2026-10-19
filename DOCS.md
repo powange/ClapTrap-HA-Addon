@@ -606,16 +606,25 @@ broker par installation (l'add-on Mosquitto de chacune, par exemple).
 ## Sécurité (AppArmor)
 
 ClapTrap est livré avec un profil AppArmor en mode « complain » : les accès
-inhabituels sont journalisés mais pas bloqués. Pour aider à passer en mode
-strict, après quelques jours d'utilisation complète (micro, caméras, VBAN,
-webhooks), relevez les accès signalés depuis un terminal de l'hôte :
+inhabituels sont journalisés mais pas bloqués. Pour vérifier qu'il couvre
+tout, depuis l'add-on « Terminal & SSH » :
+
+1. Lancez `ha host logs --identifier audit -n 1 -f > /tmp/aa.txt` (le
+   terminal écoute).
+2. Redémarrez ClapTrap et utilisez toutes ses fonctions sur toutes vos
+   sources : détection (micro, caméras RTSP ou rtsps, VBAN), un clap qui
+   déclenche une entité et un webhook, Tester le son, Enregistrer 5 s,
+   assistant (Vérifier l'adresse), calibrage, son appris. Avec un broker MQTT
+   externe en TLS, laissez la connexion s'établir. Puis Ctrl+C.
+3. Résumez les accès signalés :
 
 ```sh
-journalctl _TRANSPORT=audit -g 'apparmor="ALLOWED".*profile="claptrap"'
+grep 'apparmor="ALLOWED"' /tmp/aa.txt | grep claptrap | awk '{o="";for(i=1;i<=NF;i++) if($i~/^(operation|class|name|requested_mask|signal|peer|capname|family|sock_type|protocol|target|info)=/) o=o" "$i; print o}' | sed -E 's/init:[A-Za-z0-9]+/init:X/; s#/proc/[0-9]+/#/proc/N/#' | sort | uniq -c | sort -rn
 ```
 
 Aucune ligne : le profil couvre tout et peut passer en mode strict. Des
-lignes : ouvrez une issue sur le dépôt avec leur contenu.
+lignes : ouvrez une issue sur le dépôt avec leur contenu. Le profil est
+chargé sous le nom `<dépôt>_claptrap` (par exemple `691ff2c3_claptrap`).
 
 ## Configuration (onglet Réglages)
 
