@@ -11,7 +11,9 @@
   démarrages avec toutes les fonctions, règles ajoutées en 6.93, puis
   nouvelle mesure vide après redémarrage.
 - La CI démarre chaque image de pull request sous le profil strict, avec un
-  fuseau horaire, et échoue si un accès est refusé. Elle détecte ainsi une
+  fuseau horaire et un faux Supervisor. L'add-on démarre alors complètement :
+  bashio, Gunicorn, MQTT, plus l'autotest YAMNet et ffmpeg. La CI échoue si
+  un accès est refusé ou si l'interface ne répond pas. Elle détecte ainsi une
   image de base ou des paquets Debian qui changeraient le démarrage.
 - **En cas de problème** (une fonction qui échoue depuis cette version), la
   section « Sécurité (AppArmor) » de la documentation montre comment voir

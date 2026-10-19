@@ -139,10 +139,27 @@ jobs:
           sed 's/^profile claptrap /profile ci_claptrap /' apparmor.txt > /tmp/apparmor-ci.txt
           sudo apparmor_parser -r -W /tmp/apparmor-ci.txt
           since=$(date -u '+%Y-%m-%d %H:%M:%S')
-          docker run -d --name claptrap-aa --security-opt apparmor=ci_claptrap -e TZ=Europe/Paris "$IMAGE"
-          sleep 40
-          docker logs claptrap-aa 2>&1 | tail -40
-          docker rm -f claptrap-aa > /dev/null
+          # Faux Supervisor : l'add-on demarre completement (bashio, run.sh,
+          # Gunicorn, MQTT), pas seulement les scripts de l'image de base.
+          docker network create claptrap-ci > /dev/null
+          docker run -d --name supervisor --network claptrap-ci --network-alias supervisor \
+            -v "$PWD/.github/ci/fake_supervisor.py:/f.py:ro" python:3.13-alpine python -u /f.py > /dev/null
+          docker run -d --name claptrap-aa --network claptrap-ci --security-opt apparmor=ci_claptrap \
+            -e TZ=Europe/Paris -e SUPERVISOR_TOKEN=ci "$IMAGE"
+          sleep 45
+          docker logs claptrap-aa 2>&1 | tail -30
+          # Sous le profil aussi : interface, YAMNet (mediapipe) et ffmpeg.
+          code=$(docker exec claptrap-aa curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:16045/ || true)
+          echo "Interface : HTTP $code"
+          docker exec -w /usr/src/app claptrap-aa venv/bin/python selftest_yamnet.py 2>&1 | tail -2
+          docker exec claptrap-aa ffmpeg -hide_banner -version | head -1
+          running=$(docker inspect -f '{{.State.Running}}' claptrap-aa)
+          docker rm -f claptrap-aa supervisor > /dev/null
+          docker network rm claptrap-ci > /dev/null
+          if [ "$running" != "true" ] || [ "$code" != "403" ]; then
+            echo "::error::ClapTrap ne tourne pas sous le profil AppArmor (conteneur en marche : $running, interface : HTTP $code ; 403 attendu hors ingress)"
+            exit 1
+          fi
           denied=$(sudo journalctl -k --since "$since" --no-pager | grep 'apparmor="DENIED"' | grep 'ci_claptrap' || true)
           if [ -n "$denied" ]; then
             echo "::error::Accès refusés par le profil AppArmor :"
