@@ -34,6 +34,7 @@ COMMAND_TOPIC = 'claptrap/command'
 RESULT_TOPIC = 'claptrap/command/result'
 RESULT_ATTRIBUTES_TOPIC = 'claptrap/command/result/attributs'
 CONFIG_TOPIC = 'claptrap/configuration'
+ROOM_TOPIC = 'claptrap/derniere_piece'
 DETECTION_SET_TOPIC = 'claptrap/detection/set'
 SUBSCRIPTIONS = (COMMAND_TOPIC, DETECTION_SET_TOPIC, 'claptrap/+/source_active/set',
                  'claptrap/+/+/seuil/set', 'claptrap/+/+/groupe_actif/set', 'claptrap/+/+/nom/set')
@@ -76,6 +77,7 @@ ACTIONS = {
     'clear_unchecked_sounds': '{source, group} : retire les sons non cochés.',
     'set_exclusion': '{label, excluded} : ignore une classe YAMNet partout.',
     'set_advanced': '{delay?, peak_cooldown?, peak_ratio?} : réglages avancés.',
+    'set_rooms': '{enabled?, window?(0,3-3 s)} : arbitrage entre pièces (seule la source la plus proche déclenche).',
     'calibration_start': '{source} : commence le calibrage (détection démarrée si besoin, source en sourdine).',
     'calibration_record': '{target, expected?, duration?(s, 4)} : une prise ; jouez le bruit du groupe target '
                           '(existant ou nouveau nom) ou « fond » dès l\'envoi. expected : nombre de pics attendus.',
@@ -224,6 +226,11 @@ def global_entities():
             json_attributes_topic=CONFIG_TOPIC,
             json_attributes_template='{{ value_json.details | tojson }}',
             entity_category='diagnostic', icon='mdi:cog')),
+        ('sensor', 'derniere_piece', _base_config(
+            'sensor', 'derniere_piece', 'Pièce du dernier clap',
+            state_topic=ROOM_TOPIC, value_template='{{ value_json.piece }}',
+            json_attributes_topic=ROOM_TOPIC,
+            json_attributes_template='{{ value_json | tojson }}', icon='mdi:map-marker-radius')),
         ('sensor', 'derniere_commande', _base_config(
             'sensor', 'derniere_commande', 'Dernière commande',
             state_topic=RESULT_TOPIC,
@@ -546,6 +553,16 @@ def _masked(obj):
 ATTRIBUTES_MAX = 4096   # octets : le recorder de HA refuse les attributs de plus de 16 Ko
 
 
+def publish_last_room(payload):
+    """Source (piece) du dernier clap declenche, avec son nombre et son
+    groupe : « 2 claps dans la cuisine » sans une automatisation par piece."""
+    ha._mqtt_publish(ROOM_TOPIC, {
+        'piece': payload.get('source_name'), 'entity_key': payload.get('entity_key'),
+        'claps': payload.get('clap_count'), 'groupe': payload.get('group_name'),
+        'heure': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+    }, retain=True)
+
+
 _result_lock = threading.Lock()   # resultat et ses attributs publies ensemble (deux fils de commandes)
 
 
@@ -670,6 +687,8 @@ def execute(action, cmd):
         return _api_or_raise('POST', '/api/microphone', _pick(cmd, ('device', 'enabled')) or None)
     if action == 'set_exclusion':
         return _api_or_raise('PUT', '/api/sound_exclusions', _pick(cmd, ('label', 'excluded')))
+    if action == 'set_rooms':
+        return _api_or_raise('PUT', '/api/settings/rooms', _pick(cmd, ('enabled', 'window')))
     if action == 'set_advanced':
         return _api_or_raise('PUT', '/api/settings/advanced', _pick(cmd, ('delay', 'peak_cooldown', 'peak_ratio')))
     if action == 'calibration_status':

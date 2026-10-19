@@ -166,7 +166,8 @@
             '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
             '<span class="history-main"><strong>' + (ev.alert ? 'Alerte' : n + ' clap' + (n > 1 ? 's' : '')) + '</strong> · ' +
             CT.esc(sourceNameFor(ev.source_id)) + ' · ' + CT.esc(ev.group_name || ev.group_slug || '') +
-            (ev.ignored ? ' <span class="muted">(non retenu : autre groupe prioritaire)</span>' : '') + '</span>' +
+            (ev.ignored ? ' <span class="muted">(non retenu : ' + (ev.room ? 'entendu plus fort dans « ' + CT.esc(ev.room) + ' »'
+                                                                    : 'autre groupe prioritaire') + ')</span>' : '') + '</span>' +
             '<span class="history-score">' + CT.pct(ev.score) + '</span>';
         var labels = (ev.labels || []).map(function (l) { return CT.soundLabel(l.label) + ' ' + CT.pct(l.score); }).join(' · ');
         if (labels) {

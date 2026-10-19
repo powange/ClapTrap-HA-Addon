@@ -155,12 +155,21 @@ def _run_side_effects(source_id, entity_key, base_payload, score, clap_count, gr
                       group_clap_counts, webhook_url):
     """Entite MQTT d'une detection (worker dedie), puis evenement HA et
     webhook sur leur propre worker."""
+    triggered = False
     try:
         from ha_entities import on_clap_detected
-        on_clap_detected(entity_key, score, clap_count, group_slug=group_slug,
-                         group_clap_counts=group_clap_counts, labels=base_payload.get('labels'))
+        triggered = on_clap_detected(entity_key, score, clap_count, group_slug=group_slug,
+                                     group_clap_counts=group_clap_counts, labels=base_payload.get('labels'))
     except Exception as e:
         logging.warning(f"Entite HA non mise a jour pour {source_id}: {e}")
+    if triggered:
+        try:
+            # « Pièce du dernier clap » (seulement si une entite s'est
+            # declenchee) : une automatisation pour toute la maison.
+            from ha_control import publish_last_room
+            publish_last_room(base_payload)
+        except Exception as e:
+            logging.debug(f"Pièce du dernier clap non publiée: {e}")
     _event_effects.submit(_send_event, base_payload, webhook_url)
 
 
@@ -206,6 +215,12 @@ class DetectionSession:
         # classifieurs YAMNet de toutes les autres.
         self._runners = {}    # source_id -> {'src', 'stop', 'thread', 'reader'}
         self._lock = threading.Lock()
+        # Arbitrage entre pieces : claps en attente pendant la fenetre (le
+        # meme geste entendu par plusieurs sources ne declenche qu'une fois,
+        # par la source qui l'entend le plus fort).
+        self._room_pools = {}       # nom du groupe -> {'items': [(src, payload, data)], 'timer'}
+        self._room_lock = threading.Lock()
+        self._room_cfg = (0.0, False, 1.0)   # (lu a, active, attente) : reglages relus toutes les 2 s
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
         self._supervisor = None
@@ -310,6 +325,7 @@ class DetectionSession:
             # Instant du 1er clap (timestamp : envoi, 1,5 a 2,5 s plus tard).
             'clap_time': data.get('clap_time'),
             'score': data['score'],
+            'strength': data.get('strength', 0.0),
             'clap_count': data.get('clap_count', 1),
             'labels': data.get('labels') or [],
             'group_slug': data.get('group_slug', 'clap'),
@@ -324,9 +340,82 @@ class DetectionSession:
             # (clap_count 0) n'etaient que du bruit.
             logging.debug(f"Son reconnu sans pic sur {src['label']} ({base_payload['group_name']}) : ignoré")
             return
+        if not base_payload['ignored'] and self._room_arbitration(src, base_payload, data):
+            return   # en attente : la source la plus proche est choisie a la fin de la fenetre
+        self._deliver(src, base_payload, data)
+
+    def _room_settings(self):
+        now = time.monotonic()
+        read_at, enabled, window = self._room_cfg
+        if now - read_at > 2.0:   # sans copie des reglages a chaque clap
+            g = load_settings().get('global', {})
+            enabled, window = bool(g.get('room_arbitration')), float(g.get('room_window', 1.0))
+            self._room_cfg = (now, enabled, window)
+        return enabled, window
+
+    def _room_arbitration(self, src, base_payload, data):
+        """Met le clap en attente si l'arbitrage entre pieces est actif et
+        que plusieurs sources sont connectees. Retourne True s'il est en
+        attente. Les claps ne se comparent qu'entre groupes de meme nom (un
+        clap au salon et un toc dans le couloir ne s'excluent pas)."""
+        enabled, window = self._room_settings()
+        if not enabled:
+            return False
+        with self._lock:
+            connected = sum(1 for sid in self.detectors if self.source_status.get(sid) == 'connected')
+        if connected < 2:
+            return False   # une seule source entend : rien a arbitrer, pas d'attente
+        key = (base_payload.get('group_name') or '').casefold()
+        flush = None
+        with self._room_lock:
+            pool = self._room_pools.get(key)
+            if pool and any(p[0]['source_id'] == src['source_id'] for p in pool['items']):
+                # Deuxieme geste de la meme source pendant l'attente : un autre
+                # geste, pas un concurrent ; la decision precedente est prise.
+                pool['timer'].cancel()
+                flush = self._room_pools.pop(key)
+                pool = None
+            if pool is None:
+                pool = self._room_pools[key] = {'items': [], 'timer': threading.Timer(window, self._room_decide, (key,))}
+                pool['timer'].daemon = True
+                pool['timer'].start()
+            pool['items'].append((src, base_payload, data))
+        if flush:
+            self._room_choose(flush['items'])
+        return True
+
+    def _room_decide(self, key):
+        with self._room_lock:
+            pool = self._room_pools.pop(key, None)
+        if pool:
+            self._room_choose(pool['items'])
+
+    def _room_choose(self, items):
+        """Fin de l'attente : d'abord une source dont le nombre de claps
+        declenche une entite, puis le pic le plus fort par rapport a son
+        bruit de fond ; les autres sont notees « entendu plus fort dans … »."""
+        if self.stop_event.is_set():
+            logging.info(f"Arbitrage entre pièces : {len(items)} clap(s) abandonné(s) (détection arrêtée)")
+            return
+        def rank(i):
+            data = items[i][2]
+            counts = data.get('group_clap_counts') or []
+            useful = (data.get('clap_count') in counts) if counts else bool(data.get('clap_count'))
+            return (useful, data.get('strength') or 0.0, data['score'])
+        best = max(range(len(items)), key=rank)
+        for i, (src, payload, data) in enumerate(items):
+            if i != best:
+                payload = dict(payload, ignored=True, room=items[best][0]['name'])
+            try:
+                self._deliver(src, payload, data)
+            except Exception:
+                logging.exception(f"Arbitrage entre pièces : clap de {src['label']} non transmis")
+
+    def _deliver(self, src, base_payload, data):
         logging.info(f"CLAP{' (ignore)' if base_payload['ignored'] else ''} sur {src['label']} "
                      f"({base_payload['group_name']}): score={data['score']:.2f}, "
-                     f"claps={base_payload['clap_count']}")
+                     f"claps={base_payload['clap_count']}" +
+                     (f" (autre pièce : {base_payload['room']})" if base_payload.get('room') else ''))
         self._emit('clap', base_payload)
         with _history_lock:
             _detection_history.appendleft({**base_payload, 'score': round(data['score'], 3)})

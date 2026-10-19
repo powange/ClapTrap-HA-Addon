@@ -291,6 +291,7 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe, `diagnostic` (analyses sautées et blocs perdus faute de processeur, coupures du flux, durée moyenne et maximale d'une analyse) |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes (nombre de sons cochés), entités, sons ignorés ; listes complètes par la commande `get_settings` |
+| `sensor.claptrap_derniere_piece` | source (pièce) du dernier clap déclenché ; attributs : `entity_key`, `claps`, `groupe`, `heure` |
 | `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
 
 Une modification faite dans HA est enregistrée dans les réglages de l'add-on
@@ -368,6 +369,7 @@ data:
 | `clear_unchecked_sounds` | `source`, `group` |
 | `set_exclusion` | `label`, `excluded` |
 | `set_advanced` | `delay`, `peak_cooldown`, `peak_ratio` |
+| `set_rooms` | `enabled`, `window` (0,3 à 3 s) : arbitrage entre pièces |
 | `calibration_start` | `source` : commence le calibrage |
 | `calibration_record` | `target` (groupe existant, nouveau nom ou `fond`), `expected` (pics par essai), `duration` (s, 4) : une prise, à jouer dès l'envoi |
 | `calibration_analyze` | — : propositions (gain, sons, seuil, comptage, reconnaissance avant / après) |
@@ -435,6 +437,40 @@ ou Node-RED. Le contenu est celui de l'événement ci-dessus, plus
 
 L'URL d'un webhook Home Assistant est un secret : quiconque la connaît peut
 déclencher l'automatisation. ClapTrap la masque dans ses journaux.
+
+## Plusieurs pièces (onglet Réglages)
+
+Avec plusieurs sources (un micro au salon, une caméra dans le couloir…), un
+même clap peut être entendu partout. **Seule la source la plus proche
+déclenche** (désactivé par défaut) : chaque clap attend un court instant
+(**Attente avant de choisir**, 1 s par défaut, de 0,3 à 3 s) que les autres
+sources l'entendent, puis seule celle qui l'entend le plus fort, par rapport à
+son propre bruit de fond, déclenche ses entités ; les autres sont notées
+« entendu plus fort dans … » dans l'historique. Une caméra a souvent 1 à 2 s
+de retard sur un micro : allongez l'attente si un clap se déclenche encore
+deux fois. Les alertes ne sont pas concernées.
+
+Le capteur `sensor.claptrap_derniere_piece` (« Pièce du dernier clap »),
+avec ou sans cette option, indique la source du dernier clap déclenché : une
+seule automatisation peut allumer la lumière de la bonne pièce. Exemple, si
+vos pièces Home Assistant portent le nom de vos sources (« Salon »,
+« Cuisine ») :
+
+```yaml
+triggers:
+  # Attribut « heure » : a chaque clap, meme deux de suite dans la meme piece
+  - trigger: state
+    entity_id: sensor.claptrap_derniere_piece
+    attribute: heure
+conditions:
+  # Pas au retour du capteur apres un redemarrage
+  - condition: template
+    value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown'] }}"
+actions:
+  - action: light.toggle
+    target:
+      area_id: "{{ trigger.to_state.state | slugify }}"
+```
 
 ## Réglages du comptage (onglet Réglages)
 

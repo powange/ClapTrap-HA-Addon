@@ -152,6 +152,20 @@
                     <p class="hint">« Calibrer le comptage » mesure votre bruit de fond, la force de vos claps et la durée de vos gestes, puis propose ces trois réglages.</p>
                 </section>
 
+                <section class="card" id="rooms" aria-labelledby="rooms-title">
+                    <h2 id="rooms-title">Plusieurs pièces</h2>
+                    <p class="hint">Quand plusieurs sources entendent le même geste (un clap au salon entendu aussi par
+                       la caméra du couloir), seule celle qui l'entend le plus fort déclenche. Le capteur
+                       « Pièce du dernier clap » de Home Assistant indique laquelle.</p>
+                    <label class="switch-inline"><input type="checkbox" role="switch" id="rooms-toggle"> Seule la source la plus proche déclenche</label>
+                    <div class="field">
+                        <label class="field-label" for="rooms-window">Attente avant de choisir (s)</label>
+                        <input class="input" type="number" id="rooms-window" min="0.3" max="3" step="0.1">
+                        <p class="hint">Les claps attendent ce temps que les autres sources les entendent : une caméra a souvent
+                           1 à 2 s de retard sur un micro. Plus long = plus fiable, mais réaction plus lente.</p>
+                    </div>
+                </section>
+
                 <section class="card" id="exclusions" aria-labelledby="excl-title">
                     <h2 id="excl-title">Sons ignorés partout</h2>
                     <p class="hint">Ces sons ne déclenchent aucun groupe, sur aucune source, même s'ils y sont cochés.</p>

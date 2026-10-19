@@ -12,6 +12,33 @@
             if (el && (force || document.activeElement !== el)) el.value = g[k] != null ? g[k] : DEFAULTS[k];
         });
         CT.$('#debug-toggle').checked = !!g.debug;
+        var rt = CT.$('#rooms-toggle'), rw = CT.$('#rooms-window');
+        if (rt) rt.checked = !!g.room_arbitration;
+        if (rw && (force || document.activeElement !== rw)) rw.value = g.room_window != null ? g.room_window : 1;
+        if (rw) rw.disabled = !g.room_arbitration;
+    }
+
+    function bindRooms() {
+        var rt = CT.$('#rooms-toggle'), rw = CT.$('#rooms-window');
+        if (!rt) return;
+        function save(body, el, msg) {
+            return CT.api('PUT', '/api/settings/rooms', body)
+                .then(function (d) {
+                    var g = CT.state.settings.global = CT.state.settings.global || {};
+                    if ('room_arbitration' in d) g.room_arbitration = d.room_arbitration;
+                    if ('room_window' in d) g.room_window = d.room_window;
+                    rw.disabled = !g.room_arbitration;
+                    CT.markSaved(el, msg);
+                })
+                .catch(function (err) { fillAdvanced(true); CT.error('Réglage refusé : ' + err.message); });
+        }
+        rt.addEventListener('change', function () {
+            save({enabled: rt.checked}, rt, rt.checked ? 'Seule la source la plus proche déclenche' : 'Chaque source déclenche');
+        });
+        rw.addEventListener('change', function () {
+            if (!rw.checkValidity()) { var why = rw.validationMessage; fillAdvanced(true); CT.error('Attente : ' + why); return; }
+            save({window: parseFloat(rw.value)}, rw, 'Attente enregistrée');
+        });
     }
 
     function bindAdvanced() {
@@ -238,6 +265,7 @@
     CT.initSettings = function () {
         fillAdvanced();
         bindAdvanced();
+        bindRooms();
         bindExclusions();
         bindConfig();
         // Un rechargement pour une rafale de sons nouveaux (une requete par

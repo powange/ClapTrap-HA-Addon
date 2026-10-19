@@ -522,6 +522,7 @@ class AudioDetector:
                     'group_clap_counts': list(group['clap_counts']),   # garanti par normalize_group
                     'ignored': ev['ignored'],
                     'alert': ev.get('alert'),   # mode alerte : 'on' / 'off'
+                    'strength': ev.get('strength', 0.0),   # pic le plus fort / bruit de fond
                 })
             except Exception as e:
                 logging.error(f"Erreur callback détection ({self.label}): {e}")
