@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.83.0
+
+### Build, tests et documentation
+
+- **Les pull requests construisent aussi l'image aarch64** (Raspberry Pi), sur
+  une machine ARM : une casse propre à cette architecture apparaît avant la
+  publication, et non après, quand l'image amd64 était déjà publiée.
+- Contrôle des dépendances de l'image : il ne fera plus échouer le build le
+  jour où toutes les dépendances de mediapipe seront satisfaites.
+- Une pull request qui ne touche que les tests ou la documentation ne
+  reconstruit plus les images.
+- Outils de test (pytest, scipy…) suivis par Dependabot.
+- Registre de HA : une réponse noyée parmi d'autres messages ne fait plus
+  attendre jusqu'à deux fois le délai prévu.
+- Taille installée de l'image corrigée dans la documentation (environ
+  450 Mo).
+- Nouveaux tests : client WebSocket du registre de HA (authentification,
+  réponses intercalées, délais, fermeture), lecture des messages d'appareil
+  retenus et message de naissance de HA, bouton « Supprimer les entités
+  orphelines » (refus en mode dégradé, seules les orphelines), relance à
+  chaud de la détection, test du son VBAN. Couverture : 92 %.
+
 ## 6.82.0
 
 ### Interface

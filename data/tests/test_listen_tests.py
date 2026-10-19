@@ -97,3 +97,27 @@ def test_rtsp_test_refused_while_detection_listens(env, monkeypatch, settings_di
     assert r.status_code == 409 and readers == []
     # Adresse en cours de modification (autre flux) : test autorise
     assert c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a2'}).status_code == 200
+
+
+def test_vban_test_taps_with_saved_gain_and_clears_on_stop(env, settings_dir, monkeypatch):
+    """Test du son VBAN : tap sur l'ecoute partagee (gain enregistre, 0
+    respecte), retire a l'arret et a l'expiration."""
+    t, c, readers, emitted = env
+    settings_dir.save_settings({'saved_vban_sources': [{'id': 'v1', 'name': 'Salon', 'ip': '10.0.0.5', 'port': 6980,
+                                                        'stream_name': 'S', 'gain': 0}]})
+    import classify
+    monkeypatch.setattr(classify, '_live_gains', {})      # gain enregistre, pas celui d'un test precedent
+    taps = []
+    det = types.SimpleNamespace(set_test_tap=lambda ip, fn, stream_name='': taps.append((ip, fn, stream_name)))
+    import vban_manager
+    monkeypatch.setattr(vban_manager, 'get_vban_detector', lambda: det)
+    r = c.post('/api/vban/test/start', json={'id': 'v1'})
+    assert r.status_code == 200 and taps[-1][0] == '10.0.0.5' and taps[-1][2] == 'S'
+    taps[-1][1](0.8)                                     # paquet : niveau au gain enregistre (0)
+    levels = [d for e, d in emitted if e == 'vban_level']
+    assert levels and 'error' not in levels[-1] and levels[-1]['peak'] == 0
+    assert c.post('/api/vban/test/stop', json={'token': r.json['token']}).status_code == 200
+    wait_until(lambda: taps[-1] == (None, None, ''))     # tap retire
+    monkeypatch.setattr(t, 'TEST_MAX_SECONDS', 0.1)
+    c.post('/api/vban/test/start', json={'id': 'v1'})
+    wait_until(lambda: taps[-1] == (None, None, ''))     # expiration : retire aussi

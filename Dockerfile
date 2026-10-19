@@ -82,9 +82,12 @@ RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --no-deps -r
 # Lock complet (installe en --no-deps) : une nouvelle dependance de mediapipe
 # absente du lock echoue ici, pas chez l'utilisateur. Puis pip retire du venv
 # (12 Mo, inutile a l'execution).
-RUN out="$(pip check 2>&1 || true)"; \
-    bad="$(echo "$out" | grep -vE 'opencv-contrib-python|matplotlib|sounddevice' | grep . || true)"; \
-    if [ -n "$bad" ]; then echo "$bad"; exit 1; fi; \
+# (Code de retour d'abord : le jour ou tout est satisfait, pip check affiche
+# « No broken requirements found », qui passait le filtre et faisait echouer.)
+RUN if ! out="$(pip check 2>&1)"; then \
+        bad="$(echo "$out" | grep -vE 'opencv-contrib-python|matplotlib|sounddevice' | grep . || true)"; \
+        if [ -n "$bad" ]; then echo "$bad"; exit 1; fi; \
+    fi; \
     pip uninstall -y -q pip
 
 # Stage 3: Image finale (sans build-essential)

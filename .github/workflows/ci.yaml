@@ -8,7 +8,8 @@
 #   3. seulement ensuite, config.yaml passe a la nouvelle version (commit du
 #      workflow). Une version n'est donc jamais annoncee avant son image, ni
 #      publiee si un test ou un build echoue.
-# Sur une pull request : tests et construction de l'image amd64 sans publication.
+# Sur une pull request : tests et construction des images amd64 et aarch64
+# sans publication (sautee si la PR ne touche que les tests ou la doc).
 name: CI
 
 on:
@@ -70,22 +71,49 @@ jobs:
       - run: node data/tests/ui/ui_test.js data/tests/ui/page.html
 
   build-pr:
-    name: Construction de l'image (pull request)
+    name: Construction de l'image ${{ matrix.arch }} (pull request)
     if: github.event_name == 'pull_request'
     needs: [python, ui]
     timeout-minutes: 60
-    runs-on: ubuntu-latest
+    # Les deux architectures : une casse propre a aarch64 (roue mediapipe,
+    # controles de l'image, autotest YAMNet) n'apparaissait qu'apres la
+    # fusion, quand amd64 avait deja publie ses etiquettes.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Fichiers qui touchent l'image
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        # Tests, doc et Dependabot seuls (outils de test, npm) : rien a
+        # construire ; deux builds de jusqu'a une heure epargnes.
+        run: |
+          if gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only \
+              | grep -qvE '^(data/tests/|\.github/dependabot\.yml$|[^/]*\.md$)'; then
+            echo "image=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=false" >> "$GITHUB_OUTPUT"
+            echo "Seulement des tests ou de la documentation : image non construite"
+          fi
       - name: Semaine en cours
         id: week
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-      - uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+      - if: steps.changes.outputs.image == 'true'
+        uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
-          arch: amd64
-          image: ghcr.io/${{ github.repository_owner }}/amd64-claptrap
+          arch: ${{ matrix.arch }}
+          image: ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-claptrap
           image-tags: pr
           # Meme semaine que la publication : paquets Debian a jour, comme
           # l'image qui sera publiee.

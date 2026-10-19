@@ -365,3 +365,40 @@ def test_broker_refusals_logged_rarely_with_explicit_auth_message(monkeypatch, c
             ha._connection_failed(None, 'Not authorized')
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and 'identifiants refusés' in warnings[0]
+
+
+def _retained(topic, payload):
+    ha._on_message(None, None, types.SimpleNamespace(
+        topic=topic, payload=json.dumps(payload).encode() if payload is not None else b'', retain=True))
+
+
+def test_retained_device_message_read_through_mqtt(mqtt):
+    """Message d'appareil retenu (session precedente) recu par MQTT : base des
+    retraits (cles abregees comprises, entites reduites a {p} ignorees), etats
+    a nettoyer ; nos echos apres la fin de l'attente ne la modifient plus."""
+    topic = 'homeassistant/device/claptrap/rtsp_old/config'
+    ha._discovery_ready.clear()
+    _retained(topic, {'dev': {}, 'o': {}, 'cmps': {
+        'rtsp_old_clap_1clap': {'p': 'binary_sensor', 'uniq_id': 'claptrap_rtsp_old_clap_1clap',
+                                'stat_t': 'claptrap/rtsp_old_clap_1clap/state'},
+        'rtsp_old_top3': {'p': 'sensor'}}})                  # retrait deja publie : ignore
+    assert ha._device_cmps['rtsp_old'] == {'rtsp_old_clap_1clap': 'binary_sensor'}
+    assert ha._seen_devices['rtsp_old'] == ['claptrap/rtsp_old_clap_1clap/state']
+    ha._discovery_ready.set()
+    _retained(topic, {'dev': {}, 'o': {}, 'cmps': {'autre': {'p': 'sensor', 'uniq_id': 'x'}}})
+    assert ha._device_cmps['rtsp_old'] == {'rtsp_old_clap_1clap': 'binary_sensor'}   # echo : sans effet
+    ha._on_message(None, None, types.SimpleNamespace(topic=topic, payload=b'{pas du json', retain=True))
+    _retained(topic, None)
+    assert 'rtsp_old' not in ha._seen_devices and 'rtsp_old' not in ha._device_cmps
+
+
+def test_ha_birth_republishes_and_reconciles(mqtt, monkeypatch):
+    calls = []
+    monkeypatch.setattr(ha, 'republish_all', lambda: calls.append('republish'))
+    import ha_registry
+    monkeypatch.setattr(ha_registry, 'schedule_reconcile', lambda delay: calls.append(('reconcile', delay)))
+    ha._on_message(None, None, types.SimpleNamespace(topic=ha.HA_STATUS_TOPIC, payload=b'online', retain=False))
+    wait_until(lambda: 'republish' in calls)
+    assert ('reconcile', 10.0) in calls
+    ha._on_message(None, None, types.SimpleNamespace(topic='claptrap/mic/availability', payload=b'online', retain=True))
+    assert 'mic' in ha._availability_seen

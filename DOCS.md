@@ -25,7 +25,7 @@ Sans l'intégration MQTT, l'add-on fonctionne mais aucune entité n'apparaît.
    `https://github.com/powange/ClapTrap-HA-Addon`
 2. Recherchez **ClapTrap**, cliquez sur **Installer**, puis **Démarrer**.
    L'image est précompilée : l'installation ne prend que le temps du
-   téléchargement (environ 120 Mo, 370 Mo une fois installée ; compter
+   téléchargement (environ 120 Mo, 450 Mo une fois installée ; compter
    quelques minutes sur un Raspberry Pi).
 3. Activez **Afficher dans la barre latérale** et, si vous le souhaitez,
    **Watchdog** (Home Assistant relance alors l'add-on s'il s'arrête : le
