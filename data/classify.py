@@ -471,15 +471,20 @@ class DetectionSession:
         # Liste vide possible : tous les groupes de la source sont desactives.
         groups = list(src.get('groups') or [])
         det = AudioDetector(MODEL_PATH)
-        # 30 labels : un son de groupe classe 11e mais au-dessus de son seuil
-        # etait invisible avec 10.
-        det.initialize(max_results=30,
+        # Les 521 classes (empreinte des sons appris) ; 30 gardees ensuite
+        # (TOP_RESULTS : un son de groupe classe 11e etait invisible avec 10).
+        det.initialize(max_results=-1,
                        score_threshold=min((g.get('threshold', p['score_threshold']) for g in groups),
                                            default=p['score_threshold']),
                        clap_window=p['delay'], peak_cooldown=p['peak_cooldown'],
                        peak_ratio=p['peak_ratio'])
         det.set_groups(groups)
         det.set_exclusions(self.exclusions)
+        try:
+            import learned
+            det.learned = learned.matcher()
+        except Exception as e:
+            logging.warning(f"Sons appris non chargés : {e}")
         det.configure(
             src['source_id'], label=src['label'],
             detection_callback=lambda d: self._on_detection(src, d),
@@ -941,6 +946,17 @@ def clear_detection_history():
 def mute_source(source_id, muted):
     """Calibrage : les bruits joues a repetition ne declenchent rien."""
     (_muted_sources.add if muted else _muted_sources.discard)(source_id)
+
+
+def apply_learned(matcher):
+    """Sons appris modifies : pris en compte des le resultat suivant."""
+    session = _current()
+    if session is None:
+        return
+    with session._lock:
+        detectors = list(session.detectors.values())
+    for det in detectors:
+        det.learned = matcher
 
 
 def detector_for(source_id):

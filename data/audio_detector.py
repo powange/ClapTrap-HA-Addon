@@ -45,6 +45,9 @@ HOP_BLOCKS = 5
 ANALYSIS_HOP = HOP_BLOCKS * BLOCK_SAMPLES / 16000   # s entre deux analyses
 WINDOW_BLOCKS = -(-WINDOW_SAMPLES // BLOCK_SAMPLES)   # blocs gardes pour une fenetre
 JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne est jetee)
+# Classes gardees par resultat (groupes, decouverte, capteurs) ; le classifieur
+# rend les 521 (max_results=-1) pour les sons appris.
+TOP_RESULTS = 30
 # Horloge audio : coupure si elle a plus de CUT_GAP s de retard sur l'heure ;
 # sinon, ecart corrige en douceur (SLEW_STEP s par bloc au plus, au-dela de
 # SLEW_DEADBAND) sans vider la fenetre d'analyse.
@@ -91,6 +94,7 @@ class AudioDetector:
         # Faut-il analyser ? (session : un groupe actif, ou un onglet ouvert
         # pour la decouverte des sons). None : toujours.
         self.analysis_wanted = None
+        self.learned = None       # sons appris (learned.Matcher), remplace d'un bloc
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
@@ -111,7 +115,8 @@ class AudioDetector:
     def add_tap(self, fn, events=None):
         """fn('block', pic_brut, gain, instant, niveau_avant_pic), fn('peak', 'attack'|'sustain',
         instant), fn('result', [(classe, score)], instant) : instants sur
-        l'horloge audio ; fn('audio', bloc) : le son donne a YAMNet (gain,
+        l'horloge audio ; fn('scores', [(classe, score)] des 521 classes,
+        instant) : empreinte des sons appris ; fn('audio', bloc) : le son donne a YAMNet (gain,
         auto-gain et limiteur appliques), pour l'enregistrement d'extraits.
         `events` : evenements voulus (tous si None)."""
         self._taps = self._taps + [(fn, frozenset(events) if events else None)]
@@ -470,7 +475,15 @@ class AudioDetector:
         try:
             if not result or not result.classifications:
                 return
-            categories = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
+            full = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
+            categories = sorted(full, key=lambda c: c[1], reverse=True)[:TOP_RESULTS]
+            learned = self.learned
+            if learned:
+                # Sons appris : classes de plus (« Appris : <nom> »), cochees
+                # dans les groupes comme les autres.
+                categories = sorted(categories + learned.match(full), key=lambda c: c[1], reverse=True)
+            if self._taps and self._wants('scores'):
+                self._tap('scores', full, now)
             with self.lock:
                 exclusions = set(self.tracker.exclusions)
                 threshold = self.score_threshold

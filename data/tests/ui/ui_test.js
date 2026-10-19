@@ -34,6 +34,13 @@ const dom = new JSDOM(html, {
       else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
+      else if (url === '/api/learned' && method === 'GET') res = { success: true, sounds: w.__learned || [], limits: { min_examples: 3, max_examples: 10, max_sounds: 20 } };
+      else if (url === '/api/learned/record') { w.__lnEx = body.kind === 'fond' ? 0 : (w.__lnEx || 0) + 1;
+        res = { success: true, background: true, examples: w.__lnEx, distinct: w.__lnEx === 2 ? 0.05 : 0.6, top: [{ classe: 'Music', score: 0.9 }] }; }
+      else if (url === '/api/learned/preview') res = { success: true, recognized: 3, examples: w.__lnEx, spread: 0.4, warnings: [] };
+      else if (url === '/api/learned/save') { const snd = { id: 'l1', name: body.name, label: 'Appris : ' + body.name, examples: w.__lnEx, source: 'Micro', quality: { warnings: [] } };
+        w.__learned = [snd]; res = Object.assign({ success: true }, snd); }
+      else if (url.startsWith('/api/learned/') && method === 'DELETE') { w.__learned = []; }
       else if (url === '/api/rtsp/probe') res = /8k/.test(body.url)
         ? { success: true, ok: true, format: { codec: 'pcm_alaw', sample_rate: 8000, channels: 'mono' }, audio_seconds: 2, error: null }
         : /nope/.test(body.url) ? { success: true, ok: false, format: null, audio_seconds: 0, error: 'Identifiant ou mot de passe refusés par la caméra.' }
@@ -796,6 +803,35 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   d.body.click(); await tick();
   ok('+  clic hors des menus : tous fermés', $$('.menu-list').every(m => m.hidden) &&
      menuOf(otherCard).getAttribute('aria-expanded') === 'false');
+  // --- 6.91 : sons appris
+  $('#tab-settings').click(); await tick(2);
+  ok('+  sons appris : liste vide', /Aucun son appris/.test($('#learned-list').textContent));
+  $('#learn-sound').click(); await tick();
+  $('#learn [data-c="start"]').click(); await tick();
+  ok('+  sons appris : nom obligatoire', !lastCall('POST', '/api/learned/start') && !$('#learn').hidden);
+  $('#ln-name').value = 'Sonnette'; $('#learn [data-c="start"]').click(); await tick(3);
+  ok('+  sons appris : session commencée sur la source choisie', !!lastCall('POST', '/api/learned/start').length &&
+     /bruit de fond/.test($('#learn-title').textContent));
+  const lnRec = async () => { $('#learn [data-c="record"]').click(); await tick(3); };
+  await lnRec();
+  ok('+  sons appris : bruit de fond puis exemple 1', lastCall('POST', '/api/learned/record')[2].kind === 'fond' && /exemple 1/.test($('#learn-title').textContent) &&
+     !$('#learn [data-c="finish"]'));
+  await lnRec(); await lnRec();
+  ok('+  sons appris : exemple trop proche du fond signalé', /Presque comme le bruit de fond/.test($('#learn').textContent));
+  ok('+  sons appris : « Terminer » absent avant 3 exemples', !$('#learn [data-c="finish"]'));
+  await lnRec();
+  $('#learn [data-c="finish"]').click(); await tick(3);
+  ok('+  sons appris : bilan', /3 exemples sur 3/.test($('#learn').textContent) && /Appris : Sonnette/.test($('#learn').textContent));
+  $('#learn [data-c="save"]').click(); await tick(4);
+  ok('+  sons appris : enregistré, fenêtre fermée, liste à jour', lastCall('POST', '/api/learned/save')[2].name === 'Sonnette' &&
+     $('#learn').hidden && /Appris : Sonnette/.test($('#learned-list').textContent));
+  $('#learn-sound').click(); await tick();
+  $('#ln-name').value = 'sonnette'; $('#learn [data-c="start"]').click(); await tick();
+  ok('+  sons appris : nom déjà pris refusé', calls.filter(c => c[1] === '/api/learned/start').length === 1);
+  $('#learn [data-c="cancel"]').click(); await tick();
+  $('[data-forget="l1"]').click(); await tick();
+  $('.modal-backdrop [data-r="ok"]').click(); await tick(4);
+  ok('+  sons appris : supprimé après confirmation', !!lastCall('DELETE', '/api/learned/l1') && /Aucun son appris/.test($('#learned-list').textContent));
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

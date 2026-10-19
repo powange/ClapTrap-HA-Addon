@@ -484,6 +484,9 @@ def canonical_label(label, existing=(), removing=False):
     enregistre, qu'on reactive) ; son inconnu refuse avec une suggestion. Pour
     decocher ou retirer (`removing`), le nom enregistre tel quel est garde."""
     labels = yamnet_labels()
+    if labels:
+        import learned
+        labels = labels + learned.labels()
     if removing and label in existing:
         return label
     if not labels or label in labels:
@@ -503,7 +506,8 @@ def canonical_label(label, existing=(), removing=False):
 @sources_bp.route('/api/sounds/known', methods=['GET'])
 def known_sounds():
     """La recherche d'un groupe propose tous les sons, meme jamais entendus."""
-    return jsonify({'labels': yamnet_labels()})
+    import learned
+    return jsonify({'labels': yamnet_labels() + learned.labels()})
 
 
 @sources_bp.route('/api/sound_exclusions', methods=['GET'])

@@ -140,6 +140,8 @@
         }
         return allSounds;
     }
+    // Son appris enregistre ou supprime : liste relue a la recherche suivante.
+    CT.invalidateKnownSounds = function () { allSounds = null; };
     function renderSuggestions(search, wl, src) {
         var box = search.closest('.group-card').querySelector('[data-role="suggest"]');
         var q = search.value.trim().toLowerCase();

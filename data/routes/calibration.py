@@ -92,3 +92,44 @@ def count_calibration_apply():
     if values is not None and not isinstance(values, dict):
         raise ApiError('values : objet attendu')
     return _run(count_calibration.apply, values)
+
+
+# --- Sons appris (voir learned.py) ---------------------------------------------
+# Apprentissage : meme session que le calibrage (annulation : /api/calibration/cancel).
+
+@calibration_bp.route('/api/learned', methods=['GET'])
+def learned_list():
+    import learned
+    return jsonify({'success': True, 'sounds': learned.list_sounds(),
+                    'limits': {'min_examples': learned.MIN_EXAMPLES, 'max_examples': learned.MAX_EXAMPLES,
+                               'max_sounds': learned.MAX_SOUNDS}})
+
+
+@calibration_bp.route('/api/learned/<sound_id>', methods=['DELETE'])
+def learned_delete(sound_id):
+    import learned
+    return _run(learned.delete, sound_id)
+
+
+@calibration_bp.route('/api/learned/start', methods=['POST'])
+def learned_start():
+    import learned
+    return _run(learned.start, _body().get('source'))
+
+
+@calibration_bp.route('/api/learned/record', methods=['POST'])
+def learned_record():
+    import learned
+    return _run(learned.record, _body().get('kind'))
+
+
+@calibration_bp.route('/api/learned/preview', methods=['POST'])
+def learned_preview():
+    import learned
+    return _run(learned.preview)
+
+
+@calibration_bp.route('/api/learned/save', methods=['POST'])
+def learned_save():
+    import learned
+    return _run(learned.save, _body().get('name'))

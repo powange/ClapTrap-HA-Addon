@@ -1,5 +1,26 @@
 # Changelog
 
+## 6.91.0
+
+### Sons appris
+
+- Nouvelle section **Sons appris** (onglet Réglages) : **Apprendre un son…**
+  enregistre le bruit de fond puis 3 à 10 exemples d'un son précis (sonnette,
+  bip du lave-linge) sur une source. Le son devient une classe de plus,
+  « Appris : <nom> », à cocher dans un groupe comme n'importe quel son
+  (seuil, comptage, alerte, sons ignorés), sur toutes les sources.
+- Empreinte : les scores des 521 classes de YAMNet (aucun calcul de plus),
+  compressés et centrés sur le bruit de fond, comparés aux exemples.
+  Essai avec le vrai modèle sur des sons de synthèse :
+  - la sonnette apprise obtient 0,8 à 1 ;
+  - une autre tonalité, elle aussi rangée par YAMNet dans « Music », obtient
+    0,04 à 0,44 ;
+  - des bips et le bruit de fond obtiennent 0.
+- Bilan avant l'enregistrement : exemples reconnus entre eux, avertissement
+  si le son ressemble trop au bruit de fond.
+- Le classifieur rend désormais les 521 classes, et le reste de ClapTrap en
+  garde les 30 meilleures, comme avant.
+
 ## 6.90.0
 
 ### Assistant RTSP : « Vérifier l'adresse »
