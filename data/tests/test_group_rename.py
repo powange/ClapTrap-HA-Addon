@@ -47,7 +47,7 @@ def group(settings_dir, slug='siffler'):
 
 
 def configs(client):
-    return {t: json.loads(p) for t, p, r in client.published if t.endswith('/config') and p}
+    return {t: json.loads(p) for t, p, r in client.published if t.endswith('/config') and p and '/device/' not in t}
 
 
 SNAP_IDS = [

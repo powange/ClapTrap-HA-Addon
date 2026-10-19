@@ -2,7 +2,14 @@
 
 Broker MQTT : celui de l'add-on Mosquitto (service du Supervisor), ou un
 broker externe renseigne dans les options de l'add-on (`mqtt_host`...).
-Toutes les entites sont regroupees dans un appareil "ClapTrap".
+
+Decouverte par appareil : un seul message retenu par appareil
+(`homeassistant/device/claptrap/<appareil>/config`), avec toutes ses entites
+dans `cmps` : « ClapTrap » (`hub` : detection, configuration, derniere
+commande) et un appareil par source (claps, reglages, diagnostic), rattache
+a « ClapTrap ». Les anciennes configurations par entite (6.77 et avant) sont
+migrees a la connexion (`migrate_discovery`), sans perte d'historique ni de
+personnalisation (memes unique_id).
 
 Entites par source et par groupe de sons :
 - binary_sensor.claptrap_<source>_<groupe>_<N>clap(s) : un par nombre de claps (1-4)
@@ -35,7 +42,8 @@ import requests
 MQTT_TOPIC_PREFIX = "homeassistant"
 AVAILABILITY_TOPIC = "claptrap/availability"
 HA_STATUS_TOPIC = f"{MQTT_TOPIC_PREFIX}/status"
-DISCOVERY_WILDCARD = f"{MQTT_TOPIC_PREFIX}/+/claptrap/+/config"
+DISCOVERY_WILDCARD = f"{MQTT_TOPIC_PREFIX}/+/claptrap/+/config"   # appareils et anciennes entites
+HUB = 'hub'   # appareil « ClapTrap » (aucune source n'a ce slug : mic, rtsp_…, vban_…)
 MIC_KEY = "mic"
 CLAP_PULSE_SECONDS = 2  # duree de l'etat ON d'une entite clap
 
@@ -48,14 +56,17 @@ _detection = {'running': False, 'sources': []}
 _mqtt_client = None
 _mqtt_connected = threading.Event()
 _mqtt_started = False
-_discovered = set()   # object_ids claptrap vus (retenus) sur le broker
-_discovered_ctrl = set()  # topics de config des entites de reglage vus sur le broker
-_ctrl_state_topics = {}   # topic de config -> topics d'etat retenus annonces (nettoyage des orphelines)
+_legacy = {}          # ancien topic de config par entite vu sur le broker -> ses topics d'etat
+_seen_devices = {}    # appareil claptrap retenu sur le broker -> ses topics d'etat
+_device_cmps = {}     # appareil -> {composant: plateforme} publie (ou retenu) : retraits
+_discovery_ready = threading.Event()   # configurations retenues recues : publication possible
+_session = 0          # numero de connexion (une reconnexion pendant l'attente arrete l'ancienne)
+MIGRATE_CLEAR_DELAY = 1.0   # s entre la configuration d'un appareil et l'effacement des anciennes
 _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage des orphelines
 _off_timers = {}      # topic -> threading.Timer
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
-_pending_removal = set()    # object_ids a supprimer des que le broker est joignable
-_pending_topics = set()     # topics de config (entites de reglage) a vider de meme
+_pending_devices = set()    # appareils a supprimer des que le broker est joignable
+_pending_topics = set()     # topics d'etat retenus a vider de meme
 _auth_failures = 0
 _warned_collisions = set()  # (cle, source en conflit) deja signales
 _shutting_down = False      # arret propre : « offline » voulu, ne pas le corriger
@@ -279,6 +290,9 @@ def _on_connect(client, userdata, flags, rc, *args):
         return
     _auth_failures = 0
     logging.info("MQTT connecté")
+    global _session
+    _discovery_ready.clear()   # nouvelle session : attendre les configurations retenues
+    _session += 1
     _mqtt_connected.set()
     client.subscribe(HA_STATUS_TOPIC)
     client.subscribe(AVAILABILITY_TOPIC)
@@ -300,6 +314,7 @@ def _on_connect(client, userdata, flags, rc, *args):
 
 def _on_disconnect(client, userdata, *args):
     _mqtt_connected.clear()
+    _discovery_ready.clear()
     logging.warning("MQTT déconnecté, reconnexion automatique...")
 
 
@@ -339,51 +354,78 @@ def _on_message(client, userdata, msg):
     m = re.match(r'^homeassistant/([^/]+)/claptrap/([^/]+)/config$', msg.topic)
     if m:
         _last_discovery = time.monotonic()
-        target, item = (_discovered, m.group(2)) if m.group(1) == 'binary_sensor' else (_discovered_ctrl, msg.topic)
-        states = []
-        if msg.payload and target is _discovered_ctrl:
-            try:
-                cfg = json.loads(msg.payload)
-                states = [t for t in (cfg.get('state_topic'), cfg.get('json_attributes_topic'))
-                          if isinstance(t, str) and t.startswith('claptrap/')]
-            except (ValueError, AttributeError):
-                states = []
-        with _lock:
-            if msg.payload:
-                target.add(item)
-                if target is _discovered_ctrl:
-                    _ctrl_state_topics[item] = states
+        _discovery_message(m.group(1), m.group(2), msg.topic, msg.payload)
+
+
+def _state_topics(cfg):
+    return sorted({t for t in (cfg.get('state_topic'), cfg.get('json_attributes_topic'))
+                   if isinstance(t, str) and t.startswith('claptrap/')})
+
+
+def _discovery_message(component, item, topic, payload):
+    """Configuration retenue d'un appareil claptrap, ou ancienne configuration
+    par entite (a migrer ou a effacer)."""
+    try:
+        cfg = json.loads(payload) if payload else None
+    except ValueError:
+        cfg = {}
+    if not isinstance(cfg, dict) and cfg is not None:
+        cfg = {}
+    with _lock:
+        if component != 'device':
+            # Ancienne configuration, ou {"migrate_discovery": true} reste
+            # retenu (migration interrompue) : a migrer ou effacer de meme.
+            if cfg is None:
+                _legacy.pop(topic, None)
             else:
-                target.discard(item)
-                _ctrl_state_topics.pop(item, None)
+                _legacy[topic] = _state_topics(cfg)
+            return
+        if cfg is None:
+            _seen_devices.pop(item, None)
+            _device_cmps.pop(item, None)
+            return
+        # Composants reduits a {"p": …} : retraits, sans etat.
+        cmps = {cid: c for cid, c in (cfg.get('cmps') or {}).items()
+                if isinstance(c, dict) and len(c) > 1 and c.get('p')}
+        _seen_devices[item] = sorted({t for c in cmps.values() for t in _state_topics(c)})
+        if not _discovery_ready.is_set():
+            # Publie par une session precedente (retenu, recu a l'abonnement) :
+            # base des retraits du prochain envoi. Nos propres echos, ensuite,
+            # ne la modifient plus.
+            _device_cmps[item] = {cid: c['p'] for cid, c in cmps.items()}
 
 
 def _after_connect():
+    session = _session
     _mqtt_publish(AVAILABILITY_TOPIC, 'online', retain=True)
     # Lien « Visiter » des appareils : retente a chaque connexion tant qu'il
     # manque (Supervisor lent au demarrage), hors du demarrage de la connexion.
     _fetch_ingress_url()
     with _lock:
-        pending = set(_pending_removal)
-        _pending_removal.clear()
-        pending_topics = set(_pending_topics)
+        pending, pending_devices = set(_pending_topics), set(_pending_devices)
         _pending_topics.clear()
-    for obj in pending:
-        _unpublish_object(obj)
+        _pending_devices.clear()
+    for dev in pending_devices:
+        _mqtt_publish(_device_topic(dev), '', retain=True)
     from ha_control import clear_topics
-    clear_topics(pending_topics)
-    republish_all()
-    import ha_registry
-    ha_registry.schedule_reconcile(10.0)   # renommages d'entites restes en attente
-    # Laisser arriver les configs retenues avant de chercher les orphelines :
-    # attendre que le flux s'arrete (3 s sans nouvelle config), 30 s au plus.
+    clear_topics(pending)
+    # Laisser arriver les configurations retenues (appareils, anciennes
+    # entites) avant de publier : la migration doit preceder les nouvelles
+    # configurations. Attendre que le flux s'arrete (3 s sans nouvelle), 30 s
+    # au plus.
     start = time.monotonic()
     while time.monotonic() - start < DISCOVERY_MAX_WAIT:
         time.sleep(0.5)
         quiet = time.monotonic() - max(start, _last_discovery)
         if quiet >= DISCOVERY_QUIET:
             break
-    if _mqtt_connected.is_set():
+    if not _mqtt_connected.is_set() or session != _session:
+        return   # deconnecte ou reconnecte entre-temps : la nouvelle session s'en charge
+    _discovery_ready.set()
+    republish_all()   # chaque appareil migre ses anciennes entites (_publish_device)
+    import ha_registry
+    ha_registry.schedule_reconcile(10.0)   # renommages d'entites restes en attente
+    if _mqtt_connected.is_set() and session == _session:
         cleanup_orphans()
 
 
@@ -493,6 +535,93 @@ def shutdown():
 
 # ===== Entites ===============================================================
 
+def _device_topic(dev):
+    return f"{MQTT_TOPIC_PREFIX}/device/claptrap/{dev}/config"
+
+
+def _component(platform, cfg):
+    """Configuration d'une entite dans `cmps` (appareil et origine sont
+    portes par le message de l'appareil)."""
+    return {**cfg, 'p': platform}
+
+
+def _component_ids(info):
+    """Composants de l'appareil d'une source, sans construire les configurations."""
+    from ha_control import source_entity_ids
+    return _object_ids(info) | source_entity_ids(info)
+
+
+def _hub_components():
+    """{composant: (plateforme, config)} de l'appareil « ClapTrap »."""
+    from ha_control import global_entities
+    cmps = {'detection': ('binary_sensor', _detection_config())}
+    cmps.update({obj: (c, cfg) for c, obj, cfg in global_entities()})
+    return cmps
+
+
+def _source_components(info):
+    """{composant: (plateforme, config)} de l'appareil d'une source : claps,
+    reglages et diagnostic. Le composant porte l'object_id (unique_id sans
+    « claptrap_ »), comme les anciens topics par entite."""
+    slug = info['slug']
+    cmps = {}
+    for g_slug, g_info in info['groups'].items():
+        for n in g_info['clap_counts']:
+            obj = _group_object_id(slug, g_slug, n)
+            cmps[obj] = ('binary_sensor', _entity_config(
+                obj, _friendly_name(g_info['name'], n), slug,
+                _group_object_id(slug, g_info.get('entity_slug') or g_slug, n)))
+    from ha_control import source_entities
+    cmps.update({obj: (c, cfg) for c, obj, cfg in source_entities(info)})
+    return cmps
+
+
+def _publish_device(dev, device, cmps):
+    """Un message retenu pour tout l'appareil. Une entite retiree depuis le
+    dernier envoi (groupe, nombre de claps) y figure reduite a sa plateforme :
+    HA la supprime. Rien avant la migration (voir _after_connect)."""
+    if not _discovery_ready.is_set():
+        return
+    payload_cmps = {cid: _component(p, cfg) for cid, (p, cfg) in cmps.items()}
+    with _lock:
+        before = _device_cmps.get(dev, {})
+        for cid, platform in before.items():
+            if cid not in payload_cmps:
+                payload_cmps[cid] = {'p': platform}
+        _device_cmps[dev] = {cid: p for cid, (p, _cfg) in cmps.items()}
+        # Anciennes configurations par entite (6.78 et avant) de cet appareil.
+        legacy = sorted(t for t in _legacy if t.split('/')[3] in cmps)
+    # Migration (doc de HA) : {"migrate_discovery": true} sur l'ancien topic
+    # AVANT la configuration de l'appareil (HA garde l'entite, son historique
+    # et ses reglages, et la rattache a l'appareil au meme unique_id), puis
+    # ancien topic vide. A chaque publication, pas seulement a la connexion :
+    # une entite pas encore publiee (reglages illisibles au demarrage) est
+    # migree quand sa source revient, jamais effacee.
+    for topic in legacy:
+        _mqtt_publish(topic, {'migrate_discovery': True}, retain=True)
+    _mqtt_publish(_device_topic(dev), {'dev': device, 'o': _origin_block(), 'cmps': payload_cmps}, retain=True)
+    if legacy:
+        logging.info(f"Découverte MQTT : {len(legacy)} entité(s) de « {device.get('name')} » migrée(s) "
+                     "vers la découverte par appareil")
+        timer = threading.Timer(MIGRATE_CLEAR_DELAY, _clear_legacy, args=(legacy,))
+        timer.daemon = True
+        timer.start()
+
+
+def _clear_legacy(topics):
+    with _lock:
+        for topic in topics:
+            _legacy.pop(topic, None)
+    for topic in topics:
+        _mqtt_publish(topic, '', retain=True)
+
+
+def _unpublish_device(dev):
+    with _lock:
+        _device_cmps.pop(dev, None)
+    _mqtt_publish(_device_topic(dev), '', retain=True)   # appareil et entites retires de HA
+
+
 def short_name(label):
     """Nom court d'une source dans HA (« Salon », « Micro ») : le libelle
     complet (« VBAN: Salon », « Micro: alsa_input.usb-… ») donnait des noms
@@ -512,10 +641,9 @@ def _friendly_name(g_name, n):
     return f'{g_name} · {n} clap{"s" if n > 1 else ""}'
 
 
-def _entity_config(obj, name, source_slug, entity_obj=None, device=None):
+def _entity_config(obj, name, source_slug, entity_obj=None):
     """`obj` (slug du groupe) : unique_id et topics, stables ; `entity_obj`
-    (nom du groupe) : entity_id propose a la creation ; `device` : appareil
-    de la source."""
+    (nom du groupe) : entity_id propose a la creation."""
     return {
         'name': name,
         'unique_id': f'claptrap_{obj}',
@@ -532,30 +660,20 @@ def _entity_config(obj, name, source_slug, entity_obj=None, device=None):
         'icon': 'mdi:hand-clap',
         'payload_on': 'ON',
         'payload_off': 'OFF',
-        'device': device or _device_block(),
-        'origin': _origin_block(),
     }
 
 
 def _publish_source(info):
     slug = info['slug']
-    for g_slug, g_info in info['groups'].items():
-        for n in g_info['clap_counts']:
-            obj = _group_object_id(slug, g_slug, n)
-            _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/{obj}/config",
-                          _entity_config(obj, _friendly_name(g_info['name'], n), slug,
-                                         _group_object_id(slug, g_info.get('entity_slug') or g_slug, n),
-                                         source_device(info)),
-                          retain=True)
-            _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
+    _publish_device(slug, source_device(info), _source_components(info))
+    for obj in _object_ids(info):
+        _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
     # Sous le verrou, comme set_source_listening : une camera qui se
     # connectait pendant une republication pouvait voir « online » ecrase par
     # un « offline » calcule juste avant, et retenu.
     with _lock:
         _mqtt_publish(f'claptrap/{slug}/availability',
                       'online' if _is_available(info) else 'offline', retain=True)
-    from ha_control import publish_source
-    publish_source(info)
 
 
 def _is_available(info):
@@ -578,13 +696,8 @@ def set_source_listening(entity_key, listening):
         _mqtt_publish(f"claptrap/{info['slug']}/availability", state, retain=True)   # paho ne bloque pas
 
 
-def _unpublish_object(obj):
-    _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/{obj}/config", '', retain=True)
-    _mqtt_publish(f'claptrap/{obj}/state', '', retain=True)
-
-
-def _publish_detection():
-    _mqtt_publish(f"{MQTT_TOPIC_PREFIX}/binary_sensor/claptrap/detection/config", {
+def _detection_config():
+    return {
         'name': 'Détection en cours',
         'unique_id': 'claptrap_detection',
         'default_entity_id': 'binary_sensor.claptrap_detection',
@@ -596,13 +709,13 @@ def _publish_detection():
         'payload_on': 'ON',
         'payload_off': 'OFF',
         'json_attributes_topic': 'claptrap/detection/attributes',
-        'device': _device_block(),
-        'origin': _origin_block(),
-    }, retain=True)
+    }
+
+
+def _publish_detection():
+    _publish_device(HUB, _device_block(), _hub_components())
     _mqtt_publish('claptrap/detection/state', 'ON' if _detection['running'] else 'OFF', retain=True)
     _mqtt_publish('claptrap/detection/attributes', {'sources': _detection['sources']}, retain=True)
-    from ha_control import publish_globals
-    publish_globals()
 
 
 def republish_all():
@@ -639,6 +752,13 @@ def _normalise_groups(groups):
 def _object_ids(info):
     return {_group_object_id(info['slug'], g_slug, n)
             for g_slug, g in info['groups'].items() for n in g['clap_counts']}
+
+
+def state_topics(info):
+    """Topics d'etat retenus des entites d'une source (claps, reglages,
+    diagnostic), a vider quand l'entite disparait."""
+    from ha_control import control_state_topics
+    return {f'claptrap/{obj}/state' for obj in _object_ids(info)} | control_state_topics(info)
 
 
 def group_entity_ids(source_slug, g_slug, g_info, entity_slug=None):
@@ -682,41 +802,47 @@ def register_source(source_id, label=None, groups=None, available=None):
         }
         # Re-ajoutee pendant une coupure du broker : annuler sa suppression en
         # attente (effacee puis recreee a la reconnexion, personnalisations perdues).
-        from ha_control import control_topics
-        _pending_removal.difference_update(_object_ids(info))
-        _pending_topics.difference_update(control_topics(info))
+        _pending_devices.discard(info['slug'])
+        _pending_topics.difference_update(state_topics(info))
         if existing == info:
             return
-        removed = _object_ids(existing) - _object_ids(info) if existing else set()
-        removed_topics = control_topics(existing) - control_topics(info) if existing else set()
+        # Entites retirees (groupe, nombre de claps) : retirees de l'appareil
+        # au prochain envoi ; leurs etats retenus sont vides ici.
+        removed_topics = state_topics(existing) - state_topics(info) if existing else set()
         _source_info[source_id] = info
-    for obj in removed:
-        _unpublish_object(obj)
     from ha_control import clear_topics
     clear_topics(removed_topics)
     _publish_source(info)
     logging.info(f"Entités HA: claptrap_{info['slug']} groupes={list(norm_groups.keys())} ({info['label']})")
 
 
-def unregister_source(source_id, keep=frozenset(), keep_slugs=frozenset(), keep_topics=frozenset()):
-    """Supprime toutes les entites d'une source (source supprimee), sauf les
-    object_ids `keep` revendiques par une source conservee (sinon une
-    collision effacait l'entite que l'autre source venait de publier)."""
+def unregister_source(source_id, keep_slugs=frozenset(), keep_topics=frozenset(), keep_cmps=frozenset()):
+    """Supprime l'appareil d'une source (source supprimee) et ses etats
+    retenus, sauf ceux revendiques par une source conservee (meme slug).
+
+    `keep_cmps` : entites de meme identifiant annoncees par une source
+    conservee (collision creee hors des routes, fichier modifie a la main).
+    HA les a peut-etre creees depuis cet appareil : il est alors garde, reduit
+    a ces entites (leurs topics sont communs), au lieu d'etre supprime."""
     with _lock:
         info = _source_info.pop(source_id, None)
     if not info:
         return
-    from ha_control import control_topics
-    objs = _object_ids(info) - set(keep)
-    topics = control_topics(info) - set(keep_topics)
+    topics = state_topics(info) - set(keep_topics)
+    shared = _component_ids(info) & set(keep_cmps)
+    if shared:
+        cmps = _source_components(info)
+        _publish_device(info['slug'], source_device(info), {cid: cmps[cid] for cid in shared})
+    remove_device = info['slug'] not in keep_slugs and not shared
     if not _mqtt_connected.is_set():
         # Broker injoignable : sans cela, la suppression etait perdue et les
         # entites restaient pour toujours. Elle sera faite a la reconnexion.
         with _lock:
-            _pending_removal.update(objs)
+            if remove_device:
+                _pending_devices.add(info['slug'])
             _pending_topics.update(topics)
-    for obj in objs:
-        _unpublish_object(obj)
+    if remove_device:
+        _unpublish_device(info['slug'])
     from ha_control import clear_topics
     clear_topics(topics)
     if info['slug'] not in keep_slugs:
@@ -811,46 +937,47 @@ def sync_sources(settings=None):
             _expected_keys = {key for key, *_ in configured}
             stale = [k for k in _source_info if k not in _expected_keys]
             kept = [_source_info[k] for k in _expected_keys if k in _source_info]
-            keep = set().union(*(_object_ids(i) for i in kept)) if kept else set()
             keep_slugs = {i['slug'] for i in kept}
-            from ha_control import control_topics
-            keep_topics = set().union(*(control_topics(i) for i in kept)) if kept else set()
+            keep_topics = set().union(*(state_topics(i) for i in kept)) if kept else set()
+            keep_cmps = set().union(*(_component_ids(i) for i in kept)) if kept else set()
         for key in stale:
-            unregister_source(key, keep=keep, keep_slugs=keep_slugs, keep_topics=keep_topics)
+            unregister_source(key, keep_slugs=keep_slugs, keep_topics=keep_topics, keep_cmps=keep_cmps)
 
 
 def cleanup_orphans():
-    """Supprime les entites ClapTrap retenues sur le broker qui ne
-    correspondent a aucune source configuree (anciens formats, sources
-    supprimees pendant que l'add-on etait arrete). Retourne leur liste."""
+    """Supprime ce que ClapTrap a laisse sur le broker sans source
+    correspondante : appareils de sources supprimees pendant que l'add-on
+    etait arrete, anciennes configurations par entite non migrees, etats et
+    disponibilites retenus. Retourne les noms retires."""
     with _lock:
         if _expected_keys is None:
             return []
-        keep = {'detection'}
-        for info in _source_info.values():
-            keep |= _object_ids(info)
-        orphans = [obj for obj in _discovered if obj not in keep]
-        from ha_control import control_topics, global_object_ids
-        keep_topics = {f'{MQTT_TOPIC_PREFIX}/{c}/claptrap/{o}/config' for c, o in global_object_ids()}
-        for info in _source_info.values():
-            keep_topics |= control_topics(info)
-        orphan_topics = [t for t in _discovered_ctrl if t not in keep_topics]
-        # Etats retenus des entites de reglage orphelines (seuil, nom, sons...) :
-        # seule leur configuration etait effacee, ils restaient sur le broker.
-        # Jamais un topic encore utilise par une entite gardee.
         known_slugs = {info['slug'] for info in _source_info.values()}
+        orphan_devices = [d for d in _seen_devices if d != HUB and d not in known_slugs]
+        # Anciennes configurations sans entite actuelle (celles d'une entite
+        # publiee sont migrees par _publish_device, jamais effacees ici).
+        current = set(_hub_components()).union(*(_component_ids(i) for i in _source_info.values()))
+        legacy = {t: sts for t, sts in _legacy.items() if t.split('/')[3] not in current} \
+            if _discovery_ready.is_set() else {}
+        # Etats retenus des orphelins (seuil, nom, sons...) : jamais un topic
+        # d'une source gardee ou de l'appareil « ClapTrap ».
         kept_prefixes = tuple(f'claptrap/{slug}/' for slug in known_slugs) + (
             'claptrap/detection/', 'claptrap/command', 'claptrap/configuration')
-        orphan_states = {st for t in orphan_topics for st in _ctrl_state_topics.get(t, [])
-                         if not st.startswith(kept_prefixes)}
+        kept_states = set().union(*(state_topics(i) for i in _source_info.values()))
+        orphan_states = {st for d in orphan_devices for st in _seen_devices.get(d, [])}
+        orphan_states |= {st for sts in legacy.values() for st in sts}
+        orphan_states = {st for st in orphan_states if not st.startswith(kept_prefixes) and st not in kept_states}
         stale_availability = [slug for slug in _availability_seen if slug not in known_slugs]
-    for obj in orphans:
-        _unpublish_object(obj)
-    from ha_control import clear_topics
-    clear_topics(orphan_topics)
+    for dev in orphan_devices:
+        _unpublish_device(dev)
+    for topic in legacy:
+        _mqtt_publish(topic, '', retain=True)
+    with _lock:
+        for topic in legacy:
+            _legacy.pop(topic, None)
     for topic in sorted(orphan_states):
         _mqtt_publish(topic, '', retain=True)
-    orphans += [t.split('/')[3] for t in orphan_topics]
+    orphans = [f'appareil {d}' for d in orphan_devices] + [f"{t.split('/')[1]}.claptrap_{t.split('/')[3]}" for t in legacy]
     # Topics de disponibilite retenus des sources disparues : les effacer aussi.
     for slug in stale_availability:
         _mqtt_publish(f'claptrap/{slug}/availability', '', retain=True)

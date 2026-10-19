@@ -2,6 +2,7 @@
 faux client MQTT. Aucun materiel, aucun reseau, aucun Home Assistant."""
 import os
 import sys
+import threading
 import types
 
 import numpy as np
@@ -118,11 +119,41 @@ class FakeMqtt:
     def __init__(self):
         self.published = []  # (topic, payload, retain)
         self.qos = {}        # topic -> [qos de chaque publication]
+        self.devices = {}    # topic d'appareil -> dernier message (dict)
+        self._cmps = {}      # topic d'appareil -> {composant: plateforme}
 
     def publish(self, topic, payload, qos=0, retain=False):
         self.published.append((topic, payload, retain))
         self.qos.setdefault(topic, []).append(qos)
+        if topic.startswith('homeassistant/device/'):
+            self._expand_device(topic, payload)
         return types.SimpleNamespace(wait_for_publish=lambda *a: None)
+
+    def _expand_device(self, topic, payload):
+        """Message d'appareil traduit en configurations par entite, comme HA
+        l'interprete (topics virtuels homeassistant/<plateforme>/claptrap/<id>/config) :
+        les assertions portent sur les entites obtenues."""
+        import json as _json
+        known = self._cmps.setdefault(topic, {})
+        if not payload:
+            self.devices.pop(topic, None)
+            for cid, platform in known.items():
+                self.published.append((f'homeassistant/{platform}/claptrap/{cid}/config', '', True))
+            known.clear()
+            return
+        msg = _json.loads(payload)
+        self.devices[topic] = msg
+        for cid, c in msg['cmps'].items():
+            platform = c['p']
+            virtual = f'homeassistant/{platform}/claptrap/{cid}/config'
+            if len(c) == 1:   # {"p": …} : retrait
+                self.published.append((virtual, '', True))
+                known.pop(cid, None)
+                continue
+            cfg = {k: v for k, v in c.items() if k != 'p'}
+            cfg.update(device=msg['dev'], origin=msg['o'])
+            self.published.append((virtual, _json.dumps(cfg), True))
+            known[cid] = platform
 
     def subscribe(self, topic):
         pass
@@ -143,12 +174,15 @@ def mqtt(monkeypatch):
     monkeypatch.setattr(ha, '_mqtt_client', client)
     monkeypatch.setattr(ha, '_source_info', {})
     monkeypatch.setattr(ha, '_listening', set())
-    monkeypatch.setattr(ha, '_discovered', set())
     monkeypatch.setattr(ha, '_availability_seen', set())
-    monkeypatch.setattr(ha, '_pending_removal', set())
+    monkeypatch.setattr(ha, '_pending_devices', set())
     monkeypatch.setattr(ha, '_pending_topics', set())
-    monkeypatch.setattr(ha, '_discovered_ctrl', set())
-    monkeypatch.setattr(ha, '_ctrl_state_topics', {})
+    monkeypatch.setattr(ha, '_legacy', {})
+    monkeypatch.setattr(ha, '_seen_devices', {})
+    monkeypatch.setattr(ha, '_device_cmps', {})
+    ready = threading.Event()
+    ready.set()   # migration supposee faite : les configurations sont publiees
+    monkeypatch.setattr(ha, '_discovery_ready', ready)
     import ha_control
     monkeypatch.setattr(ha_control, '_published', {})
     monkeypatch.setattr(ha_control, '_analysis_last', {})

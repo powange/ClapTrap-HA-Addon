@@ -82,9 +82,8 @@ def cleanup_ha_entities():
     return jsonify({
         'success': True,
         'removed': len(removed),
-        'entities': [f'binary_sensor.claptrap_{o}' for o in removed],
-        'message': f'{len(removed)} entité(s) orpheline(s) supprimée(s).' if removed
-                   else 'Aucune entité orpheline.',
+        'entities': removed,   # « appareil <source> » (toutes ses entites) ou entity_id
+        'message': f"Supprimé : {', '.join(removed)}." if removed else 'Aucune entité orpheline.',
     })
 
 
