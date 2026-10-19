@@ -61,6 +61,10 @@ Bouton **Ajouter une source**, puis :
   Speex et PCM, soit ceux des caméras IP courantes. Les réglages de la
   caméra affichent le **format audio reçu** (par exemple « G.711 µ-law ·
   8 kHz · mono ») dès qu'elle est écoutée (« Tester le son » ou détection).
+  Dans l'assistant, **Vérifier l'adresse** s'y connecte avant l'ajout (15 s
+  au plus) : son reçu ou non, format audio, alerte sous 16 kHz, et sinon la
+  cause (mot de passe refusé, chemin introuvable, caméra injoignable, aucune
+  piste audio…).
 - **Flux VBAN** : un PC qui diffuse du son avec Voicemeeter. Réglez
   l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980 :
   le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur

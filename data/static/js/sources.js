@@ -112,20 +112,28 @@
                        opus: 'Opus', mp3: 'MP3', mp3float: 'MP3', mp2: 'MP2', amrnb: 'AMR', amrwb: 'AMR-WB',
                        pcm_s16be: 'PCM 16 bits', pcm_s16le: 'PCM 16 bits', speex: 'Speex', ac3: 'AC-3', vorbis: 'Vorbis'};
     var CHANNEL_NAMES = {mono: 'mono', stereo: 'stéréo'};
+    // {desc, low, advice} d'un format audio (cartes et assistant).
+    CT.audioFormatInfo = function (fmt) {
+        var khz = fmt.sample_rate / 1000;
+        var low = fmt.sample_rate < 16000;
+        return {
+            desc: [CODEC_NAMES[fmt.codec] || fmt.codec, String(khz).replace('.', ',') + ' kHz',
+                   CHANNEL_NAMES[fmt.channels] || fmt.channels].filter(Boolean).join(' · '),
+            low: low,
+            advice: low
+                ? 'Fréquence trop basse : tout ce qui dépasse ' + String(khz / 2).replace('.', ',') + ' kHz est perdu, et les sons aigus ' +
+                  '(claquement de doigts, sifflement) sont mal reconnus. Si la caméra le permet, choisissez AAC à 16 kHz ou plus ' +
+                  'dans ses réglages audio.'
+                : 'Fréquence suffisante pour la reconnaissance.'
+        };
+    };
     function audioFormatHtml(src) {
         var fmt = CT.state.audioFormats[src.sourceId];
         var head = '<span class="field-label">Format audio reçu</span>';
         if (!fmt) return head + '<p class="hint">Inconnu pour l\'instant : il s\'affiche dès que la caméra est écoutée (« Tester le son » ou détection).</p>';
-        var khz = fmt.sample_rate / 1000;
-        var desc = [CODEC_NAMES[fmt.codec] || fmt.codec, String(khz).replace('.', ',') + ' kHz',
-                    CHANNEL_NAMES[fmt.channels] || fmt.channels].filter(Boolean).join(' · ');
-        var low = fmt.sample_rate < 16000;
-        return head + '<p class="audio-format' + (low ? ' text-warn' : '') + '">' + esc(desc) + '</p>' +
-            '<p class="hint' + (low ? ' text-warn' : '') + '">' + (low
-                ? 'Fréquence trop basse : tout ce qui dépasse ' + String(khz / 2).replace('.', ',') + ' kHz est perdu, et les sons aigus ' +
-                  '(claquement de doigts, sifflement) sont mal reconnus. Si la caméra le permet, choisissez AAC à 16 kHz ou plus ' +
-                  'dans ses réglages audio, puis relancez la détection.'
-                : 'Fréquence suffisante pour la reconnaissance.') + '</p>';
+        var info = CT.audioFormatInfo(fmt);
+        return head + '<p class="audio-format' + (info.low ? ' text-warn' : '') + '">' + esc(info.desc) + '</p>' +
+            '<p class="hint' + (info.low ? ' text-warn' : '') + '">' + info.advice + (info.low ? ' Relancez ensuite la détection.' : '') + '</p>';
     }
     // Ecrire seulement ce qui change : chaque statut de source reecrivait le
     // format audio et les aides de toutes les cartes (280 modifications de la
@@ -334,7 +342,8 @@
         // cameras) ; un format recu en direct depuis, plus recent, est garde.
         var known = (CT.state.status && CT.state.status.audio_formats) || {};
         Object.keys(known).forEach(function (sid) {
-            if (!CT.state.audioFormats[sid]) CT.state.audioFormats[sid] = known[sid];
+            var cur = CT.state.audioFormats[sid];
+            if (!cur || cur.probed) CT.state.audioFormats[sid] = known[sid];   // verifie dans l'assistant : le serveur est plus recent
         });
         CT.sourceList().forEach(function (src) {
             var card = document.getElementById(src.domId);

@@ -50,7 +50,9 @@ def drain_stderr(proc, name, sanitize=None, on_line=None):
                     logging.debug(f"{name}: {line}")
         except Exception:
             pass
-    threading.Thread(target=_drain, daemon=True).start()
+    thread = threading.Thread(target=_drain, daemon=True)
+    thread.start()
+    return thread
 
 
 def terminate_process(proc, timeout=2):

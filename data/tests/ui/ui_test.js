@@ -34,6 +34,10 @@ const dom = new JSDOM(html, {
       else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
+      else if (url === '/api/rtsp/probe') res = /8k/.test(body.url)
+        ? { success: true, ok: true, format: { codec: 'pcm_alaw', sample_rate: 8000, channels: 'mono' }, audio_seconds: 2, error: null }
+        : /nope/.test(body.url) ? { success: true, ok: false, format: null, audio_seconds: 0, error: 'Identifiant ou mot de passe refusés par la caméra.' }
+        : { success: true, ok: true, format: { codec: 'aac', sample_rate: 16000, channels: 'mono' }, audio_seconds: 2, error: null };
       else if (url === '/api/rtsp/stream' && method === 'POST') { const s = { id: 'new-1', name: body.name, url: body.url, enabled: true, sound_groups: [{ slug: 'clap', name: 'Clap', ha_entities: [1], sound_whitelist: {} }] }; settings.rtsp_sources.push(s); res = { success: true, stream: s }; }
       else if (url === '/api/vban/save') { const s = Object.assign({ sound_groups: [] }, body); settings.saved_vban_sources.push(s); res = { success: true, source: s }; }
       else if (url === '/api/detection/start') status = { running: true, source: 'x', since: Date.now() / 1000 - 125, sources: ['mic', 'rtsp_abc-123'] };
@@ -225,6 +229,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('16. tester le webhook', lastCall('POST', '/api/webhook/test')[2].url === 'http://homeassistant:8123/api/webhook/x');
   $('#src-mic [data-action="close-settings"]').click(); await tick(2);
   ok('+  groupe créé visible sur la carte après fermeture', !!$('#src-mic .group-live[data-slug="snap"]'));
+  ok('+  format audio : inconnu tant que la caméra n\'est pas écoutée',
+     /Inconnu pour l'instant/.test(($('#src-rtsp-abc_123 [data-role="audio-format"]') || {}).textContent || ''));
   // 10 : suppression avec confirmation
   $('#src-rtsp-abc_123 [data-action="delete"]').click(); await tick();
   ok('10. confirmation de suppression', /Supprimer « /.test($('.modal-message').textContent));
@@ -234,7 +240,24 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#add-source').click(); await tick();
   ok('7. assistant : micro déjà ajouté grisé', $('.choice[data-kind="mic"]').disabled);
   $('.choice[data-kind="rtsp"]').click(); await tick();
-  $('#wz-url').value = 'rtsp://cam/new'; $('[data-w="ok"]').click(); await tick(5);
+  $('#wz-url').value = 'rtsp://cam/nope'; $('#wz-probe').click(); await tick(3);
+  ok('7. assistant : vérification en échec expliquée', /Pas de son.*mot de passe refusés/.test($('#wz-probe-result').textContent));
+  $('#wz-url').value = 'rtsp://cam/8k'; $('#wz-probe').click(); await tick(3);
+  ok('7. assistant : 8 kHz signalé', /Son reçu · G\.711 A-law · 8 kHz · mono/.test($('#wz-probe-result').textContent) &&
+     !!$('#wz-probe-result .text-warn') && /Fréquence trop basse/.test($('#wz-probe-result').textContent) &&
+     lastCall('POST', '/api/rtsp/probe')[2].rtsp_tcp === false);
+  $('#wz-url').value = 'rtsp://cam/new'; $('#wz-url').dispatchEvent(new w.Event('input'));
+  ok('7. assistant : résultat effacé quand l\'adresse change', $('#wz-probe-result').textContent === '');
+  w.__hold = { url: '/api/rtsp/probe' };
+  $('#wz-url').value = 'rtsp://cam/8k'; $('#wz-probe').click(); await tick();
+  ok('7. assistant : « Ajouter » bloqué pendant la vérification', $('[data-w="ok"]').disabled && $('#wz-probe').disabled);
+  $('#wz-url').value = 'rtsp://cam/new'; $('#wz-url').dispatchEvent(new w.Event('input'));
+  w.__hold.release(); w.__hold = null; await tick(3);
+  ok('7. assistant : réponse d\'une adresse modifiée ignorée', $('#wz-probe-result').textContent === '' && !$('[data-w="ok"]').disabled);
+  $('#wz-probe').click(); await tick(3);
+  ok('7. assistant : 16 kHz suffisant', /16 kHz/.test($('#wz-probe-result').textContent) && !!$('#wz-probe-result .text-ok'));
+  $('[data-w="ok"]').click(); await tick(5);
+  ok('7. assistant : format vérifié reporté sur la carte', (w.CT.state.audioFormats['rtsp_new-1'] || {}).sample_rate === 16000);
   ok('7. assistant : caméra ajoutée + étape vérification', lastCall('POST', '/api/rtsp/stream')[2].url === 'rtsp://cam/new' && $('#wizard-title').textContent === 'Vérifier le son' && !!lastCall('POST', '/api/rtsp/test/start'));
   emit('rtsp_level', { id: 'new-1', db: -10 }); await tick();
   ok('7. assistant : VU-mètre de vérification', /-10 dB/.test($('#wz-meter').textContent));
@@ -508,13 +531,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  menu fermé : aria-expanded remis à false',
      menuOf('src-mic').getAttribute('aria-expanded') === 'false' && menuOf(otherCard).getAttribute('aria-expanded') === 'true');
   // --- 6.69 : format audio recu d'une camera (reglages de la source)
-  const cam = CT.sourceList().find(x => x.kind === 'rtsp');
+  const cam = CT.sourceList().find(x => x.kind === 'rtsp');   // new-1 : format verifie dans l'assistant
   const fmtEl = () => $('#' + cam.domId + ' [data-role="audio-format"]');
-  ok('+  format audio : inconnu tant que la caméra n\'est pas écoutée', !!fmtEl() && /Inconnu pour l'instant/.test(fmtEl().textContent));
+  ok('+  format audio : celui vérifié dans l\'assistant', !!fmtEl() && /AAC · 16 kHz/.test(fmtEl().textContent));
   // Page ouverte pendant la detection : le format vient du statut du serveur
   status = { running: true, sources: [cam.sourceId], audio_formats: { [cam.sourceId]: { codec: 'pcm_alaw', sample_rate: 8000, channels: 'mono' } } };
   await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
-  ok('+  format audio repris du statut (détection en cours)', /G\.711 A-law · 8 kHz/.test(fmtEl().textContent));
+  ok('+  format audio repris du statut (détection en cours, remplace celui vérifié)', /G\.711 A-law · 8 kHz/.test(fmtEl().textContent));
   // Source hors de la session (pas dans `sources`) : testable pendant la detection
   status = { running: true, sources: ['autre'] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   ok('+  source non écoutée : « Tester le son » actif pendant la détection',

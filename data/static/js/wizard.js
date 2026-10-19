@@ -157,8 +157,48 @@
             '<input class="input" id="wz-url" type="url" placeholder="rtsp://utilisateur:motdepasse@192.168.1.20:554/stream" spellcheck="false">' +
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
             '<label class="check"><input type="checkbox" id="wz-tcp"> Transport TCP (si le son se coupe, en Wi-Fi)</label>' +
+            '<div class="field"><button type="button" class="btn btn-ghost" id="wz-probe">Vérifier l\'adresse</button>' +
+            '<div id="wz-probe-result" role="status" aria-live="polite"></div></div>' +
             actions('Ajouter la caméra');
         CT.$('#wz-url').focus();
+        var probed = null;   // {url, tcp, format} : format reporte sur la carte creee
+        var probeBtn = CT.$('#wz-probe'), probeOut = CT.$('#wz-probe-result');
+        var probeSeq = 0;   // reponse d'une verification remplacee : ignoree
+        function clearProbe() { probeOut.innerHTML = ''; probed = null; probeSeq++; }
+        CT.$('#wz-url').addEventListener('input', clearProbe);
+        CT.$('#wz-tcp').addEventListener('change', clearProbe);
+        probeBtn.addEventListener('click', function () {
+            var mine = session;
+            var url = CT.$('#wz-url').value.trim(), tcp = CT.$('#wz-tcp').checked;
+            if (!url) { CT.$('#wz-url').focus(); CT.error("Saisissez l'adresse du flux."); return; }
+            clearProbe();
+            var seq = probeSeq;
+            var okBtn = body.querySelector('[data-w="ok"]');
+            probeBtn.disabled = true;
+            okBtn.disabled = true;   // une seule connexion a la camera (beaucoup n'en servent qu'une avec le son)
+            probeBtn.textContent = 'Vérification… (jusqu\'à 15 s)';
+            CT.api('POST', '/api/rtsp/probe', {url: url, rtsp_tcp: tcp}).then(function (d) {
+                if (!current(mine) || seq !== probeSeq) return;   // adresse modifiee depuis
+                var html;
+                if (d.ok) {
+                    var info = d.format ? CT.audioFormatInfo(d.format) : null;
+                    probed = {url: url, tcp: tcp, format: d.format};
+                    html = '<p class="' + (info && info.low ? 'text-warn' : 'text-ok') + '"><strong>Son reçu</strong>' +
+                        (info ? ' · ' + esc(info.desc) : '') + '</p>' +
+                        (info ? '<p class="hint' + (info.low ? ' text-warn' : '') + '">' + info.advice + '</p>' : '');
+                } else {
+                    html = '<p class="text-warn"><strong>Pas de son</strong> : ' + esc(d.error || 'connexion impossible.') + '</p>' +
+                        (d.format ? '<p class="hint">Format annoncé : ' + esc(CT.audioFormatInfo(d.format).desc) + '</p>' : '');
+                }
+                probeOut.innerHTML = html;
+            }).catch(function (err) {
+                if (current(mine) && seq === probeSeq) probeOut.innerHTML = '<p class="text-warn">' + esc(err.message) + '</p>';
+            }).finally(function () {
+                probeBtn.disabled = false;
+                okBtn.disabled = false;
+                probeBtn.textContent = 'Vérifier l\'adresse';
+            });
+        });
         wire(stepType, function (mine) {
             var url = CT.$('#wz-url').value.trim();
             if (!url) { CT.$('#wz-url').focus(); throw new Error("Saisissez l'adresse du flux."); }
@@ -168,6 +208,12 @@
                 .then(function (d) {
                     if (!current(mine)) return;
                     created = CT.findSource(function (s) { return s.kind === 'rtsp' && s.key === d.stream.id; });
+                    // Format deja connu (verification de cette adresse) : affiche
+                    // sur la carte sans attendre la premiere ecoute.
+                    if (created && probed && probed.format && probed.url === url && probed.tcp === CT.$('#wz-tcp').checked &&
+                        !CT.state.audioFormats[created.sourceId]) {
+                        CT.state.audioFormats[created.sourceId] = Object.assign({probed: true}, probed.format);
+                    }
                     stepCheck();
                 });
         });

@@ -13,7 +13,7 @@ import uuid
 
 from flask import Blueprint, jsonify
 
-from audio_sources import mic_source, rtsp_source
+from audio_sources import mic_source, probe_rtsp, rtsp_source
 from audio_utils import level_db
 from settings_manager import load_settings
 from routes.sources import _json, _resolve_pulse_name, api_error_response, ApiError
@@ -193,19 +193,15 @@ def start_rtsp_test():
     # Gain lu en direct (curseur de la carte), jamais ecrit ici.
     from classify import live_gain
     source_id = f"rtsp_{test_id}"
-    from classify import detector_for
     # Adresse testee = celle de la camera enregistree (et non une adresse en
     # cours de saisie, qui peut etre celle d'une autre camera).
-    try:
-        same_camera = bool(saved.get('url')) and normalize_rtsp_url(saved['url']) == rtsp_url
-    except ValueError:
-        same_camera = False
-    if same_camera and detector_for(source_id) is not None:
-        # Seconde connexion RTSP : beaucoup de cameras n'en acceptent qu'une
-        # avec le son, la detection pouvait perdre son audio. Le niveau de la
-        # carte suit deja la detection.
+    same_camera = bool(saved.get('url')) and _same_rtsp(saved['url'], rtsp_url)
+    if same_camera and _listened_by_detection(rtsp_url):
+        # Le niveau de la carte suit deja la detection.
         raise ApiError('La détection écoute déjà cette caméra : son niveau est affiché en direct.', 409)
+    _cancel_probe()   # « Ajouter » juste apres « Vérifier l'adresse » : une seule connexion
     test = _Test('rtsp', 'rtsp_level', {'id': test_id})
+    test.url = rtsp_url
     _replace(test)
     reader = rtsp_source(rtsp_url, tcp=tcp)
 
@@ -222,6 +218,64 @@ def start_rtsp_test():
         daemon=True)
     test.thread.start()
     return jsonify({'success': True, 'token': test.token})
+
+
+def _same_rtsp(a, b):
+    from settings_manager import normalize_rtsp_url
+    try:
+        return normalize_rtsp_url(a or '') == normalize_rtsp_url(b or '')
+    except ValueError:
+        return False
+
+
+def _listened_by_detection(url):
+    """Nom de la camera enregistree a cette adresse si la detection
+    l'ecoute, sinon None. Une seconde connexion RTSP est evitee : beaucoup de
+    cameras n'en acceptent qu'une avec le son (la detection perdait le sien)."""
+    from classify import detector_for
+    for cam in load_settings().get('rtsp_sources') or []:
+        if _same_rtsp(cam.get('url'), url) and detector_for(f"rtsp_{cam.get('id')}") is not None:
+            return cam.get('name') or 'Caméra'
+    return None
+
+
+# Verification en cours (une a la fois) : une nouvelle l'interrompt (assistant
+# ferme puis rouvert), comme un test du son de la meme camera.
+_probe_lock = threading.Lock()
+_probe_cancel = threading.Event()
+
+
+def _cancel_probe():
+    _probe_cancel.set()
+
+
+@testing_bp.route('/api/rtsp/probe', methods=['POST'])
+def probe_rtsp_route():
+    """« Verifier l'adresse » (assistant) : connexion, format audio et son
+    recu pendant 2 s, avant d'ajouter la camera. Body : {url, rtsp_tcp?}."""
+    global _probe_cancel
+    from settings_manager import normalize_rtsp_url, to_bool
+    data = _body()
+    url = str(data.get('url', '') or '').strip()
+    if not url:
+        raise ApiError('URL RTSP requise')
+    url = normalize_rtsp_url(url)   # rtsp:// seulement (pas de file://, http://...)
+    tcp = to_bool(data.get('rtsp_tcp', False), 'rtsp_tcp')
+    name = _listened_by_detection(url)
+    if name:
+        raise ApiError(f"Cette caméra est déjà ajoutée (« {name} ») et la détection l'écoute.", 409)
+    with _lock:
+        test = _current
+    if test is not None and test.kind == 'rtsp' and _same_rtsp(getattr(test, 'url', ''), url):
+        raise ApiError("Le son de cette caméra est en cours de test : arrêtez « Tester le son » d'abord.", 409)
+    _probe_cancel.set()                     # verification precedente interrompue
+    if not _probe_lock.acquire(timeout=5):
+        raise ApiError('Une vérification est déjà en cours.', 409)
+    try:
+        cancel = _probe_cancel = threading.Event()
+        return jsonify({'success': True, **probe_rtsp(url, tcp=tcp, cancel=cancel)})
+    finally:
+        _probe_lock.release()
 
 
 # --- Extrait enregistre (detection en cours) ---------------------------------

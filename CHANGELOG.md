@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.90.0
+
+### Assistant RTSP : « Vérifier l'adresse »
+
+- Nouveau bouton dans l'assistant d'ajout d'une caméra : ClapTrap s'y connecte
+  et lit 2 s de son avant l'ajout. Il affiche le format audio (codec,
+  fréquence, canaux), alerte sous 16 kHz (sons aigus mal reconnus), et sinon
+  explique l'échec : identifiants refusés, chemin du flux introuvable,
+  caméra injoignable ou nom inconnu, port fermé, aucune piste audio, piste
+  annoncée mais muette (un autre lecteur a l'audio). Le format vérifié
+  s'affiche aussitôt sur la carte de la caméra.
+- Vérifié sur de vrais flux RTSP (mediamtx) : 16 kHz, 8 kHz, vidéo seule,
+  chemin absent, nom inconnu, adresse injoignable.
+
 ## 6.89.0
 
 ### Détection plus réactive et plus économe

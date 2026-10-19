@@ -121,3 +121,55 @@ def test_vban_test_taps_with_saved_gain_and_clears_on_stop(env, settings_dir, mo
     monkeypatch.setattr(t, 'TEST_MAX_SECONDS', 0.1)
     c.post('/api/vban/test/start', json={'id': 'v1'})
     wait_until(lambda: taps[-1] == (None, None, ''))     # expiration : retire aussi
+
+
+def test_probe_route(env, monkeypatch, settings_dir):
+    t, c, readers, emitted = env
+    calls = []
+    monkeypatch.setattr(t, 'probe_rtsp', lambda url, tcp=False, cancel=None: calls.append((url, tcp)) or
+                        {'ok': True, 'format': {'codec': 'aac', 'sample_rate': 16000, 'channels': 'mono'},
+                         'audio_seconds': 2.0, 'error': None})
+    r = c.post('/api/rtsp/probe', json={'url': 'cam.local/live', 'rtsp_tcp': True})
+    assert r.status_code == 200 and r.json['ok'] and calls == [('rtsp://cam.local/live', True)]
+    assert c.post('/api/rtsp/probe', json={'url': 'file:///etc/passwd'}).status_code == 400
+    assert c.post('/api/rtsp/probe', json={}).status_code == 400
+    # Camera deja ecoutee par la detection : pas de seconde connexion.
+    settings_dir.save_settings({'rtsp_sources': [{'id': 'A', 'name': 'Salon', 'url': 'rtsp://cam.local/live', 'enabled': True}]})
+    import classify
+    monkeypatch.setattr(classify, 'detector_for', lambda sid: object() if sid == 'rtsp_A' else None)
+    r = c.post('/api/rtsp/probe', json={'url': 'rtsp://cam.local/live'})
+    assert r.status_code == 409 and 'Salon' in r.json['error'] and len(calls) == 1
+
+
+def test_probe_refused_while_same_camera_is_tested(env, monkeypatch):
+    t, c, readers, emitted = env
+    monkeypatch.setattr(t, 'probe_rtsp', lambda url, tcp=False, cancel=None: {'ok': True, 'format': None,
+                                                                             'audio_seconds': 2.0, 'error': None})
+    c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://cam/a'})
+    wait_until(lambda: readers)
+    assert c.post('/api/rtsp/probe', json={'url': 'rtsp://cam/a'}).status_code == 409
+    assert c.post('/api/rtsp/probe', json={'url': 'rtsp://cam/b'}).status_code == 200
+
+
+def test_new_probe_cancels_previous_one(env, monkeypatch):
+    """Assistant ferme puis rouvert : la verification precedente est
+    interrompue au lieu de repondre « deja en cours » pendant 15 s."""
+    import threading
+    t, c, readers, emitted = env
+    started, cancels = threading.Event(), []
+
+    def fake_probe(url, tcp=False, cancel=None):
+        cancels.append(cancel)
+        if url.endswith('/slow'):
+            started.set()
+            cancel.wait(10)
+        return {'ok': not cancel.is_set(), 'format': None, 'audio_seconds': 0.0, 'error': None}
+    monkeypatch.setattr(t, 'probe_rtsp', fake_probe)
+    first = threading.Thread(target=lambda: c.post('/api/rtsp/probe', json={'url': 'rtsp://cam/slow'}))
+    first.start()
+    assert started.wait(5)
+    t0 = time.monotonic()
+    r = c.post('/api/rtsp/probe', json={'url': 'rtsp://cam/fast'})
+    first.join(5)
+    assert r.status_code == 200 and r.json['ok'] and time.monotonic() - t0 < 3
+    assert cancels[0].is_set() and not cancels[1].is_set()
