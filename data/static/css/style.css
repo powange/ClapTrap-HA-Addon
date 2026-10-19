@@ -489,6 +489,15 @@ details.field > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; 
 .cal-result { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
 .cal-result ul { margin: 4px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--ink-2); }
 .cal-result h4 { margin: 0; }
+/* Calibrage du comptage : reglages et prises, actuel / propose */
+.cc-table-wrap { overflow-x: auto; }
+.cc-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.cc-table th, .cc-table td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.cc-table thead th { border-top: 0; font-size: 0.78rem; color: var(--ink-3); font-weight: 600; }
+.cc-table .input { width: 6.5em; }
+.cc-ok { color: var(--ok); font-weight: 700; }
+.cc-ko { color: var(--danger); font-weight: 700; }
+.cc-details summary { cursor: pointer; color: var(--ink-2); margin: 8px 0; }
 .field-row-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 4px 0; }
 
 /* Cibles tactiles de 44 px sur ecran tactile (24 a 36 px avant) */

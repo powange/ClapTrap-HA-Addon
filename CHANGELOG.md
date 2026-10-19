@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.73.0
+
+### Calibrer le comptage
+
+- **Nouvel outil** dans Réglages › Comptage des claps : **Calibrer le
+  comptage…** propose la fenêtre multi-clap, l'écart minimal entre deux
+  claps et la force minimale d'un clap à partir de vos propres gestes,
+  mesurés sur la source de votre choix (environ 2 minutes, la source ne
+  déclenche rien pendant ce temps) :
+  1. 5 s de bruit de fond ;
+  2. 3 claps simples (force de vos claps, rebonds) ;
+  3. 3 fois « 2 claps » et 2 fois « 3 claps » (durée de vos gestes) ;
+  4. au choix, « 2 claps, une pause, 1 clap » : vérifie que deux commandes
+     ne sont pas fusionnées.
+- **Résultat vérifié** : vos prises sont rejouées avec les réglages actuels
+  et proposés (« prises correctement comptées : 4/9 → 9/9 »), avec le détail
+  par prise et des conseils (claps trop proches du bruit, pause trop courte
+  entre deux commandes). Une prise ratée (clap fait trop tôt, oublié) est
+  écartée et signalée au lieu de fausser les valeurs ; la décroissance d'un
+  clap n'est pas prise pour un rebond. Les valeurs restent modifiables
+  avant « Appliquer ».
+
 ## 6.72.0
 
 ### Détection

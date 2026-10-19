@@ -139,7 +139,11 @@
                             <p class="hint">Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs.</p>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-ghost" id="adv-defaults">Rétablir les valeurs par défaut</button>
+                    <div class="button-row">
+                        <button type="button" class="btn btn-primary" id="count-calibrate">Calibrer le comptage…</button>
+                        <button type="button" class="btn btn-ghost" id="adv-defaults">Rétablir les valeurs par défaut</button>
+                    </div>
+                    <p class="hint">« Calibrer le comptage » mesure votre bruit de fond, la force de vos claps et la durée de vos gestes, puis propose ces trois réglages.</p>
                 </section>
 
                 <section class="card" id="exclusions" aria-labelledby="excl-title">
@@ -210,6 +214,18 @@
         </div>
     </div>
 
+    <div class="modal-backdrop" id="count-calibration" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="count-calibration-title">
+            <div class="modal-head">
+                <h2 id="count-calibration-title">Calibrer le comptage</h2>
+                <button type="button" class="btn-icon" data-c="close" aria-label="Fermer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+            <div data-role="count-calibration-body"></div>
+        </div>
+    </div>
+
     <div class="toasts" id="toasts" aria-live="polite"></div>
     <div class="sr-only" id="announcer" aria-live="polite"></div>
 
@@ -227,6 +243,7 @@
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/sources.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/wizard.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/calibrate.js"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/count_calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/settings.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/app.js"></script>
 </body>
