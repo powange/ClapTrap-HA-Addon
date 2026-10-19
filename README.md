@@ -20,7 +20,8 @@ salon.
   l'emploi, et mode **alerte** (détecteur de fumée, pleurs de bébé,
   aboiement…) : un capteur allumé tant que le son dure.
 - **Blueprints** Home Assistant à importer en un clic : claps pour basculer
-  une lumière, alerte sur le téléphone, confirmation vocale, clap pour Assist
+  une lumière ou un ventilateur, faire défiler des scènes, lancer des actions
+  au choix, alerte sur le téléphone, confirmation vocale, clap pour Assist
   (dossier `blueprints/`).
 - **Webhook** facultatif par source (Node-RED, webhook Home Assistant…).
 - **Interface** dans Home Assistant : niveaux et scores en direct, historique

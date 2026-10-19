@@ -1,7 +1,7 @@
 blueprint:
   name: ClapTrap — Claps pour basculer une lumière
   description: >-
-    Allume ou éteint des lumières (ou des prises) quand un capteur de claps
+    Allume ou éteint des lumières, des prises, des ventilateurs ou des interrupteurs virtuels quand un capteur de claps
     ClapTrap se déclenche, par exemple « binary_sensor.claptrap_mic_clap_2claps »
     pour deux claps devant le micro. Toutes vont dans le même sens : si l'une
     est allumée, tout s'éteint ; sinon tout s'allume.
@@ -21,7 +21,7 @@ blueprint:
               domain: binary_sensor
               device_class: sound
     cibles:
-      name: Lumières ou prises
+      name: Lumières, prises, ventilateurs ou interrupteurs virtuels
       description: >-
         Entités seulement (une pièce entière ferait aussi basculer la
         télévision, les volets…).
@@ -32,6 +32,8 @@ blueprint:
             - domain:
                 - light
                 - switch
+                - fan
+                - input_boolean
 
 mode: single
 max_exceeded: silent

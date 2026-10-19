@@ -1,0 +1,37 @@
+blueprint:
+  name: ClapTrap — Claps pour lancer des actions au choix
+  description: >-
+    Lance les actions de votre choix (script, scène, commande RF ou
+    infrarouge, télécommande, notification…) quand un capteur de claps
+    ClapTrap se déclenche : pour tout ce que les autres blueprints ne couvrent
+    pas.
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/claps_actions.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur de claps
+      description: Capteur ClapTrap « … clap(s) » d'une source et d'un groupe.
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class: sound
+    actions:
+      name: Actions
+      selector:
+        action: {}
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input capteur
+    from: "off"
+    to: "on"
+
+actions: !input actions
