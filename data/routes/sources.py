@@ -770,9 +770,20 @@ def _slugify_group(name, existing_slugs):
 def create_source_sound_group():
     """Cree un nouveau groupe pour une source.
 
-    Body: {kind, source_key, name, threshold?, ha_entities?}
+    Body: {kind, source_key, name?, preset?, threshold?, ha_entities?}
+    `preset` : modele (GET /api/sound_groups/presets) : sons coches, seuil,
+    comptage ; `name` facultatif alors (nom du modele).
     """
+    from settings_manager import GROUP_PRESETS
     data = _json()
+    preset = None
+    if data.get('preset') is not None:
+        preset = GROUP_PRESETS.get(data['preset']) if isinstance(data['preset'], str) else None
+        if preset is None:
+            raise ApiError('preset : ' + ', '.join(GROUP_PRESETS) + ' attendu')
+        auto_name = not data.get('name')
+        if auto_name:
+            data = dict(data, name=preset['name'])
     kind = _require_kind(data, 'name')
     source_key = data.get('source_key')
     if not isinstance(data.get('name'), str):
@@ -784,32 +795,60 @@ def create_source_sound_group():
         groups = src.setdefault('sound_groups', [])
         if len(groups) >= MAX_GROUPS:
             raise ApiError(f'{MAX_GROUPS} groupes au plus par source')
-        _check_unique_group_name(groups, name)
+        gname = name
+        if preset and auto_name:
+            # Deuxieme groupe du meme modele (deux chiens, autre seuil) :
+            # « Aboiement 2 » au lieu d'un refus sans moyen de saisir un nom.
+            taken = {(g.get('name') or '').casefold() for g in groups if isinstance(g, dict)}
+            base, n = gname, 2
+            while gname.casefold() in taken:
+                gname, n = f'{base} {n}', n + 1
+        _check_unique_group_name(groups, gname)
         existing_slugs = {g.get('slug') for g in groups if isinstance(g, dict)} | \
             {g.get('entity_slug') for g in groups if isinstance(g, dict) and g.get('entity_slug')}
-        slug = _slugify_group(name, existing_slugs)
+        slug = _slugify_group(gname, existing_slugs)
         # entity_id propose : jamais l'ancien nom d'un groupe dont le
         # renommage dans HA est en attente (« _2 » pour toujours). Le slug
         # (unique_id, topics) n'est pas concerne.
-        entity_slug = _slugify_group(name, _taken_entity_slugs(groups) | existing_slugs)
+        entity_slug = _slugify_group(gname, _taken_entity_slugs(groups) | existing_slugs)
         # Groupe vide : ses sons s'ajoutent en activant « Ajouter les sons
         # entendus » (auto_add_sounds) pendant la detection.
         new_group = {
-            'slug': slug, 'name': name,
+            'slug': slug, 'name': gname,
             **({'entity_slug': entity_slug} if entity_slug != slug else {}),
             'sound_whitelist': {}, 'auto_add_sounds': False,
             'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
             # [] = aucune entite (un `or` le remplacait par 1 et 2 claps)
             'ha_entities': to_clap_counts(data['ha_entities'] if data.get('ha_entities') is not None else [1, 2]),
         }
+        if preset:
+            # Sons du modele coches, sauf ceux deja actifs dans un autre groupe
+            # de la source (un son ne declenche qu'un groupe) : signales.
+            taken = {l for g in groups if isinstance(g, dict)
+                     for l, on in (g.get('sound_whitelist') or {}).items() if on}
+            new_group['sound_whitelist'] = {l: l not in taken for l in preset['sounds']}
+            state['skipped'] = [l for l in preset['sounds'] if l in taken]
+            for key in ('threshold', 'ha_entities', 'count_mode', 'alert_confirm', 'device_class'):
+                if key in preset and data.get(key) is None:
+                    new_group[key] = preset[key]
+            if preset.get('count_mode') == 'alerte':
+                new_group['ha_entities'] = []
         groups.append(new_group)
         _check_entity_collision(settings)
         return new_group, dict(src)
 
+    state = {}
     new_group, src = modify_settings(_mut)
     _sync_ha_entities()
     _apply_live()
-    return jsonify({'success': True, 'group': new_group})
+    return jsonify({'success': True, 'group': new_group, 'skipped_sounds': state.get('skipped', [])})
+
+
+@sources_bp.route('/api/sound_groups/presets', methods=['GET'])
+def group_presets():
+    """Modeles de groupes proposes a l'ajout (gestes et alarmes)."""
+    from settings_manager import GROUP_PRESETS
+    return jsonify({'presets': [dict(p, id=k) for k, p in GROUP_PRESETS.items()]})
 
 
 @sources_bp.route('/api/source/sound_groups', methods=['PUT'])
@@ -850,7 +889,12 @@ def update_source_sound_group():
         if 'count_mode' in data:
             from settings_manager import to_count_mode
             target['count_mode'] = to_count_mode(data['count_mode'])
-        if 'ha_entities' in data or state.get('renamed'):
+        if 'alert_confirm' in data:
+            target['alert_confirm'] = to_number(data['alert_confirm'], 'alert_confirm', 1, 4, integer=True)
+        if 'device_class' in data:
+            from settings_manager import to_device_class
+            target['device_class'] = to_device_class(data['device_class'])
+        if 'ha_entities' in data or state.get('renamed') or 'count_mode' in data:
             if 'ha_entities' in data:
                 target['ha_entities'] = to_clap_counts(data['ha_entities'] or [])
             # Plus de nombres de claps ou nouveaux entity_id : meme controle
@@ -864,9 +908,10 @@ def update_source_sound_group():
         # Entites renommees dans le registre de HA (historique conserve).
         import ha_registry
         ha_registry.schedule_reconcile()
-    if 'name' in data or 'ha_entities' in data:
-        # Seuls le nom et les nombres de claps changent les entites : ne pas
-        # republier toute la configuration MQTT a chaque cran du seuil.
+    if {'name', 'ha_entities', 'count_mode', 'device_class'} & set(data):
+        # Seuls le nom, les nombres de claps et le mode (alerte : un autre
+        # capteur) changent les entites : ne pas republier toute la
+        # configuration MQTT a chaque cran du seuil.
         _sync_ha_entities()
     _apply_live()
     return jsonify({'success': True, 'group': target, 'group_slug': slug})

@@ -105,12 +105,43 @@ La liste des sons ne se remplit pas toute seule. L'interrupteur **Ajouter les
 sons entendus** (désactivé par défaut, réglable par groupe) ajoute à la liste
 du groupe, non cochés, les sons que la source entend pendant la détection :
 cochez ceux qui doivent déclencher le groupe, puis désactivez-le une fois la
-liste faite. Un nouveau groupe démarre vide.
+liste faite.
+
+**Nouveau groupe** : choisissez un **modèle**, qui coche déjà les bons sons
+et règle le comptage, ou un groupe vide à nommer. Tout reste modifiable.
+
+| Modèle | Sons | Fonctionnement |
+|---|---|---|
+| Applaudissements | Clapping, Hands, Applause | 1 et 2 claps |
+| Claquement de doigts | Finger snapping | 1 et 2 claps |
+| Toc-toc | Knock, Tap | 2 et 3 coups |
+| Sifflement | Whistling, Whistle | sons tenus, 1 |
+| Détecteur de fumée | Smoke detector, Fire alarm | alerte (fumée) |
+| Bris de glace | Glass, Shatter | alerte (sécurité), dès 1 reconnaissance |
+| Pleurs de bébé | Baby cry, Crying | alerte (son) |
+| Aboiement | Bark, Dog | alerte (son) |
+| Sonnette | Doorbell, Ding-dong | alerte (son), dès 1 reconnaissance |
+| Alarme ou sirène | Alarm, Siren, Car alarm… | alerte (sécurité) |
+
+Un son déjà coché dans un autre groupe de la source n'est pas coché dans le
+nouveau (signalé à la création). Ces modèles aident à surveiller une maison ;
+ce n'est pas un système de sécurité certifié (une alarme à la télévision est
+aussi reconnue).
 
 **Comptage** (par groupe) : « claps, coups » compte les attaques nettes (un
 clap = un pic) ; « sons tenus » convient aux sifflements et aux sons qui
 montent doucement : tant que le son dure, un nouveau pic est compté toutes
 les 0,3 s (un sifflement d'une seconde compte environ 3).
+
+**Alerte** (détecteur de fumée, pleurs, aboiement, sonnette…) : pas de
+comptage ni de capteurs « N claps », mais un capteur
+`binary_sensor.claptrap_<source>_<groupe>_alerte` qui **reste allumé tant que
+le son est reconnu** et s'éteint après 5 secondes de silence (ou à l'arrêt de
+la détection). Il s'allume après 1 à 4 reconnaissances sur les 4 dernières
+analyses (2 secondes) : 1 pour un son bref comme un bris de glace, 3 pour un
+son qui dure, comme une alarme. Son **type** (fumée, sécurité, son, problème,
+présence) donne son icône et ses libellés dans Home Assistant. Une alerte
+n'empêche pas un clap d'être compté, et inversement.
 
 Un son ne peut être coché que dans un groupe par source. Si plusieurs groupes
 reconnaissent le même événement sonore, seul celui qui a le meilleur score
@@ -311,8 +342,8 @@ data:
 | `add_microphone` | `device`, `enabled` |
 | `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) ; pas `webhook_url` (interface seulement) |
 | `delete_source` | `source` |
-| `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`) |
-| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques` ou `tenus`) |
+| `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`), ou `preset` (`claps`, `doigts`, `toc`, `sifflement`, `fumee`, `verre`, `bebe`, `aboiement`, `sonnette`, `alarme`) avec `name` facultatif |
+| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques`, `tenus` ou `alerte`), `alert_confirm` (1 à 4), `device_class` (`sound`, `smoke`, `safety`, `problem`, `occupancy`) |
 | `delete_group` | `source`, `group` (le premier groupe est protégé) |
 | `set_sound` | `source`, `group`, `label` (classe YAMNet, ex. `Whistling`), `enabled` |
 | `clear_unchecked_sounds` | `source`, `group` |
@@ -362,6 +393,10 @@ qu'un webhook :
   reconnaît un son sans aucun pic).
 - `labels` : sons reconnus (noms YAMNet en anglais) et leur score.
 
+Un groupe en mode alerte émet `claptrap_alert` au début et à la fin de
+l'alerte, avec les mêmes champs (sans `clap_count`) et `"alert": "on"` ou
+`"off"`. Le plus simple reste d'utiliser son capteur `…_alerte`.
+
 ```yaml
 triggers:
   - trigger: event
@@ -376,7 +411,7 @@ triggers:
 Chaque source peut envoyer un **POST JSON** à une URL (facultatif), par
 exemple un webhook Home Assistant (`http://homeassistant:8123/api/webhook/<id>`)
 ou Node-RED. Le contenu est celui de l'événement ci-dessus, plus
-`"event": "clap"`. Le bouton **Tester** envoie le même contenu avec
+`"event": "clap"` (`"event": "alert"` pour une alerte). Le bouton **Tester** envoie le même contenu avec
 `"test": true`.
 
 L'URL d'un webhook Home Assistant est un secret : quiconque la connaît peut

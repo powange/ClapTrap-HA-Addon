@@ -153,6 +153,14 @@ class AudioDetector:
             self.tracker.set_groups(groups, default_threshold=self.score_threshold)
             if self.tracker.min_threshold is not None:
                 self.score_threshold = self.tracker.min_threshold
+            events = self.tracker.drop_alerts()   # alerte d'un groupe retire : eteinte
+        self._dispatch(events)
+
+    def stop_alerts(self):
+        """Arret de la source : alertes allumees eteintes (capteurs HA)."""
+        with self.lock:
+            events = self.tracker.stop_alerts()
+        self._dispatch(events)
 
     def set_exclusions(self, labels):
         with self.lock:
@@ -491,8 +499,8 @@ class AudioDetector:
 
     def _dispatch(self, events):
         """Evenements de detection (arbitrage fait) vers la session, hors verrou."""
-        if events:
-            winner = next(e for e in events if not e['ignored'])
+        if events and any(not e['ignored'] and not e.get('alert') for e in events):
+            winner = next(e for e in events if not e['ignored'] and not e.get('alert'))
             logging.debug(f"[{self.label}] CLAP groupe={winner['group']['name']}: "
                           f"{winner['clap_count']} pic(s), score={winner['score']:.2f}")
         for ev in events:
@@ -513,6 +521,7 @@ class AudioDetector:
                     'group_name': group['name'],
                     'group_clap_counts': list(group['clap_counts']),   # garanti par normalize_group
                     'ignored': ev['ignored'],
+                    'alert': ev.get('alert'),   # mode alerte : 'on' / 'off'
                 })
             except Exception as e:
                 logging.error(f"Erreur callback détection ({self.label}): {e}")

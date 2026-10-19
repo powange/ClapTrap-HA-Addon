@@ -49,7 +49,17 @@ const dom = new JSDOM(html, {
       else if (url === '/api/calibration/apply') res = { success: true, applied: ['a', 'b'], errors: [] };
       else if (url === '/api/microphone' && method === 'POST') { Object.assign(settings.microphone, { configured: true, enabled: true }); }
       else if (url.startsWith('/api/rtsp/stream/') && method === 'DELETE') { settings.rtsp_sources = settings.rtsp_sources.filter(s => !url.endsWith(s.id)); }
-      else if (url === '/api/source/sound_groups' && method === 'POST') { settings.microphone.sound_groups.push({ slug: 'snap', name: body.name, ha_entities: [1], sound_whitelist: {} }); }
+      else if (url === '/api/source/sound_groups' && method === 'POST') {
+        const g = body.preset === 'fumee'
+          ? { slug: 'fumee', name: 'Détecteur de fumée', ha_entities: [], count_mode: 'alerte', alert_confirm: 3, device_class: 'smoke',
+              sound_whitelist: { 'Smoke detector, smoke alarm': true, 'Fire alarm': true } }
+          : { slug: 'snap', name: body.name, ha_entities: [1], sound_whitelist: {} };
+        settings.microphone.sound_groups.push(g);
+        res = { success: true, group: g, skipped_sounds: body.preset === 'fumee' ? ['Fire alarm'] : [] };
+      }
+      else if (url === '/api/sound_groups/presets') res = { presets: [
+        { id: 'claps', name: 'Applaudissements', sounds: ['Clapping', 'Hands'], ha_entities: [1, 2], count_mode: 'attaques' },
+        { id: 'fumee', name: 'Détecteur de fumée', sounds: ['Smoke detector, smoke alarm', 'Fire alarm'], count_mode: 'alerte', alert_confirm: 3 }] };
       else if (url === '/api/ha/entity-ids') res = { mic: { clap: ['binary_sensor.claptrap_mic_clap_1clap', 'binary_sensor.claptrap_mic_clap_2claps'] } };
       else if (url === '/api/ha/cleanup') res = { success: true, message: '2 entité(s) orpheline(s) supprimée(s).' };
       if (url.includes('FAIL')) return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: 'refusé' }) });
@@ -181,9 +191,26 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('15. groupe principal non supprimable', !$('#src-mic .group-card[data-slug="clap"] [data-group-action="delete"]') && !!$('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]'));
   $('#src-mic .group-card[data-slug="clap"] [data-group-action="cleanup"]').click(); await tick(3);
   ok('15. retirer les sons non cochés', !!lastCall('POST', '/api/source/sound_whitelist/cleanup'));
-  $('#src-mic [data-action="add-group"]').click(); await tick();
+  $('#src-mic [data-action="add-group"]').click(); await tick(3);
+  ok('+  nouveau groupe : modèles proposés', $$('.modal [data-preset]').length === 3 && /Alerte : capteur tant que le son dure/.test($$('[data-preset]').map(b => b.textContent).join(' ')));
+  $('.modal [data-preset=""]').click(); await tick(2);
   $('.modal #dlg-input').value = 'Snap'; $('.modal [data-r="ok"]').click(); await tick(4);
   ok('15. nouveau groupe (sans rechargement)', lastCall('POST', '/api/source/sound_groups')[2].name === 'Snap' && !!$('#src-mic dialog .group-card[data-slug="snap"]'));
+  $('#src-mic [data-action="add-group"]').click(); await tick(3);
+  $('.modal [data-preset="fumee"]').click(); await tick(5);
+  ok('+  modèle « Détecteur de fumée » : groupe créé, sons déjà pris signalés', lastCall('POST', '/api/source/sound_groups')[2].preset === 'fumee' &&
+     /Détecteur de fumée/.test($('#toasts').textContent) && /non cochés/.test($('#toasts').textContent));
+  const fumee = () => $('#src-mic dialog .group-card[data-slug="fumee"]');
+  ok('+  mode alerte : capteur, confirmation et type au lieu des nombres de claps', !!fumee() && !fumee().querySelector('[data-clap]') &&
+     fumee().querySelector('[data-role="alert-confirm"]').value === '3' && fumee().querySelector('[data-role="device-class"]').value === 'smoke' &&
+     fumee().querySelector('[data-role="count-mode"]').value === 'alerte');
+  change(fumee().querySelector('[data-role="alert-confirm"]'), '1'); await tick(3);
+  ok('+  mode alerte : confirmation enregistrée', lastCall('PUT', '/api/source/sound_groups')[2].alert_confirm === 1);
+  emit('alert', { source_id: 'mic', group_slug: 'fumee', group_name: 'Détecteur de fumée', alert: 'on', score: 0.8 }); await tick();
+  ok('+  alerte : signalée sur la carte et dans l\'historique', /🚨 Détecteur de fumée détecté/.test($('#src-mic [data-role="live"]').textContent) &&
+     /Alerte/.test($('#history-list').textContent));
+  emit('alert', { source_id: 'mic', group_slug: 'fumee', group_name: 'Détecteur de fumée', alert: 'off', score: 0 }); await tick();
+  ok('+  fin d\'alerte : mention retirée', !/🚨/.test($('#src-mic [data-role="live"]').textContent));
   emit('sound_seen', { source_id: 'mic', label: 'Dog' }); await tick();
   ok('15. auto-découverte d\'un son (groupe avec « Ajouter les sons entendus »)', !!$('#src-mic .chip input[data-label="Dog"]'));
   $('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]').click(); await tick();

@@ -11,7 +11,11 @@ parametre (`now`) pour pouvoir tester la logique de facon deterministe.
 """
 
 
+import collections
+
 DEFAULT_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
+ALERT_WINDOW = 4      # analyses (0,5 s chacune) sur lesquelles compter les reconnaissances
+ALERT_OFF_DELAY = 5.0  # s sans reconnaissance avant d'eteindre une alerte
 
 
 def normalize_group(g, idx=0, default_threshold=0.5):
@@ -32,10 +36,14 @@ def normalize_group(g, idx=0, default_threshold=0.5):
         'clap_counts': [n for n in counts if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 4],
         # Sons entendus ajoutes a la liste du groupe (desactive par defaut).
         'auto_add': bool(g.get('auto_add', g.get('auto_add_sounds', False))),
-        # Comptage : « attaques » (claps, toc : un front net par geste) ou
+        # Comptage : « attaques » (claps, toc : un front net par geste),
         # « tenus » (sifflement : recompte toutes les SUSTAIN_RESET s tant que
-        # le son dure, comme avant la 6.37).
-        'count_mode': 'tenus' if g.get('count_mode') == 'tenus' else 'attaques',
+        # le son dure, comme avant la 6.37) ou « alerte » (alarme, pleurs : un
+        # capteur allume tant que le son est reconnu, sans compter de pics).
+        'count_mode': g.get('count_mode') if g.get('count_mode') in ('tenus', 'alerte') else 'attaques',
+        # Alerte : reconnaissances sur les ALERT_WINDOW dernieres analyses
+        # pour l'allumer (1 : son bref comme un bris de glace).
+        'alert_confirm': min(ALERT_WINDOW, max(1, int(g.get('alert_confirm') or 2))),
     }
 
 
@@ -104,6 +112,7 @@ class ClapTracker:
         self._consumed_until = 0.0
         self._last_trigger = 0.0
         self._group_state = {}   # slug -> {armed_at, score, labels}
+        self._alerts = {}        # slug -> {hits, on, last_hit, score, labels} (mode alerte)
 
     # --- Configuration ----------------------------------------------------
 
@@ -122,6 +131,58 @@ class ClapTracker:
         slugs = {g['slug'] for g in self.groups}
         for slug in [s for s in self._group_state if s not in slugs]:
             del self._group_state[slug]
+
+    @staticmethod
+    def _alert_event(group, state, score=0.0, labels=(), start=None):
+        """Evenement du mode alerte (un seul format pour tous les cas)."""
+        ev = {'group': group, 'alert': state, 'clap_count': 0, 'score': float(score),
+              'labels': list(labels), 'ignored': False}
+        if start is not None:
+            ev['start'] = start
+        return ev
+
+    def drop_alerts(self):
+        """Alertes allumees de groupes retires, desactives ou passes a un autre
+        mode : evenements d'extinction (sinon le capteur restait allume)."""
+        alert_slugs = {g['slug'] for g in self.groups if g['count_mode'] == 'alerte'}
+        events = []
+        for slug in [s for s in self._alerts if s not in alert_slugs]:
+            st = self._alerts.pop(slug)
+            if st['on']:
+                events.append(self._alert_event({'slug': slug, 'name': st['name'], 'clap_counts': []}, 'off'))
+        return events
+
+    def stop_alerts(self):
+        """Arret de la detection (ou longue coupure) : alertes allumees eteintes."""
+        events = []
+        for slug, st in self._alerts.items():
+            if st['on']:
+                st['on'] = False
+                st['hits'].clear()
+                events.append(self._alert_event({'slug': slug, 'name': st['name'], 'clap_counts': []}, 'off'))
+        return events
+
+    def _alert(self, group, best, hits, now):
+        """Mode alerte : allume apres `alert_confirm` reconnaissances sur les
+        ALERT_WINDOW dernieres analyses, eteint apres ALERT_OFF_DELAY s sans
+        reconnaissance. Retourne un evenement au changement d'etat."""
+        st = self._alerts.setdefault(group['slug'], {'hits': collections.deque(maxlen=ALERT_WINDOW), 'on': False,
+                                                     'last_hit': 0.0, 'name': group['name']})
+        st['name'] = group['name']
+        heard = best >= group['threshold']
+        st['hits'].append(heard)
+        if heard:
+            st['last_hit'] = now
+        if not st['on'] and sum(st['hits']) >= group['alert_confirm']:
+            st['on'] = True
+            labels = sorted(({'label': n, 'score': float(sc)} for n, sc in hits if sc >= group['threshold']),
+                            key=lambda x: x['score'], reverse=True)
+            return self._alert_event(group, 'on', best, labels, start=now)
+        if st['on'] and now - st['last_hit'] >= ALERT_OFF_DELAY:
+            st['on'] = False
+            st['hits'].clear()
+            return self._alert_event(group, 'off', best)
+        return None
 
     @property
     def min_threshold(self):
@@ -192,10 +253,18 @@ class ClapTracker:
         # sinon « 1 clap » toutes les 2,5 s.
         can_arm_without_peak = (now - self._last_trigger) >= self.RETRIGGER_GUARD
 
+        alert_events = []
         for group in self.groups:
             hits = [(name, score) for name, score in categories
                     if group['whitelist'].get(name, False) and name not in self.exclusions]
             best = max((score for _, score in hits), default=0.0)
+            if group['count_mode'] == 'alerte':
+                # Hors des fenetres de comptage et de l'arbitrage : une alarme
+                # n'empeche pas un clap, et inversement.
+                ev = self._alert(group, best, hits, now)
+                if ev:
+                    alert_events.append(ev)
+                continue
             state = self._group_state.setdefault(group['slug'], {'armed_at': 0.0, 'score': 0.0, 'labels': {}})
 
             if best >= group['threshold']:
@@ -211,7 +280,7 @@ class ClapTracker:
                     for name, score in hits:
                         if score >= group['threshold'] and score > state['labels'].get(name, 0):
                             state['labels'][name] = float(score)
-        return self._expire(now)
+        return alert_events + self._expire(now)
 
     def _times(self, group):
         return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
@@ -284,8 +353,10 @@ class ClapTracker:
         closes aussitot avec les pics deja connus (evenements retournes) ; une
         fenetre encore ouverte continue. Coupure de plus de LATE_MAX s : un
         geste envoye si tard surprendrait plus qu'il ne servirait, abandonne."""
+        # Alertes : plus de son depuis plus que le delai d'extinction.
+        alerts = self.stop_alerts() if gap >= ALERT_OFF_DELAY else []
         if gap > self.LATE_MAX:
             for st in self._group_state.values():
                 st.update(armed_at=0.0, score=0.0, labels={})
-            return []
-        return self._expire(last_clock + gap)
+            return alerts
+        return alerts + self._expire(last_clock + gap)

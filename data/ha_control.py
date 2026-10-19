@@ -67,9 +67,10 @@ ACTIONS = {
     'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
                      'rtsp_tcp?(caméra)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
-    'add_group': '{source, name, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons.',
+    'add_group': '{source, name?, preset?, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
+                 'preset : claps, doigts, toc, sifflement, fumee, verre, bebe, aboiement, sonnette, alarme.',
     'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?, '
-                    'count_mode?("attaques"|"tenus")}.',
+                    'count_mode?("attaques"|"tenus"|"alerte"), alert_confirm?(1-4), device_class?}.',
     'delete_group': '{source, group} (le premier groupe est protégé).',
     'set_sound': '{source, group, label, enabled} : coche ou décoche une classe YAMNet dans un groupe.',
     'clear_unchecked_sounds': '{source, group} : retire les sons non cochés.',
@@ -636,7 +637,8 @@ def _api_or_raise(method, path, body=None):
 # l'add-on (reseau de l'hote) une requete a chaque clap vers l'adresse de son
 # choix. Elle se regle dans l'interface.
 _SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
-_GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode')
+_GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode',
+                 'alert_confirm', 'device_class')
 
 
 def _pick(cmd, fields):
@@ -691,7 +693,7 @@ def execute(action, cmd):
         path = {'mic': '/api/microphone', 'rtsp': f'/api/rtsp/stream/{key}', 'vban': f'/api/vban/{key}'}[kind]
         return _api_or_raise('DELETE', path)
     if action == 'add_group':
-        body = {'kind': kind, 'source_key': source_key, **_pick(cmd, ('name', 'threshold', 'ha_entities'))}
+        body = {'kind': kind, 'source_key': source_key, **_pick(cmd, ('name', 'preset', 'threshold', 'ha_entities'))}
         return _api_or_raise('POST', '/api/source/sound_groups', body)
 
     group = _resolve_group(src, cmd.get('group'))

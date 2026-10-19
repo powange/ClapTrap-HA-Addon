@@ -491,7 +491,7 @@ def test_error_before_reading_reported_and_detector_freed(session_env, monkeypat
     erreur sur la carte, detecteur arrete et retire (il tournait pour rien)."""
     classify, sock, emitted, calls, sm = session_env
     stopped = []
-    fake_det = types.SimpleNamespace(stop=lambda: stopped.append(1))
+    fake_det = types.SimpleNamespace(stop=lambda: stopped.append(1), stop_alerts=lambda: stopped.append('alerts'))
 
     def create(self, src, stop=None):
         self.detectors[src['source_id']] = fake_det
@@ -504,4 +504,30 @@ def test_error_before_reading_reported_and_detector_freed(session_env, monkeypat
     session._runners['mic'] = runner
     session._run_guarded({'type': 'mic', 'source_id': 'mic', 'label': 'Micro'}, runner)
     assert 'pactl absent' in session.source_errors['mic']
-    assert stopped == [1] and 'mic' not in session.detectors
+    assert stopped == ['alerts', 1] and 'mic' not in session.detectors   # alertes eteintes d'abord
+
+
+def test_alert_event_drives_sensor_ha_event_and_webhook(session_env, monkeypatch):
+    """Mode alerte : capteur allume puis eteint, evenement claptrap_alert,
+    webhook « alert », historique au debut seulement."""
+    classify, sock, emitted, calls, sm = session_env
+    import ha_entities
+    alerts, posts, hooks = [], [], []
+    monkeypatch.setattr(ha_entities, 'set_alert', lambda key, slug, on: alerts.append((key, slug, on)))
+    monkeypatch.setattr(classify, '_http', types.SimpleNamespace(post=lambda url, **k: posts.append((url, k['json']))))
+    monkeypatch.setattr(classify, 'send_webhook_async', lambda url, payload: hooks.append(payload))
+    monkeypatch.setenv('SUPERVISOR_TOKEN', 't')
+    session = classify.DetectionSession([], sock)
+    session.webhooks['rtsp_cam1'] = 'http://ha/api/webhook/x'
+    src = {'source_id': 'rtsp_cam1', 'entity_key': 'rtsp_cam1', 'name': 'Cam', 'label': 'RTSP: Cam'}
+    base = {'timestamp': 1, 'score': 0.7, 'labels': [], 'group_slug': 'fumee', 'group_name': 'Fumée',
+            'ignored': False, 'clap_count': 0, 'group_clap_counts': []}
+    before = len(classify.get_detection_history())
+    session._on_detection(src, dict(base, alert='on'))
+    session._on_detection(src, dict(base, alert='off'))
+    wait_until(lambda: len(hooks) == 2)
+    assert alerts == [('rtsp_cam1', 'fumee', True), ('rtsp_cam1', 'fumee', False)]
+    assert [u.rsplit('/', 1)[1] for u, _ in posts] == ['claptrap_alert', 'claptrap_alert']
+    assert [h['event'] for h in hooks] == ['alert', 'alert'] and [h['alert'] for h in hooks] == ['on', 'off']
+    assert len(classify.get_detection_history()) == before + 1
+    assert [d['alert'] for e, d in emitted if e == 'alert'] == ['on', 'off']

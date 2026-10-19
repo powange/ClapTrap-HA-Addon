@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.84.0
+
+### Modèles de groupes et mode « alerte »
+
+- **Nouveau groupe à partir d'un modèle** : Applaudissements, Claquement de
+  doigts, Toc-toc, Sifflement, Détecteur de fumée, Bris de glace, Pleurs de
+  bébé, Aboiement, Sonnette, Alarme ou sirène. Les bons sons sont déjà
+  cochés, le seuil et le comptage réglés ; plus besoin de connaître YAMNet.
+  Un son déjà utilisé par un autre groupe est signalé. Aussi par MQTT
+  (`add_group` avec `preset`).
+- **Mode « alerte »** (alarmes, pleurs, aboiements…) : un capteur
+  `binary_sensor.claptrap_<source>_<groupe>_alerte` reste allumé tant que le
+  son est reconnu, et s'éteint après 5 s de silence ou à l'arrêt de la
+  détection, au lieu d'impulsions « N claps » de 2 s. Confirmation réglable
+  (1 à 4 reconnaissances sur 2 s) et type du capteur (fumée, sécurité, son,
+  problème, présence). Événement `claptrap_alert` et webhook `"event":
+  "alert"` au début et à la fin. Une alerte n'empêche pas un clap d'être
+  compté. L'état reste juste si Home Assistant redémarre pendant l'alarme.
+
 ## 6.83.0
 
 ### Build, tests et documentation

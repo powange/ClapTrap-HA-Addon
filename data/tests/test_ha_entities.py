@@ -402,3 +402,36 @@ def test_ha_birth_republishes_and_reconciles(mqtt, monkeypatch):
     assert ('reconcile', 10.0) in calls
     ha._on_message(None, None, types.SimpleNamespace(topic='claptrap/mic/availability', payload=b'online', retain=True))
     assert 'mic' in ha._availability_seen
+
+
+def test_alert_group_publishes_one_lasting_sensor(mqtt):
+    s = settings()
+    s['microphone']['sound_groups'].append({'slug': 'fumee', 'name': 'Détecteur de fumée', 'count_mode': 'alerte',
+                                            'device_class': 'smoke', 'ha_entities': [1, 2],
+                                            'sound_whitelist': {'Smoke detector, smoke alarm': True}})
+    ha.sync_sources(s)
+    cfgs = {t.split('/')[3]: json.loads(p) for t, p, r in mqtt.published
+            if t.endswith('/config') and p and '/device/' not in t}
+    alert = cfgs['mic_fumee_alerte']
+    assert alert['device_class'] == 'smoke' and alert['default_entity_id'] == 'binary_sensor.claptrap_mic_fumee_alerte'
+    assert not any(k.startswith('mic_fumee_') and k.endswith(('clap', 'claps', 'evenement')) for k in cfgs)
+    ha.set_alert('mic', 'fumee', True)
+    assert [p for t, p, r in mqtt.published if t == 'claptrap/mic_fumee_alerte/state'][-1] == 'ON'
+    ha.republish_all()                                        # HA redemarre pendant l'alarme
+    assert [p for t, p, r in mqtt.published if t == 'claptrap/mic_fumee_alerte/state'][-1] == 'ON'
+    ha.set_alert('mic', 'fumee', False)
+    assert [p for t, p, r in mqtt.published if t == 'claptrap/mic_fumee_alerte/state'][-1] == 'OFF'
+
+
+def test_alert_forgotten_when_group_leaves_alert_mode(mqtt):
+    s = settings()
+    s['microphone']['sound_groups'].append({'slug': 'fumee', 'name': 'Fumée', 'count_mode': 'alerte'})
+    ha.sync_sources(s)
+    ha.set_alert('mic', 'fumee', True)
+    s['microphone']['sound_groups'][-1]['count_mode'] = 'attaques'
+    ha.sync_sources(s)
+    ha.set_alert('mic', 'fumee', False)                       # extinction apres le changement de mode
+    s['microphone']['sound_groups'][-1]['count_mode'] = 'alerte'
+    mqtt.published.clear()
+    ha.sync_sources(s)
+    assert [p for t, p, r in mqtt.published if t == 'claptrap/mic_fumee_alerte/state'] == ['OFF']
