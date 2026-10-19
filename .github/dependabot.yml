@@ -26,3 +26,20 @@ updates:
     directory: /data/tests/ui
     schedule:
       interval: monthly
+
+  # Outils de test epingles a la main dans requirements-dev.txt (absents du
+  # lock de l'image, donc ni audites ni mis a jour sinon). Seulement eux : les
+  # dependances de l'image suivent scripts/lock_requirements.py.
+  - package-ecosystem: pip
+    directory: /data
+    schedule:
+      interval: monthly
+    allow:
+      - dependency-name: pytest
+      - dependency-name: pluggy
+      - dependency-name: iniconfig
+      - dependency-name: pygments
+      - dependency-name: scipy
+    groups:
+      test-tools:
+        patterns: ["*"]

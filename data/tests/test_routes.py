@@ -522,3 +522,44 @@ def test_new_group_never_takes_an_id_pending_rename(client, settings_dir):
     r = client.post('/api/source/sound_groups', json={'kind': 'mic', 'name': 'Toc'})
     g = r.json['group']
     assert r.status_code == 200 and g['slug'] == 'toc' and g['entity_slug'] == 'toc2'   # unique_id intact
+
+
+def test_cleanup_route_refused_when_degraded_and_removes_only_orphans(client, settings_dir, mqtt):
+    import ha_entities as ha
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [{'slug': 'clap', 'name': 'Clap'}]}})
+    ha.sync_sources(settings_dir.load_settings())
+    ha._seen_devices.update({'mic': [], 'rtsp_old': ['claptrap/rtsp_old/analyse'], ha.HUB: []})
+    import settings_manager as sm
+    sm._degraded = True
+    mqtt.published.clear()
+    r = client.post('/api/ha/cleanup')
+    assert r.status_code == 409 and mqtt.published == []
+    sm._degraded = False
+    r = client.post('/api/ha/cleanup')
+    assert r.status_code == 200 and r.json['entities'] == ['appareil rtsp_old']
+    cleared = {t for t, p, _r in mqtt.published if p == ''}
+    assert 'homeassistant/device/claptrap/rtsp_old/config' in cleared
+    assert 'homeassistant/device/claptrap/mic/config' not in cleared
+
+
+def test_hot_reload_outcomes(client, settings_dir, monkeypatch):
+    """Modification pendant la detection : plus aucune source (arret),
+    sources relancees, ou echec signale."""
+    import classify
+    import routes.sources as rs
+    notes = []
+    monkeypatch.setattr(rs, '_note_restart', lambda status: notes.append(status))
+    monkeypatch.setattr(rs, '_sync_ha_entities', lambda: None)
+    monkeypatch.setattr(rs, '_socketio', types.SimpleNamespace(emit=lambda *a, **k: None))
+    monkeypatch.setattr(classify, 'apply_settings_if_running', lambda s: None)
+    assert rs._sync_and_apply() is None and notes == []                   # detection arretee
+    monkeypatch.setattr(classify, 'apply_settings_if_running', lambda s: True)
+    monkeypatch.setattr(classify, 'build_sources_from_settings', lambda s: [])
+    rs._sync_and_apply()
+    monkeypatch.setattr(classify, 'build_sources_from_settings', lambda s: [{'label': 'Micro'}])
+    assert rs._sync_and_apply() is True
+    def boom(s):
+        raise RuntimeError('pactl')
+    monkeypatch.setattr(classify, 'apply_settings_if_running', boom)
+    assert rs._sync_and_apply() is None
+    assert notes == ['stopped', 'ok', 'failed']

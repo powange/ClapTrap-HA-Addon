@@ -136,10 +136,10 @@ class _Session:
         except Exception as e:
             raise RegistryError(f"connexion à Home Assistant perdue ({e})")
 
-    def _receive(self):
+    def _receive(self, timeout=TIMEOUT):
         # Connexion coupee (redemarrage de HA), reponse illisible : a retenter.
         try:
-            data = self.ws.receive(timeout=TIMEOUT)
+            data = self.ws.receive(timeout=timeout)
             if data is None:
                 raise _Timeout("pas de réponse de Home Assistant")
             return json.loads(data)
@@ -153,7 +153,9 @@ class _Session:
         self._send(dict(payload, id=self._id))
         deadline = time.monotonic() + TIMEOUT
         while time.monotonic() < deadline:
-            msg = self._receive()
+            # Attente bornee au temps restant : avec des messages intercales,
+            # un appel pouvait durer pres de deux fois TIMEOUT.
+            msg = self._receive(max(0.05, deadline - time.monotonic()))
             if msg.get('id') == self._id and msg.get('type') == 'result':
                 return msg
         raise _Timeout("pas de réponse de Home Assistant")
