@@ -1,12 +1,20 @@
 """Detecteur d'une source audio : pretraitement + YAMNet (MediaPipe) + logique
-de claps (clap_logic.ClapTracker). Un detecteur = une source."""
+de claps (clap_logic.ClapTracker). Un detecteur = une source.
+
+YAMNet analyse une fenetre glissante de 0,975 s, toutes les 0,5 s (mode
+« clips » de MediaPipe, appele directement). Le mode flux de MediaPipe
+n'analysait que des fenetres disjointes : un resultat par seconde, et un
+clap a cheval sur deux fenetres n'etait entendu qu'a moitie dans chacune."""
 
 import collections
 import logging
+import queue
 import threading
 import time
 
 import numpy as np
+
+from audio_utils import BLOCK_SAMPLES
 
 _mediapipe = None
 
@@ -25,13 +33,17 @@ def _load_mediapipe():
         _mediapipe = (python, audio, containers)
     return _mediapipe
 
-from audio_utils import BLOCK_SAMPLES
 from clap_logic import ClapTracker
 
 PRE_WINDOW = 320   # 20 ms : niveau mesure juste avant un pic (attaque)
-# Fenetre d'analyse de YAMNet (15 600 echantillons a 16 kHz). En mode flux,
-# MediaPipe rend un resultat par fenetre, horodate au DEBUT de celle-ci.
+# Fenetre d'analyse de YAMNet (15 600 echantillons a 16 kHz), analysee tous
+# les HOP_BLOCKS blocs (0,5 s, proche du pas natif de YAMNet, 0,48 s) : deux
+# resultats par seconde, chacun date a la fin de sa fenetre.
 YAMNET_WINDOW_MS = 975
+WINDOW_SAMPLES = YAMNET_WINDOW_MS * 16   # 15 600 a 16 kHz (seule frequence du modele)
+HOP_BLOCKS = 5
+WINDOW_BLOCKS = -(-WINDOW_SAMPLES // BLOCK_SAMPLES)   # blocs gardes pour une fenetre
+JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne est jetee)
 PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
 AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
 AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
@@ -49,12 +61,19 @@ class AudioDetector:
         self.running = False
         self.score_threshold = 0.3
         self.tracker = ClapTracker()
-        # Protege l'etat du tracker (thread audio vs thread de resultats MediaPipe)
+        # Protege l'etat du tracker (fil audio vs fil d'analyse)
         self.lock = threading.Lock()
-        # Serialise classify_async et close() : close() pendant un classify_async
+        # Serialise classify et close() : close() pendant une classification
         # n'est pas sur cote natif.
         self._clf_lock = threading.Lock()
-        self._timestamp_ms = 0
+        self._blocks = collections.deque(maxlen=WINDOW_BLOCKS)   # derniere seconde (classifieur)
+        self._since_hop = 0       # blocs depuis la derniere analyse
+        # Analyse dans un fil a part (comme le fil de MediaPipe en mode flux) :
+        # l'inference et les rappels (socketio, MQTT) ne retardent jamais la
+        # lecture du son (file VBAN d'une seconde sur un Raspberry Pi).
+        self._jobs = queue.Queue(maxsize=JOBS_MAX)
+        self._worker = None
+        self._dropped = 0
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
@@ -62,11 +81,6 @@ class AudioDetector:
         self._recent_peaks = collections.deque(maxlen=AGC_MEMORY)
         self._prev_tail = np.zeros(0, dtype=np.float32)  # fin du bloc precedent (|x|)
         self._clock_end = 0.0     # horloge audio : fin du dernier bloc recu
-        # Horodatage MediaPipe (debut du bloc envoye) -> horloge audio a la fin
-        # de ce bloc : un resultat est date a la fin de la fenetre analysee,
-        # quelle que soit la cadence d'arrivee des blocs (rafales ffmpeg).
-        self._ts_clock = collections.OrderedDict()
-        self._block_ms = int(BLOCK_SAMPLES / self.sample_rate * 1000)
         self._taps = []           # ecoutes du calibrage : fn(evenement, *donnees)
         self._errors_logged = 0
         self._detection_callback = None
@@ -134,7 +148,7 @@ class AudioDetector:
 
     def initialize(self, max_results=10, score_threshold=0.3, clap_window=1.5,
                    peak_cooldown=0.08, peak_ratio=3.0):
-        """Cree le classifieur YAMNet en mode flux."""
+        """Cree le classifieur YAMNet (mode clips : une fenetre par appel)."""
         self.score_threshold = score_threshold
         self.tracker.set_params(window=clap_window, peak_cooldown=peak_cooldown,
                                 peak_ratio=peak_ratio)
@@ -144,21 +158,23 @@ class AudioDetector:
         # pour l'auto-decouverte dans l'UI.
         options = audio.AudioClassifierOptions(
             base_options=python.BaseOptions(model_asset_path=self.model_path),
-            running_mode=audio.RunningMode.AUDIO_STREAM,
+            running_mode=audio.RunningMode.AUDIO_CLIPS,
             max_results=max_results,
             score_threshold=0,
-            result_callback=self._handle_result,
         )
         self.classifier = audio.AudioClassifier.create_from_options(options)
         logging.info(f"Classificateur audio initialisé (max_results={max_results})")
 
     def start(self):
-        # Timestamps monotones exiges par MediaPipe
-        self._timestamp_ms = int(time.time() * 1000)
         self.running = True
+        if self._worker is None or not self._worker.is_alive():
+            self._worker = threading.Thread(target=self._work, daemon=True,
+                                            name=f'yamnet-{self.source_id or "source"}')
+            self._worker.start()
 
     def stop(self):
         self.running = False
+        self._submit(None)   # reveille le fil d'analyse, qui s'arrete
         with self._clf_lock:
             classifier, self.classifier = self.classifier, None
         if classifier:
@@ -233,7 +249,11 @@ class AudioDetector:
                 audio_data = np.concatenate((self._pending, audio_data))
             n_blocks = audio_data.size // BLOCK_SAMPLES
             for i in range(n_blocks):
-                self._classify(audio_data[i * BLOCK_SAMPLES:(i + 1) * BLOCK_SAMPLES])
+                # Fin de ce bloc sur l'horloge audio (les blocs suivants du
+                # meme envoi sont encore a venir).
+                rest = audio_data.size - (i + 1) * BLOCK_SAMPLES
+                self._push(audio_data[i * BLOCK_SAMPLES:(i + 1) * BLOCK_SAMPLES],
+                           self._clock_end - rest / self.sample_rate)
             self._pending = audio_data[n_blocks * BLOCK_SAMPLES:].copy()
         except Exception:
             logging.exception(f"Erreur dans le traitement audio ({self.label})")
@@ -252,6 +272,10 @@ class AudioDetector:
         n = x.size
         dur = n / self.sample_rate
         start = max(self._clock_end, now - 0.5 - dur)
+        if start > self._clock_end and self._clock_end:
+            # Flux interrompu (reconnexion) : la seconde d'avant la coupure ne
+            # doit pas etre analysee avec le son d'apres, datee maintenant.
+            self._reset_window()
         self._clock_end = start + dur
         if not n:
             return 0.0, now, None
@@ -269,48 +293,83 @@ class AudioDetector:
         """Audio perdu en amont (blocs VBAN jetes) : l'horloge audio avance
         d'autant, l'espacement des claps suivants reste juste."""
         self._clock_end += samples / self.sample_rate
+        self._reset_window()   # pas de fenetre a cheval sur un trou
 
-    def _classify(self, block):
-        self._timestamp_ms += int(BLOCK_SAMPLES / self.sample_rate * 1000)
-        self._ts_clock[self._timestamp_ms] = self._clock_end
-        while len(self._ts_clock) > 100:
-            self._ts_clock.popitem(last=False)
-        container = self._containers.AudioData.create_from_array(block, self.sample_rate)
+    def _reset_window(self):
+        self._blocks.clear()
+        self._since_hop = 0
+
+    def _push(self, block, end_clock):
+        """Bloc de 100 ms vers la fenetre glissante ; une fenetre a analyser
+        toutes les HOP_BLOCKS blocs, une fois la premiere seconde recue."""
+        self._blocks.append(block)
+        self._since_hop += 1
+        if len(self._blocks) < WINDOW_BLOCKS or self._since_hop < HOP_BLOCKS:
+            return
+        self._since_hop = 0
+        self._submit((np.concatenate(self._blocks)[-WINDOW_SAMPLES:], end_clock))
+
+    def _submit(self, job):
+        try:
+            self._jobs.put_nowait(job)
+            return
+        except queue.Full:
+            pass
+        try:
+            self._jobs.get_nowait()   # analyse en retard (Pi surcharge) : la plus ancienne saute
+            self._jobs.task_done()
+            if job is not None:
+                self._dropped += 1
+                if self._dropped <= 5 or self._dropped % 100 == 0:
+                    logging.warning(f"[{self.label}] analyse en retard : fenêtre ignorée ({self._dropped}x)")
+        except queue.Empty:
+            pass
+        try:
+            self._jobs.put_nowait(job)
+        except queue.Full:
+            pass
+
+    def _work(self):
+        while True:
+            job = self._jobs.get()
+            try:
+                if job is None:
+                    if not self.running:
+                        return
+                    continue
+                self._analyze(*job)
+            finally:
+                self._jobs.task_done()
+
+    def wait_idle(self, timeout=5.0):
+        """Attend que les fenetres en attente soient analysees (tests, autotest)."""
+        with self._jobs.all_tasks_done:
+            self._jobs.all_tasks_done.wait_for(lambda: not self._jobs.unfinished_tasks, timeout)
+
+    def _analyze(self, window, end_clock):
+        container = self._containers.AudioData.create_from_array(window, self.sample_rate)
         with self._clf_lock:
             if not self.running or not self.classifier:
                 return
             try:
-                self.classifier.classify_async(container, self._timestamp_ms)
+                results = self.classifier.classify(container)
             except Exception as e:
-                # Limite : une erreur persistante produisait 10 lignes/s.
+                # Limite : une erreur persistante produisait 2 lignes/s.
                 self._errors_logged += 1
                 if self._errors_logged <= 5 or self._errors_logged % 600 == 0:
                     logging.error(f"Erreur lors de la classification ({self._errors_logged}x): {e}")
+                return
+        if results:
+            # Une fenetre exacte : un seul resultat (verifie par l'autotest), date a sa fin.
+            self._handle_result(results[0], end_clock)
 
-    # --- Resultats (thread MediaPipe) --------------------------------------
+    # --- Resultats -------------------------------------------------------------
 
-    def _window_end_clock(self, timestamp):
-        """Horloge audio a la fin de la fenetre qui commence a `timestamp`
-        (None si son dernier bloc n'est pas connu). Mesure sur MediaPipe 1.0 :
-        un resultat toutes les 975 ms, date au debut de sa fenetre ; le dater
-        avec le bloc de meme horodatage le placait ~0,9 s trop tot une fois
-        sur quatre (horloge qui recule, claps perdus ou mal comptes)."""
-        end = timestamp + YAMNET_WINDOW_MS
-        keys = list(self._ts_clock)
-        if not keys or end < keys[0]:
-            return None
-        if end > keys[-1] + self._block_ms:
-            # Fenetre pas encore recue : cadence d'un resultat par bloc (autre
-            # version de MediaPipe, faux classifieur) : bloc de meme horodatage.
-            return self._ts_clock.get(timestamp)
-        last = max(k for k in keys if k <= end)
-        return self._ts_clock[last] - (last + self._block_ms - end) / 1000.0
-
-    def _handle_result(self, result, timestamp):
+    def _handle_result(self, result, now):
+        """Resultat d'une fenetre se terminant a `now` (horloge audio). Appele
+        dans le fil d'analyse, hors du verrou du classifieur."""
         if not self.running:
-            # close() complete la derniere fenetre avec du silence et rappelle
-            # encore : resultat sans objet (« Silence » ajoute a la decouverte).
-            return
+            return   # detecteur arrete pendant l'analyse
         try:
             if not result or not result.classifications:
                 return
@@ -320,7 +379,6 @@ class AudioDetector:
                 threshold = self.score_threshold
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
-                now = self._window_end_clock(timestamp) or self._clock_end or time.monotonic()
                 events = self.tracker.on_classification(categories, now)
             if self._taps:
                 self._tap('result', categories, now)

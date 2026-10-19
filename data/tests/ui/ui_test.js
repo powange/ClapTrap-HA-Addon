@@ -526,6 +526,29 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const ccApply = lastCall('POST', '/api/calibration/count/apply');
   ok('+  calibrage du comptage : valeurs ajustées appliquées, champs mis à jour', !!ccApply && ccApply[2].values.delay === 1.6 &&
      ccApply[2].values.peak_ratio === 6.2 && ccBox().hidden && $('#adv-delay').value === '1.6');
+  // --- 6.77 : prises enchainees automatiquement (compte a rebours, pause, choix memorise)
+  w.CT.AUTO_DELAY = 1;
+  $('#count-calibrate').click(); await tick();
+  ok('+  prises enchaînées : option décochée par défaut', !!$('#cc-auto') && !$('#cc-auto').checked);
+  $('#cc-auto').checked = true;
+  const ccRecs = () => calls.filter(c => c[1] === '/api/calibration/count/record').length;
+  const ccBefore = ccRecs();
+  ccBox().querySelector('[data-c="start"]').click(); await tick(3);
+  ok('+  prises enchaînées : compte à rebours avant la prise', /Début de la prise dans 1 s/.test(ccBox().textContent) &&
+     ccRecs() === ccBefore && !!ccBox().querySelector('[data-c="pause"]'));
+  await new Promise(r => setTimeout(r, 1200)); await tick(3);
+  ok('+  prises enchaînées : prise lancée sans clic, la suivante se prépare', ccRecs() === ccBefore + 1 &&
+     /prise 2\//.test($('#count-calibration-title').textContent) && /Début de la prise dans/.test(ccBox().textContent));
+  ccBox().querySelector('[data-c="pause"]').click();
+  await new Promise(r => setTimeout(r, 1200)); await tick();
+  ok('+  prises enchaînées : pause, rien n\'est lancé', ccRecs() === ccBefore + 1 && /En pause/.test(ccBox().textContent));
+  ccBox().querySelector('[data-c="cancel"]').click(); await tick();
+  $('#count-calibrate').click(); await tick();
+  ok('+  prises enchaînées : choix mémorisé', $('#cc-auto').checked);
+  ccBox().querySelector('[data-c="cancel"]').click(); await tick();
+  $('#src-mic [data-action="calibrate"]').click(); await tick();
+  ok('+  prises enchaînées : même option dans le calibrage d\'une source', !!$('#cal-auto') && $('#cal-auto').checked);
+  $('#calibration [data-c="cancel"]').click(); await tick();
   $('#tab-listen').click(); await tick(2);
   // --- 6.75 : ajouter un son connu par la recherche ; confirmation : focus sur Annuler
   {

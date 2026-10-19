@@ -129,7 +129,10 @@ de vos propres bruits.
    (2 pour « 2 claps »).
 2. Pour chaque bruit, faites les essais demandés (5 par défaut, 4 s chacun),
    puis quelques secondes du bruit de fond habituel de la pièce. Pendant le
-   calibrage, la source ne déclenche rien.
+   calibrage, la source ne déclenche rien. Avec **Enchaîner les prises
+   automatiquement**, chaque prise commence seule après un compte à rebours
+   de 3 s, sans cliquer sur « Enregistrer » (bouton **Pause** pour souffler) ;
+   le choix est mémorisé par le navigateur, pour les deux calibrages.
 3. ClapTrap propose :
    - le **gain** de la source (ou le volume du micro), appliqué automatiquement
      pour que le bruit le plus fort soit net sans saturer ;
@@ -378,7 +381,9 @@ déclenche rien pendant ce temps) : 5 s de bruit de fond, 3 claps simples,
 1 clap » pour vérifier que deux commandes ne sont pas fusionnées. Le résultat
 compare les réglages actuels et proposés en rejouant vos prises (« prises
 correctement comptées : 4/9 avec les réglages actuels, 9/9 avec les réglages
-proposés ») ; les valeurs restent modifiables avant « Appliquer ».
+proposés ») ; les valeurs restent modifiables avant « Appliquer ». Les
+prises peuvent s'enchaîner automatiquement, comme pour le calibrage d'une
+source.
 
 Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 

@@ -12,31 +12,26 @@ sys.path.insert(0, DATA_DIR)
 
 
 # --- Faux MediaPipe ------------------------------------------------------------
-# Classifieur : repond « Clapping » tant que le bloc recu est fort, et garde les
-# blocs recus pour les tests (gain applique, ecretage...).
+# Classifieur (mode clips) : repond « Clapping » si la fenetre recue (0,975 s)
+# contient un son fort, et garde les fenetres recues pour les tests (gain
+# applique, ecretage...).
 class FakeClassifier:
     instances = []
     init_delay = 0.0  # secondes (simule une initialisation lente sur Pi)
 
-    def __init__(self, callback):
-        self.callback = callback
-        self.blocks = []
+    def __init__(self):
+        self.blocks = []      # fenetres analysees
         self.closed = False
-        self.hot = 0
         FakeClassifier.instances.append(self)
 
-    def classify_async(self, block, timestamp_ms):
-        assert not self.closed, 'classify_async apres close()'
-        block = np.asarray(block)
-        self.blocks.append(block.copy())
-        if np.abs(block).max() > 0.2:
-            self.hot = 6
-        score = 0.9 if self.hot > 0 else 0.02
-        self.hot = max(0, self.hot - 1)
+    def classify(self, window):
+        assert not self.closed, 'classify apres close()'
+        window = np.asarray(window)
+        self.blocks.append(window.copy())
+        score = 0.9 if np.abs(window).max() > 0.2 else 0.02
         cat = lambda n, s: types.SimpleNamespace(category_name=n, score=s)  # noqa: E731
-        result = types.SimpleNamespace(classifications=[types.SimpleNamespace(
-            categories=[cat('Clapping', score), cat('Speech', 0.6)])])
-        self.callback(result, timestamp_ms)
+        return [types.SimpleNamespace(classifications=[types.SimpleNamespace(
+            categories=[cat('Clapping', score), cat('Speech', 0.6)])])]
 
     def close(self):
         self.closed = True
@@ -46,7 +41,7 @@ def _create_classifier(options):
     import time
     if FakeClassifier.init_delay:
         time.sleep(FakeClassifier.init_delay)
-    return FakeClassifier(options['result_callback'])
+    return FakeClassifier()
 
 
 def _install_mediapipe_stub():
@@ -59,7 +54,7 @@ def _install_mediapipe_stub():
     cont.AudioData = types.SimpleNamespace(create_from_array=lambda a, sr: a)
     py.BaseOptions = lambda **k: None
     audio.AudioClassifierOptions = lambda **k: k
-    audio.RunningMode = types.SimpleNamespace(AUDIO_STREAM=1)
+    audio.RunningMode = types.SimpleNamespace(AUDIO_CLIPS=2)
     audio.AudioClassifier = types.SimpleNamespace(create_from_options=_create_classifier)
     py.audio = audio
     comp.containers = cont

@@ -5,6 +5,9 @@
     var CT = window.CT;
     var esc = CT.esc;
     var back, body, release, src, plan, step, active = false, busy = false, starting = false;
+    var auto = false, stopAuto = null;   // prises enchainees ; arret du compte a rebours en cours
+
+    function cancelAuto() { if (stopAuto) stopAuto(); stopAuto = null; }
 
     function setTitle(text) { CT.$('#calibration-title').textContent = text; }
 
@@ -22,6 +25,7 @@
         // × et Echap ne faisaient rien pendant une prise, sans retour.
         if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
         // Fermee pendant le demarrage : le calibrage sera annule a la reponse.
+        cancelAuto();
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;
         back.hidden = true;
@@ -51,6 +55,7 @@
             '<div class="field"><label class="field-label" for="cal-reps">Essais par bruit</label>' +
             '<input type="number" class="input" id="cal-reps" min="2" max="10" value="5"></div>' +
             '<label class="check"><input type="checkbox" id="cal-bg" checked> Enregistrer aussi le bruit de fond (recommandé)</label>' +
+            CT.autoTakesHtml('cal-auto') +
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
             '<button type="button" class="btn btn-primary" data-c="start">Commencer</button></div>';
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
@@ -64,6 +69,7 @@
             var extra = CT.$('#cal-new').value.trim();
             if (extra) targets.push({target: extra, name: extra, expected: parseInt(CT.$('#cal-new-expected').value, 10) || 1, isNew: true});
             if (!targets.length) { CT.error('Choisissez au moins un bruit à calibrer.'); return; }
+            auto = CT.autoTakes(CT.$('#cal-auto').checked);
             plan = [];
             if (CT.$('#cal-bg').checked) plan.push({target: 'fond', name: 'bruit de fond', duration: 5});
             targets.forEach(function (t) {
@@ -99,6 +105,7 @@
     }
 
     function takeStep(lastResult) {
+        cancelAuto();
         var p = plan[step];
         setTitle('Calibrer « ' + src.name + ' » · prise ' + (step + 1) + '/' + plan.length);
         body.innerHTML =
@@ -109,13 +116,15 @@
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
             (step > 0 && plan.slice(step).every(function (q) { return q.target !== 'fond'; }) && enoughTakes() ?
                 '<button type="button" class="btn btn-ghost" data-c="analyze">Analyser maintenant</button>' : '') +
+            (auto ? '<button type="button" class="btn btn-ghost" data-c="pause">Pause</button>' : '') +
             '<button type="button" class="btn btn-primary" data-c="record">Enregistrer (' + (p.duration || 4) + ' s)</button></div>';
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
         var an = body.querySelector('[data-c="analyze"]');
-        if (an) an.addEventListener('click', analyze);
+        if (an) an.addEventListener('click', function () { cancelAuto(); analyze(); });
         var rec = body.querySelector('[data-c="record"]');
         rec.addEventListener('click', function () { record(p, rec); });
-        rec.focus();
+        if (auto) stopAuto = CT.autoTake(body, rec, function () { record(p, rec); });
+        else rec.focus();
     }
 
     // Analyse possible si chaque bruit deja enregistre a au moins 2 prises.
@@ -127,6 +136,7 @@
     }
 
     function record(p, btn) {
+        cancelAuto();
         busy = true;
         btn.disabled = true;
         body.querySelector('[data-c="cancel"]').disabled = true;

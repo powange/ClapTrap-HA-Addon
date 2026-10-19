@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.77.0
+
+### Reconnaissance plus rapide et plus fiable
+
+- **YAMNet analyse la dernière seconde toutes les 0,5 s** (au lieu de
+  secondes disjointes, une fois par seconde) : la reconnaissance arrive
+  environ deux fois plus tôt, et un clap à cheval sur deux secondes est
+  entendu en entier dans l'une des fenêtres au lieu de l'être à moitié dans
+  chacune. Sur un extrait de la caméra de la chambre, un claquement manqué
+  par l'ancien découpage est maintenant reconnu (« Slap, smack », « Cap
+  gun »).
+- Chaque résultat est daté exactement à la fin de la seconde analysée, même
+  quand ffmpeg livre le son par rafales.
+- Consommation processeur : deux analyses par seconde au lieu d'une, encore
+  faible (environ 4 ms par analyse sur un PC).
+
+### Calibrages
+
+- **Enchaîner les prises automatiquement** : une coche, dans le calibrage
+  d'une source comme dans celui du comptage, lance chaque prise seule après
+  un compte à rebours de 3 s, sans cliquer sur « Enregistrer » entre deux
+  prises. Bouton **Pause** pour souffler ; le choix est mémorisé par le
+  navigateur.
+
 ## 6.76.0
 
 ### Home Assistant
