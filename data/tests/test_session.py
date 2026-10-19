@@ -531,3 +531,53 @@ def test_alert_event_drives_sensor_ha_event_and_webhook(session_env, monkeypatch
     assert [h['event'] for h in hooks] == ['alert', 'alert'] and [h['alert'] for h in hooks] == ['on', 'off']
     assert len(classify.get_detection_history()) == before + 1
     assert [d['alert'] for e, d in emitted if e == 'alert'] == ['on', 'off']
+
+
+def test_room_arbitration_keeps_the_loudest_source(session_env, monkeypatch):
+    """Arbitrage entre pieces : le meme geste entendu par deux sources ne
+    declenche que la plus forte (pic / bruit de fond) ; l'autre est notee
+    « autre pièce ». Desactive : chaque source declenche."""
+    classify, sock, emitted, calls, sm = session_env
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    session = classify.DetectionSession([], sock)
+    session.detectors = {'mic': object(), 'rtsp_cam1': object()}
+    session.source_status = {'mic': 'connected', 'rtsp_cam1': 'connected'}
+    salon = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro'}
+    cuisine = {'source_id': 'rtsp_cam1', 'entity_key': 'rtsp_cam1', 'name': 'Cuisine', 'label': 'RTSP: Cuisine'}
+    base = {'timestamp': 1, 'score': 0.8, 'labels': [], 'group_slug': 'clap', 'group_name': 'Clap',
+            'ignored': False, 'clap_count': 2, 'group_clap_counts': [1, 2]}
+    s = sm.load_settings()
+    s['global'].update(room_arbitration=True, room_window=0.3)
+    sm.save_settings(s)
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(cuisine, dict(base, strength=11.0))
+    assert posted == []                                       # en attente pendant la fenetre
+    wait_until(lambda: len([e for e, d in emitted if e == 'clap']) == 2 and posted)
+    assert [a[1] for a in posted] == ['rtsp_cam1']            # seule la plus forte declenche
+    loser = next(d for e, d in emitted if e == 'clap' and d['source_id'] == 'mic')
+    assert loser['ignored'] and loser['room'] == 'Cuisine'
+    # Groupes differents : pas de concurrence ; meme source deux fois : deux gestes
+    posted.clear()
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(cuisine, dict(base, strength=11.0, group_name='Toc', group_slug='toc'))
+    wait_until(lambda: len(posted) == 2)
+    assert sorted(a[1] for a in posted) == ['mic', 'rtsp_cam1']
+    posted.clear()
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(salon, dict(base, strength=6.0))
+    wait_until(lambda: len(posted) == 2)
+    assert [a[1] for a in posted] == ['mic', 'mic']
+    # Le gagnant doit pouvoir declencher : 3 claps (sans entite) ne gagne pas
+    posted.clear()
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(cuisine, dict(base, strength=11.0, clap_count=3))
+    wait_until(lambda: len(posted) == 1)
+    assert [a[1] for a in posted] == ['mic']
+    s['global']['room_arbitration'] = False
+    sm.save_settings(s)
+    session._room_cfg = (0.0, False, 1.0)                     # reglages relus
+    posted.clear()
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(cuisine, dict(base, strength=11.0))
+    assert [a[1] for a in posted] == ['mic', 'rtsp_cam1']     # desactive : sans attente

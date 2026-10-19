@@ -24,7 +24,10 @@ DEFAULT_SETTINGS = {
         "debug": False,
         "peak_cooldown": 0.08,
         "peak_ratio": 3.0,
-        "sound_exclusions": []
+        "sound_exclusions": [],
+        # Arbitrage entre pieces : desactive par defaut (comportement inchange).
+        "room_arbitration": False,
+        "room_window": 1.0
     },
     "microphone": {
         "device_index": 0,
@@ -456,7 +459,8 @@ def _commit(settings):
 # Cles connues (import) : les autres sont ignorees. Avant, toute cle etait
 # enregistree telle quelle et recopiee a chaque lecture.
 _KNOWN_SECTIONS = ('global', 'microphone', 'rtsp_sources', 'saved_vban_sources')
-_GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions'}
+_GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions',
+                'room_arbitration', 'room_window'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
                    'auto_volume', 'auto_start', 'configured', 'sound_groups'},
@@ -840,7 +844,8 @@ def _norm_source(src, path):
 
 
 # Bornes des reglages globaux (import et onglet Reglages avances).
-GLOBAL_LIMITS = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50)}
+GLOBAL_LIMITS = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50),
+                 'room_window': (0.3, 3)}
 MAX_NAME = 80   # nom affiche d'une source ou d'un groupe (API)
 _SOURCE_ID = re.compile(r'[^/\s]{1,64}')   # segment d'URL des routes (uuid, anciens « vban_<ip>_<port> »)
 
@@ -884,8 +889,9 @@ def normalize_settings(data):
         for key, (lo, hi) in GLOBAL_LIMITS.items():
             if key in g:
                 g[key] = to_number(g[key], f"global.{key}", lo, hi)
-        if 'debug' in g:
-            g['debug'] = to_bool(g['debug'], 'global.debug')
+        for flag in ('debug', 'room_arbitration'):
+            if flag in g:
+                g[flag] = to_bool(g[flag], f'global.{flag}')
         if 'sound_exclusions' in g:
             if not isinstance(g['sound_exclusions'], list):
                 raise ValueError("global.sound_exclusions : liste attendue")

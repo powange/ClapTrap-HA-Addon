@@ -593,3 +593,12 @@ def test_same_preset_twice_gets_numbered_name(client, settings_dir):
     first = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'aboiement'}).json['group']
     second = client.post('/api/source/sound_groups', json={'kind': 'mic', 'preset': 'aboiement'})
     assert second.status_code == 200 and (first['name'], second.json['group']['name']) == ('Aboiement', 'Aboiement 2')
+
+
+def test_room_settings_route(client, settings_dir):
+    r = client.put('/api/settings/rooms', json={'enabled': True, 'window': 1.5})
+    assert r.status_code == 200
+    g = settings_dir.load_settings()['global']
+    assert g['room_arbitration'] is True and g['room_window'] == 1.5
+    assert client.put('/api/settings/rooms', json={'window': 9}).status_code == 400
+    assert client.put('/api/settings/rooms', json={'autre': 1}).status_code == 400

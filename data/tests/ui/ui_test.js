@@ -57,6 +57,7 @@ const dom = new JSDOM(html, {
         settings.microphone.sound_groups.push(g);
         res = { success: true, group: g, skipped_sounds: body.preset === 'fumee' ? ['Fire alarm'] : [] };
       }
+      else if (url === '/api/settings/rooms') { res = { success: true, room_arbitration: body.enabled }; settings.global = settings.global || {}; settings.global.room_arbitration = body.enabled; }
       else if (url === '/api/sound_groups/presets') res = { presets: [
         { id: 'claps', name: 'Applaudissements', sounds: ['Clapping', 'Hands'], ha_entities: [1, 2], count_mode: 'attaques' },
         { id: 'fumee', name: 'Détecteur de fumée', sounds: ['Smoke detector, smoke alarm', 'Fire alarm'], count_mode: 'alerte', alert_confirm: 3 }] };
@@ -674,6 +675,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   w.__hold = null; await tick(3);
   ok('+  calibrage : réponse ancienne ignorée', !!$('#calibration [data-c="start"]') && !$('#calibration [data-c="apply"]'));
   $('#calibration [data-c="cancel"]').click(); await tick();
+  // --- 6.86 : plusieurs pieces
+  $('#tab-settings').click(); await tick(2);
+  ok('+  pièces : option désactivée par défaut, attente grisée', $('#rooms-toggle') && !$('#rooms-toggle').checked && $('#rooms-window').disabled);
+  change($('#rooms-toggle'), true); await tick(3);
+  ok('+  pièces : option enregistrée', lastCall('PUT', '/api/settings/rooms')[2].enabled === true);
+  $('#tab-listen').click(); await tick(2);
+  emit('clap', { source_id: 'mic', clap_count: 2, group_name: 'Clap', score: 0.8, ignored: true, room: 'Cuisine', timestamp: 1e9 }); await tick();
+  ok('+  pièces : historique « entendu plus fort dans »', /entendu plus fort dans « Cuisine »/.test($('#history-list').textContent));
   // --- 6.80 : diagnostic de la detection sur la carte
   status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
              source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100 } } };

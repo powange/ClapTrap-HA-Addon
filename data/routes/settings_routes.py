@@ -42,7 +42,7 @@ def toggle_debug():
 
 # Reglages avances : tous les reglages globaux bornes sauf le seuil (par
 # groupe dans l'interface), avec les bornes de l'import.
-_ADVANCED_KEYS = tuple(k for k in GLOBAL_LIMITS if k != 'threshold')
+_ADVANCED_KEYS = ('delay', 'peak_cooldown', 'peak_ratio')   # liste explicite (pas tout GLOBAL_LIMITS)
 
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
@@ -59,6 +59,25 @@ def update_advanced_settings():
     modify_settings(_mut)
     _apply_live()   # detecteurs actifs, sans relance
     return jsonify({'success': True})
+
+
+@settings_bp.route('/api/settings/rooms', methods=['PUT'])
+def update_room_settings():
+    """Arbitrage entre pieces : {enabled?, window?} (fenetre d'attente en s)."""
+    data = _json()
+    unknown = sorted(set(data) - {'enabled', 'window'})
+    if unknown:
+        raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
+    values = {}
+    if 'enabled' in data:
+        values['room_arbitration'] = to_bool(data['enabled'], 'enabled')
+    if 'window' in data:
+        values['room_window'] = to_number(data['window'], 'window', *GLOBAL_LIMITS['room_window'])
+
+    def _mut(settings):
+        settings.setdefault('global', {}).update(values)
+    modify_settings(_mut)
+    return jsonify({'success': True, **values})
 
 
 @settings_bp.route('/api/ha/cleanup', methods=['POST'])

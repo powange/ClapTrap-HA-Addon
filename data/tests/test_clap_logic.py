@@ -473,3 +473,15 @@ def test_long_cut_switches_alerts_off():
     t.on_classification([('Smoke detector, smoke alarm', 0.9)], 100.0)
     ev = t.interrupt(100.0, 60.0)
     assert [e['alert'] for e in ev] == ['off']
+
+
+def test_events_carry_peak_strength_over_noise():
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5, 'clap_counts': [1]}])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    t.feed_peak(0.2, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.2)
+    ev = [e for e in t.on_classification([('Clapping', 0.9)], 101.8) if not e['ignored']]
+    assert ev and 15 < ev[0]['strength'] < 25                  # ~0,2 / 0,01

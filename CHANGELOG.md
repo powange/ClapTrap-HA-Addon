@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.86.0
+
+### Plusieurs pièces
+
+- **Seule la source la plus proche déclenche** (option de l'onglet Réglages,
+  désactivée par défaut ; aussi par MQTT, `set_rooms`) : un clap entendu par
+  plusieurs sources (micro du salon et caméra du couloir) ne déclenche que
+  celle qui l'entend le plus fort par rapport à son bruit de fond. Les autres
+  sont notées « entendu plus fort dans … » dans l'historique. Seuls les
+  claps de groupes de même nom se comparent, et une source dont le nombre de
+  claps déclenche une entité passe en priorité. Attente réglable de 0,3 à
+  3 s (1 s par défaut, seulement si plusieurs sources sont connectées).
+- **Capteur « Pièce du dernier clap »** (`sensor.claptrap_derniere_piece`) :
+  la source du dernier clap qui a déclenché une entité, avec le nombre de
+  claps, le groupe et l'heure ; une seule automatisation pour toute la
+  maison (exemple dans la documentation).
+- Événement et webhook : nouveau champ `strength` (force du clap par rapport
+  au bruit de fond de la source).
+
 ## 6.85.0
 
 ### Blueprints Home Assistant

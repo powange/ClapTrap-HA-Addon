@@ -1155,3 +1155,4 @@ def on_clap_detected(entity_key, score, clap_count, group_slug='clap', group_cla
         'sons': [{'classe': l.get('label'), 'score': round(float(l.get('score', 0)), 3)}
                  for l in (labels or []) if isinstance(l, dict)],
     })
+    return True   # une entite a ete declenchee

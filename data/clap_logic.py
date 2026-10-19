@@ -113,6 +113,7 @@ class ClapTracker:
         self._last_trigger = 0.0
         self._group_state = {}   # slug -> {armed_at, score, labels}
         self._alerts = {}        # slug -> {hits, on, last_hit, score, labels} (mode alerte)
+        self._strength = {}      # instant d'un pic -> force (pic / bruit de fond)
 
     # --- Configuration ----------------------------------------------------
 
@@ -205,6 +206,10 @@ class ClapTracker:
                 self.avg_level = max(0.0001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
             return
 
+        # Force du pic par rapport au bruit de fond (avant que la moyenne ne
+        # l'absorbe) : comparable entre sources de gains differents
+        # (arbitrage entre pieces : la plus proche entend le plus fort).
+        strength = raw_peak / max(self.avg_level, 1e-6)
         # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
         # pendant un son : un bruit qui s'installe finit par etre absorbe.
         rate = 0.001 if self._above else 0.005
@@ -214,11 +219,13 @@ class ClapTracker:
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
         self.sustain_times = [t for t in self.sustain_times if (now - t) < max_age]
+        self._strength = {t: v for t, v in self._strength.items() if (now - t) < max_age}
 
         if raw_peak > threshold:
             if not self._sus_above or (now - self._sus_last) >= self.SUSTAIN_RESET:
                 self._sus_last = now
                 self.sustain_times.append(now)
+                self._strength[now] = strength
                 self.sustain_count += 1
             self._sus_above = True
         elif raw_peak < threshold * 0.6:
@@ -235,6 +242,7 @@ class ClapTracker:
             if (now - self._last_peak_time) > self.peak_cooldown:
                 self._last_peak_time = now
                 self.peak_times.append(now)
+                self._strength[now] = strength
                 self.attack_count += 1
             self._above = True
         elif raw_peak < threshold * 0.6:
@@ -312,6 +320,7 @@ class ClapTracker:
                 'group': group,
                 # 0 : son reconnu sans aucun pic (groupe sans entites)
                 'clap_count': len(recent),
+                'strength': round(max((self._strength.get(t, 0.0) for t in recent), default=0.0), 2),
                 'score': float(state['score']),
                 'labels': sorted(({'label': n, 'score': s} for n, s in state['labels'].items()),
                                  key=lambda x: x['score'], reverse=True),

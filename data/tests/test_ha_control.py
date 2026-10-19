@@ -280,7 +280,7 @@ def test_device_payload_and_component_removal(ctl, mqtt):
     ha.republish_all()
     hub = json.loads(last(mqtt, 'homeassistant/device/claptrap/hub/config'))
     assert hub['dev']['identifiers'] == ['claptrap'] and {'detection', 'detection_active', 'configuration',
-                                                          'derniere_commande'} == set(hub['cmps'])
+                                                          'derniere_commande', 'derniere_piece'} == set(hub['cmps'])
     s = ctl.load_settings()
     s['microphone']['sound_groups'][0]['ha_entities'] = [1]
     ctl.save_settings(s)
@@ -434,3 +434,11 @@ def test_add_group_from_preset_over_mqtt(ctl, mqtt):
     assert r['success'] and r['data']['group']['count_mode'] == 'alerte'
     command({'action': 'update_group', 'source': 'Cam', 'group': 'Pleurs de bébé', 'alert_confirm': 4})
     assert result(mqtt)['success']
+
+
+def test_rooms_over_mqtt_and_last_room_sensor(ctl, mqtt):
+    command({'action': 'set_rooms', 'enabled': True, 'window': 2})
+    assert result(mqtt)['success'] and ctl.load_settings()['global']['room_window'] == 2
+    ha_control.publish_last_room({'source_name': 'Cuisine', 'entity_key': 'rtsp_x', 'clap_count': 2, 'group_name': 'Clap'})
+    msg = json.loads(last(mqtt, ha_control.ROOM_TOPIC))
+    assert msg['piece'] == 'Cuisine' and msg['claps'] == 2
