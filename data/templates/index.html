@@ -74,6 +74,7 @@
         <nav class="tabs" role="tablist" aria-label="Sections">
             <button type="button" role="tab" id="tab-listen" aria-controls="panel-listen" aria-selected="true">Écoute</button>
             <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Réglages</button>
+            <button type="button" role="tab" id="tab-blueprints" aria-controls="panel-blueprints" aria-selected="false" tabindex="-1">Blueprints</button>
         </nav>
     </header>
 
@@ -211,6 +212,18 @@
                 </section>
             </div>
         </section>
+
+        <!-- ===== Blueprints ===== -->
+        <section id="panel-blueprints" role="tabpanel" aria-labelledby="tab-blueprints" hidden>
+            <section class="card" aria-labelledby="bp-title">
+                <h2 id="bp-title">Automatisations prêtes à l'emploi</h2>
+                <p class="hint">Ces blueprints Home Assistant sont fournis avec ClapTrap. Ajoutez-les à Home Assistant, puis
+                   créez une automatisation à partir d'eux (Paramètres › Automatisations et scènes › Blueprints) en
+                   choisissant vos capteurs ClapTrap. Une mise à jour s'applique aux automatisations qui les utilisent.</p>
+                <div class="bp-list" id="bp-list" aria-live="polite"><p class="hint">Chargement…</p></div>
+                <p><a href="/config/blueprint/dashboard" target="_top" id="bp-open-ha">Ouvrir les blueprints dans Home Assistant</a></p>
+            </section>
+        </section>
     </main>
 
     <!-- Assistant d'ajout de source -->
@@ -285,6 +298,7 @@
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/count_calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/learn.js"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/blueprints.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/settings.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/app.js"></script>
 </body>

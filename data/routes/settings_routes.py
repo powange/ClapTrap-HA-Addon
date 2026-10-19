@@ -233,3 +233,29 @@ def test_webhook():
     except requests.exceptions.RequestException:
         return failure   # redirection comprise (journalisee par send_webhook)
     return jsonify({'success': True, 'message': 'Test réussi'})
+
+
+# --- Blueprints Home Assistant (onglet Blueprints, voir blueprints.py) --------
+
+def _blueprints(fn, *args):
+    import blueprints
+    try:
+        return fn(*args)
+    except blueprints.BlueprintError as e:
+        raise ApiError(str(e), e.status)
+
+
+@settings_bp.route('/api/blueprints', methods=['GET'])
+def list_blueprints():
+    import blueprints
+    items, error = _blueprints(blueprints.list_blueprints)
+    return jsonify({'success': True, 'blueprints': items, 'error': error})
+
+
+@settings_bp.route('/api/blueprints/install', methods=['POST'])
+def install_blueprint():
+    import blueprints
+    name = _json().get('file')
+    if not isinstance(name, str) or not name:
+        raise ApiError('file : nom du blueprint attendu')
+    return jsonify({'success': True, **_blueprints(blueprints.install, name)})

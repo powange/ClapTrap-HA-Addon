@@ -172,6 +172,9 @@ ENV S6_KILL_GRACETIME=9000
 
 # Copier les fichiers de l'application
 COPY data/ ./
+# Blueprints Home Assistant (onglet Blueprints : ajout et mise a jour depuis
+# l'interface, a la version de l'add-on)
+COPY blueprints/ ./blueprints/
 # .pyc precompiles : Python ne tente plus d'ecrire dans /usr/src/app a chaque
 # demarrage (refuse par AppArmor en mode strict).
 RUN python -m compileall -q -x '/(venv|tests)/' /usr/src/app

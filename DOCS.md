@@ -314,10 +314,24 @@ ClapTrap qui ne correspondent plus à aucune source.
 
 ## Automatisations prêtes à l'emploi (blueprints)
 
-Six blueprints s'importent en un clic dans Home Assistant (bouton
+Six blueprints sont fournis avec ClapTrap. Le plus simple : l'onglet
+**Blueprints** de l'interface les liste avec leur état dans Home Assistant,
+et les ajoute ou les met à jour en un clic.
+- **Pas encore dans Home Assistant** → bouton « Ajouter à Home Assistant ».
+- **Mise à jour disponible** → bouton « Mettre à jour ». La nouvelle version
+  remplace l'ancienne au même endroit, et les automatisations qui l'utilisent
+  en profitent tout de suite. Si elle demande un nouveau réglage, ouvrez-les
+  pour le renseigner.
+- **Version différente** (importée ailleurs, modifiée dans Home Assistant,
+  ou peut-être plus récente) → « Remplacer par la version de ClapTrap ».
+- **Dans Home Assistant, à jour** : rien à faire (« Réinstaller » remet la
+  version de ClapTrap si besoin).
+
+L'onglet reconnaît aussi un blueprint déjà importé par le bouton
+**Importer** ci-dessous. Vous pouvez aussi les importer sans l'onglet (bouton
 **Importer**, ou Paramètres › Automatisations et scènes › Blueprints ›
-Importer, avec l'adresse du fichier dans le dossier `blueprints/` du dépôt),
-puis **Créer une automatisation** à partir du blueprint :
+Importer, avec l'adresse du fichier dans le dossier `blueprints/` du dépôt).
+Ensuite, **Créer une automatisation** à partir du blueprint :
 
 | | |
 |---|---|

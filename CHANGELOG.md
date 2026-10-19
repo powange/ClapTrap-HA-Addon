@@ -1,5 +1,32 @@
 # Changelog
 
+## 6.95.0
+
+### Onglet Blueprints
+
+- Nouvel onglet **Blueprints**, à côté d'Écoute et Réglages. Il liste les
+  blueprints Home Assistant fournis avec ClapTrap et leur état dans Home
+  Assistant :
+  - pas encore ajouté → **Ajouter à Home Assistant** ;
+  - mise à jour disponible → **Mettre à jour**, après une confirmation ;
+  - version différente (importée ailleurs ou modifiée, peut-être plus
+    récente) → **Remplacer par la version de ClapTrap**, après une
+    confirmation ;
+  - à jour → **Réinstaller** possible : Home Assistant ne montre pas tout le
+    contenu d'un blueprint.
+- Les blueprints sont maintenant inclus dans l'image, à la version de
+  l'add-on. Ils sont envoyés par l'API WebSocket de Home Assistant
+  (`blueprint/save`), puis les automatisations sont rechargées.
+- Un blueprint déjà importé par le bouton de la documentation est reconnu
+  par son adresse source, et mis à jour au même endroit : les automatisations
+  qui l'utilisent le gardent.
+- Si Home Assistant est injoignable, la liste reste affichée avec les liens
+  d'import classiques (my.home-assistant).
+- Vérifié sur un vrai Home Assistant 2025.10 : ajout, mise à jour au même
+  endroit, blueprint importé depuis GitHub reconnu comme à jour.
+- Téléphone : avec trois onglets, ils passent sur leur propre ligne, sur
+  toute la largeur.
+
 ## 6.94.0
 
 ### AppArmor en mode strict

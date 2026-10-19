@@ -486,9 +486,16 @@ details.field[open] > summary::before { transform: rotate(90deg); }
     .status-actions { display: contents; }
     .status-actions .btn-large { grid-row: 1; grid-column: 2; min-height: 44px; padding: 0 16px; font-size: 0.95rem; }
     .status-actions .switch-inline { grid-row: 2; grid-column: 2; justify-self: end; }
-    .tabs { grid-row: 2; grid-column: 1; }
+    .tabs { grid-row: 2; grid-column: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
     .label-long { display: none; }
     .label-short { display: inline; }
+}
+@media (max-width: 480px) {
+    /* Trois onglets et « Démarrage auto » ne tiennent plus sur une ligne :
+       l'option sous le bouton, les onglets sur toute la largeur. */
+    .status-actions .switch-inline { grid-row: 2; grid-column: 1 / -1; min-height: 32px; }
+    .tabs { grid-row: 3; grid-column: 1 / -1; gap: 0; }
+    .tabs [role="tab"] { flex: 1 1 auto; padding: 0 8px; }
 }
 @media (max-height: 560px) {
     .statusbar { position: static; }
@@ -544,3 +551,16 @@ details.field[open] > summary::before { transform: rotate(90deg); }
                 padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .learned-main { display: grid; gap: 2px; min-width: 0; }
 .learned-main strong { overflow-wrap: anywhere; }
+
+/* Onglet Blueprints */
+#panel-blueprints > .card { max-width: 860px; }
+.bp-list { display: grid; gap: 10px; margin: 12px 0; }
+.bp-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+           padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.bp-main { display: grid; gap: 4px; min-width: 0; flex: 1 1 280px; }
+.bp-main h3 { margin: 0; font-size: 1rem; }
+.bp-main .hint { margin: 0; }
+.bp-main .pill { justify-self: start; }
+.pill.is-ok { color: var(--ok); }
+.pill.is-warn { color: var(--warn); }
+.bp-fallback { margin: 8px 0 12px; padding-left: 20px; }

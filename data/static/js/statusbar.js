@@ -139,6 +139,7 @@
                 document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
             });
             if (tab.id === 'tab-settings' && CT.onSettingsOpen) CT.onSettingsOpen();
+            if (tab.id === 'tab-blueprints' && CT.onBlueprintsOpen) CT.onBlueprintsOpen();
             if (tab.id === 'tab-listen' && CT.redrawLive) CT.redrawLive();   // courbes non dessinees pendant l'absence
             if (tab.id !== 'tab-listen') CT.stopTest();
         }
