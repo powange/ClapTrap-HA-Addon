@@ -156,6 +156,11 @@ entités globales (détection, configuration, dernière commande) restent sur
 **ClapTrap**. Le bouton **Visiter** de la fiche d'un appareil ouvre
 l'interface de ClapTrap.
 
+Découverte MQTT par appareil : un seul message retenu par appareil
+(`homeassistant/device/claptrap/<appareil>/config`, `hub` pour ClapTrap), qui
+décrit toutes ses entités. Supprimer une source retire son appareil et ses
+entités d'un coup.
+
 | Entité | Rôle |
 |---|---|
 | `event.claptrap_<source>_<groupe>_evenement` | un événement par détection : type `1clap`, `2claps`… (nombres cochés du groupe), attributs `score` et `sons` |
@@ -461,6 +466,7 @@ lignes : ouvrez une issue sur le dépôt avec leur contenu.
 | 6.61 | Noms affichés des entités raccourcis (« Salon · Clap · 2 claps » au lieu de « VBAN: Salon Clap 2 claps ») ; entity_id inchangés | Rien (un nom personnalisé dans HA est conservé). |
 | 6.62 | Un appareil par source dans HA (« ClapTrap Salon ») : noms affichés « ClapTrap Salon Clap · 2 claps » ; nouvelle entité event par groupe ; mise à jour automatique arrêtée avant les versions qui changent des identifiants (`breaking_versions`) | Rien ; affecter éventuellement une pièce à chaque appareil. |
 | 6.66 | ffmpeg réduit à l'audio des caméras : codecs listés dans « Ajouter une source » ; seule la piste audio est demandée | Rien, sauf caméra muette avec « no decoder found » au journal : le signaler. |
+| 6.79 | Découverte MQTT par appareil (un message par appareil au lieu d'un par entité) ; les entités existantes sont migrées automatiquement au premier démarrage (entity_id, noms, icônes, pièces et historique conservés) | Rien. |
 
 Le détail de chaque version est dans le journal des modifications (onglet
 **Journal des modifications** de l'add-on).

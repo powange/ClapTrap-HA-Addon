@@ -176,29 +176,116 @@ def test_analysis_sensors(ctl, mqtt, monkeypatch):
     assert json.loads(last(mqtt, 'claptrap/vban_atomsalon/analyse'))['classe'] == 'Clapping'
 
 
-def test_orphan_settings_entities_cleaned(ctl, mqtt):
-    stale = 'homeassistant/number/claptrap/rtsp_old_clap_seuil/config'
-    ha._discovered_ctrl.update({stale, 'homeassistant/number/claptrap/mic_clap_seuil/config',
-                                'homeassistant/sensor/claptrap/configuration/config'})
-    assert ha.cleanup_orphans() == ['rtsp_old_clap_seuil']
-    assert (stale, '', True) in mqtt.published
-
-
-def test_orphan_settings_entities_states_cleared(ctl, mqtt):
-    """Les etats retenus d'une entite de reglage orpheline sont effaces avec
-    sa configuration, jamais un etat partage avec une entite gardee."""
+def _seen(topic, cfg):
     import types
-    def seen(topic, cfg):
-        ha._on_message(None, None, types.SimpleNamespace(topic=topic, payload=json.dumps(cfg).encode(), retain=True))
-    seen('homeassistant/number/claptrap/rtsp_old_clap_seuil/config', {'state_topic': 'claptrap/rtsp_old/clap/seuil'})
-    seen('homeassistant/sensor/claptrap/rtsp_old_top3/config',
-         {'state_topic': 'claptrap/mic/analyse', 'json_attributes_topic': 'claptrap/mic/analyse'})
-    seen('homeassistant/sensor/claptrap/mic_derniere_classe/config', {'state_topic': 'claptrap/mic/analyse'})
-    seen('homeassistant/number/claptrap/autre_seuil/config', {'state_topic': 'zigbee2mqtt/lampe'})
-    assert ha.cleanup_orphans() == ['autre_seuil', 'rtsp_old_clap_seuil', 'rtsp_old_top3']
-    cleared = {t for t, p, r in mqtt.published if p == '' and r}
+    payload = json.dumps(cfg).encode() if cfg is not None else b''
+    ha._on_message(None, None, types.SimpleNamespace(topic=topic, payload=payload, retain=True))
+
+
+def _connect(monkeypatch):
+    """_after_connect sans attente (configurations retenues deja recues)."""
+    import time as _time
+    import types
+    monkeypatch.setattr(ha, 'time', types.SimpleNamespace(sleep=lambda s: None, time=_time.time,
+                                                          monotonic=_time.monotonic))
+    monkeypatch.setattr(ha, 'DISCOVERY_MAX_WAIT', 0)
+    ha._after_connect()
+
+
+def test_legacy_entities_migrated_then_orphans_cleaned(ctl, mqtt, monkeypatch):
+    """Passage a la decouverte par appareil : chaque ancienne configuration
+    d'une entite toujours publiee recoit migrate_discovery AVANT la
+    configuration de l'appareil, puis est videe ; les orphelines sont
+    effacees avec leurs etats, jamais un etat partage avec une entite gardee."""
+    monkeypatch.setattr(ha, 'MIGRATE_CLEAR_DELAY', 0.05)
+    p = 'homeassistant'
+    seuil, conf = f'{p}/number/claptrap/mic_clap_seuil/config', f'{p}/sensor/claptrap/configuration/config'
+    old = f'{p}/number/claptrap/rtsp_old_clap_seuil/config'
+    stuck = f'{p}/switch/claptrap/mic_source_active/config'
+    ha._discovery_ready.clear()
+    mqtt.published.clear()
+    ha.sync_sources()                                          # pendant la connexion : rien de publie
+    assert not [t for t, *_ in mqtt.published if '/device/' in t]
+    _seen(seuil, {'state_topic': 'claptrap/mic/clap/seuil'})
+    _seen(conf, {'state_topic': 'claptrap/configuration'})
+    _seen(stuck, {'migrate_discovery': True})                  # migration interrompue (redemarrage)
+    _seen(old, {'state_topic': 'claptrap/rtsp_old/clap/seuil'})
+    _seen(f'{p}/sensor/claptrap/rtsp_old_top3/config',
+          {'state_topic': 'claptrap/mic/analyse', 'json_attributes_topic': 'claptrap/mic/analyse'})
+    _seen(f'{p}/number/claptrap/autre_seuil/config', {'state_topic': 'zigbee2mqtt/lampe'})
+    _connect(monkeypatch)
+    wait_until(lambda: (seuil, '', True) in mqtt.published and (stuck, '', True) in mqtt.published)
+    pub = mqtt.published
+    idx = lambda topic, payload: next(i for i, (t, pl, r) in enumerate(pub) if t == topic and pl == payload)  # noqa: E731
+    migrate = json.dumps({'migrate_discovery': True})
+    mic_device = next(i for i, (t, pl, r) in enumerate(pub) if t == f'{p}/device/claptrap/mic/config' and pl)
+    hub_device = next(i for i, (t, pl, r) in enumerate(pub) if t == f'{p}/device/claptrap/hub/config' and pl)
+    assert idx(seuil, migrate) < mic_device < idx(seuil, '')
+    wait_until(lambda: (conf, '', True) in mqtt.published)
+    assert idx(conf, migrate) < hub_device < idx(conf, '')
+    assert (old, migrate, True) not in pub and (old, '', True) in pub   # orpheline : effacee, pas migree
+    cleared = {t for t, pl, r in pub if pl == '' and r}
     assert 'claptrap/rtsp_old/clap/seuil' in cleared
-    assert not {'claptrap/mic/analyse', 'zigbee2mqtt/lampe'} & cleared
+    assert not {'claptrap/mic/analyse', 'zigbee2mqtt/lampe', 'claptrap/mic/clap/seuil', 'claptrap/configuration'} & cleared
+    assert ha._legacy == {}
+
+
+def test_late_source_migrated_never_deleted(ctl, mqtt, monkeypatch):
+    """Ancienne entite d'une source absente au demarrage (reglages illisibles) :
+    pas effacee par le nettoyage, migree quand la source est publiee."""
+    monkeypatch.setattr(ha, 'MIGRATE_CLEAR_DELAY', 0.05)
+    legacy = 'homeassistant/number/claptrap/rtsp_abcdef12_clap_seuil/config'
+    info = ha._source_info.pop('rtsp_abcdef12')
+    _seen(legacy, {'state_topic': 'claptrap/rtsp_abcdef12/clap/seuil'})
+    ha._source_info['rtsp_abcdef12'] = info
+    assert 'homeassistant/number/claptrap/rtsp_abcdef12_clap_seuil/config' not in str(ha.cleanup_orphans())
+    assert (legacy, '', True) not in mqtt.published
+    ha.republish_all()
+    wait_until(lambda: (legacy, '', True) in mqtt.published)
+    migrate = [i for i, (t, pl, r) in enumerate(mqtt.published) if t == legacy and pl and 'migrate' in pl]
+    device = [i for i, (t, pl, r) in enumerate(mqtt.published) if t.endswith('/device/claptrap/rtsp_abcdef12/config')]
+    assert migrate and device and migrate[0] < device[-1]
+
+
+def test_reconnect_during_wait_leaves_it_to_new_session(ctl, mqtt, monkeypatch):
+    ha._discovery_ready.clear()
+    import types
+    import time as _time
+    monkeypatch.setattr(ha, 'time', types.SimpleNamespace(
+        sleep=lambda s: setattr(ha, '_session', ha._session + 1), time=_time.time, monotonic=_time.monotonic))
+    monkeypatch.setattr(ha, 'DISCOVERY_MAX_WAIT', 0.01)
+    mqtt.published.clear()
+    ha._after_connect()
+    assert not ha._discovery_ready.is_set() and not [t for t, *_ in mqtt.published if '/device/' in t]
+
+
+def test_source_entity_ids_match_configs(ctl):
+    for info in ha._source_info.values():
+        assert ha_control.source_entity_ids(info) == {obj for _c, obj, _cfg in ha_control.source_entities(info)}
+
+
+def test_device_payload_and_component_removal(ctl, mqtt):
+    """Un message par appareil : dev, o et cmps (plateforme dans p, ni device
+    ni origin par entite) ; un nombre de claps retire est reduit a {"p": …}."""
+    dev = json.loads(last(mqtt, 'homeassistant/device/claptrap/mic/config'))
+    assert dev['dev']['identifiers'] == ['claptrap_mic'] and dev['dev']['via_device'] == 'claptrap'
+    assert dev['o']['name'] == 'ClapTrap'
+    c = dev['cmps']['mic_clap_2claps']
+    assert c['p'] == 'binary_sensor' and c['unique_id'] == 'claptrap_mic_clap_2claps'
+    assert not {'device', 'origin'} & set(c)
+    assert dev['cmps']['mic_siffler_seuil']['p'] == 'number'
+    ha.republish_all()
+    hub = json.loads(last(mqtt, 'homeassistant/device/claptrap/hub/config'))
+    assert hub['dev']['identifiers'] == ['claptrap'] and {'detection', 'detection_active', 'configuration',
+                                                          'derniere_commande'} == set(hub['cmps'])
+    s = ctl.load_settings()
+    s['microphone']['sound_groups'][0]['ha_entities'] = [1]
+    ctl.save_settings(s)
+    ha.sync_sources()
+    dev = json.loads(last(mqtt, 'homeassistant/device/claptrap/mic/config'))
+    assert dev['cmps']['mic_clap_2claps'] == {'p': 'binary_sensor'} and 'mic_clap_1clap' in dev['cmps']
+    ha.republish_all()                                        # envoi suivant : retrait deja fait
+    assert 'mic_clap_2claps' not in json.loads(last(mqtt, 'homeassistant/device/claptrap/mic/config'))['cmps']
 
 
 def test_large_results_kept_out_of_attributes(ctl, mqtt, monkeypatch):

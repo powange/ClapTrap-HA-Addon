@@ -116,15 +116,16 @@ def test_concurrent_syncs_end_with_current_settings(mqtt, settings_dir):
 def test_orphans_and_pending_removal(mqtt, monkeypatch):
     s = settings()
     ha.sync_sources(s)
-    ha._discovered.update({'mic_7_clap_1clap', 'rtsp_old_clap_1clap', 'mic_clap_1clap', 'detection'})
-    assert ha.cleanup_orphans() == ['mic_7_clap_1clap', 'rtsp_old_clap_1clap']
-    ha._mqtt_connected.clear()
-    ha.unregister_source('vban_salon')
-    ha._mqtt_connected.set()
-    assert ha._pending_removal == set()   # groupe sans entite : rien a retirer
+    ha._seen_devices.update({'rtsp_old': ['claptrap/rtsp_old/analyse'], 'mic': [], ha.HUB: []})
+    ha._legacy['homeassistant/binary_sensor/claptrap/mic_7_clap_1clap/config'] = ['claptrap/mic_7_clap_1clap/state']
+    assert ha.cleanup_orphans() == ['appareil rtsp_old', 'binary_sensor.claptrap_mic_7_clap_1clap']
+    cleared = {t for t, p, r in mqtt.published if p == ''}
+    assert {'homeassistant/device/claptrap/rtsp_old/config', 'claptrap/rtsp_old/analyse',
+            'homeassistant/binary_sensor/claptrap/mic_7_clap_1clap/config', 'claptrap/mic_7_clap_1clap/state'} <= cleared
+    assert 'homeassistant/device/claptrap/mic/config' not in cleared
     ha._mqtt_connected.clear()
     ha.unregister_source('mic')
-    assert ha._pending_removal == {'mic_clap_1clap', 'mic_clap_2claps'}
+    assert ha._pending_devices == {'mic'} and 'claptrap/mic_clap_1clap/state' in ha._pending_topics
     ha._mqtt_connected.set()
     monkeypatch.setattr(ha, 'time', types.SimpleNamespace(sleep=lambda s: None, time=time.time,
                                                           monotonic=time.monotonic))
@@ -175,7 +176,13 @@ def test_stale_source_never_unpublishes_ids_claimed_by_kept_source(mqtt):
     s['saved_vban_sources'][0]['sound_groups'][0]['ha_entities'] = [1, 2]
     mqtt.published.clear()
     ha.sync_sources(s)
-    assert 'homeassistant/binary_sensor/claptrap/vban_salon_tele_clap_2claps/config' not in mqtt.deleted()
+    last = [p for t, p, r in mqtt.published if t == 'homeassistant/binary_sensor/claptrap/vban_salon_tele_clap_2claps/config'][-1]
+    assert last                                                   # entite de meme identifiant conservee
+    assert ('homeassistant/device/claptrap/vban_salon_tele/config', '', True) not in mqtt.published
+    kept = json.loads([p for t, p, r in mqtt.published if t == 'homeassistant/device/claptrap/vban_salon_tele/config'][-1])
+    shared = {c for c, v in kept['cmps'].items() if len(v) > 1}   # reduit aux entites partagees
+    assert 'vban_salon_tele_clap_2claps' in shared and shared <= ha._component_ids(ha._source_info['vban_salon'])
+    assert 'vban_salon_tele_source_active' not in shared
 
 
 def test_degraded_mode_keeps_entities(mqtt, monkeypatch):
@@ -187,7 +194,7 @@ def test_degraded_mode_keeps_entities(mqtt, monkeypatch):
     mqtt.published.clear()
     ha.sync_sources({'microphone': {}, 'rtsp_sources': [], 'saved_vban_sources': []})
     assert mqtt.deleted() == [] and ha._expected_keys is None
-    ha._discovered.add('mic_clap_1clap')
+    ha._seen_devices['rtsp_old'] = []
     assert ha.cleanup_orphans() == []
 
 
@@ -198,10 +205,10 @@ def test_readded_source_purged_from_pending_removal(mqtt):
     ha.sync_sources(s)
     ha._mqtt_connected.clear()
     ha.unregister_source('mic')
-    assert ha._pending_removal
+    assert ha._pending_devices
     ha._mqtt_connected.set()
     ha.sync_sources(s)
-    assert ha._pending_removal == set()
+    assert ha._pending_devices == set() and not ha._pending_topics
 
 
 def colliding():
@@ -303,7 +310,7 @@ def test_short_entity_names(mqtt):
     mqtt.published.clear()
     ha.sync_sources(settings(rtsp_sources=[{'id': 'abcdef123456', 'name': 'Salon', 'enabled': True,
                                             'sound_groups': [G('clap', 'Clap', [1])]}]))
-    devices = {json.loads(p)['device']['name'] for t, p, r in mqtt.published if t.endswith('/config') and p}
+    devices = {json.loads(p)['device']['name'] for t, p, r in mqtt.published if t.endswith('/config') and p and '/device/' not in t}
     # deux sources « Salon » (RTSP et VBAN) : libelle complet pour les distinguer
     assert {'ClapTrap RTSP: Salon', 'ClapTrap VBAN: Salon'} <= devices
     assert ha.short_name('VBAN: Salon') == 'Salon' and ha.short_name('Micro: alsa_input.usb-x') == 'Micro'
@@ -312,7 +319,7 @@ def test_short_entity_names(mqtt):
 def test_event_entity_and_source_devices(mqtt, monkeypatch):
     monkeypatch.setattr(ha, '_ingress_url', 'homeassistant://hassio/ingress/abc_claptrap')
     ha.sync_sources(settings())
-    cfgs = {t: json.loads(p) for t, p, r in mqtt.published if t.endswith('/config') and p}
+    cfgs = {t: json.loads(p) for t, p, r in mqtt.published if t.endswith('/config') and p and '/device/' not in t}
     ev = cfgs['homeassistant/event/claptrap/mic_clap_evenement/config']
     assert ev['event_types'] == ['1clap', '2claps'] and ev['default_entity_id'] == 'event.claptrap_mic_clap_evenement'
     binary = cfgs['homeassistant/binary_sensor/claptrap/mic_clap_1clap/config']

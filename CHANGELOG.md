@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.79.0
+
+### Home Assistant
+
+- **Découverte MQTT par appareil** : un seul message retenu par appareil
+  (« ClapTrap » et un par source) au lieu d'un par entité (33 messages pour
+  un micro et une caméra, 3 maintenant). Publication plus légère, appareil
+  et entités créés ou supprimés d'un coup.
+- **Migration automatique** au premier démarrage : les entités existantes
+  sont reprises par leur appareil sans être recréées. Vérifié sur un vrai
+  Home Assistant (2025.10) : mêmes 33 entités, entity_id personnalisés,
+  noms, icônes et historique conservés, aucun doublon ; les anciens messages
+  sont ensuite effacés du broker.
+- Une source supprimée pendant que l'add-on était arrêté est retirée au
+  démarrage avec son appareil et ses états retenus.
+
 ## 6.78.0
 
 ### Calibrages
