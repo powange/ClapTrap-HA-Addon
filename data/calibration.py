@@ -88,6 +88,9 @@ class _Session:
         self.count_takes = []
         self.count_proposal = None
         self.taking = False   # prise en cours (une a la fois)
+        # Apprentissage d'un son (learned.py) : empreintes du bruit de fond et des exemples.
+        self.learn_background = []
+        self.learn_examples = []
 
     def summary(self):
         per = {}
@@ -119,8 +122,10 @@ def status():
     return s.summary() if s is not None else {'active': False}
 
 
-def start(source_ref):
-    """Commence le calibrage d'une source (remplace un calibrage en cours)."""
+def start(source_ref, purpose='source'):
+    """Commence le calibrage d'une source (remplace un calibrage en cours).
+    `purpose` : 'source', 'count' (comptage) ou 'learn' (son appris), fixe
+    sous le verrou (une autre requete ne voit jamais une session sans but)."""
     global _session
     import classify
     from ha_control import _resolve_source, CommandError
@@ -150,6 +155,7 @@ def start(source_ref):
             time.sleep(0.2)
         from ha_entities import source_label
         _session = _Session(kind, key, source_id, source_label(kind, src), was_running)
+        _session.purpose = purpose
         classify.mute_source(source_id, True)
         threading.Thread(target=_watchdog, args=(_session,), daemon=True, name='calibration-watchdog').start()
         logging.info(f"Calibrage de {_session.label} commencé")
@@ -193,7 +199,7 @@ def _resolve_target(session, target, settings):
     return 'new', None, name
 
 
-def capture_take(s, duration, grace):
+def capture_take(s, duration, grace, scores=False):
     """Une prise sur la source de la session : capture, puis blocs, pics et
     resultats limites a la prise. Commun au calibrage d'une source et a celui
     du comptage.
@@ -207,7 +213,7 @@ def capture_take(s, duration, grace):
             raise CalibrationError('une prise est déjà en cours', 409)
         s.taking = True
     try:
-        return _capture_take(s, duration, grace)
+        return _capture_take(s, duration, grace, scores)
     except CalibrationError:
         if _session is not s:   # « aucun son reçu » d'une prise annulee
             raise CalibrationError('calibrage terminé pendant la prise', 409)
@@ -216,12 +222,12 @@ def capture_take(s, duration, grace):
         s.taking = False
 
 
-def _capture_take(s, duration, grace):
+def _capture_take(s, duration, grace, scores=False):
     import classify
     det = classify.detector_for(s.source_id)
     if det is None:
         raise CalibrationError("la source n'écoute plus (détection arrêtée ?)", 409)
-    cap = capture(det, duration, grace=grace)
+    cap = capture(det, duration, grace=grace, scores=scores)
     t0, t1 = cap['t0'], cap['t1']
     blocks = [tuple(b) + (None,) * (4 - len(b)) for b in cap['blocks'] if t0 < b[2] <= t1]
     if not blocks:
@@ -229,7 +235,8 @@ def _capture_take(s, duration, grace):
     half = YAMNET_WINDOW / 2
     return {'blocks': blocks, 'peaks': [p for p in cap['peaks'] if t0 < p[1] <= t1],
             # Fenetres dont la moitie au moins tombe dans la prise.
-            'results': [r for r in cap['results'] if t0 + half < r[1] <= t1 + half]}
+            'results': [r for r in cap['results'] if t0 + half < r[1] <= t1 + half],
+            'scores': [r for r in cap['scores'] if t0 + half < r[1] <= t1 + half]}
 
 
 def record(target, expected=None, duration=DEFAULT_DURATION):

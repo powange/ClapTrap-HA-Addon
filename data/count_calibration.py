@@ -44,10 +44,7 @@ def _params():
 def start(source_ref):
     """Commence un calibrage du comptage sur une source (remplace un
     calibrage en cours, comme celui d'une source)."""
-    summary = calibration.start(source_ref)
-    with calibration._lock:
-        calibration._session.purpose = 'count'
-    return dict(summary, purpose='count')
+    return calibration.start(source_ref, purpose='count')
 
 
 def _session():

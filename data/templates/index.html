@@ -166,6 +166,14 @@
                     </div>
                 </section>
 
+                <section class="card" id="learned" aria-labelledby="learned-title">
+                    <h2 id="learned-title">Sons appris</h2>
+                    <p class="hint">Un son précis que YAMNet ne connaît pas bien (votre sonnette, le bip du lave-linge) :
+                       enregistrez-en quelques exemples, il devient un son « Appris : … » à cocher dans un groupe.</p>
+                    <ul class="learned-list" id="learned-list"></ul>
+                    <button type="button" class="btn btn-ghost" id="learn-sound">Apprendre un son…</button>
+                </section>
+
                 <section class="card" id="exclusions" aria-labelledby="excl-title">
                     <h2 id="excl-title">Sons ignorés partout</h2>
                     <p class="hint">Ces sons ne déclenchent aucun groupe, sur aucune source, même s'ils y sont cochés.</p>
@@ -246,6 +254,18 @@
         </div>
     </div>
 
+    <div class="modal-backdrop" id="learn" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="learn-title">
+            <div class="modal-head">
+                <h2 id="learn-title">Apprendre un son</h2>
+                <button type="button" class="btn-icon" data-c="close" aria-label="Fermer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+            <div data-role="learn-body"></div>
+        </div>
+    </div>
+
     <div class="toasts" id="toasts" aria-live="polite"></div>
     <div class="sr-only" id="announcer" aria-live="polite"></div>
 
@@ -264,6 +284,7 @@
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/wizard.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/count_calibrate.js"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/learn.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/settings.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/app.js"></script>
 </body>

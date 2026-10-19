@@ -183,6 +183,34 @@ de vos propres bruits.
 La détection est démarrée le temps du calibrage si elle était arrêtée. Le
 calibrage se pilote aussi par commandes MQTT (voir plus bas).
 
+## Sons appris (onglet Réglages)
+
+Pour un son précis que YAMNet reconnaît mal ou confond (votre sonnette, le
+bip du lave-linge, le carillon de la porte), **Apprendre un son…** l'apprend
+à partir de vos exemples :
+
+1. Donnez-lui un nom et choisissez la source qui l'entend.
+2. Enregistrez 5 s du bruit de fond habituel, puis 3 à 10 exemples (5
+   conseillés) : à chaque prise de 3 s, faites entendre le son **une fois**,
+   dans les conditions habituelles (même volume, même distance). La source ne
+   déclenche rien pendant l'apprentissage.
+3. Le bilan indique combien d'exemples se reconnaissent entre eux, et
+   prévient si le son ressemble trop au bruit de fond.
+4. **Enregistrer le son** : il apparaît comme un son de plus, **« Appris :
+   <nom> »**, à cocher dans un groupe comme n'importe quel son (seuil conseillé
+   50 à 60 %, comptage, mode alerte, sons ignorés), sur toutes les sources.
+
+Comment ça marche : pour chaque fenêtre analysée, YAMNet donne un score à
+chacune de ses 521 classes. Cette « empreinte » est comparée à celles de vos
+exemples, après en avoir retiré ce qui est toujours là (le bruit de fond).
+Aucun calcul supplémentaire n'est fait. En contrepartie, deux sons que YAMNet
+range dans les mêmes classes (deux mélodies de sonnette proches) restent
+difficiles à distinguer. Un son appris l'est avec la source choisie : sur
+une autre source (autre micro, autre pièce), mieux vaut l'apprendre à nouveau
+sous un autre nom. Les sons appris ne font pas partie de l'export de la
+configuration (fichier `learned_sounds.json` du dossier de l'add-on, inclus
+dans les sauvegardes de Home Assistant).
+
 ## Entités Home Assistant
 
 Chaque source a son propre appareil (« ClapTrap Salon », « ClapTrap Micro »),

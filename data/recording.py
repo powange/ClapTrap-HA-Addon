@@ -43,15 +43,15 @@ def saturation(max_raw, gain):
     return max_raw >= 0.99, max_raw * gain > AGC_CEILING
 
 
-def capture(det, seconds, grace=RESULT_GRACE, audio=False):
+def capture(det, seconds, grace=RESULT_GRACE, audio=False, scores=False):
     """Ecoute le detecteur `seconds` s, puis `grace` s pour les derniers
     resultats YAMNet. Renvoie {'blocks': [(pic_brut, gain, instant)],
     'peaks': [(type, instant)], 'results': [(categories, instant)],
-    'audio': [(bloc, horloge_apres_bloc)], 't0', 't1'} ; instants sur
-    l'horloge audio du detecteur. Blocs, pics et son : pendant la prise
-    seulement."""
-    events = {'block', 'peak', 'result'} | ({'audio'} if audio else set())
-    out = {'blocks': [], 'peaks': [], 'results': [], 'audio': []}
+    'audio': [(bloc, horloge_apres_bloc)], 'scores': [(521 classes,
+    instant)], 't0', 't1'} ; instants sur l'horloge audio du detecteur.
+    Blocs, pics et son : pendant la prise seulement."""
+    events = {'block', 'peak', 'result'} | ({'audio'} if audio else set()) | ({'scores'} if scores else set())
+    out = {'blocks': [], 'peaks': [], 'results': [], 'audio': [], 'scores': []}
     lock = threading.Lock()
     capturing = [True]
 
@@ -59,6 +59,8 @@ def capture(det, seconds, grace=RESULT_GRACE, audio=False):
         with lock:
             if event == 'result':
                 out['results'].append(data)
+            elif event == 'scores':
+                out['scores'].append(data)
             elif capturing[0]:
                 if event == 'audio':
                     out['audio'].append((data[0], det._clock_end))
