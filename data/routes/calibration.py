@@ -61,3 +61,34 @@ def calibration_apply():
 @calibration_bp.route('/api/calibration/cancel', methods=['POST'])
 def calibration_cancel():
     return _run(calibration.cancel)
+
+
+# --- Calibrage du comptage (reglages globaux, voir count_calibration.py) -------
+# Meme session que le calibrage d'une source (annulation : /api/calibration/cancel).
+
+@calibration_bp.route('/api/calibration/count/start', methods=['POST'])
+def count_calibration_start():
+    import count_calibration
+    return _run(count_calibration.start, _body().get('source'))
+
+
+@calibration_bp.route('/api/calibration/count/record', methods=['POST'])
+def count_calibration_record():
+    import count_calibration
+    data = _body()
+    return _run(count_calibration.record, data.get('kind'), data.get('duration'))
+
+
+@calibration_bp.route('/api/calibration/count/analyze', methods=['POST'])
+def count_calibration_analyze():
+    import count_calibration
+    return _run(count_calibration.analyze)
+
+
+@calibration_bp.route('/api/calibration/count/apply', methods=['POST'])
+def count_calibration_apply():
+    import count_calibration
+    values = _body().get('values')
+    if values is not None and not isinstance(values, dict):
+        raise ApiError('values : objet attendu')
+    return _run(count_calibration.apply, values)

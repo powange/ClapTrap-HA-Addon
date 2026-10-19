@@ -363,6 +363,15 @@ déclencher l'automatisation. ClapTrap la masque dans ses journaux.
 | Écart minimal entre deux claps | 0,08 s | Filtre les rebonds d'un même clap. |
 | Force minimale d'un clap | 3 × le bruit ambiant | Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs. |
 
+Le bouton **Calibrer le comptage…** propose ces trois valeurs à partir de vos
+propres gestes, mesurés sur une source (environ 2 minutes, la source ne
+déclenche rien pendant ce temps) : 5 s de bruit de fond, 3 claps simples,
+3 fois « 2 claps », 2 fois « 3 claps » et, au choix, « 2 claps, une pause,
+1 clap » pour vérifier que deux commandes ne sont pas fusionnées. Le résultat
+compare les réglages actuels et proposés en rejouant vos prises (« prises
+correctement comptées : 4/9 avec les réglages actuels, 9/9 avec les réglages
+proposés ») ; les valeurs restent modifiables avant « Appliquer ».
+
 Le seuil de confiance, lui, se règle par groupe, directement sur les cartes.
 
 ## Broker MQTT externe

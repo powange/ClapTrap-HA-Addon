@@ -22,7 +22,7 @@ import time
 DEFAULT_DURATION = 4.0
 MIN_DURATION = 1.0
 MAX_DURATION = 15.0
-from recording import RESULT_GRACE, YAMNET_WINDOW, saturation   # ecoute commune (calibrage, extraits)
+from recording import RESULT_GRACE, YAMNET_WINDOW, capture, saturation   # ecoute commune (calibrage, extraits)
 TARGET_LEVEL = 0.5       # niveau vise (bruit le plus fort x gain) : fort, sans ecretage
 MIN_TAKES = 2
 BACKGROUND = 'fond'
@@ -83,13 +83,20 @@ class _Session:
         self.takes = []
         self.proposal = None
         self.last_activity = time.monotonic()
+        # Calibrage du comptage (count_calibration.py) : meme session, autre but.
+        self.purpose = 'source'
+        self.count_takes = []
+        self.count_proposal = None
 
     def summary(self):
         per = {}
         for t in self.takes:
             per.setdefault(t['target'], 0)
             per[t['target']] += 1
-        return {'active': True, 'source': self.label, 'source_ref': self.ref, 'takes': per,
+        if self.purpose == 'count':
+            for t in self.count_takes:
+                per[t['kind']] = per.get(t['kind'], 0) + 1
+        return {'active': True, 'purpose': self.purpose, 'source': self.label, 'source_ref': self.ref, 'takes': per,
                 'last_take': self.takes[-1] if self.takes else None,
                 'analyzed': self.proposal is not None}
 
@@ -185,10 +192,28 @@ def _resolve_target(session, target, settings):
     return 'new', None, name
 
 
+def capture_take(s, duration, grace):
+    """Une prise sur la source de la session : capture, puis blocs, pics et
+    resultats limites a la prise. Commun au calibrage d'une source et a celui
+    du comptage."""
+    import classify
+    det = classify.detector_for(s.source_id)
+    if det is None:
+        raise CalibrationError("la source n'écoute plus (détection arrêtée ?)", 409)
+    cap = capture(det, duration, grace=grace)
+    t0, t1 = cap['t0'], cap['t1']
+    blocks = [tuple(b) + (None,) * (4 - len(b)) for b in cap['blocks'] if t0 < b[2] <= t1]
+    if not blocks:
+        raise CalibrationError("aucun son reçu pendant la prise : la source est-elle à l'écoute ?", 409)
+    half = YAMNET_WINDOW / 2
+    return {'blocks': blocks, 'peaks': [p for p in cap['peaks'] if t0 < p[1] <= t1],
+            # Fenetres dont la moitie au moins tombe dans la prise.
+            'results': [r for r in cap['results'] if t0 + half < r[1] <= t1 + half]}
+
+
 def record(target, expected=None, duration=DEFAULT_DURATION):
     """Une prise : le bruit de `target` est joue pendant `duration` s, a
     partir de maintenant. Bloque duration + ~1,6 s."""
-    import classify
     from settings_manager import load_settings, to_number
     with _lock:
         s = _current()
@@ -196,17 +221,8 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
         duration = to_number(duration if duration is not None else DEFAULT_DURATION, 'duration', MIN_DURATION, MAX_DURATION)
         if expected is not None:
             expected = to_number(expected, 'expected', 1, 10, integer=True)
-        det = classify.detector_for(s.source_id)
-        if det is None:
-            raise CalibrationError("la source n'écoute plus (détection arrêtée ?)", 409)
-        from recording import capture   # ecoute commune (calibrage, extraits)
-        cap = capture(det, duration, grace=RESULT_GRACE)
-        t0, t1 = cap['t0'], cap['t1']
-        blocks = [b for b in cap['blocks'] if t0 < b[2] <= t1]
-        peaks = [p for p in cap['peaks'] if t0 < p[1] <= t1]
-        # Fenetres dont la moitie au moins tombe dans la prise.
-        half = YAMNET_WINDOW / 2
-        results = [r for r in cap['results'] if t0 + half < r[1] <= t1 + half]
+        take_data = capture_take(s, duration, RESULT_GRACE)
+        blocks, peaks, results = take_data['blocks'], take_data['peaks'], take_data['results']
         classes = {}
         for categories, _now in results:
             for label, score in categories:
@@ -228,8 +244,6 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
             'top': [{'classe': k, 'score': round(v, 2)}
                     for k, v in sorted(classes.items(), key=lambda kv: kv[1], reverse=True)[:3]],
         }
-        if not blocks:
-            raise CalibrationError("aucun son reçu pendant la prise : la source est-elle à l'écoute ?", 409)
         s.takes.append(take)
         s.proposal = None
         n = sum(1 for t in s.takes if t['target'] == name)

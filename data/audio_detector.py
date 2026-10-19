@@ -76,7 +76,7 @@ class AudioDetector:
     # --- Ecoutes (calibrage) ------------------------------------------------
 
     def add_tap(self, fn, events=None):
-        """fn('block', pic_brut, gain, instant), fn('peak', 'attack'|'sustain',
+        """fn('block', pic_brut, gain, instant, niveau_avant_pic), fn('peak', 'attack'|'sustain',
         instant), fn('result', [(classe, score)], instant) : instants sur
         l'horloge audio ; fn('audio', bloc) : le son donne a YAMNet (gain,
         auto-gain et limiteur appliques), pour l'enregistrement d'extraits.
@@ -197,7 +197,7 @@ class AudioDetector:
                 self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
                 attacks, sustains = self.tracker.attack_count - attacks, self.tracker.sustain_count - sustains
             if self._taps:
-                self._tap('block', raw_peak, gain, peak_time)
+                self._tap('block', raw_peak, gain, peak_time, pre_level)
                 if attacks:
                     self._tap('peak', 'attack', peak_time)
                 if sustains:

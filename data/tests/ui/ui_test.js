@@ -24,6 +24,11 @@ const dom = new JSDOM(html, {
       else if (url === '/api/settings') res = JSON.parse(JSON.stringify(settings));
       else if (url === '/api/detections/history' && method === 'GET') res = [{ source_id: 'mic', timestamp: 1e9, score: 0.8, clap_count: 2, group_name: 'Clap', labels: [] }];
       else if (url === '/api/sound_exclusions' && method === 'GET') res = { excluded: ['Speech'], available: ['Knock', 'Dog'] };
+      else if (url === '/api/calibration/count/record') res = { success: true, kind: body.kind, claps_found: body.kind === 'fond' ? 0 : 1, gestures: body.kind === 'fond' ? [] : [1] };
+      else if (url === '/api/calibration/count/analyze') res = { success: true, current: { delay: 1.5, peak_cooldown: 0.08, peak_ratio: 3 },
+        proposed: { delay: 1.4, peak_cooldown: 0.13, peak_ratio: 6.2 }, warnings: ['entre deux commandes, laissez au moins 1,7 s'],
+        score: { current: 4, proposed: 9, takes: 9 }, rows: [{ kind: 'simple', label: 'Clap simple', expected: [1], current: [2], proposed: [1], current_ok: false, proposed_ok: true }] };
+      else if (url === '/api/calibration/count/apply') res = { success: true, applied: body.values, active: false };
       else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
@@ -494,6 +499,27 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /au-dessus de|dépasse 4 kHz/.test(fmtEl().textContent) && !!fmtEl().querySelector('.text-warn'));
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'aac', sample_rate: 16000, channels: 'stereo' } }); await tick();
   ok('+  format audio 16 kHz : suffisant', /AAC · 16 kHz · stéréo/.test(fmtEl().textContent) && !fmtEl().querySelector('.text-warn'));
+  // --- 6.73 : calibrage du comptage (parcours complet, API simulee)
+  $('#tab-settings').click(); await tick(2);
+  $('#count-calibrate').click(); await tick();
+  const ccBox = () => $('#count-calibration');
+  ok('+  calibrage du comptage : fenêtre ouverte avec choix de la source', !ccBox().hidden && !!$('#cc-source') && $$('#cc-source option').length >= 1);
+  ccBox().querySelector('[data-c="start"]').click(); await tick(3);
+  ok('+  calibrage du comptage : session démarrée sur la source choisie', !!lastCall('POST', '/api/calibration/count/start'));
+  let guard = 0;
+  while (ccBox().querySelector('[data-c="record"]') && guard++ < 15) { ccBox().querySelector('[data-c="record"]').click(); await tick(3); }
+  const recs = calls.filter(c => c[1] === '/api/calibration/count/record').map(c => c[2].kind);
+  ok('+  calibrage du comptage : prises guidées (fond, 3 simples, 3 doubles, 2 triples, séparées)',
+     recs.join() === 'fond,simple,simple,simple,double,double,double,triple,triple,separe');
+  await tick(2);
+  ok('+  calibrage du comptage : actuel / proposé, score et avertissement', /4\/9/.test(ccBox().textContent) && /9\/9/.test(ccBox().textContent) &&
+     $('#cc-delay').value === '1.4' && /Entre deux commandes/.test(ccBox().textContent));
+  change($('#cc-delay'), '1.6');
+  ccBox().querySelector('[data-c="apply"]').click(); await tick(3);
+  const ccApply = lastCall('POST', '/api/calibration/count/apply');
+  ok('+  calibrage du comptage : valeurs ajustées appliquées, champs mis à jour', !!ccApply && ccApply[2].values.delay === 1.6 &&
+     ccApply[2].values.peak_ratio === 6.2 && ccBox().hidden && $('#adv-delay').value === '1.6');
+  $('#tab-listen').click(); await tick(2);
   // --- 6.71 : reglages recharges fusionnes dans les objets existants
   {
     const M = dom.window.CT.mergeInto;

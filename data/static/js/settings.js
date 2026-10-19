@@ -184,6 +184,8 @@
         back.querySelector('[data-r="copy"]').focus();
     }
 
+    // Calibrage du comptage applique : champs remplis avec les nouvelles valeurs.
+    CT.onCountCalibrated = function () { fillAdvanced(true); };
     CT.onSettingsOpen = function () {
         fillAdvanced();
         loadExclusions();
