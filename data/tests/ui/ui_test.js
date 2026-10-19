@@ -35,6 +35,11 @@ const dom = new JSDOM(html, {
         ...(w.__denoised ? { wav_denoised: 'UklGRg==', noise_reduction: 2 } : {}),
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
+      else if (url === '/api/blueprints') res = { success: true, error: w.__bpError || null, blueprints: [
+          { file: 'a.yaml', name: 'ClapTrap — Claps pour basculer une lumière', description: 'Allume ou éteint.', source_url: 'https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/a.yaml', status: w.__bpError ? 'inconnu' : 'absent', path: null },
+          { file: 'b.yaml', name: 'ClapTrap — Alerte sonore', description: 'Prévient.', source_url: 'https://x/b.yaml', status: w.__bpError ? 'inconnu' : 'mise_a_jour', path: 'powange/b.yaml' },
+          { file: 'c.yaml', name: 'ClapTrap — Actions', description: 'Lance.', source_url: 'https://x/c.yaml', status: w.__bpError ? 'inconnu' : 'a_jour', path: 'claptrap/c.yaml' }] };
+      else if (url === '/api/blueprints/install') res = { success: true, file: body.file, status: 'a_jour', path: 'claptrap/' + body.file, updated: body.file === 'b.yaml' };
       else if (url === '/api/learned' && method === 'GET') res = { success: true, sounds: w.__learned || [], limits: { min_examples: 3, max_examples: 10, max_sounds: 20 } };
       else if (url === '/api/learned/record') { w.__lnEx = body.kind === 'fond' ? 0 : (w.__lnEx || 0) + 1;
         res = { success: true, background: true, examples: w.__lnEx, distinct: w.__lnEx === 2 ? 0.05 : 0.6, top: [{ classe: 'Music', score: 0.9 }] }; }
@@ -849,6 +854,27 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await w.CT.reloadLearned(); await tick(2);
   ok('+  son appris : réduction du bruit de la source changée signalée',
      /réduction du bruit moyenne/.test($('#learned-list').textContent) && /a changé depuis/.test($('#learned-list').textContent));
+  // --- 6.95 : onglet Blueprints
+  $('#tab-blueprints').click(); await tick(3);
+  const bpItems = () => $$('#bp-list .bp-item');
+  ok('+  blueprints : onglet ouvert, liste et états', !$('#panel-blueprints').hidden && $('#panel-settings').hidden && bpItems().length === 3 &&
+     /Claps pour basculer une lumière/.test(bpItems()[0].textContent) && !/ClapTrap —/.test(bpItems()[0].querySelector('h3').textContent) &&
+     /Pas encore dans Home Assistant/.test(bpItems()[0].textContent) && /Mise à jour disponible/.test(bpItems()[1].textContent) &&
+     /à jour/.test(bpItems()[2].textContent) && !bpItems()[2].querySelector('button'));
+  $('[data-bp-install="a.yaml"]').click(); await tick(3);
+  ok('+  blueprints : ajout envoyé, état à jour', lastCall('POST', '/api/blueprints/install')[2].file === 'a.yaml' &&
+     !$('[data-bp-install="a.yaml"]') && /Dans Home Assistant, à jour/.test(bpItems()[0].textContent));
+  $('[data-bp-install="b.yaml"]').click(); await tick();
+  ok('+  blueprints : mise à jour confirmée d\'abord', !!$('.modal-backdrop [data-r="ok"]') && /automatisations qui l'utilisent/.test($('.modal-backdrop [data-r="ok"]').closest('.modal').textContent) &&
+     calls.filter(c => c[1] === '/api/blueprints/install').length === 1);
+  $('.modal-backdrop [data-r="ok"]').click(); await tick(3);
+  ok('+  blueprints : mise à jour envoyée', calls.filter(c => c[1] === '/api/blueprints/install').length === 2 && !$('[data-bp-install="b.yaml"]'));
+  w.__bpError = "Home Assistant injoignable : l'onglet ne fonctionne que dans l'add-on.";
+  $('#tab-settings').click(); await tick(); $('#tab-blueprints').click(); await tick(3);
+  ok('+  blueprints : Home Assistant injoignable, import par my.home-assistant',
+     /injoignable/.test($('#bp-list').textContent) && $$('#bp-list a[href*="blueprint_import"]').length === 3 && !!$('[data-bp-retry]'));
+  w.__bpError = null;
+  $('#tab-listen').click(); await tick();
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

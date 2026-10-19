@@ -96,11 +96,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-        # Tests, doc, blueprints (importes depuis GitHub, absents de l'image)
-        # et Dependabot seuls : rien a construire ; deux builds epargnes.
+        # Tests, doc et Dependabot seuls : rien a construire ; deux builds
+        # epargnes (les blueprints sont dans l'image depuis la 6.95).
         run: |
           if gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only \
-              | grep -qvE '^(data/tests/|blueprints/|\.github/dependabot\.yml$|[^/]*\.md$)'; then
+              | grep -qvE '^(data/tests/|\.github/dependabot\.yml$|[^/]*\.md$)'; then
             echo "image=true" >> "$GITHUB_OUTPUT"
           else
             echo "image=false" >> "$GITHUB_OUTPUT"
