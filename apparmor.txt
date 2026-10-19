@@ -1,15 +1,17 @@
 #include <tunables/global>
 
 # Profil AppArmor de ClapTrap.
-# Livre en mode "complain" (acces journalises, jamais bloques), comme le
-# recommande la documentation Home Assistant pour un nouveau profil. Acces
-# releves sur une installation reelle (6.92, 26 demarrages et toutes les
-# fonctions) : ajoutes ci-dessous en 6.93 ; mode strict ensuite si une
-# nouvelle mesure est vide (procedure : DOCS.md, « Securite (AppArmor) »).
-# Le Supervisor charge ce profil sous le nom <depot>_claptrap.
+# Mode strict depuis la 6.94 : les acces hors de ces regles sont refuses.
+# Regles etablies en mode "complain" sur une installation reelle (6.92 :
+# 26 demarrages et toutes les fonctions ; 6.93 : nouvelle mesure vide apres
+# redemarrage). Un acces refuse apparait comme apparmor="DENIED" (DOCS.md,
+# « Securite (AppArmor) »). Le Supervisor charge ce profil sous le nom
+# <depot>_claptrap. La CI demarre chaque image de pull request sous ce
+# profil (paquets Debian de la semaine compris) et echoue sur un refus ;
+# pour etendre le profil, remettre "complain" et mesurer (DOCS.md).
 # Pas de regle `file,` generique : elle autorisait tout acces fichier et
 # rendait les regles ci-dessous decoratives, meme sans "complain".
-profile claptrap flags=(attach_disconnected,mediate_deleted,complain) {
+profile claptrap flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   # Capacites

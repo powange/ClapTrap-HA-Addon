@@ -119,7 +119,37 @@ jobs:
           # l'image qui sera publiee.
           build-args: APT_REFRESH=${{ steps.week.outputs.week }}
           push: "false"
+          load: "true"
           version: pr
+      # Profil AppArmor strict : l'image demarre sous le profil (fuseau
+      # horaire different de celui de l'image : tzdata reconfigure, comme
+      # chez un utilisateur) et aucun acces n'est refuse. Une image de base
+      # ou des paquets Debian qui changent ce que les scripts de demarrage
+      # touchent cassaient sinon le demarrage chez tout le monde.
+      - name: Démarrage sous le profil AppArmor strict
+        if: steps.changes.outputs.image == 'true'
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-claptrap:pr
+        run: |
+          set -u
+          command -v apparmor_parser > /dev/null || { sudo apt-get update -q && sudo apt-get install -y -q apparmor; }
+          if grep -q 'flags=(.*complain' apparmor.txt; then echo "Profil en mode complain : rien a verifier"; exit 0; fi
+          # Nom donne comme le Supervisor (<depot>_claptrap) : les regles qui
+          # visent le profil par motif (signaux) sont verifiees aussi.
+          sed 's/^profile claptrap /profile ci_claptrap /' apparmor.txt > /tmp/apparmor-ci.txt
+          sudo apparmor_parser -r -W /tmp/apparmor-ci.txt
+          since=$(date -u '+%Y-%m-%d %H:%M:%S')
+          docker run -d --name claptrap-aa --security-opt apparmor=ci_claptrap -e TZ=Europe/Paris "$IMAGE"
+          sleep 40
+          docker logs claptrap-aa 2>&1 | tail -40
+          docker rm -f claptrap-aa > /dev/null
+          denied=$(sudo journalctl -k --since "$since" --no-pager | grep 'apparmor="DENIED"' | grep 'ci_claptrap' || true)
+          if [ -n "$denied" ]; then
+            echo "::error::Accès refusés par le profil AppArmor :"
+            echo "$denied"
+            exit 1
+          fi
+          echo "Aucun accès refusé par le profil AppArmor"
 
   init:
     name: Version à publier
