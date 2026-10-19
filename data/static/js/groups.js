@@ -197,7 +197,11 @@
         var slug = btn.closest('.group-card').getAttribute('data-slug');
         var action = btn.getAttribute('data-group-action');
         if (action === 'delete') {
-            CT.confirm('Supprimer ce groupe et ses entités Home Assistant ?').then(function (ok) {
+            // Nommer le groupe : la fenetre en contient souvent plusieurs.
+            var box0 = btn.closest('[data-role="groups"]');
+            var g0 = box0 && box0._ctx && (box0._ctx.groups || []).filter(function (g) { return g.slug === slug; })[0];
+            var gname = (g0 && (g0.name || g0.slug)) || slug;
+            CT.confirm('Supprimer le groupe « ' + gname + ' » et ses entités Home Assistant ?', 'Supprimer le groupe').then(function (ok) {
                 if (!ok) return;
                 CT.api('DELETE', '/api/source/sound_groups', {kind: src.kind, source_key: src.key, group_slug: slug})
                     .then(function () { return refreshGroups(src); })

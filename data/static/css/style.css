@@ -529,3 +529,7 @@ details.field[open] > summary::before { transform: rotate(90deg); }
     .chip, .check, .btn-link, .chip-remove, .toast-close, .switch-inline { min-height: 44px; }
     .chip-remove, .toast-close { min-width: 44px; }
 }
+
+/* Requete en cours (bouton de detection, interrupteur d'une source) :
+   aria-disabled garde le focus clavier, l'aspect dit « occupe ». */
+[aria-disabled="true"] { opacity: 0.6; cursor: progress; }

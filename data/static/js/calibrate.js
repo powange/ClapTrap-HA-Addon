@@ -6,6 +6,9 @@
     var esc = CT.esc;
     var back, body, release, src, plan, step, active = false, busy = false, starting = false;
     var auto = false, stopAuto = null;   // prises enchainees ; arret du compte a rebours en cours
+    // Ouverture en cours : la reponse d'une ouverture precedente (analyse
+    // abandonnee en fermant la fenetre) ne remplace pas un autre calibrage.
+    var run = 0;
 
     function cancelAuto() { if (stopAuto) stopAuto(); stopAuto = null; }
 
@@ -16,6 +19,7 @@
         back = document.getElementById('calibration');
         body = back.querySelector('[data-role="calibration-body"]');
         back.hidden = false;
+        run += 1;
         release = CT.trapFocus(back.querySelector('.modal'), close);
         setup();
     }
@@ -28,6 +32,7 @@
         cancelAuto();
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;
+        run += 1;
         back.hidden = true;
         if (release) release();
         release = null;
@@ -79,16 +84,25 @@
             btn.disabled = true;
             btn.textContent = 'Préparation…';
             starting = true;
+            var mine = run;
             CT.api('POST', '/api/calibration/start', {source: src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key})
                 .then(function () {
+                    if (mine !== run) {
+                        // Fenetre fermee entre-temps : ne pas laisser la source en
+                        // sourdine, sauf si un autre calibrage a ete ouvert
+                        // depuis (l'annulation le tuerait).
+                        if (back.hidden) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
+                        return;
+                    }
                     starting = false;
-                    if (back.hidden) {   // fermee entre-temps : ne pas laisser la source en sourdine
+                    if (back.hidden) {
                         CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
                         return;
                     }
                     active = true; step = 0; takeStep();
                 })
                 .catch(function (err) {
+                    if (mine !== run) return;
                     starting = false;
                     btn.disabled = false; btn.textContent = 'Commencer';
                     CT.error('Calibrage impossible : ' + err.message);
@@ -186,8 +200,10 @@
     function analyze(lastResult) {
         setTitle('Calibrer « ' + src.name + ' » · propositions');
         body.innerHTML = (typeof lastResult === 'string' ? '<p class="hint cal-last">' + lastResult + '</p>' : '') + '<p class="cal-countdown" data-state="analyze" aria-live="polite">Analyse des prises…</p>';
+        var mine = run;
         CT.api('POST', '/api/calibration/analyze', {})
             .then(function (p) {
+                if (mine !== run) return;   // fenetre fermee (ou autre source) entre-temps
                 var gain = p.gain || {};
                 body.innerHTML =
                     (gain.field ? '<div class="cal-result"><label class="check"><input type="checkbox" id="cal-apply-gain"' + (gain.change ? ' checked' : ' disabled') + '> <strong>' +
@@ -222,6 +238,7 @@
                 apply.focus();
             })
             .catch(function (err) {
+                if (mine !== run) return;
                 // Les prises restent enregistrees : reprendre plutot que tout perdre.
                 var more = step < plan.length;
                 body.innerHTML = '<p>' + esc(err.message) + '</p><div class="modal-actions">' +

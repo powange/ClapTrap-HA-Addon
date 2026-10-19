@@ -11,16 +11,20 @@
            l'ingress sert la page dans la meme origine que HA, on lit la couleur
            de fond de son theme ; a defaut, celui du systeme. data-theme est
            donc toujours pose : la palette sombre n'est ecrite qu'une fois en CSS. */
+        var ctLums = {}, ctCtx;   // luminance par couleur : un seul canvas, calcul une fois
         window.ctSyncTheme = function () {
             function lum(color) {
-                var ctx = document.createElement('canvas').getContext('2d');
-                if (!ctx || !color) return null;
+                if (!color) return null;
+                if (color in ctLums) return ctLums[color];
+                ctCtx = ctCtx || document.createElement('canvas').getContext('2d');
+                var ctx = ctCtx;
+                if (!ctx) return null;
                 ctx.fillStyle = '#010203';
                 ctx.fillStyle = color;
                 var hex = ctx.fillStyle;
-                if (!/^#[0-9a-f]{6}$/i.test(hex) || hex === '#010203') return null;
+                if (!/^#[0-9a-f]{6}$/i.test(hex) || hex === '#010203') return (ctLums[color] = null);
                 var c = [1, 3, 5].map(function (i) { return parseInt(hex.substr(i, 2), 16) / 255; });
-                return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                return (ctLums[color] = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]);
             }
             var theme = null;
             try {

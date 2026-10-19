@@ -127,10 +127,16 @@
                   'dans ses réglages audio, puis relancez la détection.'
                 : 'Fréquence suffisante pour la reconnaissance.') + '</p>';
     }
+    // Ecrire seulement ce qui change : chaque statut de source reecrivait le
+    // format audio et les aides de toutes les cartes (280 modifications de la
+    // page pour 10 statuts identiques).
+    var setText = CT.setText;
     function updateAudioFormat(src) {
         var card = document.getElementById(src.domId);
         var el = card && card.querySelector('[data-role="audio-format"]');
-        if (el) el.innerHTML = audioFormatHtml(src);
+        if (!el) return;
+        var html = audioFormatHtml(src);
+        if (el._html !== html) { el.innerHTML = html; el._html = html; }
     }
     CT.on('source_format', function (d) {
         if (!d || !d.source_id || !d.format) return;
@@ -342,22 +348,20 @@
                 if (b.getAttribute('role') === 'menuitem') b.hidden = listening;   // menu : navigable au clavier
                 else b.disabled = listening;
             });
-            var testNote = card.querySelector('[data-role="test-hint"]');
-            if (testNote) testNote.textContent = testHint(src, listening);
+            setText(card.querySelector('[data-role="test-hint"]'), testHint(src, listening));
             // Extrait : l'inverse du test, seulement quand la detection ecoute la source.
             var rec = card.querySelector('[data-action="record"]');
             if (rec) {
                 var busy = !!recordingNow[src.sourceId];
                 rec.disabled = busy || !listening;
-                rec.textContent = busy ? 'Enregistrement… faites le son' : 'Enregistrer ' + RECORD_SECONDS + ' s';
+                setText(rec, busy ? 'Enregistrement… faites le son' : 'Enregistrer ' + RECORD_SECONDS + ' s');
             }
-            var recNote = card.querySelector('[data-role="record-hint"]');
-            if (recNote) recNote.textContent = recordHint(listening);
+            setText(card.querySelector('[data-role="record-hint"]'), recordHint(listening));
             // Texte d'attente selon l'etat de la detection (il restait
             // « Détection arrêtée » apres le demarrage, en silence).
             var line = card.querySelector('[data-role="live"]');
             if (line && (line.textContent === 'En attente de sons…' || line.textContent === 'Détection arrêtée')) {
-                line.textContent = idleText(src.enabled);
+                setText(line, idleText(src.enabled));
             }
             var st = statusOf(src);
             var errEl = card.querySelector('[data-role="error"]');
@@ -367,7 +371,7 @@
                 var live = src.sourceId in CT.state.sourceStatus;
                 var detail = live ? CT.state.sourceErrors[src.sourceId] || ''
                                   : ((CT.state.status || {}).source_errors || {})[src.sourceId] || '';
-                errEl.textContent = detail;
+                setText(errEl, detail);
                 errEl.hidden = !(st.cls === 'err' && detail);
             }
             var diagEl = card.querySelector('[data-role="diag"]');
@@ -380,12 +384,12 @@
                 if (late) parts.push(late + ' analyse(s) ou bloc(s) perdu(s) : processeur trop chargé');
                 if (ds.coupures) parts.push(ds.coupures + ' coupure(s) du flux depuis le démarrage');
                 var diag = parts.join(' · ');
-                if (diagEl.textContent !== diag) diagEl.textContent = diag;
+                setText(diagEl, diag);
                 diagEl.hidden = !diag;
             }
             var el = card.querySelector('[data-role="status"]');
-            el.className = 'source-status status-' + st.cls;
-            el.querySelector('.status-text').textContent = st.text;
+            if (el.className !== 'source-status status-' + st.cls) el.className = 'source-status status-' + st.cls;
+            setText(el.querySelector('.status-text'), st.text);
             if (!CT.state.status.running && !(CT.state.testing && CT.state.testing.domId === src.domId)) {
                 setMeter(card, null);
             }
@@ -474,10 +478,14 @@
         toggle.addEventListener('change', function () {
             var src = cur();
             var value = toggle.checked;
-            toggle.disabled = true;
+            if (toggle.dataset.busy) { toggle.checked = !value; return; }   // requete deja en cours
+            // aria-disabled et non disabled : un champ desactive perd le focus
+            // (Espace sur la 2e carte puis Tab ramenait a la 1re).
+            toggle.dataset.busy = '1';
+            toggle.setAttribute('aria-disabled', 'true');
             refreshAfter(CT.withRestart(CT.patchSource(src, {enabled: value})))
                 .catch(function (err) { toggle.checked = !value; CT.error('Activation impossible : ' + err.message); })
-                .finally(function () { toggle.disabled = false; });
+                .finally(function () { delete toggle.dataset.busy; toggle.setAttribute('aria-disabled', 'false'); });
         });
 
         // Seuil de chaque groupe, directement sur le score en direct
@@ -526,7 +534,34 @@
                 });
             }
             input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
+            // Gain et volume : chaque flèche du clavier envoyait une requête (et
+            // une annonce « Enregistré ») qui pouvaient se croiser. Attente de
+            // 600 ms après la dernière, comme le seuil, et une seule requête
+            // à la fois, avec la dernière valeur.
+            var timer = null, inflight = false, again = false;
             input.addEventListener('change', function () {
+                if (input.type !== 'range') return saveField();
+                clearTimeout(timer);
+                timer = setTimeout(function () { timer = null; saveField(); }, 600);
+                CT.pendingSaves.add(flush);
+            });
+            // Fenetre fermee ou application mise en arriere-plan avant les
+            // 600 ms : enregistre tout de suite (la valeur etait perdue).
+            function flush() {
+                CT.pendingSaves.delete(flush);
+                if (timer) { clearTimeout(timer); timer = null; saveField(); }
+            }
+            function saveField() {
+                if (inflight) { again = true; return; }
+                var done = saveNow();
+                if (!done) return;
+                inflight = true;
+                done.then(null, function () {}).then(function () {
+                    inflight = false;
+                    if (again) { again = false; saveField(); }
+                });
+            }
+            function saveNow() {
                 var src = cur();
                 var body = {};
                 if (name === 'device') {
@@ -534,7 +569,7 @@
                     if (!dev) {
                         input.value = input.dataset.prev;
                         CT.error('Ce micro n\'est plus détecté : choisissez-en un autre.');
-                        return;
+                        return null;
                     }
                     body.device = dev;
                 } else if (input.type === 'checkbox') {
@@ -544,11 +579,15 @@
                 } else {
                     body[name] = input.value.trim();
                 }
-                if (input.dataset.secret && realUrl(input, src) === (src.data.url || '')) return;  // rien change
+                if (input.dataset.secret && realUrl(input, src) === (src.data.url || '')) return null;  // rien change
+                if (input.type === 'range' && input.value === input.dataset.prev) return null;
+                // Valeur envoyee : une valeur plus recente (flèches pendant la
+                // requete) n'est ni prise pour deja enregistree ni ecrasee.
+                var sent = input.type === 'checkbox' ? String(input.checked) : input.value;
                 var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device', 'rtsp_tcp'].indexOf(name) !== -1);
                 var fieldId = input.id;
-                CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
-                    input.dataset.prev = input.type === 'checkbox' ? String(input.checked) : input.value;
+                return CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
+                    input.dataset.prev = sent;
                     // Tout de suite, avant le rechargement : « Afficher le mot de
                     // passe » remontrait sinon l'ancienne adresse.
                     Object.assign(src.data, d.source || {});
@@ -561,16 +600,20 @@
                     }
                     CT.markSaved(input);
                 }).catch(function (err) {
-                    if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
-                    else input.value = input.dataset.prev;
-                    if (out) input.dispatchEvent(new Event('input'));
+                    var current = input.type === 'checkbox' ? String(input.checked) : input.value;
+                    if (current === sent) {   // sinon une valeur plus recente part juste apres
+                        if (input.type === 'checkbox') input.checked = input.dataset.prev === 'true';
+                        else input.value = input.dataset.prev;
+                        if (out) input.dispatchEvent(new Event('input'));
+                    }
                     CT.error('Non enregistré : ' + err.message);
                 });
-            });
+            }
         });
 
         var dlg = card.querySelector('dialog.source-settings');
         dlg.addEventListener('close', function () {
+            CT.flushPendingSaves();
             var toasts = document.getElementById('toasts');
             if (toasts && dlg.contains(toasts)) document.body.appendChild(toasts);
             if (dlg._silent) { dlg._silent = false; return; }

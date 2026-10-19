@@ -195,7 +195,8 @@
     };
 
     CT.copy = function (text) {
-        var done = function () { CT.success('Copié : ' + text); };
+        // Texte long (configuration) : « Copié » seul, pas tout le texte dans l'annonce.
+        var done = function () { CT.success(text.length > 80 ? 'Copié' : 'Copié : ' + text); };
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(done).catch(fallback);
         } else {
@@ -253,7 +254,10 @@
     // Applique des le <head> (script integre a index.html, sans flash au
     // chargement) puis resynchronise ici toutes les 5 s.
     CT.syncTheme = window.ctSyncTheme || function () {};
-    setInterval(CT.syncTheme, 5000);
+    // Page cachee (application mobile en arriere-plan) : rien ; au retour,
+    // resynchronisation immediate.
+    setInterval(function () { if (!document.hidden) CT.syncTheme(); }, 5000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) CT.syncTheme(); });
 
     // ---- Redemarrage de la detection -----------------------------------------------
     // Activer, desactiver, ajouter ou supprimer une source (ou changer de micro)
@@ -470,43 +474,61 @@
     // Rendu complet, differe tant qu'un champ est en cours de saisie : un
     // enregistrement qui se terminait pendant la frappe dans un autre champ
     // reconstruisait la carte et effacait le texte tape.
-    var pointerDown = false;
-    document.addEventListener('pointerdown', function () { pointerDown = true; }, true);
-    document.addEventListener('pointerup', function () { setTimeout(function () { pointerDown = false; }, 0); }, true);
-    // Defilement tactile : pointercancel sans pointerup (le rendu differe
-    // attendait sinon un toucher de plus).
+    // Appui en cours (doigt ou bouton pose). Remis a faux au relachement ;
+    // un relachement hors de la page (cadre de HA) n'est jamais recu : apres
+    // PRESS_MAX ms, l'appui est considere comme termine.
+    var pointerDown = false, pointerDownAt = 0, PRESS_MAX = 3000;
+    document.addEventListener('pointerdown', function () { pointerDown = true; pointerDownAt = Date.now(); }, true);
+    document.addEventListener('pointerup', function () { pointerDown = false; }, true);
     document.addEventListener('pointercancel', function () { pointerDown = false; }, true);
-    // `fn` tout de suite si `busy()` est faux, sinon a la fin de l'occupation
-    // (focus qui quitte le champ, clic en cours termine), une seule fois par
-    // `key` (rendu de la grille, groupes d'une source).
+    function pressed() { return pointerDown && Date.now() - pointerDownAt < PRESS_MAX; }
+    // `fn` tout de suite si `busy()` est faux et qu'aucun appui n'est en cours,
+    // sinon a la fin de l'occupation (focus qui quitte le champ, clic qui suit
+    // le relachement), une seule fois par `key` (rendu de la grille, groupes
+    // d'une source). Une liste reconstruite entre l'appui et le clic
+    // remplacait la pastille visee et le toucher etait perdu.
     var idlePending = {};
     CT.whenIdle = function (key, busy, fn) {
-        if (!busy()) { fn(); return; }
-        if (idlePending[key]) { idlePending[key] = fn; return; }
+        if (!busy() && !pressed()) { delete idlePending[key]; fn(); return; }
+        var queued = key in idlePending;
         idlePending[key] = fn;
-        function done() {
+        if (queued) return;
+        var waiting = false;
+        function attempt() {
+            if (!(key in idlePending)) return;   // deja rendu (appel immediat depuis)
+            if (busy()) return;              // focusout relancera
+            if (pressed()) return waitClick();
             document.removeEventListener('focusout', retry);
             var run = idlePending[key];
             delete idlePending[key];
-            if (run) run();
+            run();
         }
-        function retry() {
-            setTimeout(function () {
-                if (busy()) return;
-                if (pointerDown) {
-                    // Clic en cours (le focus part au pointerdown) : rendre apres
-                    // le clic, sinon le bouton vise etait remplace avant d'etre clique.
-                    document.addEventListener('click', function after() {
-                        document.removeEventListener('click', after, true);
-                        setTimeout(done, 0);
-                    }, true);
-                    return document.removeEventListener('focusout', retry);
-                }
-                done();
-            }, 0);
+        function waitClick() {
+            if (waiting) return;
+            waiting = true;
+            // Le clic suit le relachement (au toucher, dans une tache plus
+            // tardive) ; sans clic (defilement, relachement hors de la page),
+            // limite de temps.
+            var timer;
+            function go() {
+                document.removeEventListener('click', go, true);
+                clearTimeout(timer);
+                waiting = false;
+                setTimeout(attempt, 0);
+            }
+            document.addEventListener('click', go, true);
+            timer = setTimeout(go, PRESS_MAX);
         }
+        function retry() { setTimeout(attempt, 0); }
         document.addEventListener('focusout', retry);
+        if (!busy()) waitClick();
     };
+    CT.setText = function (el, text) { if (el && el.textContent !== text) el.textContent = text; };
+    // Reglages en attente d'enregistrement (gain, volume : 600 ms) : envoyes
+    // tout de suite a la fermeture d'une fenetre ou quand la page est cachee.
+    CT.pendingSaves = new Set();
+    CT.flushPendingSaves = function () { Array.from(CT.pendingSaves).forEach(function (f) { f(); }); };
+    document.addEventListener('visibilitychange', function () { if (document.hidden) CT.flushPendingSaves(); });
     CT.renderWhenIdle = function () {
         if (CT.isEditing() && CT.renderStatus) CT.renderStatus();
         CT.whenIdle('grid', CT.isEditing, function () { CT.render(); });

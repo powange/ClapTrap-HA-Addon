@@ -22,6 +22,8 @@ const dom = new JSDOM(html, {
       let res = { success: true };
       if (url === '/status') res = status;
       else if (url === '/api/settings') res = JSON.parse(JSON.stringify(settings));
+      else if (url === '/api/settings/export?secrets=0') res = { rtsp_sources: [{ url: 'rtsp://***@cam/1' }], _shareable: true };
+      else if (url === '/api/settings/export') res = { rtsp_sources: [{ url: 'rtsp://admin:secret@cam/1' }] };
       else if (url === '/api/detections/history' && method === 'GET') res = [{ source_id: 'mic', timestamp: 1e9, score: 0.8, clap_count: 2, group_name: 'Clap', labels: [] }];
       else if (url === '/api/sound_exclusions' && method === 'GET') res = { excluded: ['Speech'], available: ['Knock', 'Dog'] };
       else if (url === '/api/calibration/count/record') res = { success: true, kind: body.kind, claps_found: body.kind === 'fond' ? 0 : 1, gestures: body.kind === 'fond' ? [] : [1] };
@@ -62,6 +64,7 @@ const dom = new JSDOM(html, {
 });
 const w = dom.window, d = w.document, $ = s => d.querySelector(s), $$ = s => [...d.querySelectorAll(s)];
 const tick = (n = 1) => new Promise(r => setTimeout(r, 25 * n));
+const wait = ms => new Promise(r => setTimeout(r, ms));
 const emit = (ev, data) => (handlers[ev] || []).forEach(f => f(data));
 const change = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change', { bubbles: true })); };
 const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string' ? c[1] === u : u.test(c[1]))).pop();
@@ -117,7 +120,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   dom.window.CT.state.devices = [{ index: 9, name: 'Nouveau micro', pulse_name: 'n' }, { index: 5, name: 'A|B', pulse_name: 'x' }, { index: 2, name: 'USB', pulse_name: 'u' }];
   change($('#src-mic [data-field="device"]'), 'dev:u'); await tick(3);
   ok('+  micro choisi par son nom, même si la liste a changé', lastCall('PATCH', '/api/sources/mic/mic')[2].device.name === 'USB');
-  change($('#src-mic [data-field="volume"]'), '90'); await tick();
+  change($('#src-mic [data-field="volume"]'), '90'); await wait(650);   // enregistre 600 ms apres le dernier changement
   ok('11. volume', lastCall('PATCH', '/api/sources/mic/mic')[2].volume === 90);
   change($('#src-mic [data-field="auto_volume"]'), true); await tick();
   ok('11. volume automatique', lastCall('PATCH', '/api/sources/mic/mic')[2].auto_volume === true && $('#src-mic [data-field="volume"]').disabled);
@@ -142,7 +145,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 12 : rtsp
   change($('#src-rtsp-abc_123 [data-field="url"]'), 'rtsp://cam/2'); await tick(3);
   ok('12. URL RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].url === 'rtsp://cam/2');
-  change($('#src-rtsp-abc_123 [data-field="gain"]'), '20'); await tick();
+  change($('#src-rtsp-abc_123 [data-field="gain"]'), '20'); await wait(650);   // enregistre 600 ms apres le dernier changement
   ok('12. gain RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].gain === 20);
   change($('#src-rtsp-abc_123 [data-field="rtsp_tcp"]'), true); await tick(2);
   ok('+  transport TCP de la caméra', lastCall('PATCH', /rtsp\/abc-123/)[2].rtsp_tcp === true);
@@ -153,7 +156,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 13 : vban
   const vb = $$('.source-card').find(c => c.id.startsWith('src-vban'));
   ok('10. badge multicast VBAN', /multicast/.test(vb.textContent));
-  change(vb.querySelector('[data-field="gain"]'), '4'); await tick();
+  change(vb.querySelector('[data-field="gain"]'), '4'); await wait(650);   // enregistre 600 ms apres le dernier changement
   ok('13. gain VBAN (ip/nom)', lastCall('PATCH', /\/api\/sources\/vban\/vb-1$/)[2].gain === 4);
   vb.querySelector('[data-action="test"]').click(); await tick();
   ok('13. test VBAN (par id)', JSON.stringify(lastCall('POST', '/api/vban/test/start')[2]) === JSON.stringify({ id: 'vb-1' }));
@@ -184,6 +187,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('sound_seen', { source_id: 'mic', label: 'Dog' }); await tick();
   ok('15. auto-découverte d\'un son (groupe avec « Ajouter les sons entendus »)', !!$('#src-mic .chip input[data-label="Dog"]'));
   $('#src-mic .group-card[data-slug="toc"] [data-group-action="delete"]').click(); await tick();
+  ok('+  suppression d\'un groupe : nommé dans la confirmation', /groupe « .+ »/.test($('.modal-message').textContent) && /Supprimer le groupe/.test($('.modal [data-r="ok"]').textContent));
   $('.modal [data-r="ok"]').click(); await tick(3);
   ok('15. supprimer un groupe', lastCall('DELETE', '/api/source/sound_groups')[2].group_slug === 'toc');
   // 16 : webhook
@@ -226,7 +230,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('5. réglages avancés affichés', $('#adv-delay').value !== '' && !$('#panel-settings').hidden);
   change($('#adv-ratio'), '4'); await tick();
   ok('5. réglage avancé enregistré', lastCall('PUT', '/api/settings/advanced')[2].peak_ratio === 4);
+  const advPuts = calls.filter(c => c[1] === '/api/settings/advanced').length;
   $('#adv-defaults').click(); await tick();
+  ok('+  valeurs par défaut : confirmation avec valeurs actuelles et par défaut',
+     /Actuelles : .*force ×4\. Par défaut : .*force ×3/.test($('.modal-message').textContent) &&
+     calls.filter(c => c[1] === '/api/settings/advanced').length === advPuts);
+  $('.modal [data-r="ok"]').click(); await tick(2);
   ok('5. valeurs par défaut', lastCall('PUT', '/api/settings/advanced')[2].delay === 1.5);
   ok('6. exclusions chargées', /Parole/.test($('#excluded-list').textContent) && /Chien/.test($('#available-list').textContent));
   $('#available-list [data-exclude="Dog"]').click(); await tick();
@@ -573,6 +582,71 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await new Promise(r => setTimeout(r, 1100));
   ok('+  couleur de l\'étape : bleu pendant l\'analyse', listening === 'listen' && probe.getAttribute('data-state') === 'analyze' &&
      /Analyse de la prise/.test(probe.textContent));
+  // --- 6.82 : interface
+  // « Afficher » : sans secrets par defaut, complet sur demande avec avertissement
+  $('#tab-settings').click(); await tick(2);
+  $('#show-config').click(); await tick(3);
+  const ta = () => d.querySelector('.modal textarea');
+  ok('+  afficher : sans secrets par défaut', !!ta() && /\*\*\*@/.test(ta().value) && !/secret/.test(ta().value) && /sans secrets/.test($('.modal [data-r="note"]').textContent));
+  $('.modal [data-r="alt"]').click(); await tick(3);
+  ok('+  afficher : sauvegarde complète avec avertissement', /admin:secret/.test(ta().value) && $('.modal [data-r="note"]').classList.contains('text-warn'));
+  $('.modal [data-r="close"]').click(); await tick();
+  $('#tab-listen').click(); await tick(2);
+  // Demarrage : « Démarrage… », bouton jamais desactive (focus conserve)
+  const tbtn = $('#toggle-detection');
+  w.__hold = { url: '/api/detection/start' };
+  tbtn.focus(); tbtn.click(); await tick();
+  ok('+  démarrage : retour visuel et bouton occupé', /Démarrage…/.test(tbtn.textContent) && /Démarrage…/.test($('#status-title').textContent) &&
+     tbtn.getAttribute('aria-busy') === 'true' && !tbtn.disabled && d.activeElement === tbtn);
+  emit('source_status', { source_id: 'mic', status: 'connected' }); await tick();
+  ok('+  démarrage : un statut reçu ne réactive pas le bouton', tbtn.getAttribute('aria-disabled') === 'true');
+  w.__hold.release(); w.__hold = null; await tick(4);
+  ok('+  démarrage : état final', tbtn.getAttribute('aria-busy') === 'false' && !/…/.test(tbtn.textContent));
+  status = { running: false, sources: [] }; await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
+  // Gain : valeur changee pendant l'enregistrement precedent, envoyee ensuite
+  // (carte du micro : celles des cameras sont liees deux fois par le faux serveur)
+  const gEl = $('#src-mic [data-field="volume"]');
+  const gUrl = '/api/sources/mic/mic';
+  const gainPatches = () => calls.filter(c => c[0] === 'PATCH' && c[1] === gUrl && c[2] && 'volume' in c[2]).map(c => c[2].volume);
+  const g0 = gainPatches().length;
+  w.__hold = { url: gUrl };
+  change(gEl, '55'); await wait(650);
+  change(gEl, '60'); await wait(650);
+  ok('+  gain : une seule requête à la fois', gainPatches().length === g0 + 1);
+  if (w.__hold.release) w.__hold.release();
+  w.__hold = null; await tick(6);
+  ok('+  gain : dernière valeur envoyée après la première', gainPatches().slice(g0).join() === '55,60');
+  // Assistant : Entree valide l'etape
+  $('#add-source').click(); await tick(); $('.choice[data-kind="rtsp"]').click(); await tick();
+  $('#wz-url').value = '';
+  $('#wz-url').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(2);
+  ok('+  assistant : Entrée valide l\'étape', /adresse/.test($('#toasts').textContent));
+  $('[data-w="close"]').click(); await tick(3);
+  // Rendu differe pendant un appui (pastille visee non remplacee)
+  let ran = 0;
+  d.dispatchEvent(new w.Event('pointerdown'));
+  w.CT.whenIdle('test-pointer', () => false, () => { ran += 1; });
+  ok('+  rendu différé pendant un appui', ran === 0);
+  d.dispatchEvent(new w.Event('pointerup')); await tick(2);
+  ok('+  rendu attendu jusqu\'au clic qui suit le relâchement', ran === 0);
+  d.dispatchEvent(new w.Event('click')); await tick(2);
+  ok('+  rendu fait après le clic', ran === 1);
+  w.CT.whenIdle('test-pointer', () => false, () => { ran += 1; });
+  ok('+  rendu immédiat juste après le relâchement (pas d\'attente du toucher suivant)', ran === 2);
+  // Calibrage : la reponse d'une analyse abandonnee ne s'affiche pas ailleurs
+  w.CT.openCalibration(w.CT.sourceList().filter(x => x.kind === 'mic')[0]); await tick();
+  $('#cal-reps').value = '2'; $('#cal-bg').checked = false; $('#cal-auto').checked = false;
+  $('#calibration [data-c="start"]').click(); await tick(3);
+  w.__hold = { url: '/api/calibration/analyze' };   // analyse retenue : fenetre fermee pendant l'attente
+  while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
+  ok('+  calibrage : analyse en attente', /Analyse des prises/.test($('#calibration').textContent) && !!w.__hold.release);
+  $('#calibration [data-c="close"]').click(); await tick();
+  w.CT.openCalibration(w.CT.sourceList().filter(x => x.kind === 'mic')[0]); await tick();
+  ok('+  calibrage : nouvelle ouverture sur l\'écran de départ', !!$('#calibration [data-c="start"]'));
+  if (w.__hold.release) w.__hold.release();
+  w.__hold = null; await tick(3);
+  ok('+  calibrage : réponse ancienne ignorée', !!$('#calibration [data-c="start"]') && !$('#calibration [data-c="apply"]'));
+  $('#calibration [data-c="cancel"]').click(); await tick();
   // --- 6.80 : diagnostic de la detection sur la carte
   status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
              source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100 } } };

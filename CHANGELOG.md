@@ -1,5 +1,33 @@
 # Changelog
 
+## 6.82.0
+
+### Interface
+
+- **Calibrage** : le résultat d'une analyse abandonnée (fenêtre fermée pendant
+  « Analyse des prises… ») ne s'affiche plus dans le calibrage d'une autre
+  source, où « Appliquer » aurait visé la mauvaise session.
+- **Pastilles de son fiables au toucher** : un son découvert (ou la réponse à
+  une coche précédente) pendant l'appui reconstruisait la liste et le toucher
+  était perdu. La liste attend maintenant le relâchement.
+- **Démarrage de la détection** : « Démarrage… » / « Arrêt… » sur le bouton et
+  dans la barre d'état pendant les quelques secondes de la requête ; un
+  statut reçu entre-temps ne réactive plus le bouton.
+- **Clavier** : le focus reste sur l'interrupteur d'une source et sur le
+  bouton de détection pendant leur requête (il repartait au début de la
+  page).
+- **« Afficher » la configuration sans secrets** par défaut (identifiants des
+  caméras et adresses des webhooks masqués), pour la copier sur mobile et
+  demander de l'aide ; « Afficher la sauvegarde complète » sur demande, avec
+  un avertissement.
+- **Assistant** : Entrée (ou « OK » du clavier mobile) valide l'étape.
+- Gain et volume : enregistrés 600 ms après le dernier changement, une seule
+  requête à la fois (une par flèche du clavier auparavant).
+- « Rétablir les valeurs par défaut » du comptage demande confirmation, avec
+  les valeurs actuelles et par défaut ; la suppression d'un groupe le nomme.
+- Moins de travail pour le navigateur : les cartes ne réécrivent que ce qui
+  change, et le thème n'est plus recalculé quand la page est cachée.
+
 ## 6.81.0
 
 ### Home Assistant, MQTT et API
