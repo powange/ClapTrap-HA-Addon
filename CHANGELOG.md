@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.85.0
+
+### Blueprints Home Assistant
+
+- **Quatre automatisations prêtes à l'emploi**, importables en un clic
+  (boutons dans la documentation, dossier `blueprints/` du dépôt) :
+  - **Claps pour basculer une lumière** (ou une prise) : toutes dans le même
+    sens (si l'une est allumée, tout s'éteint) ;
+  - **Alerte sonore sur le téléphone** : notification de l'application
+    mobile quand un capteur d'alerte s'allume (fumée, pleurs, aboiement,
+    sonnette), aussi après une reconnexion pendant l'alarme ; pause réglable
+    entre deux notifications ; flash des lumières en option, qui reprennent
+    ensuite leur état ;
+  - **Confirmation vocale après un clap** : une enceinte dit une phrase ;
+  - **Un clap pour parler à Assist** : lance une conversation sur un
+    satellite vocal.
+- Vérifiés sur un vrai Home Assistant 2025.10 : les quatre se chargent, et un
+  clap simulé éteint bien deux prises (l'une allumée, l'autre éteinte).
+- Seuls les capteurs de claps (ou d'alerte) sont proposés, pas le capteur
+  « Détection ».
 ## 6.84.0
 
 ### Modèles de groupes et mode « alerte »

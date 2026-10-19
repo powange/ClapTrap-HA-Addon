@@ -1,0 +1,55 @@
+blueprint:
+  name: ClapTrap — Confirmation vocale après un clap
+  description: >-
+    Fait dire une phrase par une enceinte quand un capteur de claps ClapTrap se
+    déclenche : on sait que le geste a été compris. À combiner avec une autre
+    automatisation (ou ajoutez vos actions à la suite).
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/claps_confirmation_vocale.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur de claps
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class: sound
+    moteur:
+      name: Synthèse vocale
+      description: Moteur de synthèse vocale (Piper, Google…).
+      selector:
+        entity:
+          filter:
+            - domain: tts
+    enceinte:
+      name: Enceinte
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+    phrase:
+      name: Phrase
+      default: "C'est fait."
+      selector:
+        text:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input capteur
+    from: "off"
+    to: "on"
+
+actions:
+  - action: tts.speak
+    target:
+      entity_id: !input moteur
+    data:
+      media_player_entity_id: !input enceinte
+      message: !input phrase

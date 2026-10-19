@@ -1,0 +1,47 @@
+blueprint:
+  name: ClapTrap — Un clap pour parler à Assist
+  description: >-
+    Lance une conversation avec Assist sur un satellite vocal (Voice PE,
+    ESPHome…) quand un capteur de claps ClapTrap se déclenche : un clap
+    remplace le mot d'activation.
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/claps_assist.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur de claps
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class: sound
+    satellite:
+      name: Satellite vocal
+      selector:
+        entity:
+          filter:
+            - domain: assist_satellite
+    accueil:
+      name: Phrase d'accueil
+      default: "Oui ?"
+      selector:
+        text:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input capteur
+    from: "off"
+    to: "on"
+
+actions:
+  - action: assist_satellite.start_conversation
+    target:
+      entity_id: !input satellite
+    data:
+      start_message: !input accueil
