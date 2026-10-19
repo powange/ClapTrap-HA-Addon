@@ -1,0 +1,120 @@
+blueprint:
+  name: ClapTrap — Claps pour faire défiler des scènes
+  description: >-
+    Active la scène suivante d'une liste (scènes Hue ou de Home Assistant) à
+    chaque déclenchement d'un capteur de claps ClapTrap, puis revient à la
+    première après la dernière. La scène en cours est la dernière activée par
+    Home Assistant (une scène rappelée depuis l'application Hue ou un
+    interrupteur Hue n'est pas vue) ; sans déclenchement pendant un moment,
+    on repart de la première. Option : tout éteindre après la dernière scène.
+  domain: automation
+  author: ClapTrap
+  source_url: https://github.com/powange/ClapTrap-HA-Addon/blob/main/blueprints/automation/claptrap/claps_defiler_scenes.yaml
+  homeassistant:
+    min_version: "2025.10.0"
+  input:
+    capteur:
+      name: Capteur de claps
+      description: Capteur ClapTrap « … clap(s) » d'une source et d'un groupe.
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+              domain: binary_sensor
+              device_class: sound
+    scenes:
+      name: Scènes, dans l'ordre
+      description: Chaque scène une seule fois dans la liste.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: scene
+    eteindre:
+      name: À éteindre après la dernière scène (facultatif)
+      description: >-
+        Si des appareils sont choisis, le déclenchement qui suit la dernière
+        scène les éteint, et le suivant reprend à la première scène.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain:
+                - light
+                - switch
+                - fan
+                - input_boolean
+    reprise:
+      name: Repartir de la première scène après
+      description: Sans déclenchement pendant ce temps, le cycle recommence à la première scène.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+
+mode: single
+max_exceeded: silent
+
+variables:
+  scenes: !input scenes
+  eteindre: !input eteindre
+  reprise: !input reprise
+  # Scene la plus recemment activee par HA (l'etat d'une scene est l'heure de
+  # sa derniere activation).
+  # (Identifiant et heure en texte : un objet d'etat ne passe pas d'une
+  # variable a l'autre.)
+  derniere: >-
+    {{ expand(scenes) | rejectattr('state', 'in', ['unknown', 'unavailable'])
+       | sort(attribute='state', reverse=true) | map(attribute='entity_id') | first | default('') }}
+  derniere_heure: "{{ states(derniere) if derniere else '' }}"
+  recente: >-
+    {{ derniere_heure != '' and as_datetime(derniere_heure) is not none
+       and (now() - as_datetime(derniere_heure)).total_seconds() < reprise * 60 }}
+  # Extinction faite apres la derniere scene : reperee par une scene
+  # dynamique « marqueur » activee a l'extinction (sans dependre de l'etat des
+  # lumieres, qui peuvent rester allumees).
+  marqueur: "scene.claptrap_fin_{{ this.entity_id.split('.')[1] }}"
+  fin: "{{ states(marqueur) }}"
+  apres_extinction: >-
+    {{ derniere_heure != '' and fin not in ['unknown', 'unavailable']
+       and as_datetime(fin) is not none and as_datetime(fin) > as_datetime(derniere_heure) }}
+
+triggers:
+  - trigger: state
+    entity_id: !input capteur
+    from: "off"
+    to: "on"
+
+conditions:
+  - condition: template
+    value_template: "{{ scenes | count > 0 }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ eteindre | count > 0 and recente and derniere == scenes[-1] and not apres_extinction }}
+        sequence:
+          - action: homeassistant.turn_off
+            target:
+              entity_id: "{{ eteindre }}"
+          - action: scene.create
+            data:
+              scene_id: "{{ marqueur.split('.')[1] }}"
+              snapshot_entities: "{{ eteindre }}"
+          - action: scene.turn_on
+            target:
+              entity_id: "{{ marqueur }}"
+    default:
+      - action: scene.turn_on
+        target:
+          entity_id: >-
+            {% if recente and derniere in scenes and not apres_extinction %}
+              {{ scenes[(scenes.index(derniere) + 1) % (scenes | count)] }}
+            {% else %}
+              {{ scenes[0] }}
+            {% endif %}

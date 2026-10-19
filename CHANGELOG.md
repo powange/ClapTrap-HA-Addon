@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.87.0
+
+### Blueprints Home Assistant (retours d'usage)
+
+- **Claps pour faire défiler des scènes** (nouveau) : chaque déclenchement
+  active la scène suivante d'une liste (scènes Hue ou de Home Assistant),
+  puis revient à la première ; option : tout éteindre après la dernière
+  (lumières, prises, ventilateurs). La scène en cours est la dernière
+  activée par Home Assistant, sans entrée auxiliaire ; on repart de la
+  première après 10 minutes sans clap (réglable).
+- **Claps pour lancer des actions au choix** (nouveau) : script, commande RF
+  ou infrarouge, télécommande… pour tout ce que les autres ne couvrent pas.
+- **Claps pour basculer une lumière** : accepte aussi les ventilateurs et
+  les interrupteurs virtuels (`input_boolean`).
+- Vérifiés sur un vrai Home Assistant : ventilateur basculé, action lancée,
+  huit claps qui donnent scène A, B, C, extinction, A, B, C, extinction (même
+  avec une lumière qui reste allumée), et retour à A après la pause.
+
 ## 6.86.0
 
 ### Plusieurs pièces
