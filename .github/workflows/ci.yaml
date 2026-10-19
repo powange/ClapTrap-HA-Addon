@@ -148,8 +148,10 @@ jobs:
             docker exec supervisor python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1/ping')" 2> /dev/null && break
             sleep 1
           done
+          # /data : volume persistant de l'add-on, comme sous le Supervisor (sans
+          # lui, les reglages iraient dans /usr/src/app, refuse a juste titre).
           docker run -d --name claptrap-aa --network claptrap-ci --security-opt apparmor=ci_claptrap \
-            -e TZ=Europe/Paris -e SUPERVISOR_TOKEN=ci "$IMAGE"
+            -v "$(mktemp -d):/data" -e TZ=Europe/Paris -e SUPERVISOR_TOKEN=ci "$IMAGE"
           sleep 45
           docker logs claptrap-aa 2>&1 | tail -30
           # Sous le profil aussi : interface, YAMNet (mediapipe) et ffmpeg.
