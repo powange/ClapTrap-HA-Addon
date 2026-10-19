@@ -19,7 +19,11 @@ homeassistant_api: true
 # renseigner dans les options ci-dessous (onglet Configuration).
 services:
   - mqtt:want
-options: {}
+# Valeurs affichees cochees dans l'onglet Configuration (absentes, elles
+# s'affichaient decochees alors qu'actives).
+options:
+  mqtt_tls_verify: true
+  mqtt_commands: true
 schema:
   mqtt_host: str?
   mqtt_port: port?
@@ -27,6 +31,7 @@ schema:
   mqtt_password: password?
   mqtt_tls: bool?
   mqtt_tls_verify: bool?
+  mqtt_commands: bool?
 ingress: true
 ingress_port: 16045
 init: false

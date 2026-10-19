@@ -1,5 +1,42 @@
 # Changelog
 
+## 6.76.0
+
+### Home Assistant
+
+- **Option « Commandes MQTT »** (onglet Configuration de l'add-on, cochée par
+  défaut) : décochée, le topic `claptrap/command` (ajout, modification,
+  suppression de sources) n'est plus écouté ; les entités de réglage restent
+  utilisables. La documentation explique aussi comment restreindre ce topic
+  par les ACL du broker.
+- « Vérifier le certificat » s'affiche coché : la vérification était active
+  mais l'option paraissait décochée.
+- « Dernière commande » : un résultat volumineux (`get_settings`, `help`)
+  reste sur le topic `claptrap/command/result` sans devenir un attribut (le
+  recorder de HA refusait de l'enregistrer au-delà de 16 Ko) ; le bilan d'un
+  renommage reste en attributs.
+- Nettoyage des entités orphelines : leurs états retenus (seuil, nom, sons…)
+  sont effacés avec elles au lieu de rester sur le broker.
+- Renommage d'un groupe : l'entité « événement » personnalisée est retrouvée
+  dans le registre (elle était comptée « introuvable »).
+- Disponibilité d'une source publiée sous le même verrou que sa
+  republication (une caméra pouvait rester indisponible après un redémarrage
+  de HA) ; connexion au registre fermée quand l'authentification échoue.
+
+### API et import
+
+- L'import refuse ce que l'interface refuse ensuite : deux caméras à la même
+  adresse, un nom de source de plus de 80 caractères ; un identifiant de
+  source invalide (« / ») est remplacé (la source ne pouvait plus être
+  supprimée). À l'inverse, l'API refuse plus de 600 sons ignorés et un nom
+  de micro de plus de 200 caractères, qu'un import refusait.
+- Calibrage : une seconde prise simultanée (double clic) est refusée, et
+  « Annuler » répond pendant une prise au lieu d'attendre sa fin.
+- Test du son : gain de la caméra validé (0 à 100) ; un gain VBAN de 0 est
+  respecté comme par la détection.
+- Ajout du micro : un JSON trop imbriqué renvoie une erreur 400 (500
+  auparavant) ; une redirection de webhook n'est plus journalisée deux fois.
+
 ## 6.75.0
 
 ### Premiers pas

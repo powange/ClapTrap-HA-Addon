@@ -184,6 +184,49 @@ def test_orphan_settings_entities_cleaned(ctl, mqtt):
     assert (stale, '', True) in mqtt.published
 
 
+def test_orphan_settings_entities_states_cleared(ctl, mqtt):
+    """Les etats retenus d'une entite de reglage orpheline sont effaces avec
+    sa configuration, jamais un etat partage avec une entite gardee."""
+    import types
+    def seen(topic, cfg):
+        ha._on_message(None, None, types.SimpleNamespace(topic=topic, payload=json.dumps(cfg).encode(), retain=True))
+    seen('homeassistant/number/claptrap/rtsp_old_clap_seuil/config', {'state_topic': 'claptrap/rtsp_old/clap/seuil'})
+    seen('homeassistant/sensor/claptrap/rtsp_old_top3/config',
+         {'state_topic': 'claptrap/mic/analyse', 'json_attributes_topic': 'claptrap/mic/analyse'})
+    seen('homeassistant/sensor/claptrap/mic_derniere_classe/config', {'state_topic': 'claptrap/mic/analyse'})
+    seen('homeassistant/number/claptrap/autre_seuil/config', {'state_topic': 'zigbee2mqtt/lampe'})
+    assert ha.cleanup_orphans() == ['autre_seuil', 'rtsp_old_clap_seuil', 'rtsp_old_top3']
+    cleared = {t for t, p, r in mqtt.published if p == '' and r}
+    assert 'claptrap/rtsp_old/clap/seuil' in cleared
+    assert not {'claptrap/mic/analyse', 'zigbee2mqtt/lampe'} & cleared
+
+
+def test_large_results_kept_out_of_attributes(ctl, mqtt, monkeypatch):
+    sensor = next(cfg for _c, obj, cfg in ha_control.global_entities() if obj == 'derniere_commande')
+    assert sensor['json_attributes_topic'] == ha_control.RESULT_ATTRIBUTES_TOPIC
+    attributes = lambda: json.loads(last(mqtt, ha_control.RESULT_ATTRIBUTES_TOPIC))  # noqa: E731
+    monkeypatch.setattr(ha_control, 'ATTRIBUTES_MAX', 1000)   # reglages de test plus courts que 4 Ko
+    command({'id': 'r', 'action': 'get_settings'})
+    assert result(mqtt)['data'] and 'data' not in attributes() and attributes()['id'] == 'r'
+    assert 'attributs' not in result(mqtt)                    # resultat publie tel quel
+    command({'action': 'add_group', 'source': 'Cam', 'name': 'Toc'})
+    assert attributes() == result(mqtt)                       # petit resultat : detail garde
+
+
+def test_command_topic_can_be_disabled(mqtt, monkeypatch, tmp_path):
+    subscribed = []
+    client = type('C', (), {'subscribe': lambda self, t: subscribed.append(t)})()
+    monkeypatch.setattr(ha.threading, 'Thread', lambda *a, **k: type('T', (), {'start': lambda s: None})())
+    opts = tmp_path / 'options.json'
+    monkeypatch.setattr(ha, 'OPTIONS_FILE', str(opts))
+    for value, expected in ((None, True), (True, True), (False, False)):
+        opts.write_text(json.dumps({} if value is None else {'mqtt_commands': value}))
+        subscribed.clear()
+        ha._on_connect(client, None, None, 0)
+        assert (ha_control.COMMAND_TOPIC in subscribed) is expected
+        assert ha_control.DETECTION_SET_TOPIC in subscribed
+
+
 def test_stale_entity_command_reports_error(ctl, mqtt):
     ha_control._handle('claptrap/rtsp_disparue/clap/seuil/set', b'40')
     assert result(mqtt)['success'] is False
@@ -236,3 +279,10 @@ def test_background_noise_not_republished(ctl, mqtt, monkeypatch):
     assert len(mqtt.published) == n   # fluctuation du bruit de fond : rien
     ha_control.on_analysis('mic', [('Inside, small room', 0.43)], {'clap': 0.3, 'siffler': 0.0})
     assert len(mqtt.published) == n + 1   # le score d'un groupe bouge nettement
+
+
+def test_disabled_commands_ignored_on_reception(ctl, mqtt, monkeypatch):
+    monkeypatch.setattr(ha, 'commands_enabled', lambda: False)
+    ha_control.handle_message(ha_control.COMMAND_TOPIC, b'{"action": "add_rtsp", "url": "rtsp://h/z"}')
+    assert last(mqtt, ha_control.RESULT_TOPIC) is None
+    assert 'désactivées' in ha_control._configuration_payload(ctl.load_settings())['details']['commandes']

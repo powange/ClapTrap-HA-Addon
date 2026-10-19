@@ -21,3 +21,9 @@ configuration:
     description: >-
       Uncheck only for a self-signed certificate (encrypted connection, but
       the broker is not authenticated).
+  mqtt_commands:
+    name: MQTT commands
+    description: >-
+      Listen to the claptrap/command topic (adding, changing and deleting
+      sources and groups). Uncheck to forbid it; the settings entities
+      (threshold, enable, name) stay usable.

@@ -32,6 +32,7 @@ import ha_entities as ha
 
 COMMAND_TOPIC = 'claptrap/command'
 RESULT_TOPIC = 'claptrap/command/result'
+RESULT_ATTRIBUTES_TOPIC = 'claptrap/command/result/attributs'
 CONFIG_TOPIC = 'claptrap/configuration'
 DETECTION_SET_TOPIC = 'claptrap/detection/set'
 SUBSCRIPTIONS = (COMMAND_TOPIC, DETECTION_SET_TOPIC, 'claptrap/+/source_active/set',
@@ -228,7 +229,7 @@ def global_entities():
             'sensor', 'derniere_commande', 'Dernière commande',
             state_topic=RESULT_TOPIC,
             value_template="{{ 'ok' if value_json.success else 'erreur' }}",
-            json_attributes_topic=RESULT_TOPIC,
+            json_attributes_topic=RESULT_ATTRIBUTES_TOPIC,
             entity_category='diagnostic', icon='mdi:console')),
     ]
 
@@ -351,8 +352,9 @@ def _configuration_payload(settings, sources=None):
             'sources': details_sources,
             'sound_exclusions': g.get('sound_exclusions') or [],
             'advanced': {k: g.get(k) for k in ('delay', 'peak_cooldown', 'peak_ratio')},
-            'commandes': f"mqtt.publish sur {COMMAND_TOPIC} : {{\"action\": ..., \"id\"?: ...}}. {SOURCE_HELP} "
-                         f"Résultat dans sensor.claptrap_derniere_commande.",
+            'commandes': (f"mqtt.publish sur {COMMAND_TOPIC} : {{\"action\": ..., \"id\"?: ...}}. {SOURCE_HELP} "
+                          f"Résultat dans sensor.claptrap_derniere_commande." if ha.commands_enabled()
+                          else "désactivées (option « Commandes MQTT » de l'add-on)"),
             'actions': ACTIONS,
         },
     }
@@ -412,6 +414,9 @@ def handle_message(topic, payload, retained=False):
             ha._mqtt_publish(topic, '', retain=True)
         return
     if not payload:
+        return
+    if topic == COMMAND_TOPIC and not ha.commands_enabled():
+        logging.warning(f"Commande ignorée sur {topic} : option « Commandes MQTT » décochée")
         return
     _commands.put((topic, payload))
     with _worker_lock:
@@ -525,8 +530,20 @@ def _masked(obj):
     return obj
 
 
+ATTRIBUTES_MAX = 4096   # octets : le recorder de HA refuse les attributs de plus de 16 Ko
+
+
 def _publish_result(result):
-    ha._mqtt_publish(RESULT_TOPIC, _masked(result), retain=True)
+    """Resultat complet sur le topic ; en attributs du capteur, le detail
+    seulement s'il reste petit (bilan d'un renommage) : get_settings ou help
+    depassaient la limite du recorder de HA."""
+    result = _masked(result)
+    attributes = result
+    if len(json.dumps(result, ensure_ascii=False).encode()) > ATTRIBUTES_MAX:
+        attributes = {k: v for k, v in result.items() if k not in ('data', 'actions')}
+        attributes['detail'] = f"résultat complet sur le topic {RESULT_TOPIC}"
+    ha._mqtt_publish(RESULT_ATTRIBUTES_TOPIC, attributes, retain=True)
+    ha._mqtt_publish(RESULT_TOPIC, result, retain=True)
 
 
 def _run_command(text):

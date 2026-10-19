@@ -50,6 +50,7 @@ _mqtt_connected = threading.Event()
 _mqtt_started = False
 _discovered = set()   # object_ids claptrap vus (retenus) sur le broker
 _discovered_ctrl = set()  # topics de config des entites de reglage vus sur le broker
+_ctrl_state_topics = {}   # topic de config -> topics d'etat retenus annonces (nettoyage des orphelines)
 _expected_keys = None  # sources configurees (cle -> slug), pour le nettoyage des orphelines
 _off_timers = {}      # topic -> threading.Timer
 _availability_seen = set()  # slugs dont un topic claptrap/<slug>/availability est retenu
@@ -204,6 +205,11 @@ def _addon_options():
         return {}
 
 
+def commands_enabled():
+    """Option « Commandes MQTT » de l'add-on (absente : activee)."""
+    return _addon_options().get('mqtt_commands') is not False
+
+
 def _fetch_broker_info():
     """Broker externe (options de l'add-on) s'il est renseigne, sinon celui
     du service MQTT du Supervisor (add-on Mosquitto)."""
@@ -278,9 +284,15 @@ def _on_connect(client, userdata, flags, rc, *args):
     client.subscribe(AVAILABILITY_TOPIC)
     client.subscribe(DISCOVERY_WILDCARD)
     client.subscribe('claptrap/+/availability')
-    from ha_control import SUBSCRIPTIONS
+    from ha_control import SUBSCRIPTIONS, COMMAND_TOPIC
+    commands = commands_enabled()
     for topic in SUBSCRIPTIONS:
-        client.subscribe(topic)
+        # Option « Commandes MQTT » decochee : le topic qui ajoute ou supprime
+        # des sources n'est plus ecoute (les entites de reglage restent).
+        if topic != COMMAND_TOPIC or commands:
+            client.subscribe(topic)
+    if not commands:
+        logging.info(f"Commandes MQTT désactivées (option de l'add-on) : {COMMAND_TOPIC} ignoré")
     # Republication complete : le broker a pu perdre ses messages retenus, et
     # tout ce qui a ete publie pendant la coupure est perdu (QoS 0).
     threading.Thread(target=_after_connect, daemon=True).start()
@@ -328,11 +340,22 @@ def _on_message(client, userdata, msg):
     if m:
         _last_discovery = time.monotonic()
         target, item = (_discovered, m.group(2)) if m.group(1) == 'binary_sensor' else (_discovered_ctrl, msg.topic)
+        states = []
+        if msg.payload and target is _discovered_ctrl:
+            try:
+                cfg = json.loads(msg.payload)
+                states = [t for t in (cfg.get('state_topic'), cfg.get('json_attributes_topic'))
+                          if isinstance(t, str) and t.startswith('claptrap/')]
+            except (ValueError, AttributeError):
+                states = []
         with _lock:
             if msg.payload:
                 target.add(item)
+                if target is _discovered_ctrl:
+                    _ctrl_state_topics[item] = states
             else:
                 target.discard(item)
+                _ctrl_state_topics.pop(item, None)
 
 
 def _after_connect():
@@ -525,8 +548,12 @@ def _publish_source(info):
                                          source_device(info)),
                           retain=True)
             _mqtt_publish(f'claptrap/{obj}/state', 'OFF', retain=True)
-    _mqtt_publish(f'claptrap/{slug}/availability',
-                  'online' if _is_available(info) else 'offline', retain=True)
+    # Sous le verrou, comme set_source_listening : une camera qui se
+    # connectait pendant une republication pouvait voir « online » ecrase par
+    # un « offline » calcule juste avant, et retenu.
+    with _lock:
+        _mqtt_publish(f'claptrap/{slug}/availability',
+                      'online' if _is_available(info) else 'offline', retain=True)
     from ha_control import publish_source
     publish_source(info)
 
@@ -548,7 +575,7 @@ def set_source_listening(entity_key, listening):
         if before == bool(listening) or info is None:
             return
         state = 'online' if _is_available(info) else 'offline'
-    _mqtt_publish(f"claptrap/{info['slug']}/availability", state, retain=True)
+        _mqtt_publish(f"claptrap/{info['slug']}/availability", state, retain=True)   # paho ne bloque pas
 
 
 def _unpublish_object(obj):
@@ -808,12 +835,21 @@ def cleanup_orphans():
         for info in _source_info.values():
             keep_topics |= control_topics(info)
         orphan_topics = [t for t in _discovered_ctrl if t not in keep_topics]
+        # Etats retenus des entites de reglage orphelines (seuil, nom, sons...) :
+        # seule leur configuration etait effacee, ils restaient sur le broker.
+        # Jamais un topic encore utilise par une entite gardee.
         known_slugs = {info['slug'] for info in _source_info.values()}
+        kept_prefixes = tuple(f'claptrap/{slug}/' for slug in known_slugs) + (
+            'claptrap/detection/', 'claptrap/command', 'claptrap/configuration')
+        orphan_states = {st for t in orphan_topics for st in _ctrl_state_topics.get(t, [])
+                         if not st.startswith(kept_prefixes)}
         stale_availability = [slug for slug in _availability_seen if slug not in known_slugs]
     for obj in orphans:
         _unpublish_object(obj)
     from ha_control import clear_topics
     clear_topics(orphan_topics)
+    for topic in sorted(orphan_states):
+        _mqtt_publish(topic, '', retain=True)
     orphans += [t.split('/')[3] for t in orphan_topics]
     # Topics de disponibilite retenus des sources disparues : les effacer aussi.
     for slug in stale_availability:

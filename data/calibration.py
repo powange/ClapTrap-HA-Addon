@@ -87,6 +87,7 @@ class _Session:
         self.purpose = 'source'
         self.count_takes = []
         self.count_proposal = None
+        self.taking = False   # prise en cours (une a la fois)
 
     def summary(self):
         per = {}
@@ -195,7 +196,27 @@ def _resolve_target(session, target, settings):
 def capture_take(s, duration, grace):
     """Une prise sur la source de la session : capture, puis blocs, pics et
     resultats limites a la prise. Commun au calibrage d'une source et a celui
-    du comptage."""
+    du comptage.
+
+    Appelee hors de _lock : la prise dure jusqu'a 16 s, et « Annuler » doit
+    repondre tout de suite. Une seconde prise simultanee (double clic) est
+    refusee au lieu d'occuper un fil de plus ; l'appelant revoit la session.
+    """
+    with _lock:
+        if s.taking:
+            raise CalibrationError('une prise est déjà en cours', 409)
+        s.taking = True
+    try:
+        return _capture_take(s, duration, grace)
+    except CalibrationError:
+        if _session is not s:   # « aucun son reçu » d'une prise annulee
+            raise CalibrationError('calibrage terminé pendant la prise', 409)
+        raise
+    finally:
+        s.taking = False
+
+
+def _capture_take(s, duration, grace):
     import classify
     det = classify.detector_for(s.source_id)
     if det is None:
@@ -221,7 +242,10 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
         duration = to_number(duration if duration is not None else DEFAULT_DURATION, 'duration', MIN_DURATION, MAX_DURATION)
         if expected is not None:
             expected = to_number(expected, 'expected', 1, 10, integer=True)
-        take_data = capture_take(s, duration, RESULT_GRACE)
+    take_data = capture_take(s, duration, RESULT_GRACE)
+    with _lock:
+        if _session is not s:
+            raise CalibrationError('calibrage terminé pendant la prise', 409)
         blocks, peaks, results = take_data['blocks'], take_data['peaks'], take_data['results']
         classes = {}
         for categories, _now in results:
