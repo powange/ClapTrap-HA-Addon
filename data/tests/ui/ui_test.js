@@ -534,6 +534,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const ccRecs = () => calls.filter(c => c[1] === '/api/calibration/count/record').length;
   const ccBefore = ccRecs();
   ccBox().querySelector('[data-c="start"]').click(); await tick(3);
+  const ccState = () => ccBox().querySelector('.cal-countdown').getAttribute('data-state');
+  ok('+  couleur de l\'étape : orange avant une prise enchaînée', ccState() === 'wait');
   ok('+  prises enchaînées : compte à rebours avant la prise', /Début de la prise dans 1 s/.test(ccBox().textContent) &&
      ccRecs() === ccBefore && !!ccBox().querySelector('[data-c="pause"]'));
   await new Promise(r => setTimeout(r, 1200)); await tick(3);
@@ -542,13 +544,35 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ccBox().querySelector('[data-c="pause"]').click();
   await new Promise(r => setTimeout(r, 1200)); await tick();
   ok('+  prises enchaînées : pause, rien n\'est lancé', ccRecs() === ccBefore + 1 && /En pause/.test(ccBox().textContent));
+  ok('+  couleur de l\'étape : neutre en pause', ccState() === null);
+  w.__hold = { url: '/api/calibration/count/record' };
+  ccBox().querySelector('[data-c="record"]').click(); await tick();
+  ok('+  couleur de l\'étape : vert pendant l\'écoute', ccState() === 'listen');
+  w.__hold.release(); w.__hold = null; await tick(3);
+  ok('+  couleur de l\'étape : orange de nouveau avant la prise suivante', ccState() === 'wait');
   ccBox().querySelector('[data-c="cancel"]').click(); await tick();
   $('#count-calibrate').click(); await tick();
   ok('+  prises enchaînées : choix mémorisé', $('#cc-auto').checked);
   ccBox().querySelector('[data-c="cancel"]').click(); await tick();
   $('#src-mic [data-action="calibrate"]').click(); await tick();
   ok('+  prises enchaînées : même option dans le calibrage d\'une source', !!$('#cal-auto') && $('#cal-auto').checked);
+  $('#cal-reps').value = '2';
+  $('#calibration [data-c="start"]').click(); await tick(3);
+  const calState = () => $('#calibration .cal-countdown').getAttribute('data-state');
+  ok('+  couleur de l\'étape (source) : orange avant la prise', calState() === 'wait');
+  $('#calibration [data-c="pause"]').click(); await tick();
+  w.__hold = { url: '/api/calibration/record' };
+  $('#calibration [data-c="record"]').click(); await tick();
+  ok('+  couleur de l\'étape (source) : vert pendant l\'écoute', calState() === 'listen');
+  w.__hold.release(); w.__hold = null; await tick(3);
+  $('#calibration [data-c="pause"]').click(); await tick();
   $('#calibration [data-c="cancel"]').click(); await tick();
+  const probe = d.createElement('p');
+  w.CT.recordCountdown(probe, 1, 'Écoute… ');
+  const listening = probe.getAttribute('data-state');
+  await new Promise(r => setTimeout(r, 1100));
+  ok('+  couleur de l\'étape : bleu pendant l\'analyse', listening === 'listen' && probe.getAttribute('data-state') === 'analyze' &&
+     /Analyse de la prise/.test(probe.textContent));
   $('#tab-listen').click(); await tick(2);
   // --- 6.75 : ajouter un son connu par la recherche ; confirmation : focus sur Annuler
   {

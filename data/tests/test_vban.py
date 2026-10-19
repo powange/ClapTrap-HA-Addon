@@ -196,3 +196,54 @@ def test_multicast_sender_replaced_after_silence(listener, monkeypatch):
     listener._housekeeping(clock[0])                                  # purge des sources muettes
     listener._handle_packet(packet('S', INT16_SILENCE), '10.0.0.2')   # le premier s'est tu : reprise
     assert stream['sender'] == '10.0.0.2'
+
+
+# --- Vrai socket UDP -------------------------------------------------------------
+
+def _free_port():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(('127.0.0.1', 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_real_udp_socket_receives_routes_and_purges(monkeypatch):
+    """Bind reel, boucle d'ecoute et purge des sources muettes (les autres
+    tests injectent les paquets sans socket)."""
+    import socket
+    import vban_listener
+    monkeypatch.setattr(vban_listener, 'SOURCE_TIMEOUT', 0.5)
+    port = _free_port()
+    d = VBANDetector(port=port)
+    d.real_start_listening()
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        chunks = []
+        d.add_source_callback('127.0.0.1', lambda chunk, now: chunks.append(chunk), 'Salon')
+        samples = (np.sin(np.arange(256) / 5) * 8000).astype('<i2').tobytes()
+        for _ in range(80):   # ~20 000 echantillons a 48 kHz : plusieurs blocs de 1600 a 16 kHz
+            sender.sendto(packet('Salon', samples), ('127.0.0.1', port))
+        wait_until(lambda: len(chunks) >= 2)
+        assert all(len(c) == BLOCK_SAMPLES for c in chunks)
+        heard = d.get_sources(timeout=5)
+        assert [(s['ip'], s['name'], s['sample_rate'], s['port']) for s in heard] == [('127.0.0.1', 'Salon', 48000, port)]
+        wait_until(lambda: not d.sources, timeout=4)   # muette depuis SOURCE_TIMEOUT : retiree
+    finally:
+        sender.close()
+        d.stop_listening()
+    assert d._socket is None and not d._listen_thread.is_alive()
+
+
+def test_real_udp_port_already_taken():
+    import socket
+    other = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # autre programme, sans SO_REUSEPORT
+    other.bind(('0.0.0.0', 0))
+    try:
+        d = VBANDetector(port=other.getsockname()[1])
+        with pytest.raises(OSError):
+            d.real_start_listening()
+        assert d._socket is None and not d.running and d.get_sources() == []
+    finally:
+        other.close()

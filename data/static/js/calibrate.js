@@ -140,17 +140,11 @@
         busy = true;
         btn.disabled = true;
         body.querySelector('[data-c="cancel"]').disabled = true;
-        var left = p.duration || 4;
         var out = body.querySelector('.cal-countdown');
-        out.textContent = p.target === 'fond' ? 'Écoute… ' + left + ' s' : 'Allez-y ! ' + left + ' s';
-        var timer = setInterval(function () {
-            left -= 1;
-            out.textContent = left > 0 ? (p.target === 'fond' ? 'Écoute… ' : 'Allez-y ! ') + left + ' s' : 'Analyse de la prise…';
-            if (left <= 0) clearInterval(timer);
-        }, 1000);
+        var stopTimer = CT.recordCountdown(out, p.duration || 4, p.target === 'fond' ? 'Écoute… ' : 'Allez-y ! ');
         CT.api('POST', '/api/calibration/record', {target: p.target, expected: p.expected || null, duration: p.duration || 4})
             .then(function (t) {
-                clearInterval(timer);
+                stopTimer();
                 busy = false;
                 var top = (t.top || []).map(function (c) { return CT.soundLabel(c.classe) + ' ' + CT.pct(c.score); }).join(', ');
                 var summary = esc(p.name) + ' : ' + (top ? 'reconnu ' + esc(top) : 'aucun son reconnu') +
@@ -160,11 +154,11 @@
                 if (step >= plan.length) analyze(summary); else takeStep(summary);
             })
             .catch(function (err) {
-                clearInterval(timer);
+                stopTimer();
                 busy = false;
                 btn.disabled = false;
                 body.querySelector('[data-c="cancel"]').disabled = false;
-                out.textContent = '';
+                CT.calState(out, '', '');
                 CT.error('Prise impossible : ' + err.message);
             });
     }
@@ -191,7 +185,7 @@
 
     function analyze(lastResult) {
         setTitle('Calibrer « ' + src.name + ' » · propositions');
-        body.innerHTML = (typeof lastResult === 'string' ? '<p class="hint cal-last">' + lastResult + '</p>' : '') + '<p>Analyse des prises…</p>';
+        body.innerHTML = (typeof lastResult === 'string' ? '<p class="hint cal-last">' + lastResult + '</p>' : '') + '<p class="cal-countdown" data-state="analyze" aria-live="polite">Analyse des prises…</p>';
         CT.api('POST', '/api/calibration/analyze', {})
             .then(function (p) {
                 var gain = p.gain || {};

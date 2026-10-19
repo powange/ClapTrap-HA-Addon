@@ -18,6 +18,8 @@
     --danger: #c62828;
     --danger-ink: #ffffff;
     --danger-soft: #fde7e5;
+    --info: #1d5fb8;         /* calibrage : analyse en cours */
+    --wait: #b45309;         /* calibrage : prise imminente */
     --meter-low: #1e8a4c;
     --meter-mid: #d39e00;
     --meter-high: #d93025;
@@ -44,6 +46,8 @@
     --danger: #ff8a80;
     --danger-ink: #2a0906;
     --danger-soft: #3a1714;
+    --info: #7db4ff;
+    --wait: #ffa94d;
     --meter-low: #4cc38a;
     --meter-mid: #e8c84a;
     --meter-high: #ff7a6e;
@@ -499,7 +503,13 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .cal-expected { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--ink-2); }
 .cal-expected .input { width: 64px; }
 .cal-target { margin: 8px 0 4px; font-size: 1.05rem; }
-.cal-countdown { font: 600 1.4rem var(--mono); min-height: 1.6em; color: var(--accent); }
+.cal-countdown { font: 600 1.4rem var(--mono); min-height: 2.25rem; color: var(--ink-2); }   /* hauteur fixe : pas de saut entre les etats */
+/* Etat de la prise : orange avant (enchainement), vert a l'ecoute, bleu a l'analyse. */
+.cal-countdown[data-state] { border-left: 4px solid currentColor; padding-left: 10px; }
+.cal-countdown:not([data-state]) { font: 500 0.95rem var(--font); }   /* pause, message neutre */
+.cal-countdown[data-state="wait"] { color: var(--wait); }
+.cal-countdown[data-state="listen"] { color: var(--ok); }
+.cal-countdown[data-state="analyze"] { color: var(--info); }
 .cal-result { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
 .cal-result ul { margin: 4px 0 0; padding-left: 20px; font-size: 0.88rem; color: var(--ink-2); }
 .cal-result h4 { margin: 0; }
