@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from audio_detector import AudioDetector
+from audio_detector import ANALYSIS_HOP, AudioDetector
 from clap_logic import default_group, normalize_group
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
 from audio_utils import BLOCK_SAMPLES, level_db
@@ -494,7 +494,15 @@ class DetectionSession:
         # Aucun groupe actif : rien ne peut se declencher, YAMNet ne tourne
         # que pour un onglet ouvert (sons entendus en direct, decouverte).
         # Enregistrement ou calibrage en cours (ecoutes) : analyser aussi.
-        det.analysis_wanted = lambda: bool(det.tracker.groups) or _clients > 0 or bool(det._taps)
+        # Economie de processeur : sans onglet ouvert, YAMNet ne tourne que si
+        # ses resultats peuvent servir (pic recent ; voir needs_results) :
+        # dans une piece calme, presque toutes les analyses disparaissent.
+        def analysis_wanted(clock):
+            if det._taps or _clients > 0:
+                return True
+            with det.lock:
+                return bool(det.tracker.groups) and det.tracker.needs_results(clock, ANALYSIS_HOP)
+        det.analysis_wanted = analysis_wanted
         det.start()
         with self._lock:
             # L'initialisation de YAMNet peut durer plus que l'attente de
@@ -535,6 +543,9 @@ class DetectionSession:
                     if 'gain' in current:
                         _live_gains[sid] = float(current['gain'])
                 p = detection_params_from_settings(settings)
+                # Arbitrage entre pieces : pas de decision anticipee (les
+                # sources doivent finir en meme temps pour etre comparees).
+                det.tracker.early_decision = not settings.get('global', {}).get('room_arbitration')
                 det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
                 exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
                 with self._lock:

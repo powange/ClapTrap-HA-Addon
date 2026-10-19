@@ -337,6 +337,7 @@ def test_sounds_not_added_without_auto_add(session_env, monkeypatch):
     """Groupe sans « Ajouter les sons entendus » : aucun son ajouté ni annoncé."""
     classify, sock, emitted, calls, sm = session_env
     sm.modify_settings(lambda s: s['rtsp_sources'][0]['sound_groups'][0].update(auto_add_sounds=False))
+    monkeypatch.setattr(classify, '_clients', 1)   # onglet ouvert : analyse meme sans pic (economie sinon)
     monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=100))
     classify.start_from_settings(sock)
     det = wait_until(lambda: det_of('rtsp_cam1'))

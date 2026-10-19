@@ -89,6 +89,7 @@ class ClapTracker:
     SUSTAIN_RESET = 0.3
 
     WINDOW_EPS = 1e-6   # pic pile a la fin de la fenetre : compte (arrondis)
+    EARLY_SETTLE = 0.5  # s de calme apres le dernier clap avant une decision anticipee
     LATE_MAX = 5.0      # s : coupure au-dela de laquelle un geste en cours est abandonne (interrupt)
 
     def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0):
@@ -111,6 +112,11 @@ class ClapTracker:
         self.sustain_count = 0
         self._consumed_until = 0.0
         self._last_trigger = 0.0
+        self._last_result = 0.0  # fin (horloge audio) du dernier resultat YAMNet traite
+        self._always_results = False   # un groupe a besoin de toutes les analyses
+        # Decision anticipee (desactivee avec l'arbitrage entre pieces : les
+        # sources doivent finir en meme temps pour etre comparees).
+        self.early_decision = True
         self._group_state = {}   # slug -> {armed_at, score, labels}
         self._alerts = {}        # slug -> {hits, on, last_hit, score, labels} (mode alerte)
         self._strength = {}      # instant d'un pic -> force (pic / bruit de fond)
@@ -130,6 +136,8 @@ class ClapTracker:
                        for idx, g in enumerate(groups or []) if isinstance(g, dict)]
         # Etat d'un groupe retire (desactive, supprime, renomme) : oublie.
         slugs = {g['slug'] for g in self.groups}
+        self._always_results = any(g['count_mode'] == 'alerte' or not g['clap_counts'] or g['auto_add']
+                                   for g in self.groups)
         for slug in [s for s in self._group_state if s not in slugs]:
             del self._group_state[slug]
 
@@ -260,6 +268,7 @@ class ClapTracker:
         # peut s'armer : une tele qui diffuse des applaudissements declenchait
         # sinon « 1 clap » toutes les 2,5 s.
         can_arm_without_peak = (now - self._last_trigger) >= self.RETRIGGER_GUARD
+        self._last_result = max(self._last_result, now)
 
         alert_events = []
         for group in self.groups:
@@ -293,12 +302,57 @@ class ClapTracker:
     def _times(self, group):
         return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
 
-    def _expire(self, now):
-        """Fenetres arrivees a leur fin : arbitrage et evenements. Fait a un
-        resultat YAMNet : celui qui suit la fin d'une fenetre couvre deja sa
-        derniere partie (le meilleur groupe peut n'etre reconnu qu'a la fin)."""
+    def needs_results(self, now, hop):
+        """Les resultats de YAMNet d'une fenetre finissant a `now` peuvent-ils
+        servir ? Sinon (piece calme) l'analyse est sautee : un groupe avec des
+        nombres de claps ne s'arme qu'avec un pic d'au plus peak_lookback s
+        (plus un pas d'analyse `hop` de marge). Toujours oui pour un groupe
+        d'alerte, sans nombre de claps (son reconnu seul) ou qui ajoute les
+        sons entendus."""
+        if self._always_results:
+            return True
+        last = max(self.peak_times[-1:] + self.sustain_times[-1:], default=None)
+        return last is not None and now - last < self.peak_lookback + hop
+
+    def pending(self):
+        """Une fenetre de comptage est-elle ouverte ?"""
+        return any(st['armed_at'] for st in self._group_state.values())
+
+    def poll(self, now):
+        """Appele a chaque bloc audio (100 ms) : fenetres arrivees a leur fin
+        sur l'horloge audio (au lieu d'attendre le resultat YAMNet suivant,
+        jusqu'a 0,5 s plus tard), et decision anticipee."""
+        return self._early(now) or self._expire(now)
+
+    def _early(self, now):
+        """Decision anticipee : un seul groupe arme, qui a deja son nombre
+        maximal de claps (un groupe « 1 clap » des le premier), suivi de
+        EARLY_SETTLE s de calme ET d'un resultat YAMNet couvrant ce calme (un
+        autre groupe a eu sa chance de reconnaitre le son) : l'evenement part
+        sans attendre la fin de la fenetre (environ 1 s de latence en moins).
+        Les claps de la fin de la fenetre sont ensuite ignores : un double
+        clap lent sur un groupe « 1 clap » ne bascule pas deux fois."""
+        if not self.early_decision:
+            return []
+        armed = [g for g in self.groups if (self._group_state.get(g['slug']) or {}).get('armed_at')]
+        if len(armed) != 1 or not armed[0]['clap_counts']:
+            return []
+        group = armed[0]
+        state = self._group_state[group['slug']]
+        counted = [t for t in self._times(group) if state['armed_at'] <= t <= now and t > self._consumed_until]
+        if (len(counted) != max(group['clap_counts']) or now - counted[-1] < self.EARLY_SETTLE
+                or self._last_result < counted[-1] + self.EARLY_SETTLE):
+            return []
+        window_end = state['armed_at'] + self.window + self.WINDOW_EPS
+        events = self._expire(now, early=True)
+        self._consumed_until = max(self._consumed_until, window_end)
+        return events
+
+    def _expire(self, now, early=False):
+        """Fenetres arrivees a leur fin (ou decision anticipee `early`) :
+        arbitrage et evenements."""
         states = [self._group_state.get(g['slug']) for g in self.groups]   # groupes actuels seulement
-        if not any(st and st['armed_at'] and (now - st['armed_at']) >= self.window for st in states):
+        if not early and not any(st and st['armed_at'] and (now - st['armed_at']) >= self.window for st in states):
             return []
 
         # Des qu'une fenetre expire, TOUS les groupes armes entrent en

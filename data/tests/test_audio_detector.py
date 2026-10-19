@@ -186,7 +186,7 @@ def test_no_analysis_without_active_group(fake_classifier, monkeypatch):
     clock = _fake_clock(monkeypatch)
     det, clf, _ = make(fake_classifier)
     wanted = [False]
-    det.analysis_wanted = lambda: wanted[0]
+    det.analysis_wanted = lambda clock: wanted[0]
     for _ in range(20):
         clock[0] += 0.1
         det.process_audio(block(0.002, 0.001))
@@ -287,3 +287,27 @@ def test_audio_tap_gets_exactly_what_the_classifier_gets(fake_classifier):
     det.wait_idle()
     assert len(heard) == 10 and len(clf.blocks) == 1
     assert np.array_equal(np.concatenate(heard)[-15600:], clf.blocks[0])
+
+
+def test_window_closes_on_audio_clock_in_worker(fake_classifier, monkeypatch):
+    """Fenetre ouverte : close sur l'horloge audio par le fil d'analyse, meme
+    sans nouveau resultat YAMNet (analyses coupees ici)."""
+    clock = _fake_clock(monkeypatch)
+    det, clf, events = make(fake_classifier, [{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True},
+                                               'threshold': 0.5, 'clap_counts': [1, 2]}])
+    wanted = [True]
+    det.analysis_wanted = lambda clock: wanted[0]
+    for i in range(25):
+        clock[0] += 0.1
+        det.process_audio(block(0.6 if i == 18 else 0.003, 0.001))
+        det.wait_idle()
+    assert det.tracker.pending() and not events
+    wanted[0] = False
+    worker = []
+    det.configure('s', detection_callback=lambda e: worker.append(threading.current_thread().name))
+    for _ in range(15):
+        clock[0] += 0.1
+        det.process_audio(block(0.003, 0.001))
+        det.wait_idle()
+    assert worker and all(n.startswith('yamnet-') for n in worker)
+    assert not det.tracker.pending()

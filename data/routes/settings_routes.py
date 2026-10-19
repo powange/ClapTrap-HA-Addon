@@ -77,6 +77,7 @@ def update_room_settings():
     def _mut(settings):
         settings.setdefault('global', {}).update(values)
     modify_settings(_mut)
+    _apply_live()   # decision anticipee coupee ou retablie
     return jsonify({'success': True, **values})
 
 

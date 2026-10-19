@@ -484,6 +484,21 @@ actions:
 | Écart minimal entre deux claps | 0,08 s | Filtre les rebonds d'un même clap. |
 | Force minimale d'un clap | 3 × le bruit ambiant | Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs. |
 
+**Réactivité** : quand un seul groupe est en cours et qu'il a déjà son nombre
+maximal de claps (un groupe « 1 clap » dès le premier), l'événement part
+0,5 à 1 s après le dernier clap, sans attendre la fin de la fenêtre. Un clap
+de plus dans les 0,5 s fait un geste à 2 claps, comme avant ; un clap plus
+tardif, encore dans la fenêtre, est ignoré (pas de second geste). Sinon, et
+toujours avec l'arbitrage entre pièces, la fenêtre se termine à l'heure
+prévue, sans attendre l'analyse suivante.
+
+**Économie de processeur** : sans onglet de l'interface ouvert, YAMNet ne
+tourne qu'après un pic sonore (ses résultats ne peuvent servir qu'à ce
+moment-là) ; dans une pièce calme, presque toutes les analyses disparaissent.
+Il tourne en continu si un groupe est en mode alerte, n'a pas de nombre de
+claps ou ajoute les sons entendus. Le capteur « Dernière classe » ne change
+donc plus dans une pièce silencieuse.
+
 Le bouton **Calibrer le comptage…** propose ces trois valeurs à partir de vos
 propres gestes, mesurés sur une source (environ 2 minutes, la source ne
 déclenche rien pendant ce temps) : 5 s de bruit de fond, 3 claps simples,
