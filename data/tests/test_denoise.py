@@ -231,3 +231,35 @@ def test_noise_reduction_setting_routes(settings_dir, monkeypatch):
     from classify import build_sources_from_settings
     built = {s['kind']: s for s in build_sources_from_settings(settings_dir.load_settings())}
     assert built['rtsp']['noise_reduction'] == 2
+
+
+def test_recording_analyses_the_clip_before_noise_reduction(monkeypatch):
+    """Reduction active : les sons reconnus sur l'extrait d'avant (analyse
+    par le meme classifieur, sons appris compris) en plus de ceux de la
+    detection (son reduit)."""
+    import threading
+    import time
+    import types
+    import recording
+    import classify
+    from test_recording import FakeDetector
+    det = FakeDetector()
+    det.denoise = denoise.SpectralGate(2)
+    emit = det._emit
+
+    def with_raw(event, *data):
+        emit(event, *data)
+        if event == 'audio':
+            emit('audio_raw', data[0] * 2, 2)
+    det._emit = with_raw
+    seen = []
+    det.classify_window = lambda win: seen.append(win.size) or [('Animal', 0.4), ('Silence', 0.2), ('Bird', 0.1), ('X', 0.01)]
+    monkeypatch.setattr(classify, 'detector_for', lambda sid: det)
+    monkeypatch.setattr(recording, 'RESULT_GRACE', 0.3)
+    monkeypatch.setattr(recording, 'time', types.SimpleNamespace(sleep=lambda s: time.sleep(s / 10)))
+    out = recording.record('rtsp_cam', 2.0)
+    raw = out['timeline_raw']
+    assert raw and seen and all(n == 15600 for n in seen)
+    assert [c['classe'] for c in raw[0]['top']] == ['Animal', 'Silence', 'Bird']
+    assert [r['t'] for r in raw] == [r['t'] for r in out['timeline']]   # memes fenetres : lignes alignees
+    assert out['timeline'] and out['timeline'][0]['top'][0]['classe'] == 'Finger snapping'   # detection : son reduit

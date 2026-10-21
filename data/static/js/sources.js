@@ -20,6 +20,7 @@
     function statusOf(src) {
         var st = CT.state.status;
         if (!src.enabled) return {text: 'Désactivée', cls: 'off'};
+        if (st.running && (st.paused_sources || []).indexOf(src.sourceId) !== -1) return {text: 'En pause (test du son)', cls: 'idle'};
         if (!st.running || (st.sources || []).indexOf(src.sourceId) === -1) {
             if (src.kind === 'rtsp' && !src.data.url) return {text: 'URL à renseigner', cls: 'warn'};
             // Activee mais hors de la session en cours (ajoutee depuis) : pas « Prete ».
@@ -179,8 +180,8 @@
     // ni au clavier).
     function testHint(src, listening) {
         return listening
-            ? 'La détection écoute cette source : son niveau sonore est déjà affiché en direct' +
-              (src.kind === 'rtsp' ? ', ainsi que le format audio reçu' : '') + '. Arrêtez la détection pour tester le son seul.'
+            ? 'Affiche le niveau sonore dans le VU-mètre. Pendant le test, la détection de cette source est suspendue ' +
+              '(elle ne déclenche rien), puis reprend dès l\'arrêt du test.'
             : 'Affiche le niveau sonore dans le VU-mètre (en haut de cette fenêtre et sur la carte), sans lancer la détection.';
     }
     // ---- Extrait enregistre (detection en cours) --------------------------
@@ -196,34 +197,44 @@
     }
     // Enregistrement en cours et dernier extrait, par source : la carte peut
     // etre reconstruite pendant les ~7 s de la requete (fermeture des
-    // reglages) ; une seule URL de blob par source (l'ancienne est liberee).
+    // reglages). Un nouvel enregistrement efface aussitot les anciens extraits
+    // de la source (avant et apres reduction du bruit).
     var recordingNow = {}, lastRecording = {};
+    function showRecording(src) {
+        var cardNow = document.getElementById(src.domId);   // carte actuelle, peut-etre reconstruite
+        var out = cardNow && cardNow.querySelector('[data-role="record-result"]');
+        if (out) out.innerHTML = recordingHtml(src);
+    }
     function recordClip(card, src) {
         if (recordingNow[src.sourceId]) return;
         recordingNow[src.sourceId] = true;
+        delete lastRecording[src.sourceId];
+        showRecording(src);
         CT.renderSourceStatuses();
         CT.api('POST', '/api/source/record', {source_id: src.sourceId, seconds: RECORD_SECONDS})
             .then(function (d) {
-                var prev = lastRecording[src.sourceId];
-                if (prev && window.URL) [prev.url, prev.urlDenoised].forEach(function (u) { if (u) URL.revokeObjectURL(u); });
                 lastRecording[src.sourceId] = {d: d, url: wavUrl(d.wav), name: recordingName(src),
                                                urlDenoised: d.wav_denoised ? wavUrl(d.wav_denoised) : ''};
             })
             .catch(function (err) { CT.error('Enregistrement impossible : ' + err.message); })
             .then(function () {
                 delete recordingNow[src.sourceId];
-                var cardNow = document.getElementById(src.domId);   // carte actuelle, peut-etre reconstruite
-                var out = cardNow && cardNow.querySelector('[data-role="record-result"]');
-                if (out) out.innerHTML = recordingHtml(src);
+                showRecording(src);
                 CT.renderSourceStatuses();
             });
     }
+    // Son integre a la page (data:) plutot qu'une adresse blob: : une
+    // application ou un navigateur ne peut pas resservir un ancien extrait.
     function wavUrl(b64) {
-        if (!(window.URL && URL.createObjectURL)) return '';
-        var bytes = atob(b64 || ''), arr = new Uint8Array(bytes.length);
-        for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-        return URL.createObjectURL(new Blob([arr], {type: 'audio/wav'}));
+        return b64 ? 'data:audio/wav;base64,' + b64 : '';
     }
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('a[data-dl]');
+        if (!a) return;
+        var rec = lastRecording[a.getAttribute('data-dl-source')];
+        var url = rec && rec[a.getAttribute('data-dl')];
+        if (url) a.href = url; else e.preventDefault();
+    });
     function recordingName(src) {
         var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
         return 'claptrap-' + (src.data.name || src.sourceId).replace(/[^\w-]+/g, '_') + '-' + stamp + '.wav';
@@ -232,25 +243,37 @@
         var rec = lastRecording[src.sourceId];
         if (!rec) return '';
         var d = rec.d, pct = function (v) { return Math.round(v * 100) + ' %'; };
-        var rows = (d.timeline || []).map(function (w) {
-            return '<li><span class="mono">' + w.t.toFixed(1).replace('.', ',') + ' s</span> ' +
-                (w.top || []).map(function (c) { return esc(CT.soundLabel(c.classe)) + ' ' + pct(c.score); }).join(' · ') + '</li>';
-        }).join('');
+        function timeline(list) {
+            var rows = (list || []).map(function (w) {
+                return '<li><span class="mono">' + w.t.toFixed(1).replace('.', ',') + ' s</span> ' +
+                    (w.top || []).map(function (c) { return esc(CT.soundLabel(c.classe)) + ' ' + pct(c.score); }).join(' · ') + '</li>';
+            }).join('');
+            return rows ? '<ul class="record-timeline">' + rows + '</ul>' : '<p class="hint">Aucun son reconnu.</p>';
+        }
         var nrName = (NR_NAMES[d.noise_reduction] || '').toLowerCase();
-        return (rec.url ? (rec.urlDenoised ? '<p class="hint">Avant la réduction du bruit :</p>' : '') +
-                '<audio controls src="' + rec.url + '"></audio>' +
-                '<p><a href="' + rec.url + '" download="' + esc(rec.name) + '">Télécharger l\'extrait (WAV)</a></p>' : '') +
-            (rec.urlDenoised ? '<p class="hint">Après la réduction du bruit (' + esc(nrName || '') + '), ce que YAMNet reçoit :</p>' +
-                '<audio controls src="' + rec.urlDenoised + '" data-role="denoised"></audio>' +
-                '<p><a href="' + rec.urlDenoised + '" download="' + esc(rec.name.replace(/\.wav$/, '-reduit.wav')) + '">' +
-                'Télécharger l\'extrait réduit (WAV)</a></p>' : '') +
-            (d.clipped ? '<p class="hint text-warn">Le son arrive déjà saturé du micro ou de la caméra : éloignez la source ' +
-                         'du bruit ou baissez le volume du micro dans la caméra (le gain de ClapTrap n\'y peut rien).</p>'
-             : d.limited ? '<p class="hint">Des sons forts ont été atténués par le limiteur (gain de la source élevé) : ' +
-                           'baissez le gain si cela arrive souvent.</p>' : '') +
-            '<p class="hint">Sons reconnus' + (rec.urlDenoised ? ' après la réduction du bruit' : '') +
-            ' (une fenêtre d\'environ 1 s par ligne, depuis le début) :</p>' +
-            (rows ? '<ul class="record-timeline">' + rows + '</ul>' : '<p class="hint">Aucun son reconnu.</p>');
+        // Lien de telechargement rempli au clic (le son n'est pas recopie
+        // une seconde fois dans la page).
+        var player = function (url, name, label) {
+            return url ? '<audio controls src="' + url + '"' + (label ? ' data-role="' + label + '"' : '') + '></audio>' +
+                '<p><a href="#" data-dl="' + (label === 'denoised' ? 'urlDenoised' : 'url') + '" data-dl-source="' + esc(src.sourceId) + '"' +
+                ' download="' + esc(name) + '">Télécharger l\'extrait (WAV)</a></p>' : '';
+        };
+        var warn = d.clipped ? '<p class="hint text-warn">Le son arrive déjà saturé du micro ou de la caméra : éloignez la source ' +
+                               'du bruit ou baissez le volume du micro dans la caméra (le gain de ClapTrap n\'y peut rien).</p>'
+            : d.limited ? '<p class="hint">Des sons forts ont été atténués par le limiteur (gain de la source élevé) : ' +
+                          'baissez le gain si cela arrive souvent.</p>' : '';
+        var legend = ' (une fenêtre d\'environ 1 s par ligne, depuis le début) :';
+        if (!rec.urlDenoised) {
+            return player(rec.url, rec.name) + warn + '<p class="hint">Sons reconnus' + legend + '</p>' + timeline(d.timeline);
+        }
+        // Reduction du bruit active : chaque extrait avec ses propres sons reconnus.
+        return warn +
+            '<div class="record-part"><h4>Avant la réduction du bruit</h4>' + player(rec.url, rec.name, 'raw') +
+            '<p class="hint">Sons reconnus sur cet extrait' + legend + '</p>' + timeline(d.timeline_raw) + '</div>' +
+            '<div class="record-part" data-role="denoised-part"><h4>Après la réduction du bruit (' + esc(nrName) + ')</h4>' +
+            '<p class="hint">Ce que YAMNet reçoit : c\'est sur ce son que la détection décide.</p>' +
+            player(rec.urlDenoised, rec.name.replace(/\.wav$/, '-reduit.wav'), 'denoised') +
+            '<p class="hint">Sons reconnus sur cet extrait' + legend + '</p>' + timeline(d.timeline) + '</div>';
     }
 
     function field(label, control, forId) {
@@ -349,13 +372,9 @@
 
     CT.renderSourceStatuses = function () {
         var running = !!(CT.state.status && CT.state.status.running);
-        // Test du son en cours au demarrage de la detection : l'arreter (son
-        // bouton serait desactive, et il garderait une seconde capture).
-        // Test en cours d'une source que la detection ecoute (seconde capture) :
-        // l'arreter. Une source hors de la session reste testable.
-        // (cle du test = identifiant de la source, assistant compris)
-        var testing = CT.state.testing;
-        if (running && testing && (CT.state.status.sources || []).indexOf(testing.key) !== -1 && CT.stopTest) CT.stopTest();
+        // Test du son pendant la detection : le serveur suspend la detection
+        // de cette source le temps du test (pas de seconde capture), puis la
+        // reprend ; une detection demarree pendant le test l'attend aussi.
         // Formats connus du serveur (page ouverte apres la connexion des
         // cameras) ; un format recu en direct depuis, plus recent, est garde.
         var known = (CT.state.status && CT.state.status.audio_formats) || {};
@@ -371,11 +390,8 @@
             // un test ouvrait une seconde capture (2e session RTSP). Une source
             // hors de la session (desactivee, ajoutee depuis) reste testable.
             var listening = running && (CT.state.status.sources || []).indexOf(src.sourceId) !== -1;
-            CT.$$('[data-action="test"]', card).forEach(function (b) {
-                if (b.getAttribute('role') === 'menuitem') b.hidden = listening;   // menu : navigable au clavier
-                else b.disabled = listening;
-            });
-            setText(card.querySelector('[data-role="test-hint"]'), testHint(src, listening));
+            var paused = running && (CT.state.status.paused_sources || []).indexOf(src.sourceId) !== -1;
+            setText(card.querySelector('[data-role="test-hint"]'), testHint(src, listening || paused));
             // Extrait : l'inverse du test, seulement quand la detection ecoute la source.
             var rec = card.querySelector('[data-action="record"]');
             if (rec) {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.96.0
+
+### Tester le son pendant la détection, extraits sonores
+
+- **Tester le son** reste disponible pendant la détection. Au clic, la
+  détection de cette source seule est suspendue : la carte affiche « En pause
+  (test du son) », et la caméra ou le micro sont libérés pour le test. Les
+  autres sources continuent. La détection reprend dès la fin du test
+  (Arrêter, autre test, délai de 2 minutes ou flux perdu). Une détection
+  démarrée pendant le test attend aussi sa fin pour écouter cette source.
+- **Enregistrer 5 s** : un nouvel enregistrement efface aussitôt les anciens
+  extraits de la source, avec ou sans réduction du bruit. Le son est intégré
+  à la page : un navigateur ou l'application ne peut plus resservir un ancien
+  extrait.
+- Avec la réduction du bruit, chaque extrait (avant et après) affiche ses
+  propres sons reconnus. Celui d'avant est analysé par le même classifieur,
+  sons appris compris.
+
 ## 6.95.0
 
 ### Onglet Blueprints

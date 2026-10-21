@@ -564,3 +564,5 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .pill.is-ok { color: var(--ok); }
 .pill.is-warn { color: var(--warn); }
 .bp-fallback { margin: 8px 0 12px; padding-left: 20px; }
+.record-part { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.record-part h4 { margin: 0 0 6px; font-size: 0.9rem; }

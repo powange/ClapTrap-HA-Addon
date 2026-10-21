@@ -86,17 +86,46 @@ def test_rtsp_test_reports_camera_audio_format(env, settings_dir):
     assert ('source_format', {'source_id': 'rtsp_A', 'format': fmt}) in emitted
 
 
-def test_rtsp_test_refused_while_detection_listens(env, monkeypatch, settings_dir):
-    """Seconde connexion RTSP refusee : certaines cameras ne servent l'audio
-    qu'a un client, la detection pouvait le perdre."""
+def test_rtsp_test_pauses_detection_of_that_camera_and_resumes_it(env, monkeypatch, settings_dir):
+    """Detection en cours : le test suspend la detection de cette camera
+    (une seule connexion, beaucoup de cameras ne servent le son qu'a un
+    client), puis la reprend a l'arret du test, quelle qu'en soit la cause."""
     import classify
     t, c, readers, emitted = env
     settings_dir.save_settings({'rtsp_sources': [{'id': 'A', 'name': 'Cam', 'url': 'rtsp://a', 'enabled': True}]})
-    monkeypatch.setattr(classify, 'detector_for', lambda sid: object() if sid == 'rtsp_A' else None)
-    r = c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
-    assert r.status_code == 409 and readers == []
-    # Adresse en cours de modification (autre flux) : test autorise
-    assert c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a2'}).status_code == 200
+    events = []
+    monkeypatch.setattr(classify, 'pause_source', lambda sid: events.append(('pause', sid)) or True)
+    monkeypatch.setattr(classify, 'resume_source', lambda sid: events.append(('resume', sid)))
+    token = c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'}).json['token']
+    wait_until(lambda: readers)
+    assert events == [('pause', 'rtsp_A')]
+    c.post('/api/rtsp/test/stop', json={'token': token})
+    wait_until(lambda: ('resume', 'rtsp_A') in events)
+    assert events.count(('resume', 'rtsp_A')) == 1 and readers[-1].closed   # capture du test finie avant
+    # Fin du flux du test (sans « Arrêter ») : reprise aussi.
+    events.clear()
+    monkeypatch.setattr(t, 'rtsp_source', lambda url, **kw: readers.append(Fake(2)) or readers[-1])
+    c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'})
+    wait_until(lambda: ('resume', 'rtsp_A') in events)
+    # Adresse en cours de modification (autre flux) : pas de pause.
+    events.clear()
+    c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a2'})
+    assert events == []
+
+
+def test_mic_test_pauses_detection_and_new_test_resumes_it(env, monkeypatch):
+    import classify
+    t, c, readers, emitted = env
+    events = []
+    monkeypatch.setattr(classify, 'pause_source', lambda sid: events.append(('pause', sid)) or sid == 'mic')
+    monkeypatch.setattr(classify, 'resume_source', lambda sid: events.append(('resume', sid)))
+    monkeypatch.setattr(t, 'mic_source', lambda name: readers.append(Fake(1000)) or readers[-1])
+    monkeypatch.setattr(t, '_resolve_pulse_name', lambda s: 'p')
+    c.post('/api/mic/test/start', json={})
+    wait_until(lambda: readers)
+    c.post('/api/rtsp/test/start', json={'id': 'B', 'url': 'rtsp://b'})   # autre test : le micro reprend
+    wait_until(lambda: ('resume', 'mic') in events)
+    assert events[0] == ('pause', 'mic')
 
 
 def test_vban_test_taps_with_saved_gain_and_clears_on_stop(env, settings_dir, monkeypatch):
@@ -173,3 +202,27 @@ def test_new_probe_cancels_previous_one(env, monkeypatch):
     first.join(5)
     assert r.status_code == 200 and r.json['ok'] and time.monotonic() - t0 < 3
     assert cancels[0].is_set() and not cancels[1].is_set()
+
+
+def test_stop_during_the_pause_still_resumes_the_source(env, monkeypatch, settings_dir):
+    """« Arrêter » pendant la mise en pause (jusqu'a 5 s) : la source reprend
+    quand meme, elle ne reste pas suspendue pour toujours."""
+    import threading
+    import classify
+    t, c, readers, emitted = env
+    settings_dir.save_settings({'rtsp_sources': [{'id': 'A', 'name': 'Cam', 'url': 'rtsp://a', 'enabled': True}]})
+    events, pausing = [], threading.Event()
+
+    def slow_pause(sid):
+        pausing.set()
+        time.sleep(0.5)
+        events.append(('pause', sid))
+        return True
+    monkeypatch.setattr(classify, 'pause_source', slow_pause)
+    monkeypatch.setattr(classify, 'resume_source', lambda sid: events.append(('resume', sid)))
+    th = threading.Thread(target=lambda: c.post('/api/rtsp/test/start', json={'id': 'A', 'url': 'rtsp://a'}))
+    th.start()
+    assert pausing.wait(5)
+    c.post('/api/rtsp/test/stop', json={})
+    th.join(5)
+    wait_until(lambda: ('resume', 'rtsp_A') in events)

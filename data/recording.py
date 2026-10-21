@@ -12,6 +12,7 @@ de bruit de la camera...) au lieu de le deviner.
 import base64
 import bisect
 import io
+import logging
 import threading
 import time
 import wave
@@ -114,6 +115,36 @@ def _timeline(audio, results):
     return rows
 
 
+def _classify_clip(det, samples, results, blocks):
+    """Sons reconnus sur un extrait que la detection n'a pas analyse (le son
+    avant la reduction du bruit) : memes fenetres que celles de la detection
+    (meme fin, placees comme dans _timeline), meme classifieur et memes
+    classes (sons appris compris) ; les lignes s'alignent sur celles du son
+    reduit. Quelques analyses de plus : le verrou du classifieur est partage
+    avec la detection, une fenetre a la fois."""
+    from audio_detector import WINDOW_SAMPLES
+    clocks, ends, total = [], [], 0
+    for block, clock in blocks:
+        total += block.size
+        clocks.append(clock)
+        ends.append(total)
+    half = YAMNET_WINDOW / 2
+    rows = []
+    for _categories, when in results:
+        if not clocks or not (clocks[0] - half < when <= clocks[-1] + half):
+            continue
+        end = ends[min(bisect.bisect_left(clocks, when), len(ends) - 1)]
+        win = samples[max(0, end - WINDOW_SAMPLES):end]
+        if win.size < WINDOW_SAMPLES:
+            win = np.pad(win, (WINDOW_SAMPLES - win.size, 0))
+        cats = det.classify_window(win)
+        if cats is None:
+            break   # classifieur arrete (detection arretee pendant l'enregistrement)
+        rows.append({'t': round(max(0.0, end / SAMPLE_RATE - YAMNET_WINDOW), 2),
+                     'top': [{'classe': n, 'score': round(float(sc), 3)} for n, sc in cats[:3]]})
+    return rows
+
+
 def record(source_id, seconds=DEFAULT_SECONDS):
     """Enregistre `seconds` s de la source (detection en cours). Bloque
     seconds + ~1,6 s."""
@@ -141,9 +172,16 @@ def record(source_id, seconds=DEFAULT_SECONDS):
     if level:
         # Reduction du bruit active : « avant » (meme gain, sans reduction) et
         # « apres » (exactement ce que YAMNet a recu), bloc pour bloc, pour
-        # comparer. Les sons reconnus sont ceux du son reduit.
+        # comparer. Sons reconnus : ceux de la detection (son reduit), et
+        # ceux du son d'avant, analyse ici avec le meme classifieur.
         out = {'wav_denoised': base64.b64encode(to_wav(samples)).decode('ascii'), 'noise_reduction': level}
         samples = np.concatenate([item[0] for item in cap['audio_raw']])
+        try:
+            out['timeline_raw'] = _classify_clip(det, samples, cap['results'],
+                                                 [(item[0], item[1]) for item in cap['audio_raw']])
+        except Exception as e:
+            logging.warning(f"Sons de l'extrait avant réduction non analysés : {e}")
+            out['timeline_raw'] = []
     return {
         **out,
         'seconds': round(samples.size / SAMPLE_RATE, 2),

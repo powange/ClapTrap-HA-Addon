@@ -31,8 +31,9 @@ const dom = new JSDOM(html, {
         proposed: { delay: 1.4, peak_cooldown: 0.13, peak_ratio: 6.2 }, warnings: ['entre deux commandes, laissez au moins 1,7 s'],
         score: { current: 4, proposed: 9, takes: 9 }, rows: [{ kind: 'simple', label: 'Clap simple', expected: [1], current: [2], proposed: [1], current_ok: false, proposed_ok: true }] };
       else if (url === '/api/calibration/count/apply') res = { success: true, applied: body.values, active: false };
-      else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGRg==', clipped: true,
-        ...(w.__denoised ? { wav_denoised: 'UklGRg==', noise_reduction: 2 } : {}),
+      else if (url === '/api/source/record') res = { success: true, seconds: 5, wav: 'UklGR' + (w.__recN = (w.__recN || 0) + 1), clipped: true,
+        ...(w.__denoised ? { wav_denoised: 'UklGRg==', noise_reduction: 2,
+                             timeline_raw: [{ t: 0, top: [{ classe: 'Animal', score: 0.41 }] }] } : {}),
         timeline: [{ t: 0, top: [{ classe: 'Clapping', score: 0.72 }, { classe: 'Hands', score: 0.4 }] }, { t: 0.98, top: [{ classe: 'Animal', score: 0.5 }] }] };
       else if (url === '/refresh_vban_sources') res = { sources: [{ name: 'PC2', ip: '10.0.0.9', sample_rate: 48000, channels: 2 }] };
       else if (url === '/api/blueprints') res = { success: true, error: w.__bpError || null, blueprints: [
@@ -154,11 +155,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('11. volume automatique', lastCall('PATCH', '/api/sources/mic/mic')[2].auto_volume === true && $('#src-mic [data-field="volume"]').disabled);
   emit('auto_volume_update', { volume: 120 }); await tick();
   ok('19. mise à jour du volume auto', $('#src-mic [data-out="volume"]').textContent === '120 %');
-  // test micro : desactive pendant la detection (le niveau de la carte suit deja le son)
-  ok('+  « Tester le son » désactivé pendant la détection',
-     $('#src-mic dialog [data-action="test"]').disabled && $('#src-mic .menu-list [data-action="test"]').hidden);
-  ok('+  raison écrite sous le bouton grisé', /La détection écoute cette source.*Arrêtez la détection/.test($('#src-mic [data-role="test-hint"]').textContent) &&
-     !/format audio/.test($('#src-mic [data-role="test-hint"]').textContent));   // micro : pas de format
+  // 6.96 : test du micro possible pendant la detection (le serveur la suspend pour cette source)
+  ok('+  « Tester le son » actif pendant la détection',
+     !$('#src-mic dialog [data-action="test"]').disabled && !$('#src-mic .menu-list [data-action="test"]').hidden);
+  ok('+  pause de la détection expliquée sous le bouton', /détection de cette source est suspendue.*reprend/.test($('#src-mic [data-role="test-hint"]').textContent));
+  status = Object.assign({}, status, { sources: [], paused_sources: ['mic'] }); await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
+  ok('+  source en test : « En pause (test du son) »', /En pause \(test du son\)/.test($('#src-mic').textContent));
+  status = Object.assign({}, status, { sources: ['mic'], paused_sources: [] }); await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   ok('+  texte normal détection arrêtée', /sans lancer la détection/.test($('#src-mic [data-role="test-hint"]').textContent));
   $('#src-mic [data-action="test"]').click(); await tick();
@@ -573,6 +576,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /déjà saturé/.test(recOutNow().textContent) && recBtn().textContent === 'Enregistrer 5 s' && !recBtn().disabled);
   dom.window.CT.render(); await tick();
   ok('+  extrait conservé après reconstruction de la carte', !!recOutNow().querySelector('audio'));
+  const firstSrc = recOutNow().querySelector('audio').getAttribute('src');
+  w.__hold = { url: '/api/source/record' };
+  recBtn().click(); await tick();
+  ok('+  nouvel enregistrement : ancien extrait effacé tout de suite', !recOutNow().querySelector('audio'));
+  w.__hold.release(); w.__hold = null; await tick(3);
+  const secondSrc = recOutNow().querySelector('audio').getAttribute('src');
+  ok('+  nouvel enregistrement : le nouvel extrait, intégré à la page', recOutNow().querySelectorAll('audio').length === 1 &&
+     secondSrc !== firstSrc && /^data:audio\/wav;base64,UklGR\d/.test(secondSrc));
   // --- 6.92 : reduction du bruit de fond
   const nrSel = $('#' + cam.domId + ' [data-field="noise_reduction"]');
   ok('+  réduction du bruit : désactivée par défaut', !!nrSel && nrSel.value === '0');
@@ -581,9 +592,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  réduction du bruit : enregistrée (nombre)', !!nrCall && nrCall[2].noise_reduction === 2);
   w.__denoised = true;
   recBtn().click(); await tick(3);
-  ok('+  extrait : avant et après la réduction du bruit', recOutNow().querySelectorAll('audio').length === 2 &&
-     !!recOutNow().querySelector('audio[data-role="denoised"]') && /Après la réduction du bruit \(moyenne\)/.test(recOutNow().textContent) &&
-     /Sons reconnus après la réduction/.test(recOutNow().textContent) && !!recOutNow().querySelector('a[download$="-reduit.wav"]'));
+  const rawPart = recOutNow().querySelector('.record-part:not([data-role="denoised-part"])');
+  const dnPart = recOutNow().querySelector('[data-role="denoised-part"]');
+  ok('+  extrait : avant et après la réduction du bruit, chacun avec ses sons reconnus',
+     recOutNow().querySelectorAll('audio').length === 2 && !!rawPart && !!dnPart &&
+     /Avant la réduction du bruit/.test(rawPart.textContent) && /Animal 41 %/.test(rawPart.textContent) && !/Applaudissement/.test(rawPart.textContent) &&
+     /Après la réduction du bruit \(moyenne\)/.test(dnPart.textContent) && /Applaudissement 72 %/.test(dnPart.textContent) &&
+     !!dnPart.querySelector('a[download$="-reduit.wav"]'));
   w.__denoised = false;
   status = { running: false, sources: [] }; await dom.window.CT.reloadStatus(); dom.window.CT.renderStatus(); await tick();
   emit('source_format', { source_id: cam.sourceId, format: { codec: 'pcm_mulaw', sample_rate: 8000, channels: 'mono' } }); await tick();

@@ -57,6 +57,11 @@ _history_lock = threading.Lock()
 # modifiee laissait une entree orpheline. Remis a zero a chaque session.
 _live_gains = {}       # {source_id: gain}
 _muted_sources = set()  # sources en calibrage : detections sans effet
+# Sources suspendues pendant « Tester le son » : leur capture est arretee (la
+# camera ou le micro sont libres pour le test), elles reprennent a la fin du
+# test. Hors session : une detection demarree pendant le test les saute aussi.
+_paused_sources = set()
+_paused_lock = threading.RLock()   # pause et reprise l'une apres l'autre (pause : jusqu'a 5 s)
 _whitelist_lock = threading.Lock()  # relecture et application des reglages en direct
 # Onglets connectes (Socket.IO) : sans aucun, les retours en direct (niveau,
 # scores, sons, ~12 messages/s par source) ne sont pas emis.
@@ -685,7 +690,9 @@ class DetectionSession:
             dets = dict(self.detectors)
         return {sid: dict(det.stats(), reconnexions=self.reconnects.get(sid, 0)) for sid, det in dets.items()}
 
-    def _start_runner(self, src, settings=None):
+    def _start_runner(self, src, settings=None, resuming=False):
+        if src['source_id'] in _paused_sources and not resuming:
+            return   # « Tester le son » en cours : reprise a la fin du test
         runner = {'src': src, 'stop': threading.Event(), 'reader': None,
                   'sig': self._signature(src, settings if settings is not None else load_settings())}
         runner['thread'] = threading.Thread(target=self._run_guarded, args=(src, runner), daemon=True,
@@ -775,7 +782,7 @@ class DetectionSession:
                 return None
             with self._lock:
                 current = dict(self._runners)
-                before = [r['src']['label'] for r in current.values()]
+                before = [s['label'] for s in self.sources]
             changed = False
             for sid, runner in current.items():
                 new = built.get(sid)
@@ -788,6 +795,8 @@ class DetectionSession:
                 with self._lock:
                     runner = self._runners.get(sid)
                 if runner is None:
+                    if sid in _paused_sources:
+                        continue   # en test du son : reprise a la fin du test, rien n'a change
                     self._start_runner(src, settings)
                     changed = True
                     continue
@@ -801,7 +810,11 @@ class DetectionSession:
                 if det is not None:   # sinon : relu a la fin de l'initialisation
                     self._apply_current_settings(runner['src'], det, settings, built)
             with self._lock:
-                self.sources = [r['src'] for r in self._runners.values()]
+                # Sources en test du son : toujours dans la session (reprises
+                # a la fin du test), sans lanceur pour l'instant ; ordre des
+                # reglages.
+                self.sources = [self._runners[sid]['src'] if sid in self._runners else src
+                                for sid, src in built.items() if sid in self._runners or sid in _paused_sources]
                 self.label = ' + '.join(s['label'] for s in self.sources)
                 labels = [s['label'] for s in self.sources]
             if labels != before and not self.stop_event.is_set():
@@ -832,6 +845,8 @@ class DetectionSession:
                 if self._applying:
                     continue   # liste momentanement vide pendant une relance
                 threads = [r['thread'] for r in self._runners.values()]
+            if not threads and any(s['source_id'] in _paused_sources for s in self.sources):
+                continue   # seule(s) source(s) en test du son : la detection attend sa reprise
             if all(not t.is_alive() for t in threads):
                 logging.warning("Toutes les sources se sont arrêtées" if threads else "Plus aucune source active")
                 break
@@ -935,8 +950,10 @@ def get_status():
     s = _current()
     if s is None:
         return {'running': False, 'source': None, 'perf': perf.latest()}
+    paused = sorted(_paused_sources)
     return {'running': True, 'source': s.label, 'since': s.started_at,
-            'sources': [src['source_id'] for src in list(s.sources)],
+            'sources': [src['source_id'] for src in list(s.sources) if src['source_id'] not in _paused_sources],
+            'paused_sources': paused,
             'source_status': dict(s.source_status), 'audio_formats': dict(s.audio_formats),
             'source_errors': dict(s.source_errors), 'source_stats': s.source_stats(), 'perf': perf.latest()}
 
@@ -949,6 +966,53 @@ def get_detection_history():
 def clear_detection_history():
     with _history_lock:
         _detection_history.clear()
+
+
+def _emit_status_change():
+    """Interface : relire l'etat (source suspendue ou reprise)."""
+    session = _current()
+    if session is not None:
+        try:
+            session._emit('detection_status', {'status': 'running'})
+        except Exception as e:
+            logging.debug(f"Etat non transmis : {e}")
+
+
+def pause_source(source_id):
+    """« Tester le son » : reserve la source au test. Si la detection
+    l'ecoute, sa capture est arretee (camera ou micro liberes), les autres
+    continuent ; une detection demarree pendant le test la saute. Retourne
+    True si elle est reservee (a liberer avec resume_source), False si un
+    autre test la tient deja."""
+    with _paused_lock:
+        if source_id in _paused_sources:
+            return False
+        _paused_sources.add(source_id)
+        session = _current()
+        if session is not None and any(s['source_id'] == source_id for s in list(session.sources)):
+            logging.info(f"Détection suspendue pour {source_id} (test du son)")
+            session._stop_runner(source_id, wait=True)   # capture terminee avant le test
+            _emit_status_change()
+        return True
+
+
+def resume_source(source_id):
+    """Fin du test du son : la source reprend si la detection tourne et
+    qu'elle y figure. Le lanceur est en place avant que la source quitte la
+    liste des suspendues : le superviseur ne voit jamais une session vide."""
+    with _paused_lock:
+        if source_id not in _paused_sources:
+            return
+        session = _current()
+        if session is not None and not session.stop_event.is_set():
+            src = next((s for s in list(session.sources) if s['source_id'] == source_id), None)
+            with session._lock:
+                running = source_id in session._runners
+            if src is not None and not running:
+                logging.info(f"Détection reprise pour {source_id} (fin du test du son)")
+                session._start_runner(src, resuming=True)
+        _paused_sources.discard(source_id)
+    _emit_status_change()
 
 
 def mute_source(source_id, muted):

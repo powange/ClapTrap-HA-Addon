@@ -42,6 +42,9 @@ class _Test:
         self.reader = None
         self.thread = None
         self.on_stop = None
+        self.paused = None          # source dont la detection est suspendue pendant le test
+        self._released = False
+        self._release_lock = threading.Lock()
         self._peak = 0.0
         self._last_emit = 0.0
 
@@ -73,6 +76,40 @@ class _Test:
                 logging.debug(f"Arret du test: {e}")
         if self.thread and self.thread is not threading.current_thread():
             self.thread.join(timeout=3)
+            if self.thread.is_alive() and self.reader is not None:
+                return   # capture pas encore finie : le fil du test reprendra la detection a sa fin
+        self.release()
+
+    def release(self):
+        """Fin du test, quelle qu'en soit la cause (Arreter, autre test, delai,
+        flux perdu) : la detection de la source reprend, une seule fois, une
+        fois la capture du test terminee (camera a un seul client)."""
+        with self._release_lock:
+            if self._released or not self.paused:
+                self._released = True
+                return
+            self._released = True
+        try:
+            from classify import resume_source
+            resume_source(self.paused)
+        except Exception as e:
+            logging.warning(f"Détection de {self.paused} non reprise après le test : {e}")
+
+    def pause_detection(self, source_id):
+        """Suspend la detection de la source pendant le test (si elle
+        l'ecoute) : la capture du test ne lui dispute pas la camera ou le
+        micro. `paused` est pose avant la pause (jusqu'a 5 s) : un arret du
+        test pendant ce temps reprend bien la source (pause et reprise sont
+        serialisees cote detection)."""
+        from classify import pause_source
+        with self._release_lock:
+            if self._released:
+                return   # test deja termine
+            self.paused = source_id
+        if not pause_source(source_id):
+            with self._release_lock:
+                if not self._released:
+                    self.paused = None   # tenue par un autre test : rien a reprendre
 
 
 _lock = threading.Lock()
@@ -116,6 +153,7 @@ def _run_process(test, reader, gain_of=lambda: 1.0):
     finally:
         _finish(test, error)
         test.stop_event.set()
+        test.release()   # capture du test terminee : la detection reprend
 
 
 def _body():
@@ -155,8 +193,10 @@ def start_mic_test():
         from audio_utils import set_pulse_volume
         set_pulse_volume(pulse_name, settings.get('microphone', {}).get('volume', 100))
     test = _Test('mic', 'mic_level', {})
+    reader = mic_source(pulse_name)   # rien n'est lance avant le fil : pas de pause sans test
     _replace(test)
-    test.thread = threading.Thread(target=_run_process, args=(test, mic_source(pulse_name)), daemon=True)
+    test.pause_detection('mic')
+    test.thread = threading.Thread(target=_run_process, args=(test, reader), daemon=True)
     test.thread.start()
     return jsonify({'success': True, 'token': test.token})
 
@@ -196,14 +236,15 @@ def start_rtsp_test():
     # Adresse testee = celle de la camera enregistree (et non une adresse en
     # cours de saisie, qui peut etre celle d'une autre camera).
     same_camera = bool(saved.get('url')) and _same_rtsp(saved['url'], rtsp_url)
-    if same_camera and _listened_by_detection(rtsp_url):
-        # Le niveau de la carte suit deja la detection.
-        raise ApiError('La détection écoute déjà cette caméra : son niveau est affiché en direct.', 409)
     _cancel_probe()   # « Ajouter » juste apres « Vérifier l'adresse » : une seule connexion
     test = _Test('rtsp', 'rtsp_level', {'id': test_id})
     test.url = rtsp_url
+    reader = rtsp_source(rtsp_url, tcp=tcp)   # rien n'est lance avant le fil : pas de pause sans test
     _replace(test)
-    reader = rtsp_source(rtsp_url, tcp=tcp)
+    if same_camera:
+        # Detection en cours sur cette camera : suspendue pendant le test
+        # (beaucoup de cameras ne servent le son qu'a un client).
+        test.pause_detection(source_id)
 
     # Format affiche dans les reglages de la camera pendant le test aussi
     # (detection arretee), seulement pour son adresse enregistree.
@@ -326,6 +367,7 @@ def start_vban_test():
 
     test = _Test('vban', 'vban_level', {'id': vban_id})
     _replace(test)
+    test.pause_detection(source_id)   # comme les autres sources : detection suspendue pendant le test
 
     def _tap(peak):
         if test.stop_event.is_set():
@@ -340,9 +382,15 @@ def start_vban_test():
             _finish(test, f'test arrêté automatiquement après {TEST_MAX_SECONDS // 60} minutes')
             test.stop_event.set()
             _clear()
+            test.release()
 
     test.on_stop = _clear
-    detector.set_test_tap(ip, _tap, stream_name=stream_name)
+    try:
+        detector.set_test_tap(ip, _tap, stream_name=stream_name)
+    except Exception:
+        _finish(test)
+        test.stop()   # detection reprise
+        raise
     test.thread = threading.Thread(target=_expire, daemon=True)
     test.thread.start()
     logging.info(f"VBAN test: écoute de {ip}/{stream_name}")
