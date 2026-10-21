@@ -225,8 +225,9 @@ dépasse nettement (clap, sonnette) est gardé.
 - Seul le son donné à YAMNet est traité : le comptage des claps (pics)
   utilise toujours le son brut.
 - **Enregistrer 5 s** donne alors deux extraits, avant et après la
-  réduction, et les sons reconnus après. Commencez par « Légère » et
-  comparez : une réduction forte peut aussi effacer des sons faibles.
+  réduction, chacun avec les sons reconnus sur lui (la détection décide sur
+  celui d'après). Commencez par « Légère » et comparez : une réduction forte
+  peut aussi effacer des sons faibles.
 - Elle retire surtout des classes parasites dues au bruit (« Animal »,
   « Vent », « Eau »). En revanche, elle ne recrée pas les aigus qu'une caméra
   à 8 kHz a déjà coupés (voir « Sons aigus mal reconnus » dans le Dépannage).
@@ -730,7 +731,15 @@ bouton **Enregistrer 5 s** des réglages d'une source garde 5 secondes du son
 reçu par la reconnaissance (gain compris). Faites le son pendant
 l'enregistrement : vous pouvez ensuite l'écouter, le télécharger en WAV et voir
 les sons reconnus fenêtre par fenêtre. Écho, saturation ou réduction de bruit
-de la caméra s'entendent tout de suite.
+de la caméra s'entendent tout de suite. Chaque nouvel enregistrement remplace
+le précédent.
+
+**Tester le son pendant la détection** : « Tester le son » reste possible.
+La détection de cette source seule est alors suspendue (« En pause (test du
+son) » : elle ne déclenche rien, et la caméra ou le micro restent libres
+pour le test). Elle reprend dès la fin du test : « Arrêter le test », un
+autre test, la fermeture de l'onglet (2 minutes au plus) ou la perte du
+flux.
 
 **Sons aigus mal reconnus sur une caméra** (claquement de doigts pris pour
 un animal, applaudissements notés « Mains » ou « Claque ») : regardez le

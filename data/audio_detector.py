@@ -544,6 +544,30 @@ class AudioDetector:
 
     # --- Resultats -------------------------------------------------------------
 
+    def _categories(self, result):
+        """(521 classes, classes gardees) d'un resultat : les TOP_RESULTS
+        meilleures et les sons appris (« Appris : <nom> »), cochees dans les
+        groupes comme les autres."""
+        full = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
+        categories = sorted(full, key=lambda c: c[1], reverse=True)[:TOP_RESULTS]
+        learned = self.learned
+        if learned:
+            categories = sorted(categories + learned.match(full), key=lambda c: c[1], reverse=True)
+        return full, categories
+
+    def classify_window(self, window):
+        """Classes d'une fenetre hors du flux de la detection (extrait
+        enregistre), comme pour une analyse : None si le classifieur est
+        arrete."""
+        container = self._containers.AudioData.create_from_array(window, self.sample_rate)
+        with self._clf_lock:
+            if not self.running or not self.classifier:
+                return None
+            results = self.classifier.classify(container)
+        if not results or not results[0].classifications:
+            return []
+        return self._categories(results[0])[1]
+
     def _handle_result(self, result, now):
         """Resultat d'une fenetre se terminant a `now` (horloge audio). Appele
         dans le fil d'analyse, hors du verrou du classifieur."""
@@ -552,13 +576,7 @@ class AudioDetector:
         try:
             if not result or not result.classifications:
                 return
-            full = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
-            categories = sorted(full, key=lambda c: c[1], reverse=True)[:TOP_RESULTS]
-            learned = self.learned
-            if learned:
-                # Sons appris : classes de plus (« Appris : <nom> »), cochees
-                # dans les groupes comme les autres.
-                categories = sorted(categories + learned.match(full), key=lambda c: c[1], reverse=True)
+            full, categories = self._categories(result)
             if self._taps and self._wants('scores'):
                 self._tap('scores', full, now)
             with self.lock:

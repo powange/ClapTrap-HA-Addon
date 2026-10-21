@@ -582,3 +582,47 @@ def test_room_arbitration_keeps_the_loudest_source(session_env, monkeypatch):
     session._on_detection(salon, dict(base, strength=4.0))
     session._on_detection(cuisine, dict(base, strength=11.0))
     assert [a[1] for a in posted] == ['mic', 'rtsp_cam1']     # desactive : sans attente
+
+
+def test_source_paused_for_sound_test_and_resumed(session_env, monkeypatch):
+    """« Tester le son » pendant la detection : cette source seule est
+    arretee (la session continue, meme sans autre source), absente de l'etat,
+    pas relancee par une modification des reglages, puis reprise."""
+    classify, sock, emitted, calls, sm = session_env
+    readers = []
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: readers.append(FakeReader(n=4000)) or readers[-1])
+    classify.start_from_settings(sock)
+    wait_until(lambda: det_of('rtsp_cam1'))
+    assert classify.pause_source('rtsp_cam1') is True
+    assert det_of('rtsp_cam1') is None and readers[0].closed
+    st = classify.get_status()
+    assert st['running'] and st['sources'] == [] and st['paused_sources'] == ['rtsp_cam1']
+    assert classify.pause_source('rtsp_cam1') is False                    # deja suspendue
+    classify.apply_settings_if_running()
+    import time
+    time.sleep(1.2)                                                       # superviseur : la session reste
+    assert classify.get_status()['running'] and det_of('rtsp_cam1') is None
+    classify.resume_source('rtsp_cam1')
+    wait_until(lambda: det_of('rtsp_cam1'))
+    st = classify.get_status()
+    assert st['sources'] == ['rtsp_cam1'] and st['paused_sources'] == [] and len(readers) == 2
+    # Source hors de la detection : reservee quand meme (une detection
+    # demarree pendant le test l'attendra), liberee a la fin du test.
+    assert classify.pause_source('rtsp_inconnue') is True
+    classify.resume_source('rtsp_inconnue')
+    assert 'rtsp_inconnue' not in classify._paused_sources
+
+
+def test_paused_source_is_skipped_by_a_new_detection(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    monkeypatch.setattr(classify, 'rtsp_source', lambda url, **kw: FakeReader(n=4000))
+    classify._paused_sources.add('rtsp_cam1')
+    try:
+        classify.start_from_settings(sock)
+        import time
+        time.sleep(0.8)
+        assert classify.get_status()['running'] and det_of('rtsp_cam1') is None
+        classify.resume_source('rtsp_cam1')
+        wait_until(lambda: det_of('rtsp_cam1'))
+    finally:
+        classify._paused_sources.discard('rtsp_cam1')
