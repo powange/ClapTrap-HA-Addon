@@ -65,6 +65,10 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+          # Derniere 22.x a chaque execution, pas la copie en cache du runner
+          # (22.23.3 le 21/10/2026, vulnerable aux CVE d'octobre 2026).
+          check-latest: true
+      - run: node --version
       - run: pip install -r data/tests/ui/requirements.txt
       - run: npm ci --prefix data/tests/ui
       - run: python data/tests/ui/render_page.py data/tests/ui/page.html
