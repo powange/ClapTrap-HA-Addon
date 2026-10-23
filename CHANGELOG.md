@@ -1,5 +1,17 @@
 # Changelog
 
+## 6.96.1
+
+### AppArmor : arrêt du conteneur par un runc confiné
+
+- Le profil strict accepte maintenant les signaux d'arrêt envoyés par
+  `runc` lorsqu'il a son propre profil AppArmor (Ubuntu 24.04 et peut-être
+  d'autres hôtes). Le test de démarrage de la CI a vu ce refus au moment de
+  supprimer le conteneur. Sans cette règle, l'arrêt de l'add-on pourrait se
+  bloquer sur un tel hôte.
+- CI : Node 22 toujours dans sa dernière version (avis de sécurité Node.js
+  du 21 octobre 2026). L'image de l'add-on ne contient pas Node.
+
 ## 6.96.0
 
 ### Tester le son pendant la détection, extraits sonores

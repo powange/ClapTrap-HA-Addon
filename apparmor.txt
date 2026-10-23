@@ -18,6 +18,10 @@ profile claptrap flags=(attach_disconnected,mediate_deleted) {
   signal (send) set=(kill,term,int,hup,cont),
   # Signaux d'arret (Supervisor, s6, Gunicorn) recus par les processus confines
   signal (receive) peer=unconfined,
+  # runc confine (profil « runc » d'Ubuntu 24.04, et peut-etre d'autres
+  # hotes) : arret et suppression du conteneur (SIGTERM, SIGKILL). Refuse vu
+  # par la CI le 23/10/2026 ; sans cette regle, l'arret pourrait se bloquer.
+  signal (receive) peer=runc,
   # Le Supervisor renomme le profil (<depot>_claptrap) : motif, pas le nom exact.
   signal (send, receive) peer=*_claptrap,
   capability chown,
