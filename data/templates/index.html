@@ -153,6 +153,10 @@
                             <p class="hint">Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs.</p>
                         </div>
                     </div>
+                    <label class="switch-inline"><input type="checkbox" role="switch" id="shape-toggle"> Vérifier la forme des claps</label>
+                    <p class="hint">Pour les groupes qui ne cochent que des sons de clap (applaudissement, mains, claquement de doigts) :
+                       un pic n'est compté que s'il est bref et aigu comme un clap. Une porte, un coup sourd ou une voix ne comptent
+                       plus. Les pics écartés apparaissent dans « Presque déclenchés ».</p>
                     <div class="button-row">
                         <button type="button" class="btn btn-primary" id="count-calibrate">Calibrer le comptage…</button>
                         <button type="button" class="btn btn-ghost" id="adv-defaults">Rétablir les valeurs par défaut</button>

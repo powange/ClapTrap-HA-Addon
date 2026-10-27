@@ -13,6 +13,10 @@ parametre (`now`) pour pouvoir tester la logique de facon deterministe.
 
 import collections
 
+# Sons de type clap : un groupe qui ne coche qu'eux ne compte que les pics
+# qui ont la forme d'un clap (bref, aigu).
+CLAP_LABELS = frozenset({'Clapping', 'Hands', 'Applause', 'Finger snapping'})
+
 DEFAULT_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
 ALERT_WINDOW = 4      # analyses (0,5 s chacune) sur lesquelles compter les reconnaissances
 ALERT_OFF_DELAY = 5.0  # s sans reconnaissance avant d'eteindre une alerte
@@ -128,6 +132,11 @@ class ClapTracker:
         self._used_peaks = set() # pics ayant arme un groupe
         self._windows = []       # (debut, fin) des fenetres de comptage ouvertes recemment
         self._last_weak = {}     # slug -> instant du dernier « son reconnu, pic trop faible »
+        # Forme des pics (clap_shape) : les groupes qui ne cochent que des sons
+        # de clap ne comptent que les pics qui en ont la forme.
+        self.shape_check = True
+        self._shape = {}         # instant d'un pic -> (est un clap, raison, mesures)
+        self._rejected = {}      # pic ecarte -> note dans les « presque » ? (une fois, son reconnu)
 
     # --- Configuration ----------------------------------------------------
 
@@ -143,6 +152,9 @@ class ClapTracker:
         self.groups = [normalize_group(g, idx, default_threshold)
                        for idx, g in enumerate(groups or []) if isinstance(g, dict)]
         # Etat d'un groupe retire (desactive, supprime, renomme) : oublie.
+        for g in self.groups:
+            sounds = [name for name, on in g['whitelist'].items() if on]
+            g['_shape'] = bool(sounds) and all(name in CLAP_LABELS for name in sounds)
         slugs = {g['slug'] for g in self.groups}
         self._always_results = any(g['count_mode'] == 'alerte' or not g['clap_counts'] or g['auto_add']
                                    for g in self.groups)
@@ -239,6 +251,8 @@ class ClapTracker:
         self._strength = {t: v for t, v in self._strength.items() if (now - t) < max_age}
         self._used_peaks = {t for t in self._used_peaks if (now - t) < max_age}
         self._windows = [w for w in self._windows if (now - w[1]) < max_age]
+        self._shape = {t: v for t, v in self._shape.items() if (now - t) < max_age}
+        self._rejected = {t: v for t, v in self._rejected.items() if (now - t) < max_age}
 
         if raw_peak > threshold:
             if not self._sus_above or (now - self._sus_last) >= self.SUSTAIN_RESET:
@@ -298,6 +312,9 @@ class ClapTracker:
             fresh = fresh_of(group)
             if group['clap_counts']:
                 self._note_scores(group, fresh, best, best_label)
+                if self._rejected and self._shaped(group) and best >= group['threshold'] * self.NEAR_FRACTION:
+                    for t in [t for t in self._rejected if now - self.peak_lookback <= t <= now]:
+                        self._note_rejected(group, t, best)
 
             if best >= group['threshold']:
                 if not state['armed_at']:
@@ -382,7 +399,49 @@ class ClapTracker:
                 'strength': round(self._strength.get(t, 0.0), 2)})
 
     def _times(self, group):
-        return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
+        if group.get('count_mode') == 'tenus':
+            return self.sustain_times
+        if self.shape_check and group.get('_shape') and self._rejected:
+            # Pic dont la forme n'est pas celle d'un clap : pas compte (forme
+            # pas encore mesuree : compte, jusqu'a la mesure).
+            return [t for t in self.peak_times if t not in self._rejected]
+        return self.peak_times
+
+    def _shaped(self, group):
+        return (self.shape_check and group.get('_shape') and group['clap_counts']
+                and group.get('count_mode') not in ('tenus', 'alerte'))
+
+    def set_peak_shape(self, t, ok, reason='', metrics=None):
+        """Forme du pic de l'instant `t` (mesuree un bloc plus tard, avec le
+        son qui suit). Pic ecarte : un groupe de claps deja arme sur lui se
+        reporte sur le pic suivant de sa fenetre (ou se desarme) ; il est
+        note dans les « presque » si le son du groupe est reconnu."""
+        self._shape[t] = (ok, reason, metrics or {})
+        if ok:
+            return
+        self._rejected[t] = False
+        for g in self.groups:
+            st = self._group_state.get(g['slug'])
+            if not self._shaped(g) or not st or st['armed_at'] != t:
+                continue
+            nxt = [p for p in self._times(g) if t < p <= t + self.window + self.WINDOW_EPS]
+            if nxt:
+                st['armed_at'] = nxt[0]
+            else:
+                score = st['score']
+                st.update(armed_at=0.0, score=0.0, labels={})
+                self._note_rejected(g, t, score)
+
+    def _note_rejected(self, group, t, score):
+        """Pic ecarte pour sa forme alors que le son du groupe est reconnu :
+        « presque » (une fois par pic)."""
+        if self._rejected.get(t, True):
+            return
+        self._rejected[t] = True
+        _ok, reason, metrics = self._shape.get(t, (False, '', {}))
+        self.near_misses.append({'kind': 'shape', 'group': group['name'], 'slug': group['slug'],
+                                 'time': t, 'reason': reason, **metrics, 'score': round(score, 3),
+                                 'strength': round(self._strength.get(t, 0.0), 2)})
 
     def needs_results(self, now, hop):
         """Les resultats de YAMNet d'une fenetre finissant a `now` peuvent-ils

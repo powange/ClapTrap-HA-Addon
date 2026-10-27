@@ -744,6 +744,9 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#calibration [data-c="cancel"]').click(); await tick();
   // --- 6.86 : plusieurs pieces
   $('#tab-settings').click(); await tick(2);
+  ok('+  forme des claps : vérifiée par défaut', $('#shape-toggle').checked);
+  change($('#shape-toggle'), false); await tick(3);
+  ok('+  forme des claps : désactivation enregistrée', lastCall('PUT', '/api/settings/advanced')[2].clap_shape_check === false);
   ok('+  pièces : option désactivée par défaut, attente grisée', $('#rooms-toggle') && !$('#rooms-toggle').checked && $('#rooms-window').disabled);
   change($('#rooms-toggle'), true); await tick(3);
   ok('+  pièces : option enregistrée', lastCall('PUT', '/api/settings/rooms')[2].enabled === true);
@@ -785,6 +788,9 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /reconnu à 82 %, mais aucun pic assez fort pour compter un clap \(2,1 × le bruit de fond, minimum 3 ×\)/.test($('#near-list li').textContent));
   emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e9, counted: 3, expected: [1, 2], score: 0.9 }); await tick();
   ok('+  presque : nombre de claps sans entité', /3 claps comptés, aucune entité pour ce nombre \(le groupe attend 1 ou 2\)/.test($('#near-list li').textContent));
+  emit('near_miss', { kind: 'shape', group: 'Clap', source_id: 'mic', timestamp: 1e9, reason: 'grave', high: 0.04, decay: 0.2 }); await tick();
+  ok('+  presque : pic écarté par sa forme', /Pic écarté : il ne ressemble pas à un clap \(son trop grave : 4 % de son énergie dans les aigus\)/.test($('#near-list li').textContent) &&
+     /Vérifier la forme des claps/.test($('#near-list li').textContent));
   // --- 6.80 : diagnostic de la detection sur la carte
   status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
              source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100, analyse_ms: 4.2, analyse_max_ms: 9.1, reconnexions: 1 } },

@@ -48,10 +48,12 @@ _ADVANCED_KEYS = ('delay', 'peak_cooldown', 'peak_ratio')   # liste explicite (p
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
     data = _json()
-    unknown = sorted(set(data) - set(_ADVANCED_KEYS))
+    unknown = sorted(set(data) - set(_ADVANCED_KEYS) - {'clap_shape_check'})
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
     values = {key: to_number(data[key], key, *GLOBAL_LIMITS[key]) for key in _ADVANCED_KEYS if key in data}
+    if 'clap_shape_check' in data:
+        values['clap_shape_check'] = to_bool(data['clap_shape_check'], 'clap_shape_check')
 
     def _mut(settings):
         settings.setdefault('global', {}).update(values)

@@ -735,6 +735,17 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
+**Vérifier la forme des claps** (Réglages › Comptage des claps, activé par
+défaut) : pour les groupes qui ne cochent que des sons de clap
+(applaudissement, mains, claquement de doigts), un pic n'est compté que
+s'il est bref et aigu. ClapTrap mesure, sur le son brut, la part
+d'énergie au-dessus de 1,5 kHz et le niveau 30 à 80 ms après le pic. Une
+porte ou un coup sourd (trop graves), une voix ou une musique (qui durent)
+ne comptent plus. Les seuils sont larges : un clap réverbérant, ou capté
+par une caméra en 8 kHz, passe. Les autres groupes (un « Toc » qui compte
+des coups) ne sont pas concernés. Les pics écartés apparaissent dans
+« Presque déclenchés » ; si un vrai clap y figure, décochez l'option.
+
 **Analyse centrée sur un clap** : YAMNet analyse une fenêtre d'environ 1 s
 toutes les 0,5 s. Un clap qui tombe au bord d'une fenêtre est moins bien
 reconnu (essai avec le vrai modèle : un bip noté 0,59 au bord et 0,89 au

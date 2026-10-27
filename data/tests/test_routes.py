@@ -644,3 +644,10 @@ def test_room_zones_drop_deleted_sources(client, settings_dir):
         st['microphone']['configured'] = False
     settings_dir.modify_settings(drop)
     assert settings_dir.load_settings()['global']['room_zones'][0]['sources'] == []
+
+
+def test_clap_shape_check_setting(client, settings_dir):
+    assert settings_dir.load_settings()['global'].get('clap_shape_check', True) is True
+    assert client.put('/api/settings/advanced', json={'clap_shape_check': False}).status_code == 200
+    assert settings_dir.load_settings()['global']['clap_shape_check'] is False
+    assert client.put('/api/settings/advanced', json={'clap_shape_check': 'peut-être'}).status_code == 400
