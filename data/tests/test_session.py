@@ -577,11 +577,50 @@ def test_room_arbitration_keeps_the_loudest_source(session_env, monkeypatch):
     assert [a[1] for a in posted] == ['mic']
     s['global']['room_arbitration'] = False
     sm.save_settings(s)
-    session._room_cfg = (0.0, False, 1.0)                     # reglages relus
+    session._room_cfg = (0.0, False, 1.0, None)               # reglages relus
     posted.clear()
     session._on_detection(salon, dict(base, strength=4.0))
     session._on_detection(cuisine, dict(base, strength=11.0))
     assert [a[1] for a in posted] == ['mic', 'rtsp_cam1']     # desactive : sans attente
+
+
+def test_room_zones_arbitrate_only_within_a_group(session_env, monkeypatch):
+    """Groupes de sources : le salon (micro + camera) se departage, la
+    chambre (hors groupe) declenche toujours, meme pour le meme geste."""
+    classify, sock, emitted, calls, sm = session_env
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    session = classify.DetectionSession([], sock)
+    ids = ['mic', 'rtsp_salon', 'rtsp_chambre', 'rtsp_couloir']
+    session.detectors = {sid: object() for sid in ids}
+    session.source_status = {sid: 'connected' for sid in ids}
+    src = {sid: {'source_id': sid, 'entity_key': sid, 'name': sid, 'label': sid} for sid in ids}
+    base = {'timestamp': 1, 'score': 0.8, 'labels': [], 'group_slug': 'clap', 'group_name': 'Clap',
+            'ignored': False, 'clap_count': 2, 'group_clap_counts': [1, 2]}
+    s = sm.load_settings()
+    s['rtsp_sources'] += [{'id': n, 'name': n, 'url': f'rtsp://h/{n}', 'enabled': False}
+                          for n in ('salon', 'chambre', 'couloir')]
+    s['microphone']['configured'] = True
+    s['global'].update(room_arbitration=True, room_window=0.3, room_zones=[
+        {'name': 'Salon', 'sources': ['mic', 'rtsp_salon']}, {'name': 'Couloir', 'sources': ['rtsp_couloir']}])
+    sm.save_settings(s)
+    session._on_detection(src['rtsp_chambre'], dict(base, strength=2.0))
+    assert [a[1] for a in posted] == ['rtsp_chambre']                    # hors groupe : tout de suite
+    session._on_detection(src['rtsp_couloir'], dict(base, strength=3.0))
+    assert [a[1] for a in posted] == ['rtsp_chambre', 'rtsp_couloir']    # seul de son groupe : pas d'attente
+    posted.clear()
+    session._on_detection(src['mic'], dict(base, strength=4.0))
+    session._on_detection(src['rtsp_salon'], dict(base, strength=11.0))
+    assert posted == []
+    wait_until(lambda: posted)
+    assert [a[1] for a in posted] == ['rtsp_salon']                      # le salon se departage
+    g = sm.load_settings()['global']
+    assert classify.arbitrated(g, 'mic')
+    assert not classify.arbitrated(g, 'rtsp_chambre')        # hors groupe : decision rapide gardee
+    assert not classify.arbitrated(g, 'rtsp_couloir')        # seul dans son groupe : idem
+    assert classify.room_zone_map({'room_zones': []}) is None and classify.arbitrated({'room_arbitration': True}, 'x')
+    # Groupes encore vides : l'arbitrage de toutes les sources continue
+    assert classify.room_zone_map({'room_zones': [{'name': 'G', 'sources': []}]}) is None
 
 
 def test_source_paused_for_sound_test_and_resumed(session_env, monkeypatch):

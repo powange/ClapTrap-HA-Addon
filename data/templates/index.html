@@ -165,6 +165,14 @@
                         <p class="hint">Les claps attendent ce temps que les autres sources les entendent : une caméra a souvent
                            1 à 2 s de retard sur un micro. Plus long = plus fiable, mais réaction plus lente.</p>
                     </div>
+                    <div class="field" id="rooms-zones-field">
+                        <h3 class="field-label">Groupes de sources</h3>
+                        <p class="hint">Sans groupe, toutes les sources se départagent entre elles. Avec des groupes, seules les
+                           sources d'un même groupe se départagent (par exemple le micro et la caméra du salon) ; une source hors
+                           de tout groupe déclenche toujours.</p>
+                        <div class="zones" id="rooms-zones"></div>
+                        <button type="button" class="btn btn-ghost" id="rooms-zone-add">Ajouter un groupe</button>
+                    </div>
                 </section>
 
                 <section class="card" id="learned" aria-labelledby="learned-title">
