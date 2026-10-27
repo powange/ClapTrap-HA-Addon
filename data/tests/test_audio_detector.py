@@ -326,3 +326,66 @@ def test_near_misses_reach_the_callback(fake_classifier):
         time.sleep(0.01)
     det.wait_idle()
     assert misses and misses[0]['kind'] == 'low_score' and misses[0]['label'] == 'Speech' and misses[0]['score'] == 0.6
+
+
+def test_peak_centred_analysis(fake_classifier, monkeypatch):
+    """Un clap : une analyse de plus, le pic au milieu de la fenetre (la
+    grille fixe peut le couper au bord) ; pas d'analyse centree sans pic."""
+    clock = _fake_clock(monkeypatch)
+    det, clf, events = make(fake_classifier, [{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True},
+                                               'threshold': 0.5, 'clap_counts': [1, 2]}])
+    for i in range(40):
+        clock[0] += 0.1
+        b = block(0.6 if i == 23 else 0.003, 0.001)
+        det.process_audio(b)
+        det.wait_idle()
+    st = det.stats()
+    assert st['analyses_centrees'] == 1
+    import numpy as np
+    from audio_detector import WINDOW_SAMPLES
+    centred = [w for w in clf.blocks if abs(int(np.argmax(np.abs(w))) - WINDOW_SAMPLES // 2) < 1600]
+    assert centred, [int(np.argmax(np.abs(w))) for w in clf.blocks]
+    det2, clf2, _ = make(fake_classifier)
+    for i in range(40):
+        clock[0] += 0.1
+        det2.process_audio(block(0.003, 0.001))
+        det2.wait_idle()
+    assert det2.stats()['analyses_centrees'] == 0
+
+
+def test_centred_analysis_is_skipped_rather_than_dropping_a_regular_one(fake_classifier, monkeypatch):
+    import queue
+    clock = _fake_clock(monkeypatch)
+    det, clf, _ = make(fake_classifier)
+    det.stop()                                                          # pas de fil d'analyse sur la fausse file
+    det._centered = [100.0]
+    det._blocks.extend([block(0.003)] * 12)
+    full = queue.Queue(maxsize=1)
+    full.put_nowait(('x', 0.0))
+    det._jobs = full
+    det._push_centered(100.5)
+    assert det.stats()['analyses_centrees'] == 0 and det._dropped == 0 and det._centered == []
+
+
+def test_regular_window_evicts_a_centred_one_not_another_regular(fake_classifier, monkeypatch):
+    import queue
+    det, clf, _ = make(fake_classifier)
+    det.stop()
+    det._jobs = queue.Queue(maxsize=2)
+    det._jobs.put_nowait(('r1', 1.0))
+    det._jobs.put_nowait(('c', 1.2, True))
+    det._submit(('r2', 1.5))
+    assert [j[0] for j in det._jobs.queue] == ['r1', 'r2'] and det._dropped == 0
+    det._submit(('r3', 2.0))                                            # plus de centree : la plus ancienne saute
+    assert [j[0] for j in det._jobs.queue] == ['r2', 'r3'] and det._dropped == 1
+
+
+def test_no_centred_analysis_when_the_grid_already_centres_the_peak(fake_classifier):
+    det, clf, _ = make(fake_classifier)
+    det._grid_end = 100.0                                               # prochaines fenetres : fin a 100,5 et 101,0
+    assert not det._wants_centered(100.5 - 0.4875 + 0.05)               # milieu d'une fenetre reguliere
+    assert det._wants_centered(100.25)                                  # au bord : utile
+    det._last_centered = 100.25
+    assert not det._wants_centered(100.5)                               # trop proche de la precedente
+    det.tracker.set_groups([{'slug': 'c', 'name': 'C', 'whitelist': {}, 'threshold': 0.5}])
+    assert not det._uses_sustain()
