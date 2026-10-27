@@ -56,6 +56,9 @@ CENTER_LATE = 0.2   # s : fenetre ratee de plus (bloc en retard, coupure) : aban
 # Classes gardees par resultat (groupes, decouverte, capteurs) ; le classifieur
 # rend les 521 (max_results=-1) pour les sons appris.
 TOP_RESULTS = 30
+LEARNED_SEEN = 16        # fenetres gardees (~8 s) pour learned_evidence
+LEARNED_EVIDENCE = 0.1   # score d'un son appris a partir duquel son empreinte est gardee
+LEARNED_LOOKBACK = 6.0   # s : fenetres d'une detection (armement, decision anticipee ou non)
 DENOISE_KEEP = 120.0   # s : reduction du bruit reactivee dans ce delai : profil repris
 # Horloge audio : coupure si elle a plus de CUT_GAP s de retard sur l'heure ;
 # sinon, ecart corrige en douceur (SLEW_STEP s par bloc au plus, au-dela de
@@ -114,6 +117,9 @@ class AudioDetector:
         # pour la decouverte des sons). None : toujours.
         self.analysis_wanted = None
         self.learned = None       # sons appris (learned.Matcher), remplace d'un bloc
+        # (instant, empreinte, {son appris: score}) des dernieres fenetres ou un
+        # son appris est entendu : contre-exemple si la detection etait fausse.
+        self._learned_seen = collections.deque(maxlen=LEARNED_SEEN)
         self.denoise = None       # reduction du bruit de fond (denoise.SpectralGate), entree de YAMNet seulement
         self._denoise_errors = 0
         self._denoise_kept = None     # (reduction coupee, instant) : profil repris si on la reactive vite
@@ -695,16 +701,28 @@ class AudioDetector:
 
     # --- Resultats -------------------------------------------------------------
 
-    def _categories(self, result):
+    def _categories(self, result, evidence=False):
         """(521 classes, classes gardees) d'un resultat : les TOP_RESULTS
         meilleures et les sons appris (« Appris : <nom> »), cochees dans les
-        groupes comme les autres."""
+        groupes comme les autres. `evidence` : empreinte gardee quand un son
+        appris est entendu (voir learned_evidence)."""
         full = [(c.category_name, float(c.score)) for c in result.classifications[0].categories]
         categories = sorted(full, key=lambda c: c[1], reverse=True)[:TOP_RESULTS]
         learned = self.learned
         if learned:
-            categories = sorted(categories + learned.match(full), key=lambda c: c[1], reverse=True)
+            fp, matches = learned.match_full(full)
+            if evidence and any(sc >= LEARNED_EVIDENCE for _n, sc in matches):
+                self._learned_seen.append((time.monotonic(), fp, dict(matches)))
+            categories = sorted(categories + matches, key=lambda c: c[1], reverse=True)
         return full, categories
+
+    def learned_evidence(self, label, within=LEARNED_LOOKBACK):
+        """Empreinte de la fenetre recente ou le son appris `label` a eu son
+        meilleur score (None : pas entendu)."""
+        since = time.monotonic() - within
+        seen = [(m.get(label, 0.0), fp) for t, fp, m in list(self._learned_seen) if t >= since]
+        best = max(seen, key=lambda x: x[0], default=(0.0, None))
+        return best[1] if best[0] >= LEARNED_EVIDENCE else None
 
     def classify_window(self, window):
         """Classes d'une fenetre hors du flux de la detection (extrait
@@ -727,7 +745,7 @@ class AudioDetector:
         try:
             if not result or not result.classifications:
                 return
-            full, categories = self._categories(result)
+            full, categories = self._categories(result, evidence=True)
             if self._taps and self._wants('scores'):
                 self._tap('scores', full, now)
             with self.lock:

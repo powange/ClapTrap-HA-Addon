@@ -9,6 +9,7 @@
     var limits = {min_examples: 3, max_examples: 10, max_sounds: 20};
     var sounds = [];
     var name = '', examples = 0;
+    var relearn = null;   // son reappris (memes nom et id) ; null : nouveau son
 
     function setTitle(text) { CT.$('#learn-title').textContent = text; }
 
@@ -21,15 +22,18 @@
             // Source d'apprentissage dont la reduction du bruit a change : les
             // empreintes ne correspondent plus.
             var src = s.source_ref ? CT.sourceList().filter(function (x) {
-                return (x.kind === 'mic' ? 'mic' : x.kind + ':' + x.key) === s.source_ref;
+                return CT.sourceRef(x) === s.source_ref;
             })[0] : null;
             var changed = src && (src.data.noise_reduction || 0) !== (s.noise_reduction || 0);
             return '<li class="learned-item"><div class="learned-main"><strong>' + esc(s.label) + '</strong>' +
                 '<span class="hint">' + s.examples + ' exemples' + (s.source ? ' · ' + esc(s.source) : '') +
+                (s.negatives ? ' · ' + s.negatives + ' contre-exemple' + (s.negatives > 1 ? 's' : '') : '') +
                 (s.noise_reduction ? ' · réduction du bruit ' + esc((CT.NR_NAMES[s.noise_reduction] || '').toLowerCase()) : '') +
                 (changed ? ' · <span class="text-warn">la réduction du bruit de cette source a changé depuis : apprenez-le à nouveau</span>' : '') +
                 (q.warnings && q.warnings.length ? ' · <span class="text-warn">' + esc(q.warnings[0]) + '</span>' : '') +
-                '</span></div><button type="button" class="btn btn-ghost" data-forget="' + esc(s.id) + '">Supprimer</button></li>';
+                '</span></div><div class="learned-actions">' +
+                '<button type="button" class="btn btn-ghost" data-relearn="' + esc(s.id) + '">Réapprendre</button>' +
+                '<button type="button" class="btn btn-ghost" data-forget="' + esc(s.id) + '">Supprimer</button></div></li>';
         }).join('') : '<li class="hint">Aucun son appris pour l\'instant.</li>';
         var btn = CT.$('#learn-sound');
         if (btn) btn.disabled = sounds.length >= limits.max_sounds;
@@ -46,6 +50,12 @@
     CT.reloadLearned = reload;
 
     document.addEventListener('click', function (e) {
+        var r = e.target.closest && e.target.closest('[data-relearn]');
+        if (r) {
+            var target = sounds.filter(function (x) { return x.id === r.getAttribute('data-relearn'); })[0];
+            if (target) open(target);
+            return;
+        }
         var b = e.target.closest && e.target.closest('[data-forget]');
         if (!b) return;
         var s = sounds.filter(function (x) { return x.id === b.getAttribute('data-forget'); })[0];
@@ -60,7 +70,8 @@
     });
 
     // ---- Apprentissage ----------------------------------------------------------
-    function open() {
+    function open(target) {
+        relearn = target && target.id ? target : null;
         back = document.getElementById('learn');
         body = back.querySelector('[data-role="learn-body"]');
         back.hidden = false;
@@ -86,35 +97,48 @@
     }
 
     function choose() {
-        setTitle('Apprendre un son');
+        setTitle(relearn ? 'Réapprendre « ' + relearn.name + ' »' : 'Apprendre un son');
         var list = CT.sourceList().filter(function (s) { return s.enabled; });
         body.innerHTML =
-            '<p>Choisissez la source qui entend le son, puis faites-le entendre ' + limits.min_examples + ' à ' +
-            limits.max_examples + ' fois (5 conseillées), dans les conditions habituelles. Comptez 2 minutes. ' +
-            'Pendant l\'apprentissage, la source ne déclenche rien.</p>' +
-            '<div class="field"><label class="field-label" for="ln-name">Nom du son</label>' +
-            '<input class="input" id="ln-name" maxlength="40" placeholder="Sonnette" autocomplete="off"></div>' +
+            (relearn
+                ? '<p>Les nouveaux exemples remplacent les anciens. Le nom ne change pas : les groupes qui cochent « ' +
+                  esc(relearn.label) + ' » le gardent' + (relearn.negatives ? ', ses contre-exemples aussi' : '') + '. ' +
+                  'Faites entendre le son ' + limits.min_examples + ' à ' + limits.max_examples +
+                  ' fois (5 conseillées). Pendant l\'apprentissage, la source ne déclenche rien.</p>'
+                : '<p>Choisissez la source qui entend le son, puis faites-le entendre ' + limits.min_examples + ' à ' +
+                  limits.max_examples + ' fois (5 conseillées), dans les conditions habituelles. Comptez 2 minutes. ' +
+                  'Pendant l\'apprentissage, la source ne déclenche rien.</p>' +
+                  '<div class="field"><label class="field-label" for="ln-name">Nom du son</label>' +
+                  '<input class="input" id="ln-name" maxlength="40" placeholder="Sonnette" autocomplete="off"></div>') +
             (list.length
                 ? '<div class="field"><label class="field-label" for="ln-source">Source</label>' +
                   '<select class="input" id="ln-source">' + list.map(function (s) {
-                      return '<option value="' + esc(s.kind === 'mic' ? 'mic' : s.kind + ':' + s.key) + '">' + esc(s.name) + '</option>';
+                      var ref = CT.sourceRef(s);
+                      return '<option value="' + esc(ref) + '"' + (relearn && relearn.source_ref === ref ? ' selected' : '') + '>' +
+                          esc(s.name) + '</option>';
                   }).join('') + '</select></div>'
                 : '<p class="hint text-warn">Aucune source active : activez une source pour apprendre un son.</p>') +
             actions(list.length ? '<button type="button" class="btn btn-primary" data-c="start">Commencer</button>' : '');
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
         var startBtn = body.querySelector('[data-c="start"]');
-        CT.$('#ln-name').focus();
+        (CT.$('#ln-name') || CT.$('#ln-source') || body.querySelector('[data-c="cancel"]')).focus();
         if (!startBtn) return;
         startBtn.addEventListener('click', function () {
-            name = CT.$('#ln-name').value.trim().replace(/\s+/g, ' ');
-            if (!name) { CT.$('#ln-name').focus(); CT.error('Donnez un nom au son.'); return; }
-            if (sounds.some(function (s) { return s.name.toLowerCase() === name.toLowerCase(); })) {
-                CT.$('#ln-name').focus(); CT.error('Un son appris s\'appelle déjà « ' + name + ' ».'); return;
+            if (relearn) {
+                name = relearn.name;
+            } else {
+                name = CT.$('#ln-name').value.trim().replace(/\s+/g, ' ');
+                if (!name) { CT.$('#ln-name').focus(); CT.error('Donnez un nom au son.'); return; }
+                if (sounds.some(function (s) { return s.name.toLowerCase() === name.toLowerCase(); })) {
+                    CT.$('#ln-name').focus(); CT.error('Un son appris s\'appelle déjà « ' + name + ' ».'); return;
+                }
             }
             var mine = run;
             startBtn.disabled = true;
             starting = true;
-            CT.api('POST', '/api/learned/start', {source: CT.$('#ln-source').value})
+            var req = {source: CT.$('#ln-source').value};
+            if (relearn) req.sound_id = relearn.id;
+            CT.api('POST', '/api/learned/start', req)
                 .then(function () {
                     starting = false;
                     if (mine !== run) { CT.api('POST', '/api/calibration/cancel', {}).catch(function () {}); return; }
@@ -129,7 +153,7 @@
         var fond = kind === 'fond';
         var seconds = fond ? 5 : 3;
         var canFinish = !fond && examples >= limits.min_examples;
-        setTitle('Apprendre « ' + name + ' » · ' + (fond ? 'bruit de fond' : 'exemple ' + (examples + 1)));
+        setTitle((relearn ? 'Réapprendre' : 'Apprendre') + ' « ' + name + ' » · ' + (fond ? 'bruit de fond' : 'exemple ' + (examples + 1)));
         body.innerHTML =
             (lastResult ? '<p class="hint cal-last">' + lastResult + '</p>' : '') +
             '<h3 class="cal-target">' + (fond ? 'Bruit de fond' : 'Exemple ' + (examples + 1) + ' sur ' + limits.min_examples + ' à ' + limits.max_examples) + '</h3>' +
@@ -180,7 +204,7 @@
 
     function preview() {
         var mine = run;
-        setTitle('Apprendre « ' + name + ' » · bilan');
+        setTitle((relearn ? 'Réapprendre' : 'Apprendre') + ' « ' + name + ' » · bilan');
         body.innerHTML = '<p class="cal-countdown" data-state="analyze" aria-live="polite">Analyse des exemples…</p>';
         CT.api('POST', '/api/learned/preview', {})
             .then(function (q) {
@@ -188,10 +212,12 @@
                 body.innerHTML =
                     '<p><strong>' + q.recognized + ' exemples sur ' + q.examples + '</strong> sont reconnus par les autres.</p>' +
                     (q.warnings || []).map(function (w) { return '<p class="hint text-warn">' + esc(w.charAt(0).toUpperCase() + w.slice(1)) + '.</p>'; }).join('') +
-                    '<div class="field"><label class="field-label" for="ln-final">Nom du son</label>' +
-                    '<input class="input" id="ln-final" maxlength="40" autocomplete="off" value="' + esc(name) + '"></div>' +
-                    '<p class="hint">Une fois enregistré, cochez « Appris : <span data-role="ln-name">' + esc(name) + '</span> » dans les sons d\'un groupe ' +
-                    '(seuil conseillé : 50 à 60 %).</p>' +
+                    (relearn
+                        ? '<p class="hint">Les groupes qui cochent « ' + esc(relearn.label) + ' » utiliseront les nouveaux exemples.</p>'
+                        : '<div class="field"><label class="field-label" for="ln-final">Nom du son</label>' +
+                          '<input class="input" id="ln-final" maxlength="40" autocomplete="off" value="' + esc(name) + '"></div>' +
+                          '<p class="hint">Une fois enregistré, cochez « Appris : <span data-role="ln-name">' + esc(name) + '</span> » dans les sons d\'un groupe ' +
+                          '(seuil conseillé : 50 à 60 %).</p>') +
                     actions((q.examples < limits.max_examples ? '<button type="button" class="btn btn-ghost" data-c="more">Un exemple de plus</button>' : '') +
                             '<button type="button" class="btn btn-primary" data-c="save">Enregistrer le son</button>');
                 body.querySelector('[data-c="cancel"]').addEventListener('click', close);
@@ -199,27 +225,29 @@
                 if (more) more.addEventListener('click', function () { take('exemple'); });
                 var save = body.querySelector('[data-c="save"]');
                 var finalName = CT.$('#ln-final');
-                finalName.addEventListener('input', function () {
+                if (finalName) finalName.addEventListener('input', function () {
                     body.querySelector('[data-role="ln-name"]').textContent = finalName.value.trim();
                 });
                 save.addEventListener('click', function () {
                     // Nom modifiable ici : un nom refuse a l'enregistrement
                     // (pris entre-temps) ne fait pas perdre les exemples.
-                    name = finalName.value.trim().replace(/\s+/g, ' ');
-                    if (!name) { finalName.focus(); CT.error('Donnez un nom au son.'); return; }
+                    if (finalName) {
+                        name = finalName.value.trim().replace(/\s+/g, ' ');
+                        if (!name) { finalName.focus(); CT.error('Donnez un nom au son.'); return; }
+                    }
                     save.disabled = true;
                     busy = true;
-                    CT.api('POST', '/api/learned/save', {name: name}).then(function (s) {
+                    CT.api('POST', '/api/learned/save', relearn ? {} : {name: name}).then(function (s) {
                         busy = false;
                         active = false;
                         close();
-                        CT.success('« ' + s.label + ' » enregistré : cochez-le dans un groupe');
+                        CT.success(relearn ? '« ' + s.label + ' » réappris' : '« ' + s.label + ' » enregistré : cochez-le dans un groupe');
                         reload();
                     }).catch(function (err) {
                         busy = false;
                         save.disabled = false;
                         CT.error('Enregistrement impossible : ' + err.message);
-                        finalName.focus();
+                        (finalName || save).focus();
                     });
                 });
                 save.focus();
@@ -234,7 +262,7 @@
     }
 
     var openBtn = document.getElementById('learn-sound');
-    if (openBtn) openBtn.addEventListener('click', open);
+    if (openBtn) openBtn.addEventListener('click', function () { open(null); });
     var closeBtn = document.querySelector('#learn [data-c="close"]');
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (CT.$('#learned-list')) reload();

@@ -247,6 +247,9 @@
         return CT.sourceList().filter(predicate)[0] || null;
     };
     CT.kindLabel = {mic: 'Micro', rtsp: 'Caméra', vban: 'VBAN'};
+    // Reference d'une source pour l'API (« mic », « rtsp:<id> », « vban:<id> »).
+    CT.sourceRef = function (src) { return src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key; };
+    CT.LEARNED_PREFIX = 'Appris : ';   // sons appris (learned.PREFIX)
 
     CT.patchSource = function (src, body) {
         return CT.api('PATCH', '/api/sources/' + src.kind + '/' + encodeURIComponent(src.key), body);

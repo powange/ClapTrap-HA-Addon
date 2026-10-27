@@ -182,7 +182,82 @@
             lab.textContent = labels;
             li.querySelector('.history-main').appendChild(lab);
         }
+        if (ev.id && !ev.ignored) {
+            var toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'btn-link history-wrong';
+            toggle.textContent = 'Ce n\'était pas ça';
+            toggle.setAttribute('aria-expanded', 'false');
+            li.querySelector('.history-main').appendChild(toggle);
+            toggle.addEventListener('click', function () {
+                var panel = li.querySelector('.history-feedback');
+                if (panel) {
+                    panel.hidden = !panel.hidden;
+                } else {
+                    panel = feedbackPanel(ev);
+                    li.appendChild(panel);
+                }
+                toggle.setAttribute('aria-expanded', String(!panel.hidden));
+                var first = panel.querySelector('button');
+                if (!panel.hidden && first) first.focus();
+            });
+        }
         return li;
+    }
+    // « Ce n'etait pas ca » : corrections proposees pour une detection.
+    // Meme calcul que le serveur : score de l'historique (3 decimales) + 1 point.
+    function raisedThreshold(score) { return Math.round(Math.min(0.99, Math.round((score || 0) * 1000) / 1000 + 0.01) * 100) / 100; }
+    function feedbackActions(ev) {
+        var acts = [];
+        (ev.labels || []).forEach(function (l) {
+            var name = '« ' + CT.soundLabel(l.label) + ' »';
+            if (l.label.indexOf(CT.LEARNED_PREFIX) === 0 && (ev.negatives || []).indexOf(l.label) >= 0) {
+                acts.push({action: 'negative', label: l.label, text: 'Retenir ce son comme différent de ' + name,
+                           done: 'Contre-exemple ajouté à ' + name});
+            } else {
+                acts.push({action: 'ignore', label: l.label, text: 'Ne plus réagir à ' + name + ' dans ce groupe',
+                           done: name + ' décoché dans le groupe « ' + (ev.group_name || '') + ' »'});
+            }
+        });
+        if ((ev.score || 0) < 0.99) {
+            var t = raisedThreshold(ev.score);
+            acts.push({action: 'threshold', label: null, text: 'Relever le seuil du groupe à ' + CT.pct(t),
+                       done: function (d) {
+                           return 'Seuil du groupe « ' + (ev.group_name || '') + ' » relevé à ' + CT.pct(d.threshold) +
+                                  ' (modifiable dans les réglages de la source)';
+                       }});
+        }
+        return acts;
+    }
+    function feedbackPanel(ev) {
+        var panel = document.createElement('div');
+        panel.className = 'history-feedback';
+        var acts = feedbackActions(ev);
+        panel.innerHTML = '<span class="hint">' + (acts.length ? 'Pour que ça ne se reproduise pas :' : 'Aucune correction possible.') + '</span>';
+        var done = ev.feedback || [];
+        acts.forEach(function (a) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn btn-ghost';
+            b.textContent = a.text;
+            var already = done.some(function (f) { return f.action === a.action && (f.label || null) === a.label; });
+            if (already) { b.disabled = true; b.textContent = '✓ ' + a.text; }
+            b.addEventListener('click', function () {
+                b.disabled = true;
+                CT.api('POST', '/api/detections/' + encodeURIComponent(ev.id) + '/feedback', {action: a.action, label: a.label})
+                    .then(function (d) {
+                        ev.feedback = d.feedback || [];
+                        b.textContent = '✓ ' + a.text;
+                        CT.success(typeof a.done === 'function' ? a.done(d) : a.done);
+                        if (d.warning) CT.toast(d.warning.charAt(0).toUpperCase() + d.warning.slice(1) + '.');
+                        if (a.action === 'negative') { if (CT.reloadLearned) CT.reloadLearned(); }
+                        else CT.reloadSettings();
+                    })
+                    .catch(function (err) { b.disabled = false; CT.error('Correction impossible : ' + err.message); });
+            });
+            panel.appendChild(b);
+        });
+        return panel;
     }
     // « Presque » : raison en clair et piste de reglage.
     function nearText(m) {

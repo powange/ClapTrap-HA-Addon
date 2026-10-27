@@ -6,7 +6,7 @@
 
     // entity_id calcules par le serveur (memes regles que la publication MQTT).
     function entitiesOf(src, g) {
-        var key = src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key;
+        var key = CT.sourceRef(src);
         return (CT.state.entityIds[key] || {})[g.slug] || [];
     }
 

@@ -109,8 +109,8 @@ def test_detector_adds_learned_classes_that_groups_can_use(fake_classifier):
         def __bool__(self):
             return True
 
-        def match(self, full):
-            return [('Appris : Bip', 0.95 if dict(full).get('Clapping', 0) > 0.5 else 0.0)]
+        def match_full(self, full):
+            return {}, [('Appris : Bip', 0.95 if dict(full).get('Clapping', 0) > 0.5 else 0.0)]
     det = AudioDetector('model.tflite')
     det.initialize(max_results=-1, score_threshold=0.3)
     det.set_groups([{'slug': 'bip', 'name': 'Bip', 'whitelist': {'Appris : Bip': True}, 'threshold': 0.5,
@@ -165,6 +165,8 @@ def test_unreadable_file_is_kept_aside_and_bad_entries_ignored(settings_dir, cap
               open(path, 'w'))
     assert [s['id'] for s in learned._read()] == ['a']
     assert learned.labels() == ['Appris : Sonnette']             # aucune erreur pour l'entree invalide
+    json.dump({'sounds': [dict(good, negatives=[fake(), {'Music': 'x'}, 3])]}, open(path, 'w'))
+    assert learned._read()[0]['negatives'] == [fake()]            # contre-exemple invalide retire, pas le son
 
 
 def test_session_purpose_is_set_atomically(monkeypatch):
@@ -174,3 +176,98 @@ def test_session_purpose_is_set_atomically(monkeypatch):
     assert 'purpose' in inspect.signature(calibration.start).parameters
     s = calibration._Session('mic', 'mic', 'mic', 'Micro', True)
     assert s.learn_background == [] and s.learn_examples == []
+
+
+# ===== Contre-exemples et reapprentissage =========================================
+
+def fake():
+    """Fausse detection : meme famille que la sonnette, un peu differente."""
+    return {'Music': 0.9, 'Glockenspiel': 0.30, 'Bell': 0.25, 'Silence': 0.05}
+
+
+def test_negative_example_silences_close_windows_only():
+    m = learned.Matcher([_sound()])
+    score = lambda m, fp: dict(m.match(cats(fp)))['Appris : Sonnette']  # noqa: E731
+    assert score(m, fake()) > 0.1                       # reconnue a tort
+    m2 = learned.Matcher([dict(_sound(), negatives=[fake()])])
+    assert score(m2, fake()) == 0.0                     # plus proche du contre-exemple
+    assert score(m2, bell(7)) > 0.8                     # le vrai son reste reconnu
+
+
+def _stored(settings_dir, **extra):
+    sound = dict(_sound(), id='s1', created='2026-10-01T10:00:00', **extra)
+    json.dump({'sounds': [sound]}, open(settings_dir.PERSISTENT_DIR + '/learned_sounds.json', 'w'))
+    learned._changed()
+    return sound
+
+
+def test_add_negative_stores_warns_and_caps(settings_dir, monkeypatch):
+    import classify
+    applied = []
+    monkeypatch.setattr(classify, 'apply_learned', applied.append)
+    _stored(settings_dir)
+    r = learned.add_negative('Appris : Sonnette', fake())
+    assert r == {'negatives': 1, 'warning': None}
+    assert dict(applied[-1].match(cats(fake())))['Appris : Sonnette'] == 0.0   # detection a jour
+    assert learned.list_sounds()[0]['negatives'] == 1
+    assert 'risque' in learned.add_negative('Appris : Sonnette', bell(2))['warning']   # le vrai son
+    for i in range(learned.MAX_NEGATIVES):
+        learned.add_negative('Appris : Sonnette', dict(fake(), Chime=0.01 * (i + 1)))
+    assert learned.list_sounds()[0]['negatives'] == learned.MAX_NEGATIVES
+    with pytest.raises(learned.LearnError) as e:
+        learned.add_negative('Appris : Inconnu', fake())
+    assert e.value.status == 404
+    with pytest.raises(learned.LearnError):
+        learned.add_negative('Clapping', fake())
+
+
+def test_relearn_keeps_id_name_and_negatives(settings_dir, monkeypatch):
+    import classify
+    monkeypatch.setattr(classify, 'apply_learned', lambda m: None)
+    _stored(settings_dir, negatives=[fake()])
+    s = calibration._Session('mic', 'mic', 'mic', 'Micro', True)
+
+    def fake_start(ref, purpose='source', learn_target=None):
+        s.purpose, s.learn_target = purpose, learn_target
+        calibration._session = s
+        return s.summary()
+    monkeypatch.setattr(calibration, '_session', None)
+    monkeypatch.setattr(calibration, 'start', fake_start)
+    monkeypatch.setattr(calibration, '_finish', lambda sess: setattr(calibration, '_session', None))
+    with pytest.raises(learned.LearnError) as e:
+        learned.start('mic', 'absent')
+    assert e.value.status == 404
+    assert learned.start('mic', 's1')['relearn'] == 's1' and s.learn_target == 's1'
+    s.learn_background = [learned.fingerprint(cats(b)) for b in BACKGROUND]
+    s.learn_examples = [learned.fingerprint(cats(other(i))) for i in range(4)]   # nouveau son
+    saved = learned.save('Autre nom')                                           # nom ignore
+    assert (saved['id'], saved['name'], saved['examples'], saved['negatives']) == ('s1', 'Sonnette', 4, 1)
+    stored = learned._read()
+    assert len(stored) == 1 and stored[0]['created'] == '2026-10-01T10:00:00' and stored[0]['updated']
+    assert dict(learned.matcher().match(cats(other(6))))['Appris : Sonnette'] > 0.8
+
+
+def test_relearn_of_a_sound_deleted_meanwhile_fails(settings_dir, monkeypatch):
+    import classify
+    monkeypatch.setattr(classify, 'apply_learned', lambda m: None)
+    s = calibration._Session('mic', 'mic', 'mic', 'Micro', True)
+    s.purpose, s.learn_target = 'learn', 'gone'
+    s.learn_background = [learned.fingerprint(cats(b)) for b in BACKGROUND]
+    s.learn_examples = [learned.fingerprint(cats(bell(i))) for i in range(3)]
+    monkeypatch.setattr(calibration, '_session', s)
+    with pytest.raises(learned.LearnError, match='supprimé') as e:
+        learned.save()
+    assert e.value.status == 404 and learned._read() == []
+
+
+def test_detector_keeps_recent_learned_evidence():
+    import time
+    from audio_detector import AudioDetector, LEARNED_LOOKBACK
+    det = AudioDetector('model.tflite')
+    now = time.monotonic()
+    det._learned_seen.extend([(now - LEARNED_LOOKBACK - 1, {'old': 1.0}, {'Appris : A': 0.99}),
+                              (now - 1, {'a': 1.0}, {'Appris : A': 0.6, 'Appris : B': 0.05}),
+                              (now, {'b': 1.0}, {'Appris : A': 0.8})])
+    assert det.learned_evidence('Appris : A') == {'b': 1.0}       # meilleur score recent
+    assert det.learned_evidence('Appris : B') is None              # trop faible
+    assert det.learned_evidence('Appris : C') is None

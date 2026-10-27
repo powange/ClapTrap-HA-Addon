@@ -85,7 +85,7 @@
             btn.textContent = 'Préparation…';
             starting = true;
             var mine = run;
-            CT.api('POST', '/api/calibration/start', {source: src.kind === 'mic' ? 'mic' : src.kind + ':' + src.key})
+            CT.api('POST', '/api/calibration/start', {source: CT.sourceRef(src)})
                 .then(function () {
                     if (mine !== run) {
                         // Fenetre fermee entre-temps : ne pas laisser la source en

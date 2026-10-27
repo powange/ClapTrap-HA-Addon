@@ -91,6 +91,7 @@ class _Session:
         # Apprentissage d'un son (learned.py) : empreintes du bruit de fond et des exemples.
         self.learn_background = []
         self.learn_examples = []
+        self.learn_target = None   # id du son reappris (None : nouveau son)
 
     def summary(self):
         per = {}
@@ -122,10 +123,11 @@ def status():
     return s.summary() if s is not None else {'active': False}
 
 
-def start(source_ref, purpose='source'):
+def start(source_ref, purpose='source', learn_target=None):
     """Commence le calibrage d'une source (remplace un calibrage en cours).
     `purpose` : 'source', 'count' (comptage) ou 'learn' (son appris), fixe
-    sous le verrou (une autre requete ne voit jamais une session sans but)."""
+    sous le verrou (une autre requete ne voit jamais une session sans but),
+    comme `learn_target` (son reappris)."""
     global _session
     import classify
     from ha_control import _resolve_source, CommandError
@@ -156,6 +158,7 @@ def start(source_ref, purpose='source'):
         from ha_entities import source_label
         _session = _Session(kind, key, source_id, source_label(kind, src), was_running)
         _session.purpose = purpose
+        _session.learn_target = learn_target
         classify.mute_source(source_id, True)
         threading.Thread(target=_watchdog, args=(_session,), daemon=True, name='calibration-watchdog').start()
         logging.info(f"Calibrage de {_session.label} commencé")

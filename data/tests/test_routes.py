@@ -664,3 +664,52 @@ def test_group_margin_setting(client, settings_dir):
     assert client.put('/api/source/sound_groups', json=dict(body, margin=0.9)).status_code == 400
     from classify import build_sources_from_settings
     assert build_sources_from_settings(settings_dir.load_settings())[0]['groups'][0]['margin'] == 0.1
+
+
+def test_detection_feedback_ignore_threshold_negative(client, settings_dir, monkeypatch):
+    """« Ce n'etait pas ca » : decocher le son, relever le seuil juste
+    au-dessus du score, ou garder l'empreinte comme contre-exemple."""
+    import classify
+    import learned
+    import routes.sources as rs
+    monkeypatch.setattr(rs, '_apply_live', lambda: None)
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [
+        {'slug': 'clap', 'name': 'Clap', 'threshold': 0.5,
+         'sound_whitelist': {'Clapping': True, 'Appris : Bip': True}, 'ha_entities': [1]}]}})
+    classify.clear_detection_history()
+    public, ui = classify._remember({
+        'source_id': 'mic', 'group_slug': 'clap', 'group_name': 'Clap', 'ignored': False,
+        'labels': [{'label': 'Clapping', 'score': 0.62}, {'label': 'Appris : Bip', 'score': 0.7}],
+        '_feedback': {'id': 'd1', 'kind': 'mic', 'source_key': '0', 'group_slug': 'clap',
+                      'evidence': {'Appris : Bip': {'Music': 0.9}}}}, 0.7)
+    assert not {'_feedback', 'id', 'negatives'} & set(public)            # evenement HA, webhook
+    assert ui['id'] == 'd1' and ui['negatives'] == ['Appris : Bip'] and '_feedback' not in ui
+    hist = classify.get_detection_history()[0]
+    assert hist['negatives'] == ['Appris : Bip'] and '_feedback' not in hist
+    url = '/api/detections/d1/feedback'
+    assert client.post('/api/detections/nope/feedback', json={'action': 'ignore'}).status_code == 404
+    assert client.post(url, json={'action': 'ignore', 'label': 'Speech'}).status_code == 400
+    assert client.post(url, json={'action': 'oups'}).status_code == 400
+    assert client.post(url, json={'action': 'ignore', 'label': []}).status_code == 400   # pas une erreur 500
+    r = client.post(url, json={'action': 'ignore', 'label': 'Clapping'})
+    assert r.status_code == 200 and r.json['feedback'] == [{'action': 'ignore', 'label': 'Clapping'}]
+    g = settings_dir.load_settings()['microphone']['sound_groups'][0]
+    assert g['sound_whitelist']['Clapping'] is False
+    assert client.post(url, json={'action': 'ignore', 'label': 'Clapping'}).status_code == 409   # deja fait
+    r = client.post(url, json={'action': 'threshold'})
+    assert r.status_code == 200 and r.json['threshold'] == 0.71
+    assert settings_dir.load_settings()['microphone']['sound_groups'][0]['threshold'] == 0.71
+    added = []
+    monkeypatch.setattr(learned, 'add_negative', lambda label, fp: added.append((label, fp)) or
+                        {'negatives': 1, 'warning': None})
+    assert client.post(url, json={'action': 'negative', 'label': 'Clapping'}).status_code == 400   # pas appris
+    r = client.post(url, json={'action': 'negative', 'label': 'Appris : Bip'})
+    assert r.status_code == 200 and added == [('Appris : Bip', {'Music': 0.9})]
+    assert len(classify.get_detection_history()[0]['feedback']) == 3   # garde au rechargement
+    classify.clear_detection_history()
+    assert client.post(url, json={'action': 'threshold'}).status_code == 404
+    classify._remember({'source_id': 'mic', 'group_slug': 'clap', 'labels': [], 'ignored': False,
+                        '_feedback': {'id': 'd2', 'kind': 'mic', 'source_key': '0', 'group_slug': 'clap',
+                                      'evidence': {}}}, 0.995)
+    r = client.post('/api/detections/d2/feedback', json={'action': 'threshold'})
+    assert r.status_code == 409 and 'maximum' in r.json['error']          # 99 % n'aurait rien change

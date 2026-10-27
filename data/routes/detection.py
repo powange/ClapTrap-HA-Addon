@@ -75,3 +75,78 @@ def clear_detection_history_route():
     from classify import clear_detection_history
     clear_detection_history()
     return jsonify({'success': True})
+
+
+FEEDBACK_STEP = 0.01   # seuil releve juste au-dessus du score observe
+MAX_RAISED = 0.99
+
+
+@detection_bp.route('/api/detections/<det_id>/feedback', methods=['POST'])
+def detection_feedback(det_id):
+    """« Ce n'etait pas ca » sur une detection de l'historique.
+
+    Body: {action, label?}
+    - ignore : decoche `label` dans le groupe qui a declenche ;
+    - threshold : seuil du groupe juste au-dessus du score observe ;
+    - negative : l'empreinte du son appris `label` devient un contre-exemple.
+    """
+    from classify import feedback_target, mark_feedback
+    from routes.sources import _json, _require_source, _apply_live
+    from settings_manager import modify_settings
+    data = _json()
+    action = data.get('action')
+    label = data.get('label')
+    entry, info = feedback_target(det_id)
+    if entry is None:
+        raise ApiError('détection introuvable (historique effacé ou add-on redémarré)', 404)
+    if {'action': action, 'label': label} in (entry.get('feedback') or []):
+        raise ApiError('déjà fait pour cette détection', 409)
+    heard = {lab.get('label') for lab in entry.get('labels') or [] if isinstance(lab, dict)}
+    result = {}
+
+    def _group(settings):
+        src = _require_source(settings, info['kind'], info['source_key'])
+        group = next((g for g in src.get('sound_groups') or []
+                      if isinstance(g, dict) and g.get('slug') == info['group_slug']), None)
+        if group is None:
+            raise ApiError('groupe introuvable (supprimé ?)', 404)
+        return group
+
+    if action == 'ignore':
+        if not isinstance(label, str) or label not in heard:
+            raise ApiError('label : un son de cette détection attendu')
+
+        def _mut(settings):
+            wl = _group(settings).setdefault('sound_whitelist', {})
+            if wl.get(label) is not True:
+                raise ApiError('ce son n\'est plus coché dans le groupe', 409)
+            wl[label] = False
+        modify_settings(_mut)
+    elif action == 'threshold':
+        score = float(entry.get('score') or 0.0)
+        if score >= MAX_RAISED:
+            raise ApiError('score déjà au maximum : aucun seuil ne l\'aurait écarté (décochez plutôt le son)', 409)
+        new = round(min(MAX_RAISED, score + FEEDBACK_STEP), 2)
+
+        def _mut(settings):
+            group = _group(settings)
+            if float(group.get('threshold') or 0.0) >= new:
+                raise ApiError('le seuil du groupe est déjà à ce niveau ou au-dessus', 409)
+            group['threshold'] = new
+        modify_settings(_mut)
+        result['threshold'] = new
+    elif action == 'negative':
+        import learned
+        fp = info['evidence'].get(label) if isinstance(label, str) else None
+        if fp is None:
+            raise ApiError('label : un son appris entendu pendant cette détection attendu')
+        try:
+            result.update(learned.add_negative(label, fp))
+        except learned.LearnError as e:
+            raise ApiError(str(e), e.status)
+    else:
+        raise ApiError('action : « ignore », « threshold » ou « negative » attendu')
+    if action != 'negative':
+        _apply_live()
+    result['feedback'] = mark_feedback(det_id, action, label)
+    return jsonify(dict(result, success=True))
