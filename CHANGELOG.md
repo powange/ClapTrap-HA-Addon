@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.103.1
+
+- Apprendre ou réapprendre un son : « Exemple 7 sur 3 à 10 » devient
+  « Exemple 7 », suivi d'une phrase claire sur la progression. Avant le
+  minimum : « Encore 2 exemples au minimum avant de pouvoir terminer (3 à
+  10 exemples, 5 conseillés) ». Entre le minimum et le nombre conseillé :
+  « 3 exemples enregistrés : vous pouvez déjà terminer, mais 2 de plus sont
+  conseillés ». Ensuite : « 6 exemples enregistrés : vous pouvez terminer
+  maintenant, ou en ajouter jusqu'à 4 de plus ». Au maximum : « c'est le
+  maximum, terminez ».
+- Le nombre d'exemples conseillé vient du serveur
+  (`limits.recommended_examples` de `GET /api/learned`).
+
 ## 6.103.0
 
 ### Attaques repérées tous les 5 ms

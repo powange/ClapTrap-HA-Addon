@@ -6,7 +6,7 @@
     var esc = CT.esc;
     var back, body, release, active = false, busy = false, starting = false;
     var run = 0;          // ouverture en cours : une reponse d'une ouverture precedente est ignoree
-    var limits = {min_examples: 3, max_examples: 10, max_sounds: 20};
+    var limits = {min_examples: 3, max_examples: 10, recommended_examples: 5, max_sounds: 20};
     var sounds = [];
     var name = '', examples = 0;
     var relearn = null;   // son reappris (memes nom et id) ; null : nouveau son
@@ -104,9 +104,9 @@
                 ? '<p>Les nouveaux exemples remplacent les anciens. Le nom ne change pas : les groupes qui cochent « ' +
                   esc(relearn.label) + ' » le gardent' + (relearn.negatives ? ', ses contre-exemples aussi' : '') + '. ' +
                   'Faites entendre le son ' + limits.min_examples + ' à ' + limits.max_examples +
-                  ' fois (5 conseillées). Pendant l\'apprentissage, la source ne déclenche rien.</p>'
+                  ' fois (' + limits.recommended_examples + ' conseillées). Pendant l\'apprentissage, la source ne déclenche rien.</p>'
                 : '<p>Choisissez la source qui entend le son, puis faites-le entendre ' + limits.min_examples + ' à ' +
-                  limits.max_examples + ' fois (5 conseillées), dans les conditions habituelles. Comptez 2 minutes. ' +
+                  limits.max_examples + ' fois (' + limits.recommended_examples + ' conseillées), dans les conditions habituelles. Comptez 2 minutes. ' +
                   'Pendant l\'apprentissage, la source ne déclenche rien.</p>' +
                   '<div class="field"><label class="field-label" for="ln-name">Nom du son</label>' +
                   '<input class="input" id="ln-name" maxlength="40" placeholder="Sonnette" autocomplete="off"></div>') +
@@ -149,19 +149,40 @@
         });
     }
 
+    function plural(n, word) { return n + ' ' + word + (n > 1 ? 's' : ''); }
+    function canFinish() { return examples >= limits.min_examples; }
+    // Ou en est-on : minimum pas atteint, conseille pas atteint, maximum.
+    function progress() {
+        var rec = limits.recommended_examples, max = limits.max_examples;
+        if (!canFinish()) {
+            return 'Encore ' + plural(limits.min_examples - examples, 'exemple') + ' au minimum avant de pouvoir terminer ' +
+                '(' + limits.min_examples + ' à ' + max + ' exemples, ' + rec + ' conseillés).';
+        }
+        var done = plural(examples, 'exemple') + ' enregistré' + (examples > 1 ? 's' : '');
+        if (examples >= max) return done + ' : c\'est le maximum, terminez.';
+        if (examples < rec) {
+            return done + ' : vous pouvez déjà terminer, mais ' + (rec - examples) + ' de plus ' +
+                (rec - examples > 1 ? 'sont conseillés' : 'est conseillé') + ' pour une reconnaissance plus sûre.';
+        }
+        var more = max - examples;
+        return done + ' : vous pouvez terminer maintenant, ou en ajouter ' +
+            (more > 1 ? 'jusqu\'à ' + more + ' de plus' : 'un dernier') + '.';
+    }
+
     function take(kind, lastResult) {
         var fond = kind === 'fond';
         var seconds = fond ? 5 : 3;
-        var canFinish = !fond && examples >= limits.min_examples;
+        var finish = !fond && canFinish();
         setTitle((relearn ? 'Réapprendre' : 'Apprendre') + ' « ' + name + ' » · ' + (fond ? 'bruit de fond' : 'exemple ' + (examples + 1)));
         body.innerHTML =
             (lastResult ? '<p class="hint cal-last">' + lastResult + '</p>' : '') +
-            '<h3 class="cal-target">' + (fond ? 'Bruit de fond' : 'Exemple ' + (examples + 1) + ' sur ' + limits.min_examples + ' à ' + limits.max_examples) + '</h3>' +
+            '<h3 class="cal-target">' + (fond ? 'Bruit de fond' : 'Exemple ' + (examples + 1)) + '</h3>' +
+            (fond ? '' : '<p class="hint" data-role="ln-progress">' + progress() + '</p>') +
             '<p>' + (fond
                 ? 'Restez silencieux : seul le bruit normal de la pièce doit être entendu.'
                 : 'Faites entendre <strong>une fois</strong> le son « ' + esc(name) + ' », juste après avoir cliqué.') + '</p>' +
             '<p class="cal-countdown" aria-live="polite"></p>' +
-            actions((canFinish ? '<button type="button" class="btn btn-ghost" data-c="finish">Terminer</button>' : '') +
+            actions((finish ? '<button type="button" class="btn btn-ghost" data-c="finish">Terminer</button>' : '') +
                     '<button type="button" class="btn btn-primary" data-c="record">Enregistrer (' + seconds + ' s)</button>');
         body.querySelector('[data-c="cancel"]').addEventListener('click', close);
         var fin = body.querySelector('[data-c="finish"]');
@@ -255,9 +276,10 @@
             .catch(function (err) {
                 if (mine !== run) return;
                 body.innerHTML = '<p class="hint text-warn">' + esc(err.message) + '</p>' +
-                    actions('<button type="button" class="btn btn-ghost" data-c="more">Un exemple de plus</button>');
+                    actions(examples < limits.max_examples ? '<button type="button" class="btn btn-ghost" data-c="more">Un exemple de plus</button>' : '');
                 body.querySelector('[data-c="cancel"]').addEventListener('click', close);
-                body.querySelector('[data-c="more"]').addEventListener('click', function () { take('exemple'); });
+                var more = body.querySelector('[data-c="more"]');
+                if (more) more.addEventListener('click', function () { take('exemple'); });
             });
     }
 
