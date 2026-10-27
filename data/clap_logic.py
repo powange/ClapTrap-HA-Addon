@@ -227,25 +227,30 @@ class ClapTracker:
 
     # --- Pics -------------------------------------------------------------
 
-    def feed_peak(self, raw_peak, now, pre_level=None, gain=1.0):
-        """Pic brut (avant gain et auto-gain) d'un bloc audio.
+    def feed_peak(self, raw_peak, now, pre_level=None, gain=1.0, onsets=None):
+        """Pic brut (avant gain et auto-gain) d'un bloc audio. Rend les
+        instants des nouveaux pics (attaques) comptes.
 
         `now` : instant du pic ; `pre_level` : niveau juste avant lui (voir
         ATTACK_RATIO) ; `gain` : gain de la source. Le plancher absolu est
         rapporte au gain : sur le signal brut, une camera faible (gain x10)
         n'atteignait jamais 0,01 et plus aucun clap n'etait compte.
+        `onsets` : attaques candidates du bloc [(pic, instant, niveau avant)],
+        dans l'ordre du temps (detecteur, tranches de 5 ms) ; chacune peut
+        compter. Le pic du bloc sert alors au bruit de fond et aux sons tenus.
         """
         floor = self.PEAK_FLOOR / max(1.0, float(gain or 1.0))
         if len(self._warmup) < self.WARMUP_BLOCKS:
             self._warmup.append(raw_peak)
             if len(self._warmup) == self.WARMUP_BLOCKS:
                 self.avg_level = max(0.0001, sorted(self._warmup)[self.WARMUP_BLOCKS // 2])
-            return
+            return []
 
         # Force du pic par rapport au bruit de fond (avant que la moyenne ne
         # l'absorbe) : comparable entre sources de gains differents
         # (arbitrage entre pieces : la plus proche entend le plus fort).
-        strength = raw_peak / max(self.avg_level, 1e-6)
+        noise = self.avg_level
+        strength = raw_peak / max(noise, 1e-6)
         # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
         # pendant un son : un bruit qui s'installe finit par etre absorbe.
         rate = 0.001 if self._above else 0.005
@@ -272,23 +277,50 @@ class ClapTracker:
         elif raw_peak < threshold * 0.6:
             self._sus_above = False
 
-        if pre_level is not None:
-            attack = raw_peak > pre_level * self.ATTACK_RATIO
+        # Attaques candidates (pic, instant, est une attaque) : celles du
+        # detecteur (tranches de 5 ms), sinon le pic du bloc.
+        if onsets is None and pre_level is not None:
+            onsets = [(raw_peak, now, pre_level)]
+        if onsets is not None:
+            candidates = [(pk, t, pk > pre * self.ATTACK_RATIO if pre is not None else not self._above)
+                          for pk, t, pre in onsets]
         else:
-            attack = (not self._above
-                      or (raw_peak > self._prev_peak * self.ATTACK_RATIO
-                          and (now - self._last_peak_time) > self.REATTACK_GAP))
-        if raw_peak > threshold and attack:
-            # Front montant ou nouvelle attaque : nouveau pic
-            if (now - self._last_peak_time) > self.peak_cooldown:
-                self._last_peak_time = now
-                self.peak_times.append(now)
-                self._strength[now] = strength
+            # Pics de blocs seuls : bloc precedent, et REATTACK_GAP s apres le
+            # dernier pic pendant un son deja au-dessus du seuil.
+            candidates = [(raw_peak, now, not self._above
+                           or (raw_peak > self._prev_peak * self.ATTACK_RATIO
+                               and (now - self._last_peak_time) > self.REATTACK_GAP))]
+        counted, attacked = [], False
+        for peak, t, attack in candidates:
+            if peak <= threshold or not attack:
+                continue
+            attacked = True
+            force = peak / max(noise, 1e-6)
+            if counted and t - counted[-1] <= self.peak_cooldown:
+                # Meme geste dans ce bloc : le plus fort l'emporte (un petit
+                # bruit juste avant le clap ne prend pas sa place, sa force ni
+                # sa forme).
+                if force > self._strength.get(counted[-1], 0.0):
+                    old = counted.pop()
+                    self.peak_times.remove(old)
+                    self._strength.pop(old, None)
+                    self._last_peak_time = t
+                    self.peak_times.append(t)
+                    self._strength[t] = force
+                    counted.append(t)
+                continue
+            if (t - self._last_peak_time) > self.peak_cooldown:
+                self._last_peak_time = t
+                self.peak_times.append(t)
+                self._strength[t] = force
                 self.attack_count += 1
+                counted.append(t)
+        if attacked:
             self._above = True
         elif raw_peak < threshold * 0.6:
             self._above = False
         self._prev_peak = raw_peak
+        return counted
 
     # --- Classification -----------------------------------------------------
 

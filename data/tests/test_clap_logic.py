@@ -727,3 +727,31 @@ def test_margin_does_not_stop_a_gesture_already_being_counted():
     assert t.pending() and [m for m in t.near_misses if m['kind'] == 'margin'] == []
     ev = [e for e in t.on_classification([('Speech', 0.9)], 101.6) if not e['ignored']]
     assert [e['clap_count'] for e in ev] == [2]
+
+
+def _warm(tr, t0=0.0):
+    for i in range(tr.WARMUP_BLOCKS + 5):
+        tr.feed_peak(0.002, t0 + i * 0.1, pre_level=0.002)
+    return t0 + (tr.WARMUP_BLOCKS + 5) * 0.1
+
+
+def test_onsets_strongest_attack_wins_within_cooldown():
+    """Petit bruit 25 ms avant le clap, dans le meme bloc : le clap est
+    garde (instant et force), un seul pic."""
+    tr = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t = _warm(tr)
+    got = tr.feed_peak(0.5, t + 0.05, pre_level=0.002,
+                       onsets=[(0.05, t + 0.025, 0.002), (0.5, t + 0.05, 0.002)])
+    assert got == [t + 0.05] and tr.peak_times == [t + 0.05] and tr.attack_count == 1
+    assert tr._strength[t + 0.05] > 100
+    got = tr.feed_peak(0.4, t + 0.25, pre_level=0.002, onsets=[(0.4, t + 0.15, 0.01), (0.3, t + 0.24, 0.01)])
+    assert got == [t + 0.15, t + 0.24]                          # deux claps a 90 ms : deux pics
+
+
+def test_onsets_without_attack_keep_noise_tracking_fast():
+    """Bruit qui monte sans attaque : _above reste faux (le bruit de fond
+    le rattrape vite, comme avant)."""
+    tr = ClapTracker(peak_ratio=3.0)
+    t = _warm(tr)
+    assert tr.feed_peak(0.05, t, pre_level=0.045, onsets=[(0.05, t, 0.045)]) == []
+    assert tr._above is False
