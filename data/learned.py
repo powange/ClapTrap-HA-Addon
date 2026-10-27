@@ -41,6 +41,7 @@ import calibration
 PREFIX = 'Appris : '
 MIN_EXAMPLES = 3
 MAX_EXAMPLES = 10
+RECOMMENDED_EXAMPLES = 5   # conseille a l'utilisateur
 MAX_SOUNDS = 20
 MAX_NEGATIVES = 20       # contre-exemples par son (les plus anciens remplaces)
 BACKGROUND_SECONDS = 5.0
@@ -334,7 +335,8 @@ def _session():
 
 def _status(s):
     return {'background': bool(s.learn_background), 'examples': len(s.learn_examples),
-            'min_examples': MIN_EXAMPLES, 'max_examples': MAX_EXAMPLES}
+            'min_examples': MIN_EXAMPLES, 'max_examples': MAX_EXAMPLES,
+            'recommended_examples': RECOMMENDED_EXAMPLES}
 
 
 def record(kind):

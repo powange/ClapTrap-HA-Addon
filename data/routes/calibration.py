@@ -102,6 +102,7 @@ def learned_list():
     import learned
     return jsonify({'success': True, 'sounds': learned.list_sounds(),
                     'limits': {'min_examples': learned.MIN_EXAMPLES, 'max_examples': learned.MAX_EXAMPLES,
+                               'recommended_examples': learned.RECOMMENDED_EXAMPLES,
                                'max_sounds': learned.MAX_SOUNDS}})
 
 

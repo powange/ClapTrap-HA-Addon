@@ -43,7 +43,7 @@ const dom = new JSDOM(html, {
           { file: 'b.yaml', name: 'ClapTrap — Alerte sonore', description: 'Prévient.', source_url: 'https://x/b.yaml', status: w.__bpError ? 'inconnu' : 'mise_a_jour', path: 'powange/b.yaml' },
           { file: 'c.yaml', name: 'ClapTrap — Actions', description: 'Lance.', source_url: 'https://x/c.yaml', status: w.__bpError ? 'inconnu' : 'a_jour', path: 'claptrap/c.yaml' }] };
       else if (url === '/api/blueprints/install') res = { success: true, file: body.file, status: 'a_jour', path: 'claptrap/' + body.file, updated: body.file === 'b.yaml' };
-      else if (url === '/api/learned' && method === 'GET') res = { success: true, sounds: w.__learned || [], limits: { min_examples: 3, max_examples: 10, max_sounds: 20 } };
+      else if (url === '/api/learned' && method === 'GET') res = { success: true, sounds: w.__learned || [], limits: { min_examples: 3, max_examples: 10, recommended_examples: 5, max_sounds: 20 } };
       else if (url === '/api/learned/record') { w.__lnEx = body.kind === 'fond' ? 0 : (w.__lnEx || 0) + 1;
         res = { success: true, background: true, examples: w.__lnEx, distinct: w.__lnEx === 2 ? 0.05 : 0.6, top: [{ classe: 'Music', score: 0.9 }] }; }
       else if (url === '/api/learned/preview') res = { success: true, recognized: 3, examples: w.__lnEx, spread: 0.4, warnings: [] };
@@ -906,7 +906,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await lnRec(); await lnRec();
   ok('+  sons appris : exemple trop proche du fond signalé', /Presque comme le bruit de fond/.test($('#learn').textContent));
   ok('+  sons appris : « Terminer » absent avant 3 exemples', !$('#learn [data-c="finish"]'));
+  const lnProgress = () => ($('#learn [data-role="ln-progress"]') || {}).textContent || '';
+  ok('+  sons appris : progression claire (« encore 1 au minimum »)', /^Encore 1 exemple au minimum .*5 conseillés/.test(lnProgress()) &&
+     !/sur 3 à 10/.test($('#learn').textContent));
   await lnRec();
+  ok('+  sons appris : minimum atteint, terminer possible, 2 de plus conseillés',
+     /^3 exemples enregistrés : vous pouvez déjà terminer, mais 2 de plus sont conseillés/.test(lnProgress()) && !!$('#learn [data-c="finish"]'));
   $('#learn [data-c="finish"]').click(); await tick(3);
   ok('+  sons appris : bilan', /3 exemples sur 3/.test($('#learn').textContent) && /Appris : Sonnette/.test($('#learn').textContent));
   $('#learn [data-c="save"]').click(); await tick(4);
@@ -930,6 +935,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#learn [data-c="start"]').click(); await tick(3);
   ok('+  réapprendre : session pour ce son', lastCall('POST', '/api/learned/start')[2].sound_id === 'l2');
   await lnRec(); await lnRec(); await lnRec(); await lnRec();
+  await lnRec();
+  ok('+  réapprendre : 4 exemples, 1 de plus conseillé', /^4 exemples enregistrés : .*1 de plus est conseillé/.test(lnProgress()));
+  await lnRec();
+  ok('+  réapprendre : 5 exemples, jusqu\'à 5 de plus', /^5 exemples enregistrés : vous pouvez terminer maintenant, ou en ajouter jusqu'à 5 de plus\./.test(lnProgress()));
   $('#learn [data-c="finish"]').click(); await tick(3);
   ok('+  réapprendre : bilan sans champ de nom', !$('#ln-final') && /Réapprendre « Bip » · bilan/.test($('#learn-title').textContent));
   $('#learn [data-c="save"]').click(); await tick(4);
