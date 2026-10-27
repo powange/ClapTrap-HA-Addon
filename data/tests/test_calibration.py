@@ -115,6 +115,89 @@ def test_apply_through_api(cal, settings_dir, monkeypatch):
     assert calibration._session is None
 
 
+def _blocks(peaks, floor=0.01, start=10.0):
+    """Blocs bruts d'une prise (pic, gain, instant, niveau avant, attaques) :
+    niveau `floor`, et une attaque nette aux instants (relatifs) de `peaks`."""
+    out = []
+    for i in range(30):
+        t = start + i * 0.1
+        raw = next((r for at, r in peaks if abs(at - i * 0.1) < 1e-6), floor)
+        out.append((raw, 1.0, t, floor, [(raw, t, floor)] if raw > floor else None))
+    return out
+
+
+def with_blocks(s, fond_noise=0.02, clap=0.3):
+    """Blocs des prises : bruit de fond (un pic parasite) et claps du groupe
+    « Clap » (2 attendus, comptes en attaques)."""
+    for t in s.takes:
+        if t['kind'] == 'fond':
+            s.take_blocks[id(t)] = _blocks([(1.0, fond_noise)])
+        elif t['target'] == 'Clap':
+            s.take_blocks[id(t)] = _blocks([(0.5, clap), (0.9, clap * 0.8)])
+
+
+def test_peak_ratio_proposed_and_applied_on_source(cal, settings_dir, monkeypatch):
+    s = session_with_takes(monkeypatch)
+    with_blocks(s)
+    p = calibration.analyze()
+    r = p['peak_ratio']
+    # Parasite x2, clap le plus faible x24 : moyenne geometrique de 2,6 et 16,8.
+    assert r['field'] == 'peak_ratio' and r['current'] == 3.0 and not r['own']
+    assert r['change'] and r['proposed'] == 6.6 and r['sounds'] == 8
+    res = calibration.apply()
+    assert not res['errors'], res['errors']
+    src = settings_dir.load_settings()['saved_vban_sources'][0]
+    assert src['peak_ratio'] == 6.6
+    assert settings_dir.load_settings()['global'].get('peak_ratio', 3.0) == 3.0   # global inchange
+
+
+def test_peak_ratio_kept_when_close_or_unchecked(cal, settings_dir, monkeypatch):
+    settings_dir.modify_settings(lambda st: st['saved_vban_sources'][0].update(peak_ratio=6.5))
+    s = session_with_takes(monkeypatch)
+    with_blocks(s)
+    r = calibration.analyze()['peak_ratio']
+    assert r['own'] and not r['change'] and r['proposed'] == 6.5
+    s.proposal['peak_ratio'].update(change=True, proposed=9.0)
+    calibration.apply(peak_ratio=False)
+    assert settings_dir.load_settings()['saved_vban_sources'][0]['peak_ratio'] == 6.5
+
+
+def test_peak_ratio_covers_held_sounds_and_chosen_groups(cal, settings_dir, monkeypatch):
+    s = session_with_takes(monkeypatch)
+    with_blocks(s)
+    # Sifflements (sons tenus) : sommet x6, sous les claps : la force reste
+    # assez basse pour eux (le meme seuil filtre les sons tenus).
+    for t in s.takes:
+        if t['target'] == 'Siffler':
+            s.take_blocks[id(t)] = _blocks([(0.5, 0.06)])
+    p = calibration.analyze()
+    assert p['peak_ratio']['proposed'] == 3.0 and not p['peak_ratio']['change']
+    # Siffler non applique : ses prises ne comptent plus, force des claps seuls.
+    res = calibration.apply(groups=['Clap'])
+    assert not res['errors'], res['errors']
+    assert settings_dir.load_settings()['saved_vban_sources'][0]['peak_ratio'] == 6.6
+    assert any('force minimale × 3.0 → × 6.6' in a for a in res['applied'])
+
+
+def test_peak_ratio_reports_ignored_takes(cal, monkeypatch):
+    s = session_with_takes(monkeypatch)
+    with_blocks(s)
+    clap = next(t for t in s.takes if t['target'] == 'Clap')
+    s.take_blocks[id(clap)] = _blocks([(0.5, 0.3)])   # un clap oublie sur 2
+    p = calibration.analyze()
+    assert p['peak_ratio']['sounds'] == 6
+    assert any('prises ignorées' in w and 'Clap (1)' in w for w in p['warnings'])
+
+
+def test_peak_ratio_needs_background_take(cal, monkeypatch):
+    s = session_with_takes(monkeypatch)
+    with_blocks(s)
+    s.take_blocks = {k: v for k, v in s.take_blocks.items()
+                     if k != id(next(t for t in s.takes if t['kind'] == 'fond'))}
+    r = calibration.analyze()['peak_ratio']
+    assert r['field'] is None and 'bruit de fond' in r['note']
+
+
 def test_too_few_takes(cal, monkeypatch):
     s = session_with_takes(monkeypatch)
     s.takes = s.takes[:1]
