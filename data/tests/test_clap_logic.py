@@ -666,3 +666,64 @@ def test_strong_but_uncounted_block_is_not_reported_as_weak():
     t.feed_peak(0.3, 100.0, pre_level=0.29)                               # 30 x le bruit, mais aucune attaque
     t.on_classification([('Clapping', 0.9)], 100.3)
     assert t.near_misses == []
+
+
+def test_relative_threshold_requires_beating_other_sounds():
+    """Ecart minimal : « Clapping » 0,62 juste devant « Speech » 0,58 ne
+    declenche pas (ecart 10 points), et le geste est note ; nettement devant,
+    il declenche. Sans ecart (0, par defaut) : comme avant."""
+    from clap_logic import ClapTracker
+
+    def tracker(margin):
+        t = ClapTracker(window=1.5)
+        t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5,
+                       'clap_counts': [1, 2], 'margin': margin}])
+        for i in range(12):
+            t.feed_peak(0.01, 99.0 + i * 0.01)
+        t.feed_peak(0.3, 100.0, pre_level=0.01)
+        return t
+    t = tracker(0.1)
+    t.on_classification([('Clapping', 0.62), ('Speech', 0.58)], 100.3)
+    assert not t.pending()
+    m = t.near_misses[0]
+    assert (m['kind'], m['rival'], m['rival_score'], m['margin']) == ('margin', 'Speech', 0.58, 0.1)
+    t.on_classification([('Clapping', 0.62), ('Speech', 0.58)], 100.8)
+    assert len(t.near_misses) == 1                                       # une fois par geste
+    ok = tracker(0.1)
+    ok.on_classification([('Clapping', 0.8), ('Speech', 0.3)], 100.3)
+    assert ok.pending()
+    off = tracker(0)
+    off.on_classification([('Clapping', 0.62), ('Speech', 0.58)], 100.3)
+    assert off.pending() and off.near_misses == []
+
+
+def test_margin_rivals_and_edge_cases():
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([
+        {'slug': 'clap', 'name': 'Clap', 'whitelist': {'Hands': True}, 'threshold': 0.5, 'clap_counts': [1], 'margin': 0.1},
+        {'slug': 'toc', 'name': 'Toc', 'whitelist': {'Knock': True}, 'threshold': 0.5, 'clap_counts': [1]}])
+    clap = t.groups[0]
+    # Son d'un autre groupe ou son appris : pas un concurrent
+    assert t.margin_rival(clap, [('Knock', 0.62), ('Hands', 0.55)], 0.55) is None
+    assert t.margin_rival(clap, [('Appris : clap', 0.6), ('Hands', 0.62)], 0.62) is None
+    # Ecart pile atteint (arrondis) : accepte
+    assert t.margin_rival(clap, [('Hands', 0.62), ('Speech', 0.52)], 0.62) is None
+    assert t.margin_rival(clap, [('Speech', 0.9), ('Hands', 0.55)], 0.55) == ('Speech', 0.9)
+
+
+def test_margin_does_not_stop_a_gesture_already_being_counted():
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5,
+                   'clap_counts': [1, 2, 3], 'margin': 0.1}])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.feed_peak(0.01, 100.4)
+    t.feed_peak(0.3, 100.6, pre_level=0.01)
+    t.on_classification([('Clapping', 0.6), ('Speech', 0.55)], 100.8)    # 2e clap, son moins net
+    assert t.pending() and [m for m in t.near_misses if m['kind'] == 'margin'] == []
+    ev = [e for e in t.on_classification([('Speech', 0.9)], 101.6) if not e['ignored']]
+    assert [e['clap_count'] for e in ev] == [2]

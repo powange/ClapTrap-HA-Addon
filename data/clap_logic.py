@@ -16,6 +16,8 @@ import collections
 # Sons de type clap : un groupe qui ne coche qu'eux ne compte que les pics
 # qui ont la forme d'un clap (bref, aigu).
 CLAP_LABELS = frozenset({'Clapping', 'Hands', 'Applause', 'Finger snapping'})
+MAX_MARGIN = 0.5
+LEARNED_PREFIX = 'Appris : '   # sons appris (learned.PREFIX)
 
 DEFAULT_WHITELIST = {"Clapping": True, "Hands": True, "Applause": True}
 ALERT_WINDOW = 4      # analyses (0,5 s chacune) sur lesquelles compter les reconnaissances
@@ -48,6 +50,10 @@ def normalize_group(g, idx=0, default_threshold=0.5):
         # Alerte : reconnaissances sur les ALERT_WINDOW dernieres analyses
         # pour l'allumer (1 : son bref comme un bris de glace).
         'alert_confirm': min(ALERT_WINDOW, max(1, int(g.get('alert_confirm') or 2))),
+        # Seuil relatif : le son du groupe doit battre les autres sons de cette
+        # marge (0 : desactive). Contre une piece bruyante ou une camera qui
+        # ecrase tous les scores.
+        'margin': min(MAX_MARGIN, max(0.0, float(g.get('margin') or 0.0))),
     }
 
 
@@ -137,6 +143,7 @@ class ClapTracker:
         self.shape_check = True
         self._shape = {}         # instant d'un pic -> (est un clap, raison, mesures)
         self._rejected = {}      # pic ecarte -> note dans les « presque » ? (une fois, son reconnu)
+        self._taken = None       # sons coches dans un groupe (cache, refait par set_groups)
 
     # --- Configuration ----------------------------------------------------
 
@@ -152,6 +159,7 @@ class ClapTracker:
         self.groups = [normalize_group(g, idx, default_threshold)
                        for idx, g in enumerate(groups or []) if isinstance(g, dict)]
         # Etat d'un groupe retire (desactive, supprime, renomme) : oublie.
+        self._taken = None
         for g in self.groups:
             sounds = [name for name, on in g['whitelist'].items() if on]
             g['_shape'] = bool(sounds) and all(name in CLAP_LABELS for name in sounds)
@@ -301,6 +309,12 @@ class ClapTracker:
                     if group['whitelist'].get(name, False) and name not in self.exclusions]
             best = max((score for _, score in hits), default=0.0)
             best_label = max(hits, key=lambda h: h[1])[0] if hits else ''
+            state_now = self._group_state.get(group['slug'])
+            if best >= group['threshold'] and not (state_now and state_now['armed_at']):
+                rival = self.margin_rival(group, categories, best)
+                if rival:
+                    self._note_margin(group, best, best_label, rival, now, fresh_of(group))
+                    best = 0.0   # pas reconnu pour ce groupe (un geste deja en cours continue)
             if group['count_mode'] == 'alerte':
                 # Hors des fenetres de comptage et de l'arbitrage : une alarme
                 # n'empeche pas un clap, et inversement.
@@ -355,6 +369,35 @@ class ClapTracker:
             seen = self._peak_eval.setdefault(t, {})
             if best > seen.get(group['slug'], (0.0, ''))[0]:
                 seen[group['slug']] = (best, label)
+
+    def margin_rival(self, group, categories, best):
+        """Seuil relatif : (son, score) du meilleur concurrent trop proche du
+        son du groupe, ou None. Concurrents : les sons coches dans aucun groupe
+        de la source (un son d'un autre groupe se departage par l'arbitrage),
+        hors sons appris (derives du meme vecteur) et sons ignores."""
+        if not group['margin'] or group['count_mode'] == 'alerte':
+            return None
+        taken = self._taken_labels()
+        for name, score in categories:   # tries par score decroissant
+            if name in taken or name in self.exclusions or name.startswith(LEARNED_PREFIX):
+                continue
+            return (name, score) if best - score < group['margin'] - 1e-9 else None
+        return None
+
+    def _taken_labels(self):
+        if self._taken is None:
+            self._taken = {n for g in self.groups for n, on in g['whitelist'].items() if on}
+        return self._taken
+
+    def _note_margin(self, group, best, label, rival, now, fresh):
+        """Son du groupe au-dessus du seuil mais trop proche d'un autre son,
+        avec un pic qui attendait : « presque » (une fois par geste)."""
+        if not fresh or now - self._last_weak.get(('m', group['slug']), -1e9) < self.WEAK_REPEAT:
+            return
+        self._last_weak[('m', group['slug'])] = now
+        self.near_misses.append({'kind': 'margin', 'group': group['name'], 'slug': group['slug'], 'time': fresh[0],
+                                 'label': label, 'score': round(best, 3), 'rival': rival[0],
+                                 'rival_score': round(rival[1], 3), 'margin': group['margin']})
 
     def _note_weak(self, group, best, label, now):
         """Son du groupe reconnu sans pic assez fort pour compter un clap."""

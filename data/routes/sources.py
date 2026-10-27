@@ -865,7 +865,8 @@ def update_source_sound_group():
     """Met a jour les meta-donnees d'un groupe.
 
     Body: {kind, source_key, group_slug, name?, threshold?, ha_entities?,
-           auto_add_sounds?, enabled?, count_mode?}
+           auto_add_sounds?, enabled?, count_mode?, alert_confirm?,
+           device_class?, margin?}
     """
     data = _json()
     kind = _require_kind(data, 'group_slug')
@@ -900,6 +901,8 @@ def update_source_sound_group():
             target['count_mode'] = to_count_mode(data['count_mode'])
         if 'alert_confirm' in data:
             target['alert_confirm'] = to_number(data['alert_confirm'], 'alert_confirm', 1, 4, integer=True)
+        if 'margin' in data:
+            target['margin'] = to_number(data['margin'], 'margin', 0, 0.5)
         if 'device_class' in data:
             from settings_manager import to_device_class
             target['device_class'] = to_device_class(data['device_class'])

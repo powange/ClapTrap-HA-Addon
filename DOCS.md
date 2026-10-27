@@ -735,6 +735,18 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
+**Écart avec les autres sons** (réglage de chaque groupe, « Aucun » par
+défaut) : le son du groupe doit battre de cet écart (5 à 30 points) le
+meilleur autre son entendu au même moment, en plus de dépasser le seuil.
+« Applaudissement » à 62 % ne déclenche pas si « Voix » est à 58 % et que
+l'écart demandé est de 10 points. Utile dans une pièce bruyante, ou avec une
+caméra qui donne des scores proches à tous les sons. Les gestes écartés
+ainsi apparaissent dans « Presque déclenchés ». Si le son concurrent fait
+partie du geste (« Mains » pour des claps), cochez-le dans le groupe. Les
+sons cochés dans un autre groupe de la source et les sons appris ne
+comptent pas comme concurrents. « Calibrer » ne tient pas compte de
+l'écart : après un calibrage, vérifiez les « presque ».
+
 **Vérifier la forme des claps** (Réglages › Comptage des claps, activé par
 défaut) : pour les groupes qui ne cochent que des sons de clap
 (applaudissement, mains, claquement de doigts), un pic n'est compté que

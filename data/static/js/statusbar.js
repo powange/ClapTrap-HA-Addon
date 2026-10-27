@@ -197,6 +197,16 @@
                     (m.strength != null ? ' (' + x(m.strength) + ' le bruit de fond, minimum ' + x(m.required) + ')' : '') + '.',
                     'Baissez « Force minimale d\'un clap » (Réglages › Comptage), ou rapprochez la source.'];
         }
+        if (m.kind === 'margin') {
+            var rival = '« ' + CT.esc(CT.soundLabel(m.rival)) + ' »';
+            if (m.rival_score >= m.score) {
+                return [lab + ' à ' + CT.pct(m.score) + ', battu par ' + rival + ' à ' + CT.pct(m.rival_score) + '.',
+                        'Aucun écart ne le ferait déclencher : cochez ' + rival + ' dans le groupe s\'il fait partie du geste.'];
+            }
+            return [lab + ' à ' + CT.pct(m.score) + ', mais ' + rival + ' juste derrière à ' +
+                    CT.pct(m.rival_score) + ' (écart demandé : ' + Math.round(m.margin * 100) + ' points).',
+                    'Baissez l\'écart avec les autres sons du groupe, ou cochez ' + rival + ' s\'il fait partie du geste.'];
+        }
         if (m.kind === 'shape') {
             return ['Pic écarté : il ne ressemble pas à un clap (' + (m.reason === 'tenu'
                         ? 'le son dure : encore ' + CT.pct(m.decay) + ' du niveau 30 ms après'

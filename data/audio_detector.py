@@ -740,11 +740,14 @@ class AudioDetector:
             if self._taps:
                 self._tap('result', categories, now)
             with self.lock:
-                group_scores = {
-                    g['slug']: max((s for n, s in categories
-                                    if g['whitelist'].get(n) and n not in exclusions), default=0.0)
-                    for g in self.tracker.groups
-                }
+                group_scores = {}
+                for g in self.tracker.groups:
+                    best = max((s for n, s in categories if g['whitelist'].get(n) and n not in exclusions), default=0.0)
+                    if best >= g['threshold'] and self.tracker.margin_rival(g, categories, best):
+                        # Ecart avec un autre son insuffisant : affiche juste sous le
+                        # seuil (non reconnu), comme le tracker en decide.
+                        best = max(0.0, g['threshold'] - 0.01)
+                    group_scores[g['slug']] = best
             if self._scores_callback:
                 try:
                     self._scores_callback(group_scores)
