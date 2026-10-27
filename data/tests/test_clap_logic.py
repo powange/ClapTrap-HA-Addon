@@ -755,3 +755,37 @@ def test_onsets_without_attack_keep_noise_tracking_fast():
     t = _warm(tr)
     assert tr.feed_peak(0.05, t, pre_level=0.045, onsets=[(0.05, t, 0.045)]) == []
     assert tr._above is False
+
+
+# ===== Rythme (6.105) ================================================================
+
+def test_rhythm_of_groups_quick_claps_separated_by_pauses():
+    from clap_logic import rhythm_of
+    assert rhythm_of([]) == ('', [])
+    assert rhythm_of([1.0]) == ('1', [])
+    assert rhythm_of([1.0, 1.2]) == ('2', [0.2])
+    assert rhythm_of([1.0, 1.6])[0] == '1+1'                         # deux claps lents
+    assert rhythm_of([1.0, 1.2, 1.8]) == ('2+1', [0.2, 0.6])
+    assert rhythm_of([1.0, 1.6, 1.8]) == ('1+2', [0.6, 0.2])
+    assert rhythm_of([1.0, 1.25, 1.67])[0] == '2+1'                  # pause marquee (x1,7) sous 0,45 s
+    assert rhythm_of([1.0, 1.35, 1.7])[0] == '3'                     # regulier et rapide
+    assert rhythm_of([1.0, 1.5, 2.0])[0] == '1+1+1'                  # regulier et lent
+    assert rhythm_of([1.0, 1.2, 1.45])[0] == '3'                     # ecart trop proche : pas une pause
+    assert rhythm_of([1.0, 1.2, 1.8, 2.0])[0] == '2+2'
+    assert rhythm_of([1.0, 1.15, 1.3, 1.7])[0] == '3+1'
+
+
+def test_gesture_event_carries_its_rhythm():
+    events = [e for e in _realistic(1.5, [0.0, 0.2, 0.8]) if not e['ignored']]
+    assert [(e['clap_count'], e['rhythm']) for e in events] == [(3, '2+1')]
+    assert events[0]['gaps'] == [0.2, 0.6]
+
+
+def test_held_sounds_have_no_rhythm():
+    from clap_logic import normalize_group
+    tracker = ClapTracker(window=1.5)
+    tracker.set_groups([normalize_group(dict(GROUPS[0], clap_counts=[1, 2, 3], count_mode='tenus'))])
+    tracker._group_state[tracker.groups[0]['slug']] = {'armed_at': 10.0, 'score': 0.9, 'labels': {}}
+    tracker.sustain_times = [10.0, 10.3, 10.9]
+    events = [e for e in tracker.on_classification([('Clapping', 0.9)], 12.0) if not e['ignored']]
+    assert events and all(e['rhythm'] == '' and e['gaps'] == [] for e in events)

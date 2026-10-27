@@ -364,6 +364,8 @@ class DetectionSession:
         }
         if data.get('alert'):
             return self._on_alert(src, base_payload, data['alert'])
+        # Rythme (« 2+1 ») et ecarts entre claps (s) : automatisations par rythme.
+        base_payload.update(rhythm=data.get('rhythm', ''), gaps=data.get('gaps', []))
         if not base_payload['clap_count'] and data.get('group_clap_counts'):
             # Son reconnu sans pic par un groupe qui a des entites : aucune
             # entite ne peut le representer ; l'evenement HA et le webhook

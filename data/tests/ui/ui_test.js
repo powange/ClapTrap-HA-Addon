@@ -951,6 +951,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  réapprendre : bilan sans champ de nom', !$('#ln-final') && /Réapprendre « Bip » · bilan/.test($('#learn-title').textContent));
   $('#learn [data-c="save"]').click(); await tick(4);
   ok('+  réapprendre : enregistré sans nom', JSON.stringify(lastCall('POST', '/api/learned/save')[2]) === '{}' && $('#learn').hidden);
+  emit('clap', { id: 'd8', source_id: 'mic', clap_count: 3, score: 0.8, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 3e9,
+                 rhythm: '2+1', labels: [] }); await tick();
+  ok('+  historique : rythme affiché (« 3 claps (2+1) »)', /3 claps \(2\+1\)/.test($('#history-list li').textContent));
+  emit('clap', { id: 'd7', source_id: 'mic', clap_count: 2, score: 0.8, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 3e9,
+                 rhythm: '2', labels: [] }); await tick();
+  ok('+  historique : rythme sans pause non répété', !/\(2\)/.test($('#history-list li').textContent));
   emit('clap', { id: 'd9', source_id: 'mic', clap_count: 1, score: 0.7, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 3e9,
                  labels: [{ label: 'Clapping', score: 0.6 }, { label: 'Appris : Bip', score: 0.7 }], negatives: ['Appris : Bip'] }); await tick();
   const wrong = $('#history-list li .history-wrong');

@@ -169,7 +169,9 @@
         var n = ev.clap_count || 1;
         li.innerHTML =
             '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
-            '<span class="history-main"><strong>' + (ev.alert ? 'Alerte' : n + ' clap' + (n > 1 ? 's' : '')) + '</strong> · ' +
+            '<span class="history-main"><strong>' + (ev.alert ? 'Alerte' : n + ' clap' + (n > 1 ? 's' : '') +
+                // Rythme avec pause(s) : « 3 claps (2+1) »
+                (ev.rhythm && ev.rhythm.indexOf('+') !== -1 ? ' (' + CT.esc(ev.rhythm) + ')' : '')) + '</strong> · ' +
             CT.esc(sourceNameFor(ev.source_id)) + ' · ' + CT.esc(ev.group_name || ev.group_slug || '') +
             (ev.ignored ? ' <span class="muted">(non retenu : ' + (ev.room ? 'entendu plus fort dans « ' + CT.esc(ev.room) + ' »'
                                                                     : 'autre groupe prioritaire') + ')</span>' : '') + '</span>' +

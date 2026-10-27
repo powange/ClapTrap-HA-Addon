@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.105.0
+
+### Rythmes de claps
+
+- Chaque détection porte son rythme : groupes de claps rapides séparés par
+  des pauses. « 2+1 » veut dire deux claps, une pause, un clap ; « 3 »
+  veut dire trois claps réguliers. Le rythme est envoyé dans l'événement
+  `claptrap_clap` et dans le webhook (`rhythm`, et `gaps` pour les écarts
+  en secondes), et l'historique l'affiche (« 3 claps (2+1) »).
+- Un écart compte comme une pause à partir de 0,45 s, ou à partir de 0,3 s
+  s'il fait au moins 1,6 fois le plus court écart. Des claps réguliers
+  donnent « 3 » s'ils sont rapides, « 1+1+1 » s'ils sont lents. Les sons
+  tenus n'ont pas de rythme.
+- Nouveau blueprint **Rythme de claps pour lancer des actions**, avec un
+  groupe et une clé de source facultatifs. Un rythme saisi à la main peut
+  contenir des espaces (« 2 + 1 »). Vérifié sur Home Assistant 2025.10.4 :
+  seul le bon rythme, dans le bon groupe, déclenche.
+- Le groupe doit compter jusqu'au nombre total de claps (« 3 claps » pour
+  « 2+1 »). L'événement part même sans entité pour ce nombre.
+
 ## 6.104.0
 
 ### Force minimale d'un clap par source
