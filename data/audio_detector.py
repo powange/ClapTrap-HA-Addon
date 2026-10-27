@@ -33,6 +33,7 @@ def _load_mediapipe():
         _mediapipe = (python, audio, containers)
     return _mediapipe
 
+import clap_shape
 from clap_logic import ClapTracker
 
 PRE_WINDOW = 320   # 20 ms : niveau mesure juste avant un pic (attaque)
@@ -91,6 +92,10 @@ class AudioDetector:
         self._last_centered = -1e9   # pic de la derniere analyse centree envoyee
         self._centered_done = 0
         self._grid_end = None     # fin (horloge audio) de la derniere fenetre reguliere
+        # Forme des pics (clap_shape) : son brut des derniers blocs, et pics
+        # en attente du son qui les suit.
+        self._raw = collections.deque(maxlen=3)   # (bloc brut, instant de son debut)
+        self._shape_pending = []
         self._since_hop = 0       # blocs depuis la derniere analyse
         # Analyse dans un fil a part (comme le fil de MediaPipe en mode flux) :
         # l'inference et les rappels (socketio, MQTT) ne retardent jamais la
@@ -260,6 +265,8 @@ class AudioDetector:
                 self._dc = 0.95 * self._dc + 0.05 * float(audio_data.mean())
                 audio_data = audio_data - np.float32(self._dc)
             raw_peak, peak_time, pre_level = self._locate_peak(audio_data)
+            if audio_data.size:
+                self._raw.append((audio_data, self._clock_end - audio_data.size / self.sample_rate))
 
             with self.lock:
                 attacks, sustains = self.tracker.attack_count, self.tracker.sustain_count
@@ -268,6 +275,10 @@ class AudioDetector:
                 pending = self.tracker.pending()
             if (attacks or (sustains and self._uses_sustain())) and self._wants_centered(peak_time):
                 self._centered.append(peak_time)
+            if attacks:
+                self._shape_pending.append(peak_time)
+            if self._shape_pending:
+                self._measure_shapes()
             if pending and self._jobs.empty():
                 # Fenetre ouverte : fin sur l'horloge audio et decision
                 # anticipee, verifiees dans le fil d'analyse (les rappels ne
@@ -425,6 +436,8 @@ class AudioDetector:
             self._cuts += 1
         self._reset_window()
         self._prev_tail = np.zeros(0, dtype=np.float32)   # niveau d'avant le trou : sans objet
+        self._raw.clear()            # son brut d'avant le trou : sans objet pour la forme
+        self._shape_pending = []
         gate = self.denoise
         if gate is not None:
             gate.reset()   # pas de tranche a cheval sur le trou
@@ -464,6 +477,35 @@ class AudioDetector:
         if buf is None:
             buf = np.concatenate(self._blocks)
         self._submit((buf[-WINDOW_SAMPLES:], end_clock))
+
+    def _measure_shapes(self):
+        """Forme des pics des que le son qui les suit est arrive (au plus un
+        bloc plus tard) : transmise au tracker, qui ecarte ce qui n'est pas un
+        clap pour les groupes de claps."""
+        if not self._raw:
+            self._shape_pending = []
+            return
+        buf = None
+        for t in list(self._shape_pending):
+            if self._clock_end < t + clap_shape.AFTER:
+                continue
+            self._shape_pending.remove(t)
+            if buf is None:
+                buf = np.concatenate([b for b, _s in self._raw])
+            # Indice dans le bloc qui contient le pic : les debuts de bloc sont
+            # recales en douceur sur l'heure (quelques ms), pas contigus.
+            idx, offset = None, 0
+            for block, start in self._raw:
+                if start <= t < start + block.size / self.sample_rate:
+                    idx = offset + int(round((t - start) * self.sample_rate))
+                    break
+                offset += block.size
+            if idx is None or not 0 <= idx < buf.size:
+                continue   # son du pic perdu (coupure) : forme inconnue, pic compte
+            metrics = clap_shape.measure(buf, idx, self.sample_rate)
+            ok, reason = clap_shape.verdict(metrics)
+            with self.lock:
+                self.tracker.set_peak_shape(t, ok, reason, metrics)
 
     def _uses_sustain(self):
         return any(g.get('count_mode') == 'tenus' for g in self.tracker.groups)

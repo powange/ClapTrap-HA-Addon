@@ -12,6 +12,8 @@
             if (el && (force || document.activeElement !== el)) el.value = g[k] != null ? g[k] : DEFAULTS[k];
         });
         CT.$('#debug-toggle').checked = !!g.debug;
+        var st = CT.$('#shape-toggle');
+        if (st) st.checked = g.clap_shape_check !== false;
         var rt = CT.$('#rooms-toggle'), rw = CT.$('#rooms-window');
         if (rt) rt.checked = !!g.room_arbitration;
         if (rw && (force || document.activeElement !== rw)) rw.value = g.room_window != null ? g.room_window : 1;
@@ -135,7 +137,20 @@
         }
     }
 
+    function bindShape() {
+        var st = CT.$('#shape-toggle');
+        if (!st) return;
+        st.addEventListener('change', function () {
+            var on = st.checked;
+            CT.api('PUT', '/api/settings/advanced', {clap_shape_check: on}).then(function () {
+                (CT.state.settings.global = CT.state.settings.global || {}).clap_shape_check = on;
+                CT.markSaved(st, on ? 'Forme des claps vérifiée' : 'Forme des claps non vérifiée');
+            }).catch(function (err) { st.checked = !on; CT.error('Réglage refusé : ' + err.message); });
+        });
+    }
+
     function bindAdvanced() {
+        bindShape();
         Object.keys(FIELDS).forEach(function (k) {
             var el = document.getElementById(FIELDS[k]);
             el.addEventListener('change', function () {

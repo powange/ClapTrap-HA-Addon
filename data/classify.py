@@ -381,7 +381,10 @@ class DetectionSession:
 
     def _commit_near_miss(self, src, entry, at):
         key = (entry.get('group') or '').casefold()
-        if any(k == key and at - 3.0 <= t <= at + 8.0 for k, t in list(self._recent_hits)):
+        # Pic ecarte pour sa forme : garde meme si le groupe a declenche (un
+        # mauvais nombre de claps vient peut-etre de lui).
+        if entry.get('kind') != 'shape' and \
+                any(k == key and at - 3.0 <= t <= at + 8.0 for k, t in list(self._recent_hits)):
             return   # le meme geste a declenche ailleurs
         with _history_lock:
             _near_misses.appendleft(entry)
@@ -606,6 +609,7 @@ class DetectionSession:
                 # sources doivent finir en meme temps pour etre comparees).
                 g = settings.get('global', {})
                 det.tracker.early_decision = not arbitrated(g, sid, room_zone_map(g))
+                det.tracker.shape_check = bool(g.get('clap_shape_check', True))
                 det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
                 exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
                 with self._lock:

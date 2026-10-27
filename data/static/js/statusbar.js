@@ -197,6 +197,12 @@
                     (m.strength != null ? ' (' + x(m.strength) + ' le bruit de fond, minimum ' + x(m.required) + ')' : '') + '.',
                     'Baissez « Force minimale d\'un clap » (Réglages › Comptage), ou rapprochez la source.'];
         }
+        if (m.kind === 'shape') {
+            return ['Pic écarté : il ne ressemble pas à un clap (' + (m.reason === 'tenu'
+                        ? 'le son dure : encore ' + CT.pct(m.decay) + ' du niveau 30 ms après'
+                        : 'son trop grave : ' + CT.pct(m.high) + ' de son énergie dans les aigus') + ').',
+                    'Si c\'était bien un clap, décochez « Vérifier la forme des claps » (Réglages › Comptage).'];
+        }
         if (m.kind === 'count') {
             return [m.counted + ' clap' + (m.counted > 1 ? 's' : '') + ' compté' + (m.counted > 1 ? 's' : '') +
                     ', aucune entité pour ce nombre (le groupe attend ' + (m.expected || []).join(' ou ') + ').',

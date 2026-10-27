@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.100.0
+
+### Forme des claps vérifiée
+
+- Pour les groupes qui ne cochent que des sons de clap (applaudissement,
+  mains, claquement de doigts), un pic n'est compté que s'il a la forme
+  d'un clap : bref (niveau 30 à 80 ms après le pic sous la moitié de celui
+  du pic) et aigu (plus de 12 % de l'énergie au-dessus de 1,5 kHz). La
+  mesure est faite sur le son brut, avant gain et réduction du bruit. Une
+  porte, un coup sourd ou une voix ne comptent plus comme des claps.
+- Seuils larges, essayés sur des sons de synthèse : un clap sec ou
+  réverbérant, un claquement de doigts et un clap de caméra en 8 kHz
+  passent ; une porte, une voix tenue et un coup sur du bois sont écartés.
+- Les autres groupes (un « Toc » qui compte des coups) ne sont pas
+  concernés.
+- Bruit de fond retiré des deux mesures (ronflement, ventilation), et
+  mesure calée sur le bloc qui contient le pic. Un groupe ouvert sur un pic
+  écarté ensuite repart du clap suivant de sa fenêtre.
+- Les pics écartés apparaissent dans « Presque déclenchés », avec la raison
+  (son trop grave, ou son qui dure), quand le son du groupe a été reconnu.
+  Réglage **Vérifier la forme des
+  claps** (Réglages › Comptage des claps, activé par défaut).
+- Finesse de la détection : chantier 3 sur 9.
+
 ## 6.99.0
 
 ### Analyse centrée sur le clap
