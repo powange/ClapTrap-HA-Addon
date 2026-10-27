@@ -591,6 +591,18 @@ actions:
 | Écart minimal entre deux claps | 0,08 s | Filtre les rebonds d'un même clap. |
 | Force minimale d'un clap | 3 × le bruit ambiant | Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs. |
 
+**Force minimale par source** : dans les réglages d'une source, **Force
+minimale d'un clap** vaut « Réglage global » par défaut. Vous pouvez aussi
+choisir une valeur propre à cette source (de × 1,5 à × 12 dans la liste,
+de 1 à 50 par l'API, la commande MQTT `update_source` ou le calibrage). C'est utile quand
+les sources diffèrent : une caméra lointaine qui manque des claps (valeur
+plus basse), ou un micro sensible dans une pièce bruyante qui en compte
+trop (valeur plus haute). Pour une source qui a sa propre valeur,
+« Calibrer le comptage » propose et enregistre cette valeur-là, sur la
+source ; la fenêtre et l'écart restent globaux. API :
+`PATCH /api/sources/<type>/<id>` avec `{"peak_ratio": 6}`, ou `null` pour
+revenir au réglage global.
+
 **Réactivité** : quand un seul groupe est en cours et qu'il a déjà son nombre
 maximal de claps (un groupe « 1 clap » dès le premier), l'événement part
 0,5 à 1 s après le dernier clap, sans attendre la fin de la fenêtre. Un clap

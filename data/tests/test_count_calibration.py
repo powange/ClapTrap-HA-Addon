@@ -30,7 +30,7 @@ def session(monkeypatch):
     s = calibration._Session('mic', 'mic', 'mic', 'Micro', True)
     s.purpose = 'count'
     monkeypatch.setattr(calibration, '_session', s)
-    monkeypatch.setattr(cc, '_params', lambda: {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 3.0})
+    monkeypatch.setattr(cc, '_params', lambda s=None: {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 3.0})
     s.count_takes = [
         {'kind': 'fond', 'blocks': blocks(seconds=5)},
         {'kind': 'simple', 'blocks': blocks([(1.0, 0.3)], rebound=(0.1, 0.08), seed=2)},
@@ -100,6 +100,32 @@ def test_apply_saves_proposed_or_adjusted_values(session, monkeypatch):
     assert out['applied']['delay'] == 2.0
     with pytest.raises(calibration.CalibrationError):
         cc.apply({'inconnu': 1})
+
+
+def test_apply_saves_peak_ratio_on_a_source_that_has_its_own(session, monkeypatch, settings_dir):
+    """Source avec sa propre force minimale : analysee avec elle, et
+    enregistree sur elle (le reste en global), en une seule ecriture ; la
+    portee est celle de l'analyse, pas relue a l'application."""
+    import routes.sources as rs
+    applied = []
+    monkeypatch.setattr(rs, '_apply_live', lambda: applied.append(1))
+    monkeypatch.setattr(calibration, '_finish', lambda s: None)
+    monkeypatch.setattr(calibration, '_api', lambda *a: pytest.fail('pas d\'appel API en portee source'))
+    settings_dir.save_settings({'microphone': {'configured': True, 'peak_ratio': 7.0}, 'global': {'peak_ratio': 3.0}})
+    monkeypatch.setattr(cc, '_params', lambda s=None: {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 7.0})
+    d = cc.analyze()
+    assert d['current']['peak_ratio'] == 7.0 and d['peak_ratio_scope'] == 'source'
+    cc.apply({'peak_ratio': 5.5, 'delay': 2.0})
+    st = settings_dir.load_settings()
+    assert st['microphone']['peak_ratio'] == 5.5 and st['global']['peak_ratio'] == 3.0 and st['global']['delay'] == 2.0
+    assert applied
+
+
+def test_params_use_the_source_peak_ratio(settings_dir):
+    real = cc._params
+    settings_dir.save_settings({'microphone': {'configured': True, 'peak_ratio': 6.0}, 'global': {'peak_ratio': 3.0}})
+    s = calibration._Session('mic', 'mic', 'mic', 'Micro', True)
+    assert real(s)['peak_ratio'] == 6.0 and real()['peak_ratio'] == 3.0
 
 
 def test_record_stores_take_and_replaces_background(monkeypatch, session):
@@ -179,7 +205,7 @@ def test_record_with_real_detector_finds_the_claps(monkeypatch, fake_classifier)
     s.purpose = 'count'
     monkeypatch.setattr(calibration, '_session', s)
     monkeypatch.setattr(classify, 'detector_for', lambda sid: det)
-    monkeypatch.setattr(cc, '_params', lambda: {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 3.0})
+    monkeypatch.setattr(cc, '_params', lambda s=None: {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 3.0})
     rng = np.random.default_rng(0)
     phase = {'claps_at': set(), 'i': 0}
     stop = threading.Event()

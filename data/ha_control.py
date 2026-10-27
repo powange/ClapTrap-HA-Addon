@@ -69,7 +69,7 @@ ACTIONS = {
     'add_vban': '{name, ip, port?=6980, stream_name?, enabled?} : ajoute un flux VBAN.',
     'add_microphone': '{device?: {name, index, pulse_name}, enabled?} : ajoute le micro.',
     'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
-                     'rtsp_tcp?(caméra)}.',
+                     'rtsp_tcp?(caméra), peak_ratio?(1-50, null : réglage global)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
     'add_group': '{source, name?, preset?, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
                  'preset : claps, doigts, toc, sifflement, fumee, verre, bebe, aboiement, sonnette, alarme.',
@@ -419,7 +419,9 @@ def _configuration_payload(settings, sources=None, full=False):
                 'ha_entities': (entity_ids.get(ui_key) or {}).get(g['slug'], []),
             })
         details_sources.append({'source': ui_key, 'type': kind, 'name': label, 'entity_key': slug,
-                                'enabled': bool(enabled), 'groups': groups})
+                                'enabled': bool(enabled), 'groups': groups,
+                                # Force minimale propre (None : advanced.peak_ratio)
+                                'peak_ratio': src.get('peak_ratio')})
     g = settings.get('global', {})
     return {
         'resume': f"{len(sources)} source(s), {n_groups} groupe(s)",
@@ -716,7 +718,7 @@ def _api_or_raise(method, path, body=None):
 # Sans webhook_url : tout client du broker pourrait faire envoyer par
 # l'add-on (reseau de l'hote) une requete a chaque clap vers l'adresse de son
 # choix. Elle se regle dans l'interface.
-_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
+_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp', 'peak_ratio')
 _GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode',
                  'alert_confirm', 'device_class', 'margin')
 

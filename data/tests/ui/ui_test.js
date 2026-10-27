@@ -598,6 +598,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   nrSel.value = '2'; nrSel.dispatchEvent(new w.Event('change')); await tick(3);
   const nrCall = calls.filter(c => c[0] === 'PATCH' && c[2] && 'noise_reduction' in c[2]).pop();
   ok('+  réduction du bruit : enregistrée (nombre)', !!nrCall && nrCall[2].noise_reduction === 2);
+  // --- 6.104 : force minimale d'un clap par source
+  const ratioSel = $('#' + cam.domId + ' [data-field="peak_ratio"]');
+  ok('+  force par source : réglage global par défaut', !!ratioSel && ratioSel.value === '' && /Réglage global \(× /.test(ratioSel.options[0].textContent));
+  ratioSel.value = '6'; ratioSel.dispatchEvent(new w.Event('change')); await tick(3);
+  const ratioCall = () => calls.filter(c => c[0] === 'PATCH' && c[2] && 'peak_ratio' in c[2]).pop();
+  ok('+  force par source : enregistrée (nombre)', ratioCall()[2].peak_ratio === 6);
+  ratioSel.value = ''; ratioSel.dispatchEvent(new w.Event('change')); await tick(3);
+  ok('+  force par source : retour au global (null)', ratioCall()[2].peak_ratio === null);
   w.__denoised = true;
   recBtn().click(); await tick(3);
   const rawPart = recOutNow().querySelector('.record-part:not([data-role="denoised-part"])');
