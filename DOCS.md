@@ -137,6 +137,17 @@ clap = un pic) ; « sons tenus » convient aux sifflements et aux sons qui
 montent doucement : tant que le son dure, un nouveau pic est compté toutes
 les 0,3 s (un sifflement d'une seconde compte environ 3).
 
+Les attaques sont cherchées tous les 5 ms, au lieu du seul pic le plus fort
+de chaque bloc de 100 ms. Deux claps très rapprochés (moins de 100 ms)
+comptent donc pour deux. Un second clap plus faible que la réverbération du
+premier au début de son bloc compte aussi. Une attaque ajoutée doit monter
+en moins de 5 ms, comme un clap : le début d'une syllabe monte plus
+lentement. Essais sur des sons de synthèse (3 claps espacés de 90 ms) :
+2,8 comptés en moyenne avant, 3,0 maintenant. Aucun changement à partir de
+150 ms d'écart. Sur de la parole simulée qui part du silence, il y a un peu
+plus de pics (6,8 au lieu de 4,5 en 5 s), mais un pic ne compte que si un son
+du groupe est reconnu.
+
 **Alerte** (détecteur de fumée, pleurs, aboiement, sonnette…) : pas de
 comptage ni de capteurs « N claps », mais un capteur
 `binary_sensor.claptrap_<source>_<groupe>_alerte` qui **reste allumé tant que

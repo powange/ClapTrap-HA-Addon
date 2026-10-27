@@ -389,3 +389,61 @@ def test_no_centred_analysis_when_the_grid_already_centres_the_peak(fake_classif
     assert not det._wants_centered(100.5)                               # trop proche de la precedente
     det.tracker.set_groups([{'slug': 'c', 'name': 'C', 'whitelist': {}, 'threshold': 0.5}])
     assert not det._uses_sustain()
+
+
+# ===== Attaques par tranches de 5 ms (6.103) ======================================
+
+def _clap(n, at, amp, tau, rng):
+    """Clap synthetique : bruit a decroissance exponentielle des `at`."""
+    x = np.zeros(n, np.float32)
+    k = np.arange(n - at)
+    x[at:] = amp * rng.uniform(-1, 1, n - at) * np.exp(-k / (tau * 16000))
+    return x
+
+
+def _count(blocks, onsets=True):
+    """(instants comptes) : blocs passes a _locate_peak puis au tracker,
+    apres 1 s de bruit de fond."""
+    from audio_detector import AudioDetector
+    from clap_logic import ClapTracker
+    det = AudioDetector('model.tflite')
+    tr = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    rng = np.random.default_rng(0)
+    counted, times = [], []
+    for b in [rng.normal(0, 0.002, BLOCK_SAMPLES).astype(np.float32) for _ in range(12)] + blocks:
+        peak, t, pre, ons = det._locate_peak(b)
+        times.append(t - (np.argmax(np.abs(b)) / 16000))   # debut du bloc
+        counted += tr.feed_peak(peak, t, pre_level=pre, onsets=ons if onsets else None)
+    return counted, times[12:]
+
+
+def test_two_claps_in_one_block_count_twice_with_precise_times():
+    rng = np.random.default_rng(1)
+    b = np.random.default_rng(2).normal(0, 0.002, BLOCK_SAMPLES).astype(np.float32)
+    b += _clap(BLOCK_SAMPLES, 100, 0.5, 0.01, rng) + _clap(BLOCK_SAMPLES, 1500, 0.5, 0.01, rng)   # 87,5 ms d'ecart
+    quiet = np.random.default_rng(3).normal(0, 0.002, BLOCK_SAMPLES).astype(np.float32)
+    counted, starts = _count([b, quiet])
+    assert len(counted) == 2
+    assert abs(counted[0] - (starts[0] + 100 / 16000)) < 0.016 and abs(counted[1] - (starts[0] + 1500 / 16000)) < 0.016
+    assert len(_count([b, quiet], onsets=False)[0]) == 1        # avant : le seul pic du bloc
+
+
+def test_second_clap_under_the_first_tail_at_block_start_counts():
+    """Le 1er clap finit son bloc ; au debut du suivant, sa reverberation est
+    plus forte que le 2e clap : le pic du bloc etait cette queue (pas une
+    attaque) et le 2e clap etait perdu."""
+    rng = np.random.default_rng(4)
+    n = 2 * BLOCK_SAMPLES
+    x = np.random.default_rng(5).normal(0, 0.002, n).astype(np.float32)
+    x += _clap(n, BLOCK_SAMPLES - 20, 0.9, 0.06, rng) + _clap(n, BLOCK_SAMPLES + 1500, 0.6, 0.01, rng)   # 95 ms apres
+    blocks = [x[:BLOCK_SAMPLES], x[BLOCK_SAMPLES:]]
+    assert len(_count(blocks)[0]) == 2
+    assert len(_count(blocks, onsets=False)[0]) == 1
+
+
+def test_reverberation_and_noise_add_no_peaks():
+    rng = np.random.default_rng(6)
+    n = 5 * BLOCK_SAMPLES
+    x = np.random.default_rng(7).normal(0, 0.002, n).astype(np.float32) + _clap(n, 700, 0.8, 0.25, rng)   # long echo
+    counted, _ = _count([x[i:i + BLOCK_SAMPLES] for i in range(0, n, BLOCK_SAMPLES)])
+    assert len(counted) == 1

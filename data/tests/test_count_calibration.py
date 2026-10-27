@@ -206,4 +206,4 @@ def test_record_with_real_detector_finds_the_claps(monkeypatch, fake_classifier)
         det.stop()
     assert out['gestures'] == [2]
     blocks = next(t for t in s.count_takes if t['kind'] == 'double')['blocks']
-    assert all(len(b) == 4 for b in blocks) and any(b[3] is not None for b in blocks)   # niveau avant pic present
+    assert all(len(b) == 5 for b in blocks) and any(b[3] is not None for b in blocks)   # niveau avant pic, attaques

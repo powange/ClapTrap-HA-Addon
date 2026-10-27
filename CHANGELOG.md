@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.103.0
+
+### Attaques repérées tous les 5 ms
+
+- Le comptage cherche les attaques par tranches de 5 ms, au lieu du seul pic
+  le plus fort de chaque bloc de 100 ms :
+  - deux claps à moins de 100 ms comptent pour deux ;
+  - un second clap plus faible que la réverbération du premier au début de
+    son bloc n'est plus perdu.
+- Une attaque ajoutée doit aussi monter en moins de 5 ms (un clap monte en
+  1 à 2 ms). Le début d'une syllabe monte plus lentement et n'est pas pris
+  pour un clap.
+- Essais sur des sons de synthèse, 3 claps espacés de 90 ms : 2,80 comptés
+  en moyenne avant, 3,00 maintenant (2,60 → 2,85 avec 50 ms de
+  réverbération). Rien ne change à partir de 150 ms d'écart.
+  Contrepartie : sur de la parole simulée qui part du silence, il y a 6,8
+  pics en 5 s au lieu de 4,5 (YAMNet doit toujours reconnaître un son du
+  groupe pour qu'un pic compte).
+- Deux attaques dans le même bloc et à moins de l'écart minimal : la plus
+  forte est gardée (un petit bruit juste avant le clap ne prend plus sa
+  place).
+- L'analyse centrée et la vérification de la forme portent sur chaque
+  attaque comptée. « Calibrer le comptage » rejoue les mêmes attaques et
+  mesure les rebonds sur celles-ci.
+- Coût : environ 40 µs par bloc de 100 ms.
+
 ## 6.102.0
 
 ### « Ce n'était pas ça » et réapprendre un son

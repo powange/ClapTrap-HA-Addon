@@ -91,14 +91,15 @@ def _simulate(bg_blocks, blocks, params):
     tracker = ClapTracker(window=params['delay'], peak_cooldown=params['peak_cooldown'],
                           peak_ratio=params['peak_ratio'])
     t0 = blocks[0][2]
-    for i, (raw, gain, _t, pre) in enumerate(bg_blocks):
-        tracker.feed_peak(raw, t0 - (len(bg_blocks) - i) * 0.1, pre_level=pre, gain=gain or 1.0)
+    for i, (raw, gain, t, pre, *rest) in enumerate(bg_blocks):
+        # Bruit de fond recale juste avant la prise (memes attaques, decalees).
+        shift = t0 - (len(bg_blocks) - i) * 0.1 - t
+        ons = [(pk, ot + shift, op) for pk, ot, op in rest[0]] if rest and rest[0] is not None else None
+        tracker.feed_peak(raw, t + shift, pre_level=pre, gain=gain or 1.0, onsets=ons)
     attacks = []
-    for raw, gain, t, pre in blocks:
-        before = tracker.attack_count
-        tracker.feed_peak(raw, t, pre_level=pre, gain=gain or 1.0)
-        if tracker.attack_count > before:
-            attacks.append(t)
+    for raw, gain, t, pre, *rest in blocks:
+        # Attaques du bloc (tranches de 5 ms) : comme la detection.
+        attacks += tracker.feed_peak(raw, t, pre_level=pre, gain=gain or 1.0, onsets=rest[0] if rest else None)
     gestures, i = [], 0
     while i < len(attacks):
         end = attacks[i] + params['delay'] + ClapTracker.WINDOW_EPS
@@ -111,8 +112,19 @@ def _simulate(bg_blocks, blocks, params):
 
 
 def _is_attack(block):
-    raw, _g, _t, pre = block
+    raw, pre = block[0], block[3]
     return pre is None or raw > pre * ClapTracker.ATTACK_RATIO
+
+
+def _candidates(blocks):
+    """Pics candidats d'une prise (pic, gain, instant, niveau avant) : les
+    attaques de chaque bloc (tranches de 5 ms) quand elles sont connues,
+    sinon le pic du bloc."""
+    for b in blocks:
+        if len(b) > 4 and b[4] is not None:
+            yield from ((pk, b[1], t, pre) for pk, t, pre in b[4])
+        else:
+            yield tuple(b[:4])
 
 
 def _clap_peaks(blocks, n, min_raw):
@@ -120,7 +132,7 @@ def _clap_peaks(blocks, n, min_raw):
     bruit (min_raw), espacees d'au moins MIN_GAP, les plus fortes, dans
     l'ordre du temps : [(instant, pic brut)]. Moins de `n` : prise ratee."""
     picked = []
-    for raw, g, t, pre in sorted(blocks, key=lambda b: b[0], reverse=True):
+    for raw, g, t, pre in sorted(_candidates(blocks), key=lambda b: b[0], reverse=True):
         if raw < min_raw:
             break
         if _is_attack((raw, g, t, pre)) and all(abs(t - pt) >= MIN_GAP for pt, _ in picked):
@@ -186,7 +198,9 @@ def analyze():
             if t['kind'] != 'simple':
                 continue
             (tc, _), = peaks[id(t)]
-            rebounds += [b[2] - tc for b in t['blocks']
+            # Toutes les attaques (tranches de 5 ms), comme le comptage : un
+            # rebond dans le bloc du clap compte aussi.
+            rebounds += [b[2] - tc for b in _candidates(t['blocks'])
                          if 0 < b[2] - tc <= 0.3 and b[0] > ratio * floor and b[3] is not None and _is_attack(b)]
         intervals = [b[0] - a[0] for t in usable if t['kind'] in ('double', 'triple')
                      for a, b in zip(peaks[id(t)], peaks[id(t)][1:])]

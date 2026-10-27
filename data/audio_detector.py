@@ -67,6 +67,21 @@ CUT_GAP = 0.5
 SLEW_DEADBAND = 0.05
 SLEW_STEP = 0.002
 PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
+# Attaques cherchees par tranches de 5 ms (et non plus le seul pic du bloc
+# de 100 ms) : un 2e clap plus faible que la reverberation du 1er, ou deux
+# claps dans le meme bloc, comptent. Pic d'une attaque : max des 15 ms qui
+# suivent son debut ; deux candidats a moins de ONSET_MERGE s : le plus fort.
+ONSET_FRAME = 80
+ONSET_SPAN = 240
+ONSET_MERGE = 0.02
+ONSET_EDGE = 16    # pic dans la derniere ms du bloc : pas encore atteint
+# Attaque ajoutee (autre que le pic du bloc) : montee breve en plus, 2,5 a
+# 5 ms avant le pic, moins de RISE_FRACTION du pic. Un clap monte en 1 a
+# 2 ms et y est encore au niveau d'avant ; une syllabe monte en dizaines de
+# ms et y est deja presque en haut (sans ce controle, la parole doublait les
+# pics parasites).
+RISE_FRACTION = 0.5
+RISE_FROM, RISE_TO = 80, 40
 AGC_MEMORY = 30    # blocs (3 s) de pics pris en compte par l'auto-gain
 AGC_TARGET = 0.3   # niveau vise pour le son le plus fort recent
 AGC_MAX = 5.0
@@ -142,7 +157,7 @@ class AudioDetector:
     # --- Ecoutes (calibrage) ------------------------------------------------
 
     def add_tap(self, fn, events=None):
-        """fn('block', pic_brut, gain, instant, niveau_avant_pic), fn('peak', 'attack'|'sustain',
+        """fn('block', pic_brut, gain, instant, niveau_avant_pic, attaques), fn('peak', 'attack'|'sustain',
         instant), fn('result', [(classe, score)], instant) : instants sur
         l'horloge audio ; fn('scores', [(classe, score)] des 521 classes,
         instant) : empreinte des sons appris ; fn('audio_raw', bloc) : le meme
@@ -270,19 +285,21 @@ class AudioDetector:
                 # bloc creait des marches a chaque frontiere de 100 ms).
                 self._dc = 0.95 * self._dc + 0.05 * float(audio_data.mean())
                 audio_data = audio_data - np.float32(self._dc)
-            raw_peak, peak_time, pre_level = self._locate_peak(audio_data)
+            raw_peak, peak_time, pre_level, onsets = self._locate_peak(audio_data)
             if audio_data.size:
                 self._raw.append((audio_data, self._clock_end - audio_data.size / self.sample_rate))
 
             with self.lock:
-                attacks, sustains = self.tracker.attack_count, self.tracker.sustain_count
-                self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
-                attacks, sustains = self.tracker.attack_count - attacks, self.tracker.sustain_count - sustains
+                sustains = self.tracker.sustain_count
+                attacks = self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain, onsets=onsets)
+                sustains = self.tracker.sustain_count - sustains
                 pending = self.tracker.pending()
-            if (attacks or (sustains and self._uses_sustain())) and self._wants_centered(peak_time):
+            for t in attacks:
+                if self._wants_centered(t):
+                    self._centered.append(t)
+            if sustains and not attacks and self._uses_sustain() and self._wants_centered(peak_time):
                 self._centered.append(peak_time)
-            if attacks:
-                self._shape_pending.append(peak_time)
+            self._shape_pending.extend(attacks)
             if self._shape_pending:
                 self._measure_shapes()
             if pending and self._jobs.empty():
@@ -295,9 +312,9 @@ class AudioDetector:
                 except queue.Full:
                     pass
             if self._taps:
-                self._tap('block', raw_peak, gain, peak_time, pre_level)
-                if attacks:
-                    self._tap('peak', 'attack', peak_time)
+                self._tap('block', raw_peak, gain, peak_time, pre_level, onsets)
+                for t in attacks:
+                    self._tap('peak', 'attack', t)
                 if sustains:
                     self._tap('peak', 'sustain', peak_time)
             # Auto-gain (classifieur seulement) sur le son le plus fort des 3
@@ -384,7 +401,8 @@ class AudioDetector:
             return None
 
     def _locate_peak(self, x):
-        """(pic, instant du pic, niveau juste avant lui) d'un bloc.
+        """(pic, instant du pic, niveau juste avant lui, attaques) d'un bloc ;
+        attaques : [(pic, instant, niveau avant)] (tranches de 5 ms).
 
         L'instant suit une horloge audio (duree des blocs recus) et non l'heure
         de traitement : des blocs livres en rafale par ffmpeg gardent leur
@@ -413,16 +431,47 @@ class AudioDetector:
                 start += max(-SLEW_STEP, min(SLEW_STEP, lag))
         self._clock_end = start + dur
         if not n:
-            return 0.0, now, None
+            return 0.0, now, None, []
         mag = np.abs(x)
         idx = int(mag.argmax())
         peak = float(mag[idx])
-        buf = np.concatenate((self._prev_tail, mag)) if self._prev_tail.size else mag
-        j = idx + self._prev_tail.size
-        lo, hi = max(0, j - PRE_GAP - PRE_WINDOW), max(0, j - PRE_GAP)
-        pre = float(buf[lo:hi].max()) if hi > lo else None
+        tail = self._prev_tail.size
+        buf = np.concatenate((self._prev_tail, mag)) if tail else mag
+
+        def before(j):
+            # Niveau des 20 ms finissant 5 ms avant l'indice j de buf.
+            lo, hi = max(0, j - PRE_GAP - PRE_WINDOW), max(0, j - PRE_GAP)
+            return float(buf[lo:hi].max()) if hi > lo else None
+        pre = before(idx + tail)
+        sr = self.sample_rate
+        onsets = [(peak, start + idx / sr, pre)]
+        for f in range(0, n, ONSET_FRAME):
+            p = before(f + tail)
+            if p is None or float(mag[f:f + ONSET_FRAME].max()) <= p * ClapTracker.ATTACK_RATIO:
+                continue
+            k = f + int(mag[f:f + ONSET_SPAN].argmax())
+            if k >= n - ONSET_EDGE:
+                continue   # encore en train de monter en fin de bloc : le bloc suivant le prend
+            j = k + tail
+            rise = buf[max(0, j - RISE_FROM):max(0, j - RISE_TO)]
+            if rise.size and float(rise.max()) >= RISE_FRACTION * float(mag[k]):
+                continue
+            onsets.append((float(mag[k]), start + k / sr, before(j)))   # niveau avant SON pic
+        onsets.sort(key=lambda o: o[1])
+
+        def rank(o):
+            # Une vraie attaque d'abord : le pic du bloc (une voyelle, une
+            # reverberation) ne remplace pas un clap a quelques ms.
+            return (o[2] is None or o[0] > o[2] * ClapTracker.ATTACK_RATIO, o[0])
+        merged = []
+        for o in onsets:
+            if merged and o[1] - merged[-1][1] < ONSET_MERGE:
+                if rank(o) > rank(merged[-1]):
+                    merged[-1] = o
+                continue
+            merged.append(o)
         self._prev_tail = mag[-(PRE_GAP + PRE_WINDOW):].copy()
-        return peak, start + idx / self.sample_rate, pre
+        return peak, start + idx / sr, pre, merged
 
     def skip_audio(self, samples):
         """Audio perdu en amont (blocs VBAN jetes) : l'horloge audio avance

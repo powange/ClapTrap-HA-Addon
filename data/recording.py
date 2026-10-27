@@ -46,7 +46,8 @@ def saturation(max_raw, gain):
 
 def capture(det, seconds, grace=RESULT_GRACE, audio=False, scores=False):
     """Ecoute le detecteur `seconds` s, puis `grace` s pour les derniers
-    resultats YAMNet. Renvoie {'blocks': [(pic_brut, gain, instant)],
+    resultats YAMNet. Renvoie {'blocks': [(pic_brut, gain, instant,
+    niveau_avant_pic, attaques)],
     'peaks': [(type, instant)], 'results': [(categories, instant)],
     'audio': [(bloc, horloge_apres_bloc)], 'scores': [(521 classes,
     instant)], 't0', 't1'} ; instants sur l'horloge audio du detecteur.
