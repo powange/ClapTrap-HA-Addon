@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.102.0
+
+### « Ce n'était pas ça » et réapprendre un son
+
+- Dans « Dernières détections », chaque détection a un bouton **Ce n'était
+  pas ça**. Il propose de décocher le son entendu dans le groupe, ou de
+  relever le seuil du groupe juste au-dessus du score observé. Pour un son
+  appris, il propose aussi de **retenir ce son comme différent** : c'est un
+  contre-exemple.
+- Contre-exemples des sons appris : une fenêtre plus proche d'un
+  contre-exemple que de tous les exemples a un score nul. Au plus 20 par son.
+  Un avertissement s'affiche si la fausse détection ressemble aux exemples.
+  Essai avec le vrai YAMNet : une tonalité voisine passe de 46–81 % à 0
+  après deux contre-exemples, et la sonnette reste à 82–92 %.
+- **Réapprendre** un son appris : on refait le bruit de fond et les
+  exemples sans supprimer le son. Le même nom et le même identifiant sont
+  gardés, donc les groupes qui le cochent restent liés. Ses contre-exemples
+  sont gardés aussi.
+- API : `POST /api/detections/<id>/feedback`, et `sound_id` facultatif dans
+  `POST /api/learned/start`. Les champs `id` et `negatives` de l'historique
+  ne sont envoyés ni dans l'événement HA ni dans le webhook.
+
 ## 6.101.0
 
 ### Seuil relatif (écart avec les autres sons)

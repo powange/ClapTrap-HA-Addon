@@ -202,6 +202,20 @@ bip du lave-linge, le carillon de la porte), **Apprendre un son…** l'apprend
    Si vous changez ensuite la réduction du bruit de fond de la source,
    apprenez le son à nouveau.
 
+**Réapprendre** (à côté de chaque son appris) refait les prises (bruit de
+fond et exemples) sans supprimer le son. Le nom ne change pas, donc les
+groupes qui le cochent restent liés. Les contre-exemples sont gardés.
+
+**Contre-exemples** : quand un son appris a déclenché à tort, cliquez sur
+**Ce n'était pas ça** dans « Dernières détections », puis **Retenir ce son
+comme différent de « Appris : <nom> »**. La fenêtre entendue est gardée, au
+plus 20 par son, les plus anciennes étant remplacées. Un son plus proche
+d'un contre-exemple que de tous les exemples aura ensuite un score nul.
+L'interface prévient si la fausse détection ressemble beaucoup aux exemples,
+car le vrai son risquerait alors de ne plus être reconnu. Essai avec le vrai
+modèle : une tonalité voisine de la sonnette, reconnue entre 46 et 81 %,
+tombe à 0 après deux contre-exemples, et la sonnette reste à 82–92 %.
+
 Comment ça marche : pour chaque fenêtre analysée, YAMNet donne un score à
 chacune de ses 521 classes. Cette « empreinte » est comparée à celles de vos
 exemples, après en avoir retiré ce qui est toujours là (le bruit de fond).
@@ -779,6 +793,19 @@ Chacun est donné avec sa raison et une piste de réglage :
 
 Les 50 derniers sont gardés jusqu'au redémarrage de l'add-on (API :
 `GET /api/detections/near_misses`), et rien n'est noté pendant un calibrage.
+
+**Corriger une fausse détection** : dans « Dernières détections », **Ce
+n'était pas ça** propose, pour ce groupe :
+- **ne plus réagir à « son »** : le son est décoché dans le groupe ;
+- **relever le seuil du groupe** juste au-dessus du score observé (1 point
+  de plus, 99 % au plus) ;
+- pour un son appris, **le retenir comme différent** : voir les
+  contre-exemples dans « Sons appris ».
+
+Chaque correction est faite une fois par détection, et se défait dans les
+réglages de la source. API : `POST /api/detections/<id>/feedback` avec
+`{action: ignore | threshold | negative, label}` (`id` est le champ de
+l'historique, qui n'est envoyé ni dans l'événement HA ni dans le webhook).
 
 **Comprendre ce que la reconnaissance entend** : pendant la détection, le
 bouton **Enregistrer 5 s** des réglages d'une source garde 5 secondes du son

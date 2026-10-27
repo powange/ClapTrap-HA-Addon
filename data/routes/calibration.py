@@ -114,7 +114,11 @@ def learned_delete(sound_id):
 @calibration_bp.route('/api/learned/start', methods=['POST'])
 def learned_start():
     import learned
-    return _run(learned.start, _body().get('source'))
+    data = _body()
+    sound_id = data.get('sound_id')
+    if sound_id is not None and not isinstance(sound_id, str):
+        raise ApiError('sound_id : texte attendu')
+    return _run(learned.start, data.get('source'), sound_id)
 
 
 @calibration_bp.route('/api/learned/record', methods=['POST'])

@@ -695,3 +695,36 @@ def test_near_misses_are_kept_emitted_and_skipped_during_calibration(session_env
     assert len(classify.get_near_misses()) == 1
     classify.clear_detection_history()
     assert classify.get_near_misses() == []
+
+
+def test_detection_keeps_learned_evidence_for_feedback(session_env, monkeypatch):
+    """Detection d'un son appris : l'empreinte reste cote serveur (contre-
+    exemple possible), l'interface ne voit que l'id et les sons concernes."""
+    classify, sock, emitted, calls, sm = session_env
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    session = classify.DetectionSession([], sock)
+    asked = []
+
+    class Det:
+        def learned_evidence(self, label):
+            asked.append(label)
+            return {'Music': 0.9}
+    session.detectors = {'mic': Det()}
+    src = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro',
+           'kind': 'mic', 'source_key': '0'}
+    session._on_detection(src, {'timestamp': 1, 'score': 0.8, 'clap_count': 1, 'group_clap_counts': [1],
+                                'labels': [{'label': 'Appris : Bip', 'score': 0.8}, {'label': 'Clapping', 'score': 0.6}],
+                                'group_slug': 'clap', 'group_name': 'Clap', 'ignored': False})
+    ev = [d for e, d in emitted if e == 'clap'][-1]
+    assert asked == ['Appris : Bip'] and ev['negatives'] == ['Appris : Bip'] and ev['id']
+    assert '_feedback' not in ev and 'Music' not in str(ev)
+    entry, info = classify.feedback_target(ev['id'])
+    assert entry['negatives'] == ['Appris : Bip']
+    assert info == {'id': ev['id'], 'kind': 'mic', 'source_key': '0', 'group_slug': 'clap',
+                    'evidence': {'Appris : Bip': {'Music': 0.9}}}
+    side_payload = posted[0][3]                                  # evenement HA et webhook
+    assert not {'id', 'negatives', '_feedback'} & set(side_payload)
+    session._on_detection(src, {'timestamp': 1, 'score': 0.8, 'labels': [{'label': 'Appris : Bip', 'score': 0.8}],
+                                'group_slug': 'f', 'group_name': 'F', 'ignored': False, 'alert': 'off'})
+    assert asked == ['Appris : Bip']                             # fin d'alerte : rien a corriger

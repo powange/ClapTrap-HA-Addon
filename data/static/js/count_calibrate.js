@@ -62,7 +62,7 @@
             (sources.length
                 ? '<div class="field"><label class="field-label" for="cc-source">Source de mesure</label>' +
                   '<select class="input" id="cc-source">' + sources.map(function (s) {
-                      return '<option value="' + esc(s.kind === 'mic' ? 'mic' : s.kind + ':' + s.key) + '">' + esc(s.name) + '</option>';
+                      return '<option value="' + esc(CT.sourceRef(s)) + '">' + esc(s.name) + '</option>';
                   }).join('') + '</select></div>'
                 : '<p class="hint text-warn">Aucune source active : activez une source pour calibrer le comptage.</p>') +
             '<label class="check"><input type="checkbox" id="cc-separe" checked> Vérifier aussi deux commandes séparées (recommandé)</label>' +

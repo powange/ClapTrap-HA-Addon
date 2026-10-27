@@ -47,7 +47,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/learned/record') { w.__lnEx = body.kind === 'fond' ? 0 : (w.__lnEx || 0) + 1;
         res = { success: true, background: true, examples: w.__lnEx, distinct: w.__lnEx === 2 ? 0.05 : 0.6, top: [{ classe: 'Music', score: 0.9 }] }; }
       else if (url === '/api/learned/preview') res = { success: true, recognized: 3, examples: w.__lnEx, spread: 0.4, warnings: [] };
-      else if (url === '/api/learned/save') { const snd = { id: 'l1', name: body.name, label: 'Appris : ' + body.name, examples: w.__lnEx, source: 'Micro', quality: { warnings: [] } };
+      else if (url === '/api/learned/save') { const nm = body.name || 'Bip'; const snd = { id: body.name ? 'l1' : 'l2', name: nm, label: 'Appris : ' + nm, examples: w.__lnEx, source: 'Micro', quality: { warnings: [] } };
         w.__learned = [snd]; res = Object.assign({ success: true }, snd); }
       else if (url.startsWith('/api/learned/') && method === 'DELETE') { w.__learned = []; }
       else if (url === '/api/rtsp/probe') res = /8k/.test(body.url)
@@ -923,6 +923,31 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   await w.CT.reloadLearned(); await tick(2);
   ok('+  son appris : réduction du bruit de la source changée signalée',
      /réduction du bruit moyenne/.test($('#learned-list').textContent) && /a changé depuis/.test($('#learned-list').textContent));
+  // --- 6.102 : reapprendre un son, « Ce n'était pas ça »
+  $('[data-relearn="l2"]').click(); await tick();
+  ok('+  réapprendre : nom fixe, source d\'origine choisie', /Réapprendre « Bip »/.test($('#learn-title').textContent) && !$('#ln-name') &&
+     $('#ln-source').value === 'mic' && /restent|le gardent/.test($('#learn').textContent));
+  $('#learn [data-c="start"]').click(); await tick(3);
+  ok('+  réapprendre : session pour ce son', lastCall('POST', '/api/learned/start')[2].sound_id === 'l2');
+  await lnRec(); await lnRec(); await lnRec(); await lnRec();
+  $('#learn [data-c="finish"]').click(); await tick(3);
+  ok('+  réapprendre : bilan sans champ de nom', !$('#ln-final') && /Réapprendre « Bip » · bilan/.test($('#learn-title').textContent));
+  $('#learn [data-c="save"]').click(); await tick(4);
+  ok('+  réapprendre : enregistré sans nom', JSON.stringify(lastCall('POST', '/api/learned/save')[2]) === '{}' && $('#learn').hidden);
+  emit('clap', { id: 'd9', source_id: 'mic', clap_count: 1, score: 0.7, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 3e9,
+                 labels: [{ label: 'Clapping', score: 0.6 }, { label: 'Appris : Bip', score: 0.7 }], negatives: ['Appris : Bip'] }); await tick();
+  const wrong = $('#history-list li .history-wrong');
+  ok('+  historique : « Ce n\'était pas ça »', !!wrong && wrong.getAttribute('aria-expanded') === 'false');
+  wrong.click(); await tick();
+  const fbBtns = $$('#history-list li:first-child .history-feedback button');
+  ok('+  historique : corrections proposées', fbBtns.length === 3 && /Ne plus réagir à « Applaudissement »/.test(fbBtns[0].textContent) &&
+     /différent de « Appris : Bip »/.test(fbBtns[1].textContent) && /seuil du groupe à 71 %/.test(fbBtns[2].textContent) &&
+     d.activeElement === fbBtns[0] && wrong.getAttribute('aria-expanded') === 'true');
+  fbBtns[0].click(); await tick(3);
+  ok('+  historique : son décoché (serveur), bouton marqué', lastCall('POST', '/api/detections/d9/feedback')[2].action === 'ignore' &&
+     lastCall('POST', '/api/detections/d9/feedback')[2].label === 'Clapping' && fbBtns[0].disabled && /✓/.test(fbBtns[0].textContent));
+  fbBtns[1].click(); await tick(3);
+  ok('+  historique : contre-exemple envoyé', lastCall('POST', '/api/detections/d9/feedback')[2].action === 'negative');
   // --- 6.95 : onglet Blueprints
   $('#tab-blueprints').click(); await tick(3);
   const bpItems = () => $$('#bp-list .bp-item');

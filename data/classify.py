@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
@@ -18,7 +19,7 @@ import requests
 
 from audio_detector import ANALYSIS_HOP, AudioDetector
 from denoise import clamp_level
-from clap_logic import default_group, normalize_group
+from clap_logic import LEARNED_PREFIX, default_group, normalize_group
 from audio_sources import VbanSource, mic_source, rtsp_source, run_source
 from audio_utils import BLOCK_SAMPLES, level_db
 from ha_entities import source_label, source_entity_key
@@ -51,6 +52,10 @@ _session = None
 _session_lock = threading.Lock()
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
+# « Ce n'etait pas ca » : par detection de l'historique, sa source, son groupe
+# et l'empreinte de chaque son appris entendu (contre-exemple). Hors de
+# l'historique (envoye a l'interface) ; memes entrees.
+_feedback_info = collections.OrderedDict()
 _near_misses = collections.deque(maxlen=50)   # « presque » : gestes qui ont failli declencher
 # Gain de chaque source (lu a chaque bloc), modifiable en direct par le
 # curseur, par la detection comme par le test du son. Indexe par source_id :
@@ -356,6 +361,7 @@ class DetectionSession:
             # (clap_count 0) n'etaient que du bruit.
             logging.debug(f"Son reconnu sans pic sur {src['label']} ({base_payload['group_name']}) : ignoré")
             return
+        base_payload = self._with_feedback(src, base_payload)
         if not base_payload['ignored'] and self._room_arbitration(src, base_payload, data):
             return   # en attente : la source la plus proche est choisie a la fin de la fenetre
         self._deliver(src, base_payload, data)
@@ -472,9 +478,8 @@ class DetectionSession:
                      f"({base_payload['group_name']}): score={data['score']:.2f}, "
                      f"claps={base_payload['clap_count']}" +
                      (f" (autre pièce : {base_payload['room']})" if base_payload.get('room') else ''))
-        self._emit('clap', base_payload)
-        with _history_lock:
-            _detection_history.appendleft({**base_payload, 'score': round(data['score'], 3)})
+        base_payload, shown = _remember(base_payload, data['score'])
+        self._emit('clap', shown)
         if base_payload['ignored']:
             return  # perdant de l'arbitrage : historique seulement
         self._recent_hits.append(((base_payload.get('group_name') or '').casefold(), time.monotonic()))
@@ -490,12 +495,28 @@ class DetectionSession:
         payload.pop('clap_count', None)
         logging.info(f"ALERTE {'début' if state == 'on' else 'fin'} sur {src['label']} "
                      f"({payload['group_name']})" + (f": score={payload['score']:.2f}" if state == 'on' else ''))
-        self._emit('alert', payload)
+        shown = payload
         if state == 'on':
-            with _history_lock:
-                _detection_history.appendleft({**payload, 'score': round(payload['score'], 3)})
+            payload, shown = _remember(self._with_feedback(src, payload), payload['score'])
+        self._emit('alert', shown)
         _side_effects.submit(_run_alert_effects, src['source_id'], src['entity_key'], payload,
                              self.webhooks.get(src['source_id'], ''))
+
+    def _with_feedback(self, src, payload):
+        """Detection qui entrera dans l'historique : de quoi la corriger
+        (« Ce n'etait pas ca ») ; l'empreinte de chaque son appris entendu
+        sert de contre-exemple."""
+        det = self.detectors.get(src['source_id'])
+        evidence = {}
+        for lab in payload['labels']:
+            name = lab.get('label') if isinstance(lab, dict) else None
+            if det is not None and name and name.startswith(LEARNED_PREFIX):
+                fp = det.learned_evidence(name)
+                if fp:
+                    evidence[name] = fp
+        return dict(payload, _feedback={'id': uuid.uuid4().hex[:12], 'kind': src.get('kind'),
+                                        'source_key': src.get('source_key'),
+                                        'group_slug': payload['group_slug'], 'evidence': evidence})
 
     def _on_sound_seen(self, src, data):
         if src['source_id'] in _muted_sources:
@@ -1005,6 +1026,43 @@ def get_status():
             'source_errors': dict(s.source_errors), 'source_stats': s.source_stats(), 'perf': perf.latest()}
 
 
+def _remember(payload, score):
+    """Entre une detection dans l'historique, avec de quoi la corriger plus
+    tard. Rend (charge des evenements HA et webhooks, charge de l'interface :
+    en plus l'id et les sons appris corrigibles, jamais les empreintes)."""
+    public = dict(payload)
+    info = public.pop('_feedback', None)
+    ui = dict(public)
+    if info:
+        ui.update(id=info['id'], negatives=sorted(info['evidence']))
+    with _history_lock:
+        _detection_history.appendleft({**ui, 'score': round(score, 3)})
+        if info:
+            _feedback_info[info['id']] = info
+            while len(_feedback_info) > _detection_history.maxlen:
+                _feedback_info.popitem(last=False)
+    return public, ui
+
+
+def feedback_target(det_id):
+    """(entree de l'historique, source/groupe/empreintes) d'une detection, ou
+    (None, None)."""
+    with _history_lock:
+        entry = next((e for e in _detection_history if e.get('id') == det_id), None)
+        info = _feedback_info.get(det_id)
+        return (dict(entry), info) if entry is not None and info is not None else (None, None)
+
+
+def mark_feedback(det_id, action, label=None):
+    """Note une correction faite (affichee apres un rechargement)."""
+    with _history_lock:
+        for e in _detection_history:
+            if e.get('id') == det_id:
+                e['feedback'] = list(e.get('feedback') or []) + [{'action': action, 'label': label}]
+                return e['feedback']
+    return []
+
+
 def get_detection_history():
     with _history_lock:
         return list(_detection_history)
@@ -1013,6 +1071,7 @@ def get_detection_history():
 def clear_detection_history():
     with _history_lock:
         _detection_history.clear()
+        _feedback_info.clear()
         _near_misses.clear()
 
 

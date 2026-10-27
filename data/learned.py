@@ -18,6 +18,14 @@ besoin, source en sourdine) :
    fenetre la plus differente du bruit de fond est gardee ;
 3. save(nom) : bilan (exemples reconnus entre eux, ecart avec le bruit de
    fond) et enregistrement dans learned_sounds.json.
+
+Reapprendre (start(source, sound_id)) : memes etapes, le son garde son id
+et son nom (les groupes qui le cochent restent lies), ses contre-exemples
+aussi.
+
+Contre-exemples : empreintes de fausses detections (« Ce n'etait pas ca »
+dans l'historique). Une fenetre plus proche d'un contre-exemple que de tous
+les exemples a un score nul.
 """
 import json
 import logging
@@ -34,6 +42,7 @@ PREFIX = 'Appris : '
 MIN_EXAMPLES = 3
 MAX_EXAMPLES = 10
 MAX_SOUNDS = 20
+MAX_NEGATIVES = 20       # contre-exemples par son (les plus anciens remplaces)
 BACKGROUND_SECONDS = 5.0
 EXAMPLE_SECONDS = 3.0
 GRACE = 1.6              # derniers resultats YAMNet apres la prise
@@ -141,8 +150,9 @@ class Matcher:
         for s in sounds:
             center = s.get('center') or {}
             examples = [centered(e, center) for e in s['examples']]
+            negatives = [centered(e, center) for e in s.get('negatives') or []]
             self.sounds.append((PREFIX + s['name'], center, [(e, _norm(e)) for e in examples],
-                                s['floor'], s['ceiling']))
+                                [(e, _norm(e)) for e in negatives], s['floor'], s['ceiling']))
 
     def __bool__(self):
         return bool(self.sounds)
@@ -152,29 +162,44 @@ class Matcher:
 
     def match(self, categories):
         """[(classe apprise, score)] d'un resultat complet (521 classes)."""
+        return self.match_full(categories)[1]
+
+    def match_full(self, categories):
+        """(empreinte, [(classe apprise, score)]) : l'empreinte sert de
+        contre-exemple si la detection etait fausse."""
         fp = fingerprint(categories)
         if not fp:
-            return []
+            return fp, []
         logged = _log(fp)
         out = []
-        for label, center, examples, floor, ceiling in self.sounds:
+        for label, center, examples, negatives, floor, ceiling in self.sounds:
             c = centered(fp, center, logged)
             nc = _norm(c)
             sim = max((cosine(c, e, nc, ne) for e, ne in examples), default=0.0)
+            if negatives and max(cosine(c, e, nc, ne) for e, ne in negatives) > sim:
+                out.append((label, 0.0))   # plus proche d'une fausse detection signalee
+                continue
             out.append((label, round(score_of(sim, floor, ceiling), 4)))
-        return out
+        return fp, out
 
 
 # ===== Stockage =================================================================
 
+def _fp_ok(fp):
+    return isinstance(fp, dict) and all(isinstance(v, (int, float)) for v in fp.values())
+
+
 def _valid(s):
-    """Entree utilisable (un fichier modifie a la main ne casse pas tout)."""
-    def fp_ok(fp):
-        return isinstance(fp, dict) and all(isinstance(v, (int, float)) for v in fp.values())
+    """Entree utilisable (un fichier modifie a la main ne casse pas tout).
+    Un contre-exemple invalide est retire, pas tout le son (l'ecriture
+    suivante l'aurait efface du fichier)."""
+    if isinstance(s, dict) and 'negatives' in s:
+        negatives = s['negatives'] if isinstance(s['negatives'], list) else []
+        s['negatives'] = [e for e in negatives if _fp_ok(e)]
     return (isinstance(s, dict) and isinstance(s.get('id'), str) and isinstance(s.get('name'), str) and s['name']
-            and isinstance(s.get('examples'), list) and s['examples'] and all(fp_ok(e) for e in s['examples'])
+            and isinstance(s.get('examples'), list) and s['examples'] and all(_fp_ok(e) for e in s['examples'])
             and isinstance(s.get('floor'), (int, float)) and isinstance(s.get('ceiling'), (int, float))
-            and fp_ok(s.get('center') or {}))
+            and _fp_ok(s.get('center') or {}))
 
 
 def _read():
@@ -259,7 +284,8 @@ def summary(sound):
     return {'id': sound['id'], 'name': sound['name'], 'label': PREFIX + sound['name'],
             'examples': len(sound['examples']), 'source': sound.get('source', ''),
             'noise_reduction': sound.get('noise_reduction', 0), 'source_ref': sound.get('source_ref', ''),
-            'created': sound.get('created'), 'quality': sound.get('quality')}
+            'created': sound.get('created'), 'updated': sound.get('updated'), 'quality': sound.get('quality'),
+            'negatives': len(sound.get('negatives') or [])}
 
 
 def list_sounds():
@@ -291,8 +317,12 @@ def _check_name(name, sounds, exclude=None):
 
 # ===== Apprentissage (session du calibrage) =======================================
 
-def start(source_ref):
-    return calibration.start(source_ref, purpose='learn')
+def start(source_ref, sound_id=None):
+    """Apprentissage d'un nouveau son, ou d'un son existant (`sound_id` :
+    reapprendre, memes nom et id)."""
+    if sound_id is not None and not any(s['id'] == sound_id for s in _read()):
+        raise LearnError('son appris introuvable', 404)
+    return dict(calibration.start(source_ref, purpose='learn', learn_target=sound_id), relearn=sound_id)
 
 
 def _session():
@@ -367,8 +397,9 @@ def preview():
         return _quality(ex, floor, ceiling)
 
 
-def save(name):
-    """Enregistre le son appris et termine la session."""
+def save(name=None):
+    """Enregistre le son appris et termine la session (son reappris : nom
+    inchange, `name` ignore)."""
     with calibration._lock:
         s = _session()
         if len(s.learn_examples) < MIN_EXAMPLES:
@@ -384,15 +415,54 @@ def save(name):
                  'created': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                  'floor': round(floor, 4), 'ceiling': round(ceiling, 4), 'center': center,
                  'examples': s.learn_examples, 'quality': quality}
+        target = s.learn_target
         with _file_lock:
             sounds = _read()
-            if len(sounds) >= MAX_SOUNDS:
-                raise LearnError(f'{MAX_SOUNDS} sons appris au plus : supprimez-en un', 409)
-            sound['name'] = _check_name(name, sounds)
-            _write(sounds + [sound])
+            if target is not None:
+                i = next((i for i, x in enumerate(sounds) if x['id'] == target), None)
+                if i is None:
+                    raise LearnError('son appris supprimé pendant l\'apprentissage', 404)
+                old = sounds[i]
+                sound.update(id=old['id'], name=old['name'], created=old.get('created'),
+                             updated=sound['created'], negatives=old.get('negatives') or [])
+                sounds[i] = sound
+                _write(sounds)
+            else:
+                if len(sounds) >= MAX_SOUNDS:
+                    raise LearnError(f'{MAX_SOUNDS} sons appris au plus : supprimez-en un', 409)
+                sound['name'] = _check_name(name, sounds)
+                _write(sounds + [sound])
         calibration._finish(s)
-    logging.info(f"Son appris enregistré : {sound['name']} ({len(sound['examples'])} exemples, "
-                 f"écart {quality['spread']})")
+    logging.info(f"Son appris {'réappris' if target else 'enregistré'} : {sound['name']} "
+                 f"({len(sound['examples'])} exemples, écart {quality['spread']})")
     _changed()
     return summary(sound)
 
+
+
+# ===== Contre-exemples ==========================================================
+
+def add_negative(label, fp):
+    """Ajoute l'empreinte d'une fausse detection a un son appris (`label` :
+    « Appris : <nom> »). Avertit si elle ressemble aux exemples autant
+    qu'ils se ressemblent entre eux (le vrai son risque de ne plus etre
+    reconnu)."""
+    if not isinstance(label, str) or not label.startswith(PREFIX) or not fp:
+        raise LearnError('son appris attendu')
+    with _file_lock:
+        sounds = _read()
+        sound = next((s for s in sounds if PREFIX + s['name'] == label), None)
+        if sound is None:
+            raise LearnError('son appris introuvable (supprimé ou renommé ?)', 404)
+        center = sound.get('center') or {}
+        sim = _best(centered(fp, center), [centered(e, center) for e in sound['examples']])
+        sound['negatives'] = ((sound.get('negatives') or []) + [fp])[-MAX_NEGATIVES:]
+        _write(sounds)
+    _changed()
+    warning = None
+    if sim >= sound['ceiling']:
+        warning = (f'ce son ressemble beaucoup aux exemples de « {sound["name"]} » : '
+                   'le vrai son risque de ne plus être reconnu (réapprenez-le si c\'est le cas)')
+    logging.info(f"Son appris {sound['name']} : contre-exemple ajouté "
+                 f"({len(sound['negatives'])}, ressemblance {sim:.2f})")
+    return {'negatives': len(sound['negatives']), 'warning': warning}
