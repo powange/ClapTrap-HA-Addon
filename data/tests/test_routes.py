@@ -603,3 +603,44 @@ def test_room_settings_route(client, settings_dir):
     assert g['room_arbitration'] is True and g['room_window'] == 1.5
     assert client.put('/api/settings/rooms', json={'window': 9}).status_code == 400
     assert client.put('/api/settings/rooms', json={'autre': 1}).status_code == 400
+
+
+def test_room_zones_route_and_validation(client, settings_dir):
+    s = settings_dir.load_settings()
+    s['microphone'] = {'configured': True, 'enabled': True}
+    s['rtsp_sources'] = [{'id': 'a', 'name': 'A', 'url': 'rtsp://h/a', 'enabled': True},
+                         {'id': 'b', 'name': 'B', 'url': 'rtsp://h/b', 'enabled': True}]
+    settings_dir.save_settings(s)
+    r = client.put('/api/settings/rooms', json={'enabled': True, 'zones': [
+        {'name': ' Salon ', 'sources': ['mic', 'rtsp_a', 'mic']}, {'name': 'Étage', 'sources': ['rtsp_b']}]})
+    assert r.status_code == 200 and r.json['room_zones'] == [
+        {'name': 'Salon', 'sources': ['mic', 'rtsp_a']}, {'name': 'Étage', 'sources': ['rtsp_b']}]
+    assert settings_dir.load_settings()['global']['room_zones'][0]['name'] == 'Salon'
+    bad = [
+        {'zones': {}},
+        {'zones': [{'name': 'A', 'sources': ['mic']}, {'name': 'B', 'sources': ['mic']}]},   # source dans deux groupes
+        {'zones': [{'name': 'A', 'sources': []}, {'name': 'a', 'sources': []}]},             # meme nom
+        {'zones': [{'name': 'A', 'sources': [3]}]},
+        {'zones': [{'name': f'G{i}', 'sources': []} for i in range(11)]},
+    ]
+    for body in bad:
+        assert client.put('/api/settings/rooms', json=body).status_code == 400, body
+    r = client.put('/api/settings/rooms', json={'zones': [{'name': '', 'sources': []}]})
+    assert r.json['room_zones'] == [{'name': 'Groupe 1', 'sources': []}]
+
+
+def test_room_zones_drop_deleted_sources(client, settings_dir):
+    """Source supprimee (ou importee sous un autre identifiant) : retiree des
+    groupes ; un micro supprime puis rajoute ne retrouve pas son groupe."""
+    s = settings_dir.load_settings()
+    s['microphone'] = {'configured': True, 'enabled': True}
+    s['rtsp_sources'] = [{'id': 'a', 'name': 'A', 'url': 'rtsp://h/a', 'enabled': True}]
+    settings_dir.save_settings(s)
+    client.put('/api/settings/rooms', json={'zones': [{'name': 'Salon', 'sources': ['mic', 'rtsp_a', 'rtsp_x']}]})
+    assert settings_dir.load_settings()['global']['room_zones'][0]['sources'] == ['mic', 'rtsp_a']
+
+    def drop(st):
+        st['rtsp_sources'] = []
+        st['microphone']['configured'] = False
+    settings_dir.modify_settings(drop)
+    assert settings_dir.load_settings()['global']['room_zones'][0]['sources'] == []

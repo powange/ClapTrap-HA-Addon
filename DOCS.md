@@ -527,6 +527,15 @@ son propre bruit de fond, déclenche ses entités ; les autres sont notées
 de retard sur un micro : allongez l'attente si un clap se déclenche encore
 deux fois. Les alertes ne sont pas concernées.
 
+**Groupes de sources** : sans groupe, toutes les sources se départagent
+entre elles. Avec **Ajouter un groupe**, vous réunissez les sources qui
+peuvent entendre le même geste (par exemple le micro et la caméra du salon,
+ou deux caméras d'un même étage). Seules les sources d'un même groupe se
+départagent, et une source n'appartient qu'à un groupe. Une source hors de
+tout groupe déclenche toujours, sans attente. Elle garde aussi la décision
+rapide d'un groupe « 1 clap ». Commande MQTT : `set_rooms` avec
+`zones: [{name, sources: [source_id]}]`.
+
 Le capteur `sensor.claptrap_derniere_piece` (« Pièce du dernier clap »),
 avec ou sans cette option, indique la source du dernier clap déclenché : une
 seule automatisation peut allumer la lumière de la bonne pièce. Exemple, si

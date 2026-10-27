@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.97.0
+
+### Plusieurs pièces : groupes de sources
+
+- Dans Réglages › Plusieurs pièces, **Ajouter un groupe** réunit des sources
+  qui peuvent entendre le même geste (micro et caméra du salon, par exemple).
+  Avec « Seule la source la plus proche déclenche », seules les sources d'un
+  même groupe se départagent. Une source n'appartient qu'à un groupe, et une
+  source hors de tout groupe déclenche toujours, sans attente : elle garde la
+  décision rapide d'un groupe « 1 clap ».
+- Sans groupe, rien ne change : toutes les sources se départagent.
+- Réglage `global.room_zones`, accessible par l'API
+  (`PUT /api/settings/rooms` avec `zones`) et par la commande MQTT
+  `set_rooms`.
+
 ## 6.96.1
 
 ### AppArmor : arrêt du conteneur par un runc confiné

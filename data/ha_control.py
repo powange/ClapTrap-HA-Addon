@@ -80,7 +80,8 @@ ACTIONS = {
     'clear_unchecked_sounds': '{source, group} : retire les sons non cochés.',
     'set_exclusion': '{label, excluded} : ignore une classe YAMNet partout.',
     'set_advanced': '{delay?, peak_cooldown?, peak_ratio?} : réglages avancés.',
-    'set_rooms': '{enabled?, window?(0,3-3 s)} : arbitrage entre pièces (seule la source la plus proche déclenche).',
+    'set_rooms': '{enabled?, window?(0,3-3 s), zones?([{name, sources:[source_id]}])} : arbitrage entre pièces '
+                 '(seule la source la plus proche déclenche ; avec des groupes, seulement entre sources d\'un même groupe).',
     'calibration_start': '{source} : commence le calibrage (détection démarrée si besoin, source en sourdine).',
     'calibration_record': '{target, expected?, duration?(s, 4)} : une prise ; jouez le bruit du groupe target '
                           '(existant ou nouveau nom) ou « fond » dès l\'envoi. expected : nombre de pics attendus.',
@@ -749,7 +750,7 @@ def execute(action, cmd):
     if action == 'set_exclusion':
         return _api_or_raise('PUT', '/api/sound_exclusions', _pick(cmd, ('label', 'excluded')))
     if action == 'set_rooms':
-        return _api_or_raise('PUT', '/api/settings/rooms', _pick(cmd, ('enabled', 'window')))
+        return _api_or_raise('PUT', '/api/settings/rooms', _pick(cmd, ('enabled', 'window', 'zones')))
     if action == 'set_advanced':
         return _api_or_raise('PUT', '/api/settings/advanced', _pick(cmd, ('delay', 'peak_cooldown', 'peak_ratio')))
     if action == 'calibration_status':

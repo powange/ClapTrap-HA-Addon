@@ -566,3 +566,9 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .bp-fallback { margin: 8px 0 12px; padding-left: 20px; }
 .record-part { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
 .record-part h4 { margin: 0 0 6px; font-size: 0.9rem; }
+
+/* Groupes de sources (arbitrage entre pieces) */
+.zones { display: grid; gap: 10px; margin: 8px 0; }
+.zone { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
+.zone-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.zone-head .input { flex: 1 1 180px; min-width: 0; }

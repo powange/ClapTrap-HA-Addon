@@ -445,6 +445,7 @@ def _commit(settings):
     """Ecrit `settings` tel quel (sous _lock) et met le cache a jour."""
     global _cache, _cache_time, _degraded, _unsaved
     _unsaved = None
+    prune_room_zones(settings)
     if _degraded:
         stamp = time.strftime('%Y%m%d-%H%M%S')
         for path in (SETTINGS_FILE, SETTINGS_BACKUP):
@@ -462,7 +463,7 @@ def _commit(settings):
 # enregistree telle quelle et recopiee a chaque lecture.
 _KNOWN_SECTIONS = ('global', 'microphone', 'rtsp_sources', 'saved_vban_sources')
 _GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions',
-                'room_arbitration', 'room_window'}
+                'room_arbitration', 'room_window', 'room_zones'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
                    'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction'},
@@ -862,6 +863,56 @@ def rtsp_url_key(url):
     return f"{scheme.lower()}{sep}{rest}" if sep else str(url or '')
 
 
+MAX_ROOM_ZONES = 10
+
+
+def to_room_zones(value, path='zones'):
+    """Groupes de sources de l'arbitrage entre pieces : [{name, sources:
+    [source_id]}]. Seules les sources d'un meme groupe se departagent ; une
+    source n'est que dans un groupe. Liste vide : toutes ensemble."""
+    if not isinstance(value, list):
+        raise ValueError(f"{path} : liste attendue")
+    if len(value) > MAX_ROOM_ZONES:
+        raise ValueError(f"{path} : {MAX_ROOM_ZONES} groupes au plus")
+    out, seen, names = [], {}, set()
+    for i, z in enumerate(value):
+        zp = f"{path}[{i}]"
+        if not isinstance(z, dict):
+            raise ValueError(f"{zp} : objet attendu")
+        name = to_name(z.get('name'), f"{zp}.name", default=f"Groupe {i + 1}")
+        if len(name) > 40:
+            raise ValueError(f"{zp}.name : 40 caractères au plus")
+        if name.casefold() in names:
+            raise ValueError(f"{zp}.name : « {name} » est déjà utilisé")
+        names.add(name.casefold())
+        sources = z.get('sources', [])
+        if not isinstance(sources, list) or not all(isinstance(s, str) and 0 < len(s) <= 80 for s in sources):
+            raise ValueError(f"{zp}.sources : liste d'identifiants de source attendue")
+        for sid in sources:
+            if sid in seen and seen[sid] != name:
+                raise ValueError(f"{zp}.sources : la source {sid} est déjà dans « {seen[sid]} »")
+            seen[sid] = name
+        out.append({'name': name, 'sources': list(dict.fromkeys(sources))})
+    return out
+
+
+def prune_room_zones(settings):
+    """Retire des groupes de sources les sources qui n'existent plus
+    (supprimees, ou importees sous un autre identifiant) : un micro supprime
+    puis rajoute ne retrouve pas en silence son ancien groupe."""
+    g = settings.get('global')
+    zones = g.get('room_zones') if isinstance(g, dict) else None
+    if not zones:
+        return
+    mic = settings.get('microphone')
+    ids = {'mic'} if isinstance(mic, dict) and mic.get('configured', True) is not False else set()
+    ids |= {f"rtsp_{s.get('id')}" for s in settings.get('rtsp_sources') or [] if isinstance(s, dict) and s.get('id')}
+    ids |= {f"vban_{s.get('id') or s.get('ip', '')}" for s in settings.get('saved_vban_sources') or [] if isinstance(s, dict)}
+    for z in zones:
+        if isinstance(z, dict) and isinstance(z.get('sources'), list):
+            z['sources'] = [sid for sid in z['sources'] if sid in ids]
+
+
 def to_name(value, path='Nom', default=None):
     """Nom affiche : texte de 1 a MAX_NAME caracteres (vide = `default`)."""
     if value is not None and not isinstance(value, str):
@@ -897,6 +948,8 @@ def normalize_settings(data):
         for flag in ('debug', 'room_arbitration'):
             if flag in g:
                 g[flag] = to_bool(g[flag], f'global.{flag}')
+        if 'room_zones' in g:
+            g['room_zones'] = to_room_zones(g['room_zones'], 'global.room_zones')
         if 'sound_exclusions' in g:
             if not isinstance(g['sound_exclusions'], list):
                 raise ValueError("global.sound_exclusions : liste attendue")

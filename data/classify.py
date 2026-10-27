@@ -229,7 +229,7 @@ class DetectionSession:
         # par la source qui l'entend le plus fort).
         self._room_pools = {}       # nom du groupe -> {'items': [(src, payload, data)], 'timer'}
         self._room_lock = threading.Lock()
-        self._room_cfg = (0.0, False, 1.0)   # (lu a, active, attente) : reglages relus toutes les 2 s
+        self._room_cfg = (0.0, False, 1.0, None)   # (lu a, active, attente, groupes) : relus toutes les 2 s
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
         self._supervisor = None
@@ -359,27 +359,36 @@ class DetectionSession:
         self._deliver(src, base_payload, data)
 
     def _room_settings(self):
+        """(active, attente, groupes) : groupes = {source_id: nom du groupe},
+        ou None sans groupe (toutes les sources ensemble)."""
         now = time.monotonic()
-        read_at, enabled, window = self._room_cfg
+        read_at, enabled, window, zones = self._room_cfg
         if now - read_at > 2.0:   # sans copie des reglages a chaque clap
             g = load_settings().get('global', {})
             enabled, window = bool(g.get('room_arbitration')), float(g.get('room_window', 1.0))
-            self._room_cfg = (now, enabled, window)
-        return enabled, window
+            zones = room_zone_map(g)
+            self._room_cfg = (now, enabled, window, zones)
+        return enabled, window, zones
 
     def _room_arbitration(self, src, base_payload, data):
         """Met le clap en attente si l'arbitrage entre pieces est actif et
         que plusieurs sources sont connectees. Retourne True s'il est en
         attente. Les claps ne se comparent qu'entre groupes de meme nom (un
         clap au salon et un toc dans le couloir ne s'excluent pas)."""
-        enabled, window = self._room_settings()
+        enabled, window, zones = self._room_settings()
         if not enabled:
             return False
+        zone = None
+        if zones is not None:
+            zone = zones.get(src['source_id'])
+            if zone is None:
+                return False   # hors de tout groupe de sources : declenche toujours
         with self._lock:
-            connected = sum(1 for sid in self.detectors if self.source_status.get(sid) == 'connected')
+            connected = sum(1 for sid in self.detectors if self.source_status.get(sid) == 'connected'
+                            and (zones is None or zones.get(sid) == zone))
         if connected < 2:
-            return False   # une seule source entend : rien a arbitrer, pas d'attente
-        key = (base_payload.get('group_name') or '').casefold()
+            return False   # une seule source du groupe entend : rien a arbitrer, pas d'attente
+        key = (zone, (base_payload.get('group_name') or '').casefold())
         flush = None
         with self._room_lock:
             pool = self._room_pools.get(key)
@@ -563,7 +572,8 @@ class DetectionSession:
                 p = detection_params_from_settings(settings)
                 # Arbitrage entre pieces : pas de decision anticipee (les
                 # sources doivent finir en meme temps pour etre comparees).
-                det.tracker.early_decision = not settings.get('global', {}).get('room_arbitration')
+                g = settings.get('global', {})
+                det.tracker.early_decision = not arbitrated(g, sid, room_zone_map(g))
                 det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
                 exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
                 with self._lock:
@@ -773,6 +783,7 @@ class DetectionSession:
             if self.stop_event.is_set():
                 return None
             self._applying += 1
+        self._room_cfg = (0.0, False, 1.0, None)   # groupes de sources relus au clap suivant
         try:
             built = {s['source_id']: s for s in build_sources_from_settings(settings)}
             if not built:
@@ -966,6 +977,29 @@ def get_detection_history():
 def clear_detection_history():
     with _history_lock:
         _detection_history.clear()
+
+
+def room_zone_map(g):
+    """{source_id: nom du groupe} des groupes de sources de l'arbitrage,
+    ou None sans groupe (toutes les sources se departagent). Des groupes
+    encore vides (« Ajouter un groupe » avant de cocher) ne coupent pas
+    l'arbitrage des autres."""
+    zones = {sid: z.get('name') for z in g.get('room_zones') or [] if isinstance(z, dict)
+             for sid in z.get('sources') or []}
+    return zones or None
+
+
+def arbitrated(g, source_id, zones=False):
+    """La source peut-elle attendre l'arbitrage entre pieces ? Non hors
+    groupe, ni seule dans son groupe (elle garde la decision rapide).
+    `zones` : room_zone_map(g) deja calcule."""
+    if not g.get('room_arbitration'):
+        return False
+    zones = room_zone_map(g) if zones is False else zones
+    if zones is None:
+        return True
+    zone = zones.get(source_id)
+    return zone is not None and sum(1 for z in zones.values() if z == zone) >= 2
 
 
 def _emit_status_change():

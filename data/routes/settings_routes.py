@@ -5,7 +5,7 @@ from datetime import datetime
 import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
-                              to_bool, to_number, SettingsSaveError, GLOBAL_LIMITS)
+                              to_bool, to_number, to_room_zones, SettingsSaveError, GLOBAL_LIMITS)
 from webhook import send_webhook
 from routes.sources import (ApiError, add_restart_to_response, api_error_response, _apply_live, _json,
                            _sync_and_apply)
@@ -63,9 +63,10 @@ def update_advanced_settings():
 
 @settings_bp.route('/api/settings/rooms', methods=['PUT'])
 def update_room_settings():
-    """Arbitrage entre pieces : {enabled?, window?} (fenetre d'attente en s)."""
+    """Arbitrage entre pieces : {enabled?, window?, zones?} (fenetre
+    d'attente en s ; groupes de sources qui se departagent entre elles)."""
     data = _json()
-    unknown = sorted(set(data) - {'enabled', 'window'})
+    unknown = sorted(set(data) - {'enabled', 'window', 'zones'})
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
     values = {}
@@ -73,6 +74,8 @@ def update_room_settings():
         values['room_arbitration'] = to_bool(data['enabled'], 'enabled')
     if 'window' in data:
         values['room_window'] = to_number(data['window'], 'window', *GLOBAL_LIMITS['room_window'])
+    if 'zones' in data:
+        values['room_zones'] = to_room_zones(data['zones'])
 
     def _mut(settings):
         settings.setdefault('global', {}).update(values)

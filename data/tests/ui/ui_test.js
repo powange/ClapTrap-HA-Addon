@@ -75,7 +75,9 @@ const dom = new JSDOM(html, {
         settings.microphone.sound_groups.push(g);
         res = { success: true, group: g, skipped_sounds: body.preset === 'fumee' ? ['Fire alarm'] : [] };
       }
-      else if (url === '/api/settings/rooms') { res = { success: true, room_arbitration: body.enabled }; settings.global = settings.global || {}; settings.global.room_arbitration = body.enabled; }
+      else if (url === '/api/settings/rooms') { settings.global = settings.global || {}; res = { success: true };
+        if ('enabled' in body) { res.room_arbitration = body.enabled; settings.global.room_arbitration = body.enabled; }
+        if ('zones' in body) { res.room_zones = body.zones; settings.global.room_zones = body.zones; } }
       else if (url === '/api/sound_groups/presets') res = { presets: [
         { id: 'claps', name: 'Applaudissements', sounds: ['Clapping', 'Hands'], ha_entities: [1, 2], count_mode: 'attaques' },
         { id: 'fumee', name: 'Détecteur de fumée', sounds: ['Smoke detector, smoke alarm', 'Fire alarm'], count_mode: 'alerte', alert_confirm: 3 }] };
@@ -743,6 +745,32 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  pièces : option désactivée par défaut, attente grisée', $('#rooms-toggle') && !$('#rooms-toggle').checked && $('#rooms-window').disabled);
   change($('#rooms-toggle'), true); await tick(3);
   ok('+  pièces : option enregistrée', lastCall('PUT', '/api/settings/rooms')[2].enabled === true);
+  // --- 6.97 : groupes de sources
+  ok('+  pièces : aucun groupe, bouton actif', $$('#rooms-zones .zone').length === 0 && !$('#rooms-zone-add').disabled);
+  $('#rooms-zone-add').click(); await tick(3);
+  let zcall = lastCall('PUT', '/api/settings/rooms')[2];
+  ok('+  pièces : groupe ajouté', JSON.stringify(zcall.zones) === JSON.stringify([{ name: 'Groupe 1', sources: [] }]) && $$('#rooms-zones .zone').length === 1);
+  const zoneSrc = (zi, sid) => $('#rooms-zones [data-zone="' + zi + '"] [data-zone-src="' + sid + '"]');
+  change(zoneSrc(0, 'mic'), true); await tick(3);
+  zcall = lastCall('PUT', '/api/settings/rooms')[2];
+  ok('+  pièces : source cochée dans le groupe', JSON.stringify(zcall.zones[0].sources) === '["mic"]');
+  $('#rooms-zone-add').click(); await tick(3);
+  ok('+  pièces : source déjà prise grisée dans l\'autre groupe', zoneSrc(1, 'mic').disabled && /dans « Groupe 1 »/.test($('#rooms-zones [data-zone="1"]').textContent));
+  const zname = $('#rooms-zones [data-zone="0"] [data-zone-name]');
+  zname.value = 'Salon'; zname.dispatchEvent(new w.Event('change', { bubbles: true })); await tick(3);
+  ok('+  pièces : groupe renommé', lastCall('PUT', '/api/settings/rooms')[2].zones[0].name === 'Salon' && /dans « Salon »/.test($('#rooms-zones [data-zone="1"]').textContent));
+  $('#rooms-zones [data-zone="1"] [data-zone-del]').click(); await tick();
+  $('.modal-backdrop [data-r="ok"]').click(); await tick(3);
+  ok('+  pièces : groupe supprimé après confirmation', lastCall('PUT', '/api/settings/rooms')[2].zones.length === 1 && $$('#rooms-zones .zone').length === 1);
+  w.__hold = { url: '/api/settings/rooms' };
+  const roomPuts = () => calls.filter(c => c[0] === 'PUT' && c[1] === '/api/settings/rooms').length;
+  const putsBefore0 = roomPuts();
+  change(zoneSrc(0, 'mic'), false); await tick();
+  change($$('#rooms-zones [data-zone="0"] [data-zone-src]').find(cb => cb.getAttribute('data-zone-src') !== 'mic'), true); await tick();
+  ok('+  pièces : un seul envoi à la fois', roomPuts() === putsBefore0 + 1);
+  w.__hold.release(); w.__hold = null; await tick(4);
+  const last = lastCall('PUT', '/api/settings/rooms')[2].zones[0].sources;
+  ok('+  pièces : modification faite pendant l\'envoi, envoyée ensuite', roomPuts() === putsBefore0 + 2 && last.indexOf('mic') === -1 && last.length === 1);
   $('#tab-listen').click(); await tick(2);
   emit('clap', { source_id: 'mic', clap_count: 2, group_name: 'Clap', score: 0.8, ignored: true, room: 'Cuisine', timestamp: 1e9 }); await tick();
   ok('+  pièces : historique « entendu plus fort dans »', /entendu plus fort dans « Cuisine »/.test($('#history-list').textContent));
