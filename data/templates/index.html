@@ -96,6 +96,13 @@
                 </div>
                 <p class="hint" id="history-empty">Aucun clap pour l'instant : démarrez la détection et tapez dans vos mains.</p>
                 <ol class="history-list" id="history-list"></ol>
+                <details class="near-misses" id="near-misses">
+                    <summary>Presque déclenchés <span class="muted" id="near-count"></span></summary>
+                    <p class="hint">Les gestes qui ont failli déclencher, et pourquoi : un pic de clap sans son reconnu, un son
+                       reconnu sans pic assez fort, ou un nombre de claps sans entité. Pour régler seuils et comptage sans deviner.</p>
+                    <p class="hint" id="near-empty">Rien pour l'instant.</p>
+                    <ol class="history-list" id="near-list"></ol>
+                </details>
             </section>
         </section>
 

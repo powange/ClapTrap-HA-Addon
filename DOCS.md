@@ -735,6 +735,19 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
+**Comprendre un clap raté** : sous « Dernières détections » (onglet
+Écoute), **Presque déclenchés** liste les gestes qui ont failli déclencher.
+Chacun est donné avec sa raison et une piste de réglage :
+- **pic de clap sans son reconnu**, avec le meilleur score du groupe et son
+  seuil → baisser le seuil, ou cocher le son que YAMNet entend ;
+- **son reconnu sans pic assez fort**, avec la force mesurée et le minimum
+  demandé → baisser la force minimale d'un clap, ou rapprocher la source ;
+- **nombre de claps sans entité** (3 claps pour un groupe qui attend 1 ou 2)
+  → ajuster la fenêtre multi-clap ou lancer « Calibrer le comptage ».
+
+Les 50 derniers sont gardés jusqu'au redémarrage de l'add-on (API :
+`GET /api/detections/near_misses`), et rien n'est noté pendant un calibrage.
+
 **Comprendre ce que la reconnaissance entend** : pendant la détection, le
 bouton **Enregistrer 5 s** des réglages d'une source garde 5 secondes du son
 reçu par la reconnaissance (gain compris). Faites le son pendant

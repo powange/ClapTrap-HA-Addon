@@ -311,3 +311,18 @@ def test_window_closes_on_audio_clock_in_worker(fake_classifier, monkeypatch):
         det.wait_idle()
     assert worker and all(n.startswith('yamnet-') for n in worker)
     assert not det.tracker.pending()
+
+
+def test_near_misses_reach_the_callback(fake_classifier):
+    """Le faux YAMNet repond « Clapping » 0,02 sur du bruit : un pic de clap
+    sans son reconnu devient un « presque »."""
+    import time
+    det, clf, events = make(fake_classifier, [{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Speech': True},
+                                               'threshold': 0.7, 'clap_counts': [1, 2]}])
+    misses = []
+    det.configure('s', detection_callback=events.append, near_miss_callback=misses.append)
+    for i in range(50):
+        det.process_audio(block(0.6 if i == 20 else 0.003, 0.001))
+        time.sleep(0.01)
+    det.wait_idle()
+    assert misses and misses[0]['kind'] == 'low_score' and misses[0]['label'] == 'Speech' and misses[0]['score'] == 0.6
