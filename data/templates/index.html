@@ -91,18 +91,23 @@
 
             <section class="card history" id="history" aria-labelledby="history-title" hidden>
                 <div class="card-row">
-                    <h2 id="history-title">Dernières détections</h2>
+                    <h2 id="history-title">Journal</h2>
                     <button type="button" class="btn-link" id="history-clear">Effacer</button>
                 </div>
+                <div class="log-filters">
+                    <div class="chips" role="group" aria-label="Type d'événement">
+                        <button type="button" class="chip" data-log-filter="all" aria-pressed="true">Tout <span class="muted" data-log-count="all"></span></button>
+                        <button type="button" class="chip" data-log-filter="clap" aria-pressed="false">Déclenchés <span class="muted" data-log-count="clap"></span></button>
+                        <button type="button" class="chip" data-log-filter="ignored" aria-pressed="false">Non retenus <span class="muted" data-log-count="ignored"></span></button>
+                        <button type="button" class="chip" data-log-filter="near" aria-pressed="false">Presque déclenchés <span class="muted" data-log-count="near"></span></button>
+                    </div>
+                    <select class="input" id="log-source" aria-label="Source"><option value="">Toutes les sources</option></select>
+                </div>
+                <p class="hint" id="near-help" hidden>Les gestes qui ont failli déclencher, et pourquoi : un pic de clap sans son
+                   reconnu, un son reconnu sans pic assez fort, ou un nombre de claps sans entité. Pour régler seuils et comptage
+                   sans deviner.</p>
                 <p class="hint" id="history-empty">Aucun clap pour l'instant : démarrez la détection et tapez dans vos mains.</p>
                 <ol class="history-list" id="history-list"></ol>
-                <details class="near-misses" id="near-misses">
-                    <summary>Presque déclenchés <span class="muted" id="near-count"></span></summary>
-                    <p class="hint">Les gestes qui ont failli déclencher, et pourquoi : un pic de clap sans son reconnu, un son
-                       reconnu sans pic assez fort, ou un nombre de claps sans entité. Pour régler seuils et comptage sans deviner.</p>
-                    <p class="hint" id="near-empty">Rien pour l'instant.</p>
-                    <ol class="history-list" id="near-list"></ol>
-                </details>
             </section>
         </section>
 
