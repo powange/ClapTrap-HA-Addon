@@ -162,6 +162,7 @@ RUN --mount=type=bind,source=data/selftest_yamnet.py,target=/selftest/selftest_y
     --mount=type=bind,source=data/audio_detector.py,target=/selftest/audio_detector.py \
     --mount=type=bind,source=data/audio_utils.py,target=/selftest/audio_utils.py \
     --mount=type=bind,source=data/clap_logic.py,target=/selftest/clap_logic.py \
+    --mount=type=bind,source=data/clap_shape.py,target=/selftest/clap_shape.py \
     --mount=type=bind,source=data/mp_light.py,target=/selftest/mp_light.py \
     --mount=type=bind,source=data/yamnet.tflite,target=/selftest/yamnet.tflite \
     PYTHONDONTWRITEBYTECODE=1 python /selftest/selftest_yamnet.py
