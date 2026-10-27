@@ -183,6 +183,11 @@ de vos propres bruits.
 3. ClapTrap propose :
    - le **gain** de la source (ou le volume du micro), appliqué automatiquement
      pour que le bruit le plus fort soit net sans saturer ;
+   - la **force minimale d'un clap** propre à la source, entre les pics
+     parasites du bruit de fond et le plus faible de vos bruits (claps des
+     groupes comptés en attaques, sommet des sons tenus ; prise du bruit de
+     fond nécessaire, groupes appliqués seulement). Elle n'est proposée que
+     si elle s'écarte de plus de 15 % de la valeur actuelle ;
    - pour chaque groupe, les **sons** à cocher et à retirer (un son présent
      aussi dans les essais d'un autre groupe est écarté), le **seuil** qui
      reconnaît ses essais sans se déclencher sur les autres, et le **mode de
@@ -476,7 +481,7 @@ data:
 | `calibration_start` | `source` : commence le calibrage |
 | `calibration_record` | `target` (groupe existant, nouveau nom ou `fond`), `expected` (pics par essai), `duration` (s, 4) : une prise, à jouer dès l'envoi |
 | `calibration_analyze` | — : propositions (gain, sons, seuil, comptage, reconnaissance avant / après) |
-| `calibration_apply` | `gain` (true), `groups` (noms) : applique et termine |
+| `calibration_apply` | `gain` (true), `peak_ratio` (true), `groups` (noms) : applique et termine |
 | `calibration_cancel`, `calibration_status` | abandonner ; état et prises enregistrées |
 
 `source` accepte `mic`, `rtsp:<id>`, `vban:<id>`, la clé d'entité (ex.
@@ -628,7 +633,9 @@ les sources diffèrent : une caméra lointaine qui manque des claps (valeur
 plus basse), ou un micro sensible dans une pièce bruyante qui en compte
 trop (valeur plus haute). Pour une source qui a sa propre valeur,
 « Calibrer le comptage » propose et enregistre cette valeur-là, sur la
-source ; la fenêtre et l'écart restent globaux. API :
+source ; la fenêtre et l'écart restent globaux. « Calibrer » (menu ⋯ de la
+source) propose aussi une force minimale pour la source, et la crée si elle
+suivait le réglage global. API :
 `PATCH /api/sources/<type>/<id>` avec `{"peak_ratio": 6}`, ou `null` pour
 revenir au réglage global.
 

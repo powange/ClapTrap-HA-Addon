@@ -197,6 +197,16 @@
             (g.warnings || []).map(function (w) { return '<li class="text-warn">' + esc(w) + '</li>'; }).join('') + '</ul></div>';
     }
 
+    // Force minimale d'un clap propre a la source (null : pas de proposition).
+    function ratioHtml(r) {
+        if (!r.field) return r.note ? '<p class="hint">' + esc(r.note) + '</p>' : '';
+        var x = function (v) { return '× ' + String(v).replace('.', ','); };
+        return '<div class="cal-result"><label class="check"><input type="checkbox" id="cal-apply-ratio"' + (r.change ? ' checked' : ' disabled') +
+            '> <strong>Force minimale d\'un clap</strong> : ' +
+            (r.change ? x(r.current) + ' → ' + x(r.proposed) + (r.own ? ' (propre à cette source)' : ' (propre à cette source, au lieu du réglage global)')
+                : x(r.current) + (r.weak ? ' (inchangée)' : ' (inchangée, déjà adaptée)')) + '</label></div>';
+    }
+
     function analyze(lastResult) {
         setTitle('Calibrer « ' + src.name + ' » · propositions');
         body.innerHTML = (typeof lastResult === 'string' ? '<p class="hint cal-last">' + lastResult + '</p>' : '') + '<p class="cal-countdown" data-state="analyze" aria-live="polite">Analyse des prises…</p>';
@@ -210,6 +220,7 @@
                         (gain.field === 'volume' ? 'Volume du micro' : 'Gain') + '</strong> : ' +
                         (gain.change ? gain.current + ' → ' + gain.proposed : gain.current + ' (inchangé, déjà adapté)') + '</label></div>'
                         : '<p class="hint">' + esc(gain.note || '') + '</p>') +
+                    ratioHtml(p.peak_ratio || {}) +
                     p.groups.map(groupHtml).join('') +
                     (p.warnings || []).map(function (w) { return '<p class="hint text-warn">' + esc(w) + '</p>'; }).join('') +
                     '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' +
@@ -221,10 +232,11 @@
                         var cb = body.querySelector('[data-apply="' + i + '"]');
                         return cb && cb.checked;
                     }).map(function (g) { return g.target; });
-                    var gainCb = CT.$('#cal-apply-gain');
+                    var gainCb = CT.$('#cal-apply-gain'), ratioCb = CT.$('#cal-apply-ratio');
                     apply.disabled = true;
                     busy = true;
-                    CT.api('POST', '/api/calibration/apply', {gain: !!(gainCb && gainCb.checked), groups: chosen})
+                    CT.api('POST', '/api/calibration/apply', {gain: !!(gainCb && gainCb.checked),
+                        peak_ratio: !!(ratioCb && ratioCb.checked), groups: chosen})
                         .then(function (r) {
                             busy = false;
                             active = false;

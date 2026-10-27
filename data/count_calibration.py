@@ -138,7 +138,7 @@ def _candidates(blocks):
             yield tuple(b[:4])
 
 
-def _clap_peaks(blocks, n, min_raw):
+def clap_peaks(blocks, n, min_raw):
     """Les `n` pics de clap d'une prise : attaques nettement au-dessus du
     bruit (min_raw), espacees d'au moins MIN_GAP, les plus fortes, dans
     l'ordre du temps : [(instant, pic brut)]. Moins de `n` : prise ratee."""
@@ -158,6 +158,28 @@ def _clamp(key, value):
     return min(hi, max(lo, value))
 
 
+def noise_levels(bg_blocks):
+    """(niveau ambiant, plus fort pic parasite) d'un bruit de fond."""
+    return max(1e-5, statistics.median(b[0] for b in bg_blocks)), max(b[0] for b in bg_blocks)
+
+
+def ratio_between(noise_ratio, weakest):
+    """Force minimale entre le pic parasite le plus fort et le clap le plus
+    faible (rapports au niveau ambiant) : (force, avertissement ou None).
+    Commun au calibrage du comptage et a celui d'une source."""
+    lo, hi = noise_ratio * 1.3, weakest * 0.7
+    warning = None
+    if hi > lo:
+        ratio = math.sqrt(lo * hi)
+    else:
+        ratio = hi
+        # Rapport au bruit ambiant : le gain n'y change rien (bruit et claps
+        # montent ensemble).
+        warning = ('vos claps les plus faibles sont à peine plus forts que le bruit de fond : rapprochez-vous '
+                   'du micro ou de la caméra, ou réduisez le bruit ambiant, sinon des bruits seront comptés')
+    return round(_clamp('peak_ratio', ratio), 1), warning
+
+
 def analyze():
     with calibration._lock:
         s = _session()
@@ -169,8 +191,7 @@ def analyze():
         own = _source_ratio(s)
         warnings = []
 
-        floor = max(1e-5, statistics.median(b[0] for b in bg))
-        noise_max = max(b[0] for b in bg)
+        floor, noise_max = noise_levels(bg)
         noise_ratio = noise_max / floor
         # Prises de claps exploitables : le nombre attendu de vrais claps
         # (attaque, au-dessus du bruit). Une prise ratee (clap trop tot,
@@ -180,7 +201,7 @@ def analyze():
             n = sum(KINDS[t['kind']]['expected'])
             if not n:
                 continue
-            found = _clap_peaks(t['blocks'], n, noise_max * CLAP_OVER_NOISE)
+            found = clap_peaks(t['blocks'], n, noise_max * CLAP_OVER_NOISE)
             if len(found) == n:
                 peaks[id(t)] = found
             else:
@@ -192,16 +213,10 @@ def analyze():
             raise calibration.CalibrationError('il faut au moins une prise « clap simple » et une prise « 2 claps » ou '
                                                '« 3 claps » où vos claps sont nettement plus forts que le bruit de fond')
 
-        # Force minimale : entre le pic parasite le plus fort et le clap le plus faible.
         weakest = min(raw for t in usable for _, raw in peaks[id(t)]) / floor
-        lo, hi = noise_ratio * 1.3, weakest * 0.7
-        if hi > lo:
-            ratio = math.sqrt(lo * hi)
-        else:
-            ratio = hi
-            warnings.append('vos claps les plus faibles sont à peine plus forts que le bruit de fond : rapprochez-vous '
-                            'du micro ou montez le gain de la source, sinon des bruits seront comptés')
-        ratio = round(_clamp('peak_ratio', ratio), 1)
+        ratio, warning = ratio_between(noise_ratio, weakest)
+        if warning:
+            warnings.append(warning)
 
         # Ecart minimal : au-dela des rebonds (vraies attaques apres le clap,
         # pas sa decroissance), en deca de l'ecart entre deux claps.

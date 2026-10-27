@@ -53,9 +53,10 @@ def calibration_apply():
     from settings_manager import to_bool
     try:
         gain = to_bool(data.get('gain', True), 'gain')
+        peak_ratio = to_bool(data.get('peak_ratio', True), 'peak_ratio')
     except ValueError as e:
         raise ApiError(str(e))
-    return _run(calibration.apply, gain=gain, groups=groups)
+    return _run(calibration.apply, gain=gain, groups=groups, peak_ratio=peak_ratio)
 
 
 @calibration_bp.route('/api/calibration/cancel', methods=['POST'])

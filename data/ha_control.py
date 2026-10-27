@@ -87,7 +87,7 @@ ACTIONS = {
     'calibration_record': '{target, expected?, duration?(s, 4)} : une prise ; jouez le bruit du groupe target '
                           '(existant ou nouveau nom) ou « fond » dès l\'envoi. expected : nombre de pics attendus.',
     'calibration_analyze': 'Propose gain, sons, seuil et comptage de chaque groupe (reconnaissance avant/après).',
-    'calibration_apply': '{gain?(true), groups?([noms])} : applique la proposition et termine.',
+    'calibration_apply': '{gain?(true), peak_ratio?(true), groups?([noms])} : applique la proposition et termine.',
     'calibration_cancel': 'Abandonne le calibrage sans rien modifier.',
     'calibration_status': 'Calibrage en cours et prises enregistrées.',
 }
@@ -760,7 +760,7 @@ def execute(action, cmd):
         return _api_or_raise('GET', '/api/calibration')
     if action.startswith('calibration_'):
         fields = {'calibration_start': ('source',), 'calibration_record': ('target', 'expected', 'duration'),
-                  'calibration_apply': ('gain', 'groups')}.get(action, ())
+                  'calibration_apply': ('gain', 'peak_ratio', 'groups')}.get(action, ())
         return _api_or_raise('POST', f"/api/calibration/{action[len('calibration_'):]}", _pick(cmd, fields))
 
     settings = load_settings()

@@ -63,7 +63,8 @@ const dom = new JSDOM(html, {
       else if (url.startsWith('/api/source/sound_groups/usage')) res = { success: true, available: true, items: [{ id: 'automation.lumiere', nom: 'Lumière salon', type: 'automatisation', entites: [] }] };
       else if (url === '/api/calibration/start') res = { success: true, active: true };
       else if (url === '/api/calibration/record') res = { success: true, attacks: 2, sustains: 2, clipped: false, top: [{ classe: 'Clapping', score: 0.85 }] };
-      else if (url === '/api/calibration/analyze') res = { success: true, gain: { field: 'volume', current: 80, proposed: 100, change: true }, warnings: [],
+      else if (url === '/api/calibration/analyze') res = { success: true, gain: { field: 'volume', current: 80, proposed: 100, change: true },
+        peak_ratio: { field: 'peak_ratio', current: 3, proposed: 4.5, change: true, own: false }, warnings: [],
         groups: [{ target: 'Clap', group: 'clap', new: false, sounds: ['Clapping'], add: [], remove: ['Speech'], threshold: { current: 0.5, proposed: 0.7 },
                    count_mode: { current: 'attaques', proposed: 'attaques' }, before: { recall: 1, false_positive: 0.5 }, after: { recall: 1, false_positive: 0 }, warnings: [] }] };
       else if (url === '/api/calibration/apply') res = { success: true, applied: ['a', 'b'], errors: [] };
@@ -507,9 +508,11 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  calibrage : prise enregistrée', calls.filter(c => c[1] === '/api/calibration/record').length === nTakes + 1 && /Applaudissement 85 %/.test($('#calibration').textContent));
   while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
   ok('+  calibrage : propositions affichées', /Seuil : 50 % → 70 %/.test($('#calibration').textContent) && !!$('#cal-apply-gain'));
+  ok('+  calibrage : force minimale proposée pour la source', /Force minimale d'un clap : × 3 → × 4,5 \(propre à cette source, au lieu du réglage global\)/.test($('#calibration').textContent) && $('#cal-apply-ratio').checked);
+  $('#cal-apply-ratio').click();
   $('#calibration [data-c="apply"]').click(); await tick(4);
   const ap = lastCall('POST', '/api/calibration/apply');
-  ok('+  calibrage : appliqué', !!ap && ap[2].gain === true && ap[2].groups.length >= 1 && $('#calibration').hidden);
+  ok('+  calibrage : appliqué', !!ap && ap[2].gain === true && ap[2].peak_ratio === false && ap[2].groups.length >= 1 && $('#calibration').hidden);
   // --- lot 6.57 : reglages de la source en fenetre
   const dlg = () => $('#src-mic dialog.source-settings');
   if (!dlg().open) { $('#src-mic .source-settings-open').click(); await tick(); }

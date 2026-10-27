@@ -7,9 +7,11 @@ Deroule (interface ou commandes MQTT) :
    bruit d'un groupe (existant ou nouveau), ou le bruit de fond ("fond").
    Mesures : niveau brut, pics comptes (attaques et sons tenus), classes
    YAMNet reconnues et leur score.
-3. analyze() : gain de la source, et pour chaque groupe calibre : sons a
-   cocher ou retirer, seuil, mode de comptage, avec la reconnaissance et les
-   fausses detections avant / apres sur les memes prises.
+3. analyze() : gain de la source, force minimale d'un clap propre a la
+   source (bruit de fond et groupes comptes en attaques), et pour chaque
+   groupe calibre : sons a cocher ou retirer, seuil, mode de comptage, avec
+   la reconnaissance et les fausses detections avant / apres sur les memes
+   prises.
 4. apply() applique (gain automatiquement) ; cancel() abandonne.
 
 Les modifications passent par l'API (memes validations que l'interface).
@@ -81,6 +83,7 @@ class _Session:
         self.kind, self.key, self.source_id, self.label = kind, key, source_id, label
         self.was_running = was_running
         self.takes = []
+        self.take_blocks = {}   # id(prise) -> blocs bruts (force minimale), hors des reponses
         self.proposal = None
         self.last_activity = time.monotonic()
         # Calibrage du comptage (count_calibration.py) : meme session, autre but.
@@ -279,6 +282,7 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
                     for k, v in sorted(classes.items(), key=lambda kv: kv[1], reverse=True)[:3]],
         }
         s.takes.append(take)
+        s.take_blocks[id(take)] = blocks
         s.proposal = None
         n = sum(1 for t in s.takes if t['target'] == name)
         return dict(take, take_number=n)
@@ -433,6 +437,8 @@ def analyze():
             groups.append(res)
 
         gain = _gain_proposal(s, src)
+        peak_ratio = _peak_ratio_proposal(s, src, settings, groups)
+        warnings += peak_ratio.pop('warnings')
         if not any(t['kind'] == 'fond' for t in s.takes):
             warnings.append('aucune prise du bruit de fond : les fausses détections ne sont mesurées '
                             'que sur les autres groupes')
@@ -440,7 +446,7 @@ def analyze():
         if clipped:
             warnings.append(f'{clipped} prise(s) saturée(s) dès le micro ou la caméra : éloignez le son '
                             'ou baissez le volume du micro (le gain n\'y peut rien)')
-        s.proposal = {'source': s.label, 'gain': gain, 'groups': groups, 'warnings': warnings,
+        s.proposal = {'source': s.label, 'gain': gain, 'peak_ratio': peak_ratio, 'groups': groups, 'warnings': warnings,
                       'background_takes': sum(1 for t in s.takes if t['kind'] == 'fond')}
         return s.proposal
 
@@ -466,11 +472,69 @@ def _gain_proposal(s, src):
             'change': change, 'loudest_raw': round(loud, 4)}
 
 
+def _peak_ratio_proposal(s, src, settings, groups):
+    """Force minimale d'un clap propre a la source : entre les pics parasites
+    du bruit de fond et le plus faible des sons comptes des `groups` (claps
+    des groupes en attaques, le nombre de pics attendu comme le calibrage du
+    comptage ; sommet de chaque prise des groupes en sons tenus, que le meme
+    seuil filtre)."""
+    import count_calibration as cc
+    from classify import detection_params_from_settings, source_peak_ratio
+    current = source_peak_ratio(src, detection_params_from_settings(settings))
+    base = {'field': None, 'current': current, 'own': src.get('peak_ratio') is not None, 'warnings': []}
+    bg = [b for t in s.takes if t['kind'] == 'fond' for b in s.take_blocks.get(id(t)) or []]
+    counted = [g for g in groups if not g.get('error') and g.get('expected')]
+    if not counted:
+        return dict(base, note='aucun nombre de pics attendu : force minimale d\'un clap inchangée')
+    if not bg:
+        return dict(base, note='ajoutez une prise du bruit de fond pour régler la force minimale d\'un clap')
+    floor, noise_max = cc.noise_levels(bg)
+    min_raw = noise_max * cc.CLAP_OVER_NOISE
+    levels, ignored = [], {}
+    for g in counted:
+        held = g['count_mode']['proposed'] == 'tenus'
+        for t in s.takes:
+            blocks = s.take_blocks.get(id(t))
+            if t['target'] != g['target'] or not blocks:
+                continue
+            n = t['expected'] or g['expected']
+            if held:
+                top = max(b[0] for b in blocks)
+                found = [top] if top >= min_raw else []
+                n = 1
+            else:
+                found = [raw for _, raw in cc.clap_peaks(blocks, n, min_raw)]
+            if len(found) == n:
+                levels += found
+            else:   # prise ratee (son oublie, trop faible) : ecartee
+                ignored[g['target']] = ignored.get(g['target'], 0) + 1
+    if ignored:
+        base['warnings'].append('force minimale : prises ignorées (son trop proche du bruit de fond ou nombre de pics '
+                                'non retrouvé) : ' + ', '.join(f'{k} ({v})' for k, v in ignored.items()))
+    if not levels:
+        return dict(base, note='sons trop proches du bruit de fond : force minimale d\'un clap inchangée')
+    proposed, warning = cc.ratio_between(noise_max / floor, min(levels) / floor)
+    if warning:
+        base['warnings'].append(warning)
+    # Ecart sensible seulement : une valeur propre a la source n'est pas
+    # creee pour quelques dixiemes du reglage global.
+    change = abs(proposed - current) > 0.15 * current
+    if change and proposed > current:
+        names = {g.get('group') for g in counted}
+        others = [g.get('name') or g['slug'] for g in src.get('sound_groups') or []
+                  if isinstance(g, dict) and g.get('slug') and g['slug'] not in names]
+        if others:
+            base['warnings'].append('force minimale plus haute : vérifiez ensuite les groupes non calibrés ici ('
+                                    + ', '.join(others) + '), leurs sons plus faibles pourraient ne plus être comptés')
+    return dict(base, field='peak_ratio', proposed=proposed if change else current, change=change,
+                weak=warning is not None, sounds=len(levels))
+
+
 # ===== Application ==============================================================
 
-def apply(gain=True, groups=None):
-    """Applique la proposition (toute, ou le gain et les groupes choisis par
-    leur nom) puis termine le calibrage."""
+def apply(gain=True, groups=None, peak_ratio=True):
+    """Applique la proposition (toute, ou le gain, la force minimale et les
+    groupes choisis par leur nom) puis termine le calibrage."""
     with _lock:
         s = _current()
         p = s.proposal or analyze()
@@ -486,12 +550,24 @@ def apply(gain=True, groups=None):
                 errors.append(f'{label} : {e}')
                 return None
 
-        g = p['gain']
-        if gain and g.get('field') and g.get('change'):
-            step(f"{g['field']} {g['current']} → {g['proposed']}", 'PATCH',
-                 f'/api/sources/{s.kind}/{s.key}', {g['field']: g['proposed']})
         wanted = [r for r in p['groups'] if not r.get('error')
                   and (groups is None or r['target'] in groups or r.get('group') in groups)]
+        from settings_manager import load_settings
+        r = p.get('peak_ratio') or {}
+        if peak_ratio and groups is not None and r.get('field'):
+            # Groupes ecartes : leurs prises ne fixent pas la force minimale.
+            settings = load_settings()
+            r = _peak_ratio_proposal(s, _source(settings, s.kind, s.key) or {}, settings, wanted)
+        g = p['gain']
+        changes, labels = {}, []
+        if gain and g.get('field') and g.get('change'):
+            changes[g['field']] = g['proposed']
+            labels.append(f"{g['field']} {g['current']} → {g['proposed']}")
+        if peak_ratio and r.get('field') and r.get('change'):
+            changes['peak_ratio'] = r['proposed']
+            labels.append(f"force minimale × {r['current']} → × {r['proposed']} (propre à la source)")
+        if changes:   # une seule ecriture (et une seule mise a jour des sources)
+            step(', '.join(labels), 'PATCH', f'/api/sources/{s.kind}/{s.key}', changes)
         base = {'kind': s.kind, 'source_key': kind_key}
         for r in wanted:
             if r['new']:
@@ -504,7 +580,6 @@ def apply(gain=True, groups=None):
             for label in r['remove'] if r.get('group') else []:
                 step(f"{r['target']} : {label} retiré", 'PUT', '/api/source/sound_whitelist',
                      {**base, 'group_slug': r['group'], 'label': label, 'enabled': False})
-        from settings_manager import load_settings
         src = _source(load_settings(), s.kind, s.key) or {}
         for r in wanted:
             if not r.get('group'):

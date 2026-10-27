@@ -1,5 +1,29 @@
 # Changelog
 
+## 6.106.0
+
+### Calibrer une source règle aussi la force minimale d'un clap
+
+- « Calibrer » (menu ⋯ de la source) propose maintenant la **force minimale
+  d'un clap** propre à cette source. Elle est calculée comme dans
+  « Calibrer le comptage » : entre le plus fort pic parasite du bruit de
+  fond et le son compté le plus faible. Pour un groupe compté en attaques,
+  ce sont ses claps ; pour un groupe en sons tenus, le sommet de chaque
+  essai, car le même seuil les filtre.
+- Il faut la prise du bruit de fond. Les essais où le nombre de pics
+  attendu n'est pas retrouvé sont ignorés et signalés. Seuls les groupes
+  appliqués comptent : un groupe décoché ne fixe pas la valeur.
+- Si la force monte, un avertissement cite les groupes de la source non
+  calibrés dans cette séance, à vérifier ensuite.
+- Le gain et la force minimale s'enregistrent en une seule écriture.
+- Le conseil affiché quand les claps sont à peine plus forts que le bruit
+  ne propose plus de monter le gain (il ne change pas ce rapport) : il
+  invite à se rapprocher du micro ou à réduire le bruit ambiant.
+- La valeur n'est proposée que si elle s'écarte de plus de 15 % de la
+  valeur actuelle. Elle s'applique à cette source seule, même si celle-ci
+  suivait jusque-là le réglage global, et se décoche comme le gain.
+- API et MQTT : `calibration_apply` accepte `peak_ratio` (vrai par défaut).
+
 ## 6.105.0
 
 ### Rythmes de claps
