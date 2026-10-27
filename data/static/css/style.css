@@ -576,6 +576,11 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .zone { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
 .zone-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .zone-head .input { flex: 1 1 180px; min-width: 0; }
+.weights { display: grid; gap: 6px; margin: 8px 0; }
+.weight { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.weight label { min-width: 0; overflow-wrap: anywhere; }
+.weight-input { display: inline-flex; align-items: center; gap: 6px; }
+.weight-input .input { width: 6.5em; }
 
 /* « Presque déclenchés » (sous les dernières détections) */
 .near-misses { border-top: 1px solid var(--line); padding-top: 8px; }

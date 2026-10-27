@@ -5,7 +5,7 @@ from datetime import datetime
 import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
-                              to_bool, to_number, to_room_zones, SettingsSaveError, GLOBAL_LIMITS)
+                              to_bool, to_number, to_room_zones, to_room_weights, SettingsSaveError, GLOBAL_LIMITS)
 from webhook import send_webhook
 from routes.sources import (ApiError, add_restart_to_response, api_error_response, _apply_live, _json,
                            _sync_and_apply)
@@ -65,10 +65,12 @@ def update_advanced_settings():
 
 @settings_bp.route('/api/settings/rooms', methods=['PUT'])
 def update_room_settings():
-    """Arbitrage entre pieces : {enabled?, window?, zones?} (fenetre
-    d'attente en s ; groupes de sources qui se departagent entre elles)."""
+    """Arbitrage entre pieces : {enabled?, window?, zones?, weights?}
+    (fenetre d'attente en s ; groupes de sources qui se departagent entre
+    elles ; correction par source, {source_id: poids}, fusionnee avec les
+    corrections enregistrees, 1 pour en retirer une)."""
     data = _json()
-    unknown = sorted(set(data) - {'enabled', 'window', 'zones'})
+    unknown = sorted(set(data) - {'enabled', 'window', 'zones', 'weights'})
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
     values = {}
@@ -78,10 +80,22 @@ def update_room_settings():
         values['room_window'] = to_number(data['window'], 'window', *GLOBAL_LIMITS['room_window'])
     if 'zones' in data:
         values['room_zones'] = to_room_zones(data['zones'])
+    if 'weights' in data:
+        if not isinstance(data['weights'], dict):
+            raise ValueError("weights : objet {source: poids} attendu")
+        to_room_weights(data['weights'])   # valide avant d'ecrire
 
     def _mut(settings):
-        settings.setdefault('global', {}).update(values)
+        g = settings.setdefault('global', {})
+        g.update(values)
+        if 'weights' in data:
+            merged = dict(g.get('room_weights') or {})
+            merged.update(data['weights'])
+            g['room_weights'] = to_room_weights(merged)
     modify_settings(_mut)
+    if 'weights' in data:
+        # Apres l'ecriture : sans les sources inconnues (retirees a l'enregistrement).
+        values['room_weights'] = (load_settings().get('global') or {}).get('room_weights') or {}
     _apply_live()   # decision anticipee coupee ou retablie
     return jsonify({'success': True, **values})
 

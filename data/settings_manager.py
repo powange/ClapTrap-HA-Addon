@@ -465,7 +465,7 @@ def _commit(settings):
 # enregistree telle quelle et recopiee a chaque lecture.
 _KNOWN_SECTIONS = ('global', 'microphone', 'rtsp_sources', 'saved_vban_sources')
 _GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions',
-                'room_arbitration', 'room_window', 'room_zones', 'clap_shape_check'}
+                'room_arbitration', 'room_window', 'room_zones', 'room_weights', 'clap_shape_check'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
                    'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction', 'peak_ratio'},
@@ -874,6 +874,24 @@ def rtsp_url_key(url):
 
 
 MAX_ROOM_ZONES = 10
+ROOM_WEIGHT_LIMITS = (0.05, 20.0)
+
+
+def to_room_weights(value, path='weights'):
+    """Correction de l'arbitrage entre pieces par source : {source_id:
+    poids}, multiplie la force de ses claps (1 : sans correction, retire)."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} : objet {{source: poids}} attendu")
+    if len(value) > 50:
+        raise ValueError(f"{path} : 50 sources au plus")
+    out = {}
+    for sid, w in value.items():
+        if not isinstance(sid, str) or not 0 < len(sid) <= 80:
+            raise ValueError(f"{path} : identifiant de source attendu")
+        w = to_number(w, f"{path}.{sid}", *ROOM_WEIGHT_LIMITS)
+        if w != 1:
+            out[sid] = w
+    return out
 
 
 def to_room_zones(value, path='zones'):
@@ -911,16 +929,19 @@ def prune_room_zones(settings):
     (supprimees, ou importees sous un autre identifiant) : un micro supprime
     puis rajoute ne retrouve pas en silence son ancien groupe."""
     g = settings.get('global')
-    zones = g.get('room_zones') if isinstance(g, dict) else None
-    if not zones:
+    if not isinstance(g, dict) or not (g.get('room_zones') or g.get('room_weights')):
         return
+    zones = g.get('room_zones')
     mic = settings.get('microphone')
     ids = {'mic'} if isinstance(mic, dict) and mic.get('configured', True) is not False else set()
     ids |= {f"rtsp_{s.get('id')}" for s in settings.get('rtsp_sources') or [] if isinstance(s, dict) and s.get('id')}
     ids |= {f"vban_{s.get('id') or s.get('ip', '')}" for s in settings.get('saved_vban_sources') or [] if isinstance(s, dict)}
-    for z in zones:
+    for z in zones or []:
         if isinstance(z, dict) and isinstance(z.get('sources'), list):
             z['sources'] = [sid for sid in z['sources'] if sid in ids]
+    weights = g.get('room_weights')
+    if isinstance(weights, dict):
+        g['room_weights'] = {sid: w for sid, w in weights.items() if sid in ids}
 
 
 def to_name(value, path='Nom', default=None):
@@ -960,6 +981,8 @@ def normalize_settings(data):
                 g[flag] = to_bool(g[flag], f'global.{flag}')
         if 'room_zones' in g:
             g['room_zones'] = to_room_zones(g['room_zones'], 'global.room_zones')
+        if 'room_weights' in g:
+            g['room_weights'] = to_room_weights(g['room_weights'], 'global.room_weights')
         if 'sound_exclusions' in g:
             if not isinstance(g['sound_exclusions'], list):
                 raise ValueError("global.sound_exclusions : liste attendue")

@@ -477,7 +477,7 @@ data:
 | `clear_unchecked_sounds` | `source`, `group` |
 | `set_exclusion` | `label`, `excluded` |
 | `set_advanced` | `delay`, `peak_cooldown`, `peak_ratio` |
-| `set_rooms` | `enabled`, `window` (0,3 à 3 s) : arbitrage entre pièces |
+| `set_rooms` | `enabled`, `window` (0,3 à 3 s), `zones`, `weights` : arbitrage entre pièces |
 | `calibration_start` | `source` : commence le calibrage |
 | `calibration_record` | `target` (groupe existant, nouveau nom ou `fond`), `expected` (pics par essai), `duration` (s, 4) : une prise, à jouer dès l'envoi |
 | `calibration_analyze` | — : propositions (gain, sons, seuil, comptage, reconnaissance avant / après) |
@@ -594,6 +594,31 @@ départagent, et une source n'appartient qu'à un groupe. Une source hors de
 tout groupe déclenche toujours, sans attente. Elle garde aussi la décision
 rapide d'un groupe « 1 clap ». Commande MQTT : `set_rooms` avec
 `zones: [{name, sources: [source_id]}]`.
+
+**Correction par source** : la force d'un clap se mesure par rapport au
+bruit de fond de chaque source. Une caméra qui réduit elle-même son bruit a
+un fond presque nul : le clap d'une autre pièce y paraît très fort, et elle
+gagne à tort. La correction multiplie la force des claps de cette source
+(× 1 par défaut, de × 0,05 à × 20) : × 0,3 la rend trois fois moins forte
+dans l'arbitrage. Elle se règle à la main pour chaque source, ou avec
+**Calibrer l'arbitrage…** :
+
+1. Choisissez les sources à départager (un groupe, ou toutes sans groupe).
+2. Pour chaque source, deux fois : placez-vous dans sa pièce, cliquez sur
+   **Enregistrer** et faites 3 claps. Toutes les sources écoutent en même
+   temps et ne déclenchent rien pendant le calibrage. Une prise où la source
+   de la pièce n'entend pas nettement les 3 claps est refusée.
+3. ClapTrap propose une correction par source : celle qui donne la plus
+   grande marge à la bonne pièce, la plus forte valant × 1. Le résultat
+   indique combien de prises la bonne pièce gagne avant et après, la marge,
+   et la force vue par chaque source pour chaque prise. Les valeurs restent
+   modifiables avant **Appliquer**.
+
+Si une source entend aussi fort le clap d'une autre pièce que le sien, aucune
+correction ne suffit : un avertissement le signale (rapprochez-la de sa
+pièce, ou retirez-la du groupe). API : `PUT /api/settings/rooms` avec
+`{"weights": {"rtsp_xxx": 0.3}}` (fusionné avec les corrections existantes,
+1 pour en retirer une) ; commande MQTT `set_rooms` avec `weights`.
 
 Le capteur `sensor.claptrap_derniere_piece` (« Pièce du dernier clap »),
 avec ou sans cette option, indique la source du dernier clap déclenché : une

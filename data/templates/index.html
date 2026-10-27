@@ -184,6 +184,15 @@
                         <div class="zones" id="rooms-zones"></div>
                         <button type="button" class="btn btn-ghost" id="rooms-zone-add">Ajouter un groupe</button>
                     </div>
+                    <div class="field" id="rooms-weights-field">
+                        <h3 class="field-label">Correction par source</h3>
+                        <p class="hint">La force d'un clap se mesure par rapport au bruit de fond de chaque source. Une caméra
+                           qui réduit elle-même son bruit entend alors le clap d'une autre pièce comme s'il était tout proche,
+                           et gagne à tort. La correction multiplie la force de ses claps (× 0,3 : trois fois moins fort).
+                           « Calibrer l'arbitrage » la mesure pour vous.</p>
+                        <div class="weights" id="rooms-weights"></div>
+                        <button type="button" class="btn btn-primary" id="room-calibrate">Calibrer l'arbitrage…</button>
+                    </div>
                 </section>
 
                 <section class="card" id="learned" aria-labelledby="learned-title">
@@ -286,6 +295,18 @@
         </div>
     </div>
 
+    <div class="modal-backdrop" id="room-calibration" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="room-calibration-title">
+            <div class="modal-head">
+                <h2 id="room-calibration-title">Calibrer l'arbitrage</h2>
+                <button type="button" class="btn-icon" data-c="close" aria-label="Fermer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+            <div data-role="room-calibration-body"></div>
+        </div>
+    </div>
+
     <div class="modal-backdrop" id="learn" hidden>
         <div class="modal" role="dialog" aria-modal="true" aria-labelledby="learn-title">
             <div class="modal-head">
@@ -316,6 +337,7 @@
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/wizard.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/count_calibrate.js"></script>
+    <script src="{{ ingress_path }}/js/{{ cache_bust }}/room_calibrate.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/learn.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/blueprints.js"></script>
     <script src="{{ ingress_path }}/js/{{ cache_bust }}/settings.js"></script>

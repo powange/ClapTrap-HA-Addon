@@ -48,6 +48,24 @@
         }).join('');
         var add = CT.$('#rooms-zone-add');
         if (add) add.disabled = !on || list.length >= 10;
+        renderWeights();
+    }
+
+    // ---- Correction par source (calibrage de l'arbitrage) ---------------------
+    function renderWeights(force) {
+        var box = CT.$('#rooms-weights');
+        if (!box) return;
+        if (!force && box.contains(document.activeElement)) return;   // saisie en cours
+        var g = CT.state.settings.global || {}, on = !!g.room_arbitration, w = g.room_weights || {};
+        var sources = CT.sourceList();
+        box.innerHTML = sources.length ? sources.map(function (src) {
+            var id = 'rw-' + CT.esc(src.sourceId);
+            return '<div class="weight"><label for="' + id + '">' + CT.esc(src.name) + '</label>' +
+                '<span class="weight-input">× <input class="input" type="number" id="' + id + '" data-weight-src="' + CT.esc(src.sourceId) +
+                '" min="0.05" max="20" step="0.01" value="' + (w[src.sourceId] != null ? w[src.sourceId] : 1) + '"' + (on ? '' : ' disabled') + '></span></div>';
+        }).join('') : '<span class="hint">Aucune source.</span>';
+        var cal = CT.$('#room-calibrate');
+        if (cal) cal.disabled = !on;
     }
     // Une modification faite pendant un envoi part juste apres (la derniere,
     // calculee sur l'etat enregistre) : elle n'est pas perdue.
@@ -88,6 +106,20 @@
         rw.addEventListener('change', function () {
             if (!rw.checkValidity()) { var why = rw.validationMessage; fillAdvanced(true); CT.error('Attente : ' + why); return; }
             save({window: parseFloat(rw.value)}, rw, 'Attente enregistrée');
+        });
+        var weights = CT.$('#rooms-weights');
+        if (weights) weights.addEventListener('change', function (e) {
+            var el = e.target, sid = el.getAttribute('data-weight-src');
+            if (!sid) return;
+            if (!el.checkValidity()) { var why = el.validationMessage; renderWeights(true); CT.error('Correction : ' + why); return; }
+            var body = {};
+            body[sid] = parseFloat(el.value);
+            CT.api('PUT', '/api/settings/rooms', {weights: body})
+                .then(function (d) {
+                    (CT.state.settings.global = CT.state.settings.global || {}).room_weights = d.room_weights;
+                    CT.markSaved(el, 'Correction enregistrée');
+                })
+                .catch(function (err) { renderWeights(true); CT.error('Correction refusée : ' + err.message); });
         });
         var box = CT.$('#rooms-zones'), add = CT.$('#rooms-zone-add');
         if (add) add.addEventListener('click', function () {
@@ -367,6 +399,7 @@
 
     // Calibrage du comptage applique : champs remplis avec les nouvelles valeurs.
     CT.onCountCalibrated = function () { fillAdvanced(true); };
+    CT.onRoomsCalibrated = function () { renderWeights(true); };
     CT.onSettingsOpen = function () {
         fillAdvanced();
         loadExclusions();
