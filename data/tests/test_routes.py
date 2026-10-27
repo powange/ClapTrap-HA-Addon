@@ -713,3 +713,59 @@ def test_detection_feedback_ignore_threshold_negative(client, settings_dir, monk
                                       'evidence': {}}}, 0.995)
     r = client.post('/api/detections/d2/feedback', json={'action': 'threshold'})
     assert r.status_code == 409 and 'maximum' in r.json['error']          # 99 % n'aurait rien change
+
+
+def test_source_peak_ratio_overrides_global_and_clears(client, settings_dir, monkeypatch):
+    """Force minimale d'un clap par source : enregistree, appliquee en
+    direct, null pour revenir au reglage global."""
+    import routes.sources as rs
+    import classify
+    applied = []
+    monkeypatch.setattr(rs, '_apply_live', lambda: applied.append(1))
+    sid = client.post('/api/rtsp/stream', json={'name': 'Cam', 'url': 'rtsp://c/1', 'enabled': True}).json['stream']['id']
+    applied.clear()
+    r = client.patch(f'/api/sources/rtsp/{sid}', json={'peak_ratio': 6})
+    assert r.status_code == 200 and r.json['source']['peak_ratio'] == 6 and applied
+    assert client.patch(f'/api/sources/rtsp/{sid}', json={'peak_ratio': 0.5}).status_code == 400
+    assert client.patch(f'/api/sources/rtsp/{sid}', json={'peak_ratio': 'fort'}).status_code == 400
+    built = {s['kind']: s for s in classify.build_sources_from_settings(settings_dir.load_settings())}
+    assert built['rtsp']['peak_ratio'] == 6
+    r = client.patch(f'/api/sources/rtsp/{sid}', json={'peak_ratio': None})
+    assert r.status_code == 200 and 'peak_ratio' not in r.json['source']
+    assert 'peak_ratio' not in settings_dir.load_settings()['rtsp_sources'][0]
+    assert client.patch('/api/sources/mic/mic', json={'peak_ratio': 2.5}).status_code == 200
+    assert settings_dir.load_settings()['microphone']['peak_ratio'] == 2.5
+    assert client.patch('/api/sources/mic/mic', json={'peak_ratio': None}).status_code == 200
+    assert 'peak_ratio' not in settings_dir.load_settings()['microphone']
+    with pytest.raises(ValueError):                              # import : meme borne que le global
+        settings_dir.normalize_settings({'microphone': {'peak_ratio': 99}})
+    assert 'peak_ratio' not in settings_dir.normalize_settings({'microphone': {'peak_ratio': None}})['microphone']
+
+
+def test_detector_uses_source_peak_ratio_else_global(settings_dir, monkeypatch):
+    import classify
+    s = settings_dir.load_settings()
+    s['global']['peak_ratio'] = 3.0
+    settings_dir.save_settings(s)
+    session = classify.DetectionSession([], None)
+
+    class Det:
+        tracker = types.SimpleNamespace()
+
+        def __init__(self):
+            self.params = None
+
+        def set_params(self, **k):
+            self.params = k
+
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+    det = Det()
+    built = {'mic': {'source_id': 'mic', 'groups': [], 'peak_ratio': 8}}
+    session._apply_current_settings({'source_id': 'mic', 'label': 'Micro', 'kind': 'mic', 'source_key': '0'},
+                                    det, settings_dir.load_settings(), built)
+    assert det.params['peak_ratio'] == 8
+    built['mic']['peak_ratio'] = None
+    session._apply_current_settings({'source_id': 'mic', 'label': 'Micro', 'kind': 'mic', 'source_key': '0'},
+                                    det, settings_dir.load_settings(), built)
+    assert det.params['peak_ratio'] == 3.0

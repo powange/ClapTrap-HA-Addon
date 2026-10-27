@@ -178,7 +178,7 @@
             '<div class="cc-table-wrap"><table class="cc-table"><thead><tr><th>Réglage</th><th>Actuel</th><th>Proposé</th></tr></thead><tbody>' +
             keys.map(function (k) {
                 var lim = (d.limits || {})[k] || [];
-                return '<tr><th scope="row"><label for="cc-' + k + '">' + LABELS[k] + '</label></th><td>' + fmt(k, d.current[k]) + '</td>' +
+                return '<tr><th scope="row"><label for="cc-' + k + '">' + LABELS[k] + (k === 'peak_ratio' && d.peak_ratio_scope === 'source' ? ' (propre à cette source)' : '') + '</label></th><td>' + fmt(k, d.current[k]) + '</td>' +
                     '<td><input class="input" type="number" id="cc-' + k + '" step="' + steps[k] + '" value="' + d.proposed[k] + '"' +
                     (lim.length ? ' min="' + lim[0] + '" max="' + lim[1] + '"' : '') + '></td></tr>';
             }).join('') + '</tbody></table></div>' +

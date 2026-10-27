@@ -96,6 +96,11 @@
             '<p class="hint">Atténue un bruit continu (souffle, ventilation, réfrigérateur) avant la reconnaissance. ' +
             'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
             'une réduction trop forte peut aussi effacer des sons faibles.</p>', src.domId + '-nr');
+        html += field('Force minimale d\'un clap', peakRatioSelect(src, d) +
+            '<p class="hint">Combien de fois plus fort que le bruit ambiant un pic doit être pour compter. ' +
+            'Plus haut pour une source bruyante ou très sensible (claps comptés en trop), ' +
+            'plus bas pour une source lointaine (claps manqués). Avec une valeur propre, « Calibrer le comptage » sur cette source la règle elle (et non la valeur globale).</p>',
+            src.domId + '-ratio');
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
             '<p class="hint" data-role="test-hint"></p></div>' +   // texte : renderSourceStatuses
@@ -188,6 +193,21 @@
     // Ce que la reconnaissance recoit (gain compris) : on l'ecoute pour
     // reperer echo, saturation ou reduction de bruit, avec les sons reconnus.
     var RECORD_SECONDS = 5;
+    // Force minimale d'un clap propre a la source (vide : reglage global).
+    var RATIO_CHOICES = [1.5, 2, 3, 4, 6, 8, 12];
+    function ratioText(v) { return '× ' + String(v).replace('.', ','); }
+    function peakRatioSelect(src, d) {
+        var g = ((CT.state.settings || {}).global || {}).peak_ratio;
+        var own = d.peak_ratio != null ? Number(d.peak_ratio) : null;
+        var choices = RATIO_CHOICES.slice();
+        if (own != null && choices.indexOf(own) === -1) choices.push(own);
+        choices.sort(function (a, b) { return a - b; });
+        return '<select class="input" data-field="peak_ratio" id="' + src.domId + '-ratio">' +
+            '<option value=""' + (own == null ? ' selected' : '') + '>Réglage global (' + ratioText(g != null ? g : 3) + ')</option>' +
+            choices.map(function (v) {
+                return '<option value="' + v + '"' + (own === v ? ' selected' : '') + '>' + ratioText(v) + ' le bruit ambiant</option>';
+            }).join('') + '</select>';
+    }
     var NR_NAMES = CT.NR_NAMES;
     function recordHint(listening) {
         return listening
@@ -626,6 +646,8 @@
                     body[name] = input.checked;
                 } else if (input.type === 'range' || name === 'noise_reduction') {
                     body[name] = parseInt(input.value, 10);
+                } else if (name === 'peak_ratio') {
+                    body[name] = input.value === '' ? null : parseFloat(input.value);   // null : reglage global
                 } else {
                     body[name] = input.value.trim();
                 }
@@ -641,6 +663,7 @@
                     // Tout de suite, avant le rechargement : « Afficher le mot de
                     // passe » remontrait sinon l'ancienne adresse.
                     Object.assign(src.data, d.source || {});
+                    if (d.source && !('peak_ratio' in d.source)) delete src.data.peak_ratio;   // revenu au global
                     if (name === 'auto_volume') {
                         var vol = card.querySelector('[data-field="volume"]');
                         if (vol) vol.disabled = input.checked;

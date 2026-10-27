@@ -468,11 +468,11 @@ _GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 's
                 'room_arbitration', 'room_window', 'room_zones', 'clap_shape_check'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
-                   'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction'},
+                   'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction', 'peak_ratio'},
     'rtsp_sources': {'id', 'name', 'url', 'enabled', 'gain', 'webhook_url', 'rtsp_tcp', 'sound_groups',
-                     'noise_reduction'},
+                     'noise_reduction', 'peak_ratio'},
     'saved_vban_sources': {'id', 'name', 'ip', 'port', 'stream_name', 'enabled', 'gain', 'webhook_url',
-                           'entity_key', 'sound_groups', 'noise_reduction'},
+                           'entity_key', 'sound_groups', 'noise_reduction', 'peak_ratio'},
 }
 _GROUP_KEYS = {'slug', 'name', 'threshold', 'ha_entities', 'clap_counts', 'sound_whitelist', 'enabled',
                'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from', 'alert_confirm', 'device_class',
@@ -829,6 +829,11 @@ def _norm_source(src, path):
         src['volume'] = to_number(src['volume'], f"{path}.volume", 0, 150, integer=True)
     if 'noise_reduction' in src:
         src['noise_reduction'] = to_number(src['noise_reduction'], f"{path}.noise_reduction", 0, MAX_NR_LEVEL, integer=True)
+    if 'peak_ratio' in src:
+        if src['peak_ratio'] is None or src['peak_ratio'] == '':
+            del src['peak_ratio']   # reglage global
+        else:
+            src['peak_ratio'] = to_number(src['peak_ratio'], f"{path}.peak_ratio", *GLOBAL_LIMITS['peak_ratio'])
     if 'device_index' in src:
         src['device_index'] = to_number(src['device_index'], f"{path}.device_index", 0, 10000, integer=True)
     if 'port' in src:

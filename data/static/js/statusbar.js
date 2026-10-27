@@ -270,7 +270,7 @@
         if (m.kind === 'weak') {
             return [lab + ' reconnu à ' + CT.pct(m.score) + ', mais aucun pic assez fort pour compter un clap' +
                     (m.strength != null ? ' (' + x(m.strength) + ' le bruit de fond, minimum ' + x(m.required) + ')' : '') + '.',
-                    'Baissez « Force minimale d\'un clap » (Réglages › Comptage), ou rapprochez la source.'];
+                    'Baissez « Force minimale d\'un clap » (réglages de la source, ou Réglages › Comptage pour toutes), ou rapprochez la source.'];
         }
         if (m.kind === 'margin') {
             var rival = '« ' + CT.esc(CT.soundLabel(m.rival)) + ' »';

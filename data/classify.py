@@ -109,6 +109,7 @@ def build_sources_from_settings(settings):
             'entity_key': source_entity_key('mic', mic),
             'webhook_url': mic.get('webhook_url', ''),
             'noise_reduction': clamp_level(mic.get('noise_reduction')),
+            'peak_ratio': mic.get('peak_ratio'),
             'groups': _build_groups_for_source(mic, global_threshold),
             'label': source_label('mic', mic),
             'name': mic.get('audio_source') if mic.get('audio_source') not in (None, '', 'default') else 'Microphone',
@@ -127,6 +128,7 @@ def build_sources_from_settings(settings):
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 10)),
                 'noise_reduction': clamp_level(src.get('noise_reduction')),
+                'peak_ratio': src.get('peak_ratio'),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('rtsp', src),
                 'name': src.get('name') or 'RTSP',
@@ -145,6 +147,7 @@ def build_sources_from_settings(settings):
                 'webhook_url': src.get('webhook_url', ''),
                 'gain': float(src.get('gain', 1)),
                 'noise_reduction': clamp_level(src.get('noise_reduction')),
+                'peak_ratio': src.get('peak_ratio'),
                 'groups': _build_groups_for_source(src, global_threshold),
                 'label': source_label('vban', src),
                 'name': src.get('name') or src.get('ip', ''),
@@ -162,6 +165,12 @@ def detection_params_from_settings(settings):
         'peak_cooldown': float(g.get('peak_cooldown', 0.08)),
         'peak_ratio': float(g.get('peak_ratio', 3.0)),
     }
+
+
+def source_peak_ratio(src, params):
+    """Force minimale d'un clap d'une source (sa valeur, sinon la globale de
+    `params`) : detection et calibrage du comptage."""
+    return float((src or {}).get('peak_ratio') or params['peak_ratio'])
 
 
 # --- Effets de bord -----------------------------------------------------------
@@ -550,7 +559,7 @@ class DetectionSession:
                        score_threshold=min((g.get('threshold', p['score_threshold']) for g in groups),
                                            default=p['score_threshold']),
                        clap_window=p['delay'], peak_cooldown=p['peak_cooldown'],
-                       peak_ratio=p['peak_ratio'])
+                       peak_ratio=source_peak_ratio(src, p))
         det.set_groups(groups)
         det.set_exclusions(self.exclusions)
         try:
@@ -631,7 +640,8 @@ class DetectionSession:
                 g = settings.get('global', {})
                 det.tracker.early_decision = not arbitrated(g, sid, room_zone_map(g))
                 det.tracker.shape_check = bool(g.get('clap_shape_check', True))
-                det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'], peak_ratio=p['peak_ratio'])
+                det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'],
+                               peak_ratio=source_peak_ratio(current, p))
                 exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])
                 with self._lock:
                     self.exclusions = exclusions

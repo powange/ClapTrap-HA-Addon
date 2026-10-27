@@ -8,7 +8,7 @@ import uuid
 
 from settings_manager import (load_settings, modify_settings, SettingsSaveError, with_default_groups,
                               to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url,
-                              MAX_NR_LEVEL)
+                              MAX_NR_LEVEL, GLOBAL_LIMITS)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector
 
@@ -150,7 +150,7 @@ def _source_effects(source_id, fields, restart, gain=None):
     etait applique deux fois, les reglages relus a chaque etape)."""
     if restart or 'name' in fields:
         running = _sync_and_apply()          # entites HA + detection (gain compris)
-    elif fields & {'webhook_url', 'gain', 'noise_reduction'}:
+    elif fields & {'webhook_url', 'gain', 'noise_reduction', 'peak_ratio'}:
         running = _apply_live()
     else:
         return
@@ -343,6 +343,8 @@ def _update_rtsp(stream_id, data):
             stream['gain'] = to_number(data['gain'], 'gain', 0, 100, integer=True)
         if 'noise_reduction' in data:
             stream['noise_reduction'] = to_number(data['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
+        if 'peak_ratio' in data:
+            _set_peak_ratio(stream, data['peak_ratio'])
         # Redemarrage si la source est (des)activee, ou si l'URL ou le
         # transport d'une source active change (ffmpeg doit se reconnecter).
         state['restart'] = enabled_changed or ((url_changed or transport_changed) and stream.get('enabled', False))
@@ -444,6 +446,8 @@ def _update_vban(vban_id, source):
             s['gain'] = to_number(source['gain'], 'gain', 0, 100, integer=True)
         if 'noise_reduction' in source:
             s['noise_reduction'] = to_number(source['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
+        if 'peak_ratio' in source:
+            _set_peak_ratio(s, source['peak_ratio'])
         state['restart'] = restart
         return dict(s)
 
@@ -1015,12 +1019,28 @@ def toggle_auto_start():
 _PATCH_FIELDS = {
     # Seuil et entites se reglent par groupe (/api/source/sound_groups) : les
     # champs de source equivalents etaient acceptes sans aucun effet.
-    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled', 'noise_reduction'},
-    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp', 'noise_reduction'},
+    'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled', 'noise_reduction', 'peak_ratio'},
+    'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp', 'noise_reduction', 'peak_ratio'},
     # VBAN : `name` n'est que le nom affiche ; le routage utilise stream_name
     # et les entity_id la cle fixee a la creation.
-    'vban': {'name', 'webhook_url', 'enabled', 'gain', 'noise_reduction'},
+    'vban': {'name', 'webhook_url', 'enabled', 'gain', 'noise_reduction', 'peak_ratio'},
 }
+
+
+def _peak_ratio_value(value):
+    """Force minimale d'un clap propre a la source : None (ou vide) pour
+    suivre le reglage global."""
+    if value is None or value == '':
+        return None
+    return to_number(value, 'peak_ratio', *GLOBAL_LIMITS['peak_ratio'])
+
+
+def _set_peak_ratio(src, value):
+    value = _peak_ratio_value(value)
+    if value is None:
+        src.pop('peak_ratio', None)
+    else:
+        src['peak_ratio'] = value
 
 
 def _check_fields(kind, data):
@@ -1060,6 +1080,7 @@ def _update_mic_fields(data, configured=False):
         changes['enabled'] = to_bool(data['enabled'], 'enabled')
     if 'noise_reduction' in data:
         changes['noise_reduction'] = to_number(data['noise_reduction'], 'noise_reduction', 0, MAX_NR_LEVEL, integer=True)
+    peak_ratio = _peak_ratio_value(data['peak_ratio']) if 'peak_ratio' in data else None
     if configured:
         changes['configured'] = True
 
@@ -1087,6 +1108,8 @@ def _update_mic_fields(data, configured=False):
         m = settings.setdefault('microphone', {})
         before = dict(m)
         m.update(changes)
+        if 'peak_ratio' in data:
+            _set_peak_ratio(m, peak_ratio)
         if configured:
             with_default_groups(m)   # micro ajoute par l'assistant : groupe « Clap » utilisable
         return before, dict(m)
@@ -1108,7 +1131,7 @@ def _update_mic_fields(data, configured=False):
         # Une seule synchronisation HA (disponibilite, nom du micro affiche,
         # meme desactive) : la relance la fait deja.
         _after_change(needs_restart)
-    elif changes.keys() & {'webhook_url', 'noise_reduction'}:
+    elif changes.keys() & {'webhook_url', 'noise_reduction'} or 'peak_ratio' in data:
         _apply_live()
     return mic
 

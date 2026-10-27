@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.104.0
+
+### Force minimale d'un clap par source
+
+- Nouveau champ **Force minimale d'un clap** dans les réglages de chaque
+  source. Par défaut il suit le réglage global ; on peut aussi choisir de
+  × 1,5 à × 12 le bruit ambiant pour cette source seule. Exemples : plus
+  bas pour une caméra lointaine qui manque des claps, plus haut pour un
+  micro sensible qui en compte trop. La valeur s'applique tout de suite,
+  sans relancer la détection.
+- « Calibrer le comptage » sur une source qui a sa propre valeur la
+  simule, la propose (« propre à cette source ») et l'enregistre sur la
+  source ; la fenêtre et l'écart restent globaux.
+- « Presque déclenchés » (son reconnu sans pic assez fort) renvoie aussi
+  vers ce réglage.
+- Les prises du calibrage sont aussi comptées avec la force de la source.
+  Le choix « source ou global » est celui montré par l'analyse, et
+  l'enregistrement se fait en une seule écriture.
+- API : `peak_ratio` dans `PATCH /api/sources/<type>/<id>` et dans la
+  commande MQTT `update_source` (`null` : réglage global). La borne est la
+  même que celle du réglage global (1 à 50). La configuration publiée dans
+  Home Assistant indique la valeur propre de chaque source.
+
 ## 6.103.1
 
 - Apprendre ou réapprendre un son : « Exemple 7 sur 3 à 10 » devient

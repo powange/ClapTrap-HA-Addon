@@ -33,12 +33,23 @@ WINDOW_MARGIN = 0.4      # marge ajoutee a la duree du geste le plus long
 LIMITS = {'delay': (0.6, 5.0), 'peak_cooldown': (0.05, 0.3), 'peak_ratio': (1.5, 50.0)}
 
 
-def _params():
+def _params(s=None):
+    """Reglages du comptage simules : globaux, et la force minimale propre a
+    la source de la session `s` si elle en a une."""
     from settings_manager import load_settings
-    from classify import detection_params_from_settings
-    p = detection_params_from_settings(load_settings())
+    from classify import detection_params_from_settings, source_peak_ratio
+    settings = load_settings()
+    p = detection_params_from_settings(settings)
+    src = calibration._source(settings, s.kind, s.key) if s is not None else None
     return {'delay': float(p['delay']), 'peak_cooldown': float(p['peak_cooldown']),
-            'peak_ratio': float(p['peak_ratio'])}
+            'peak_ratio': source_peak_ratio(src, p)}
+
+
+def _source_ratio(s):
+    """Force minimale propre a la source calibree (None : reglage global)."""
+    from settings_manager import load_settings
+    src = calibration._source(load_settings(), s.kind, s.key) or {}
+    return src.get('peak_ratio')
 
 
 def start(source_ref):
@@ -73,7 +84,7 @@ def record(kind, duration=None):
         s.count_takes.append({'kind': kind, 'blocks': blocks})
         s.count_proposal = None
         bg = _background(s.count_takes)
-        found = _simulate(bg, blocks, _params()) if bg else None
+        found = _simulate(bg, blocks, _params(s)) if bg else None
         return {'kind': kind, 'label': KINDS[kind]['label'],
                 'take_number': sum(1 for t in s.count_takes if t['kind'] == kind),
                 'claps_found': sum(found) if found is not None else None, 'gestures': found,
@@ -154,7 +165,8 @@ def analyze():
         bg = _background(takes)
         if not bg:
             raise calibration.CalibrationError('commencez par la prise du bruit de fond')
-        current = _params()
+        current = _params(s)
+        own = _source_ratio(s)
         warnings = []
 
         floor = max(1e-5, statistics.median(b[0] for b in bg))
@@ -231,6 +243,7 @@ def analyze():
                          'current': cur, 'proposed': new, 'usable': t['kind'] == 'fond' or id(t) in peaks,
                          'current_ok': cur == expected, 'proposed_ok': new == expected})
         s.count_proposal = {'current': current, 'proposed': proposed, 'rows': rows, 'warnings': warnings,
+                            'peak_ratio_scope': 'source' if own is not None else 'global',
                             'limits': LIMITS,
                             'score': {'current': sum(r['current_ok'] for r in rows),
                                       'proposed': sum(r['proposed_ok'] for r in rows), 'takes': len(rows)},
@@ -238,6 +251,23 @@ def analyze():
                                          'longest_gesture': round(max(spans), 2),
                                          'rebound': round(max(rebounds), 2) if rebounds else None}}
         return s.count_proposal
+
+
+def _save_on_source(s, chosen):
+    from settings_manager import modify_settings, SettingsSaveError
+    from routes.sources import _apply_live
+
+    def _mut(settings):
+        src = calibration._source(settings, s.kind, s.key)
+        if src is None:
+            raise calibration.CalibrationError('source supprimée pendant le calibrage', 404)
+        src['peak_ratio'] = chosen['peak_ratio']
+        settings.setdefault('global', {}).update({k: v for k, v in chosen.items() if k != 'peak_ratio'})
+    try:
+        modify_settings(_mut)
+    except SettingsSaveError as e:
+        raise calibration.CalibrationError(f'réglages non enregistrés : {e}', 500)
+    _apply_live()
 
 
 def apply(values=None):
@@ -252,7 +282,13 @@ def apply(values=None):
             if key not in LIMITS:
                 raise calibration.CalibrationError(f'{key} : réglage inconnu')
             chosen[key] = to_number(val, key, *LIMITS[key])
-        calibration._api('PUT', '/api/settings/advanced', chosen)
+        scope = (s.count_proposal or {}).get('peak_ratio_scope', 'global')
+        if scope == 'source' and 'peak_ratio' in chosen:
+            # Force minimale propre a la source (comme analysee) : enregistree
+            # sur elle, le reste en global, en une seule ecriture.
+            _save_on_source(s, chosen)
+        else:
+            calibration._api('PUT', '/api/settings/advanced', chosen)
         calibration._finish(s)
         logging.info(f"Calibrage du comptage appliqué sur {s.label} : {chosen}")
         return {'applied': chosen, 'active': False}
