@@ -223,7 +223,7 @@ fond et exemples) sans supprimer le son. Le nom ne change pas, donc les
 groupes qui le cochent restent liés. Les contre-exemples sont gardés.
 
 **Contre-exemples** : quand un son appris a déclenché à tort, cliquez sur
-**Ce n'était pas ça** dans « Dernières détections », puis **Retenir ce son
+**Ce n'était pas ça** dans le journal (onglet Écoute), puis **Retenir ce son
 comme différent de « Appris : <nom> »**. La fenêtre entendue est gardée, au
 plus 20 par son, les plus anciennes étant remplacées. Un son plus proche
 d'un contre-exemple que de tous les exemples aura ensuite un score nul.
@@ -839,7 +839,7 @@ meilleur autre son entendu au même moment, en plus de dépasser le seuil.
 « Applaudissement » à 62 % ne déclenche pas si « Voix » est à 58 % et que
 l'écart demandé est de 10 points. Utile dans une pièce bruyante, ou avec une
 caméra qui donne des scores proches à tous les sons. Les gestes écartés
-ainsi apparaissent dans « Presque déclenchés ». Si le son concurrent fait
+ainsi apparaissent dans le journal, filtre « Presque déclenchés ». Si le son concurrent fait
 partie du geste (« Mains » pour des claps), cochez-le dans le groupe. Les
 sons cochés dans un autre groupe de la source et les sons appris ne
 comptent pas comme concurrents. « Calibrer » ne tient pas compte de
@@ -854,7 +854,7 @@ porte ou un coup sourd (trop graves), une voix ou une musique (qui durent)
 ne comptent plus. Les seuils sont larges : un clap réverbérant, ou capté
 par une caméra en 8 kHz, passe. Les autres groupes (un « Toc » qui compte
 des coups) ne sont pas concernés. Les pics écartés apparaissent dans
-« Presque déclenchés » ; si un vrai clap y figure, décochez l'option.
+le journal, filtre « Presque déclenchés » ; si un vrai clap y figure, décochez l'option.
 
 **Analyse centrée sur un clap** : YAMNet analyse une fenêtre d'environ 1 s
 toutes les 0,5 s. Un clap qui tombe au bord d'une fenêtre est moins bien
@@ -865,9 +865,17 @@ processeur est en retard, elle est sautée sans faire sauter une analyse
 régulière. Leur nombre s'affiche avec la durée des analyses sur la carte de
 la source.
 
-**Comprendre un clap raté** : sous « Dernières détections » (onglet
-Écoute), **Presque déclenchés** liste les gestes qui ont failli déclencher.
-Chacun est donné avec sa raison et une piste de réglage :
+**Journal** (onglet Écoute) : les détections et les gestes qui ont failli
+déclencher sont réunis dans une seule liste, dans l'ordre des gestes, du
+plus récent au plus ancien (30 détections et 30 « presque » au plus : des
+« presque » nombreux ne chassent pas les détections). Les filtres **Tout**, **Déclenchés**, **Non retenus** (perdus
+à l'arbitrage entre pièces ou face à un groupe prioritaire) et **Presque
+déclenchés** affichent chacun leur nombre, et une liste choisit la source.
+**Effacer** vide tout le journal.
+
+**Comprendre un clap raté** : le filtre **Presque déclenchés** du journal
+liste les gestes qui ont failli déclencher. Chacun est donné avec sa raison
+et une piste de réglage :
 - **pic de clap sans son reconnu**, avec le meilleur score du groupe et son
   seuil → baisser le seuil, ou cocher le son que YAMNet entend ;
 - **son reconnu sans pic assez fort**, avec la force mesurée et le minimum
@@ -878,7 +886,7 @@ Chacun est donné avec sa raison et une piste de réglage :
 Les 50 derniers sont gardés jusqu'au redémarrage de l'add-on (API :
 `GET /api/detections/near_misses`), et rien n'est noté pendant un calibrage.
 
-**Corriger une fausse détection** : dans « Dernières détections », **Ce
+**Corriger une fausse détection** : dans le journal, **Ce
 n'était pas ça** propose, pour ce groupe :
 - **ne plus réagir à « son »** : le son est décoché dans le groupe ;
 - **relever le seuil du groupe** juste au-dessus du score observé (1 point

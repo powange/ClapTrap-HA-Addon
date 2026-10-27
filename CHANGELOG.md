@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.108.0
+
+### Journal unique et filtrable
+
+- « Dernières détections » et « Presque déclenchés » sont réunis en un
+  seul **Journal** (onglet Écoute), classé par l'heure du geste, du plus
+  récent au plus ancien. Un « presque » noté quelques secondes après son
+  geste prend donc sa place dans le temps.
+- Le journal garde au plus 30 détections et 30 « presque ». Des
+  « presque » nombreux (portes, chocs) ne chassent pas les détections ni
+  leur bouton « Ce n'était pas ça ».
+- Filtres **Tout**, **Déclenchés**, **Non retenus** et **Presque
+  déclenchés**, avec le nombre d'entrées de chacun. Une liste filtre par
+  source. Le filtre « Presque déclenchés » rappelle à quoi servent ces
+  entrées, et un filtre sans résultat affiche « Rien pour ce filtre ».
+- Les « presque » portent une pastille **Presque**. **Effacer** vide tout
+  le journal, comme avant. Les deux listes se chargent indépendamment :
+  si l'une échoue, l'autre s'affiche quand même.
+
 ## 6.107.0
 
 ### Calibrer l'arbitrage entre pièces

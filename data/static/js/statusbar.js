@@ -303,38 +303,104 @@
         var when = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
         var t = nearText(m);
         li.innerHTML = '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
-            '<span class="history-main"><strong>' + CT.esc(m.group || '') + '</strong> · ' + CT.esc(m.source_name || sourceNameFor(m.source_id)) +
+            '<span class="history-main"><span class="pill log-kind">Presque</span><strong>' + CT.esc(m.group || '') + '</strong> · ' +
+            CT.esc(m.source_name || sourceNameFor(m.source_id)) +
             '<span class="history-labels">' + t[0] + '</span><span class="history-labels near-hint">' + t[1] + '</span></span>';
         return li;
     }
-    function renderNearEmpty() {
-        var list = CT.$('#near-list');
-        if (!list) return;
-        CT.$('#near-empty').hidden = list.children.length > 0;
-        CT.$('#near-count').textContent = list.children.length ? '(' + list.children.length + ')' : '';
-        renderHistoryEmpty();
+
+    // ---- Journal : detections et « presque », filtres par type et source -------
+    // Plafond par type : des « presque » frequents (portes, chocs) ne
+    // chassent pas les vraies detections et leur « Ce n'etait pas ça ».
+    var LOG_MAX = {detection: 30, near: 30};
+    var logFilter = 'all';
+    function logEntry(li, kind, item, ts) {
+        li.setAttribute('data-kind', kind);
+        li.setAttribute('data-source', item.source_id || '');
+        li.setAttribute('data-source-name', item.source_name || '');
+        li.setAttribute('data-ts', String(ts || Date.now() / 1000));
+        return li;
     }
-    function renderHistoryEmpty() {
-        var list = CT.$('#history-list'), near = CT.$('#near-list');
-        CT.$('#history-empty').hidden = list.children.length > 0;
-        CT.$('#history-clear').disabled = !list.children.length && !(near && near.children.length);
+    // Detections : instant du 1er clap (timestamp : envoi, 1,5 a 2,5 s plus
+    // tard), comme les « presque » : un seul ordre, celui des gestes.
+    function clapEntry(ev) { return logEntry(historyItem(ev), ev.ignored ? 'ignored' : 'clap', ev, ev.clap_time || ev.timestamp); }
+    function nearEntry(m) { return logEntry(nearItem(m), 'near', m, m.timestamp); }
+    function family(li) { return li.getAttribute('data-kind') === 'near' ? 'near' : 'detection'; }
+    // Le plus recent en haut, a sa place : un « presque » est note quelques
+    // secondes apres son geste.
+    function insertLog(list, li) {
+        var ts = +li.getAttribute('data-ts');
+        var before = CT.$$('li', list).find(function (x) { return +x.getAttribute('data-ts') <= ts; });
+        list.insertBefore(li, before || null);
+        var fam = family(li);
+        var same = CT.$$('li', list).filter(function (x) { return family(x) === fam; });
+        same.slice(LOG_MAX[fam]).forEach(function (x) { list.removeChild(x); });
     }
+    function fillSources() {
+        var sel = CT.$('#log-source');
+        if (!sel) return;
+        var cur = sel.value, seen = {};
+        var opts = CT.sourceList().map(function (src) { seen[src.sourceId] = true; return [src.sourceId, src.name]; });
+        // Sources supprimees encore presentes dans le journal
+        CT.$$('#history-list > li').forEach(function (li) {
+            var sid = li.getAttribute('data-source');
+            if (sid && !seen[sid]) { seen[sid] = true; opts.push([sid, li.getAttribute('data-source-name') || sid]); }
+        });
+        sel.innerHTML = '<option value="">Toutes les sources</option>' + opts.map(function (o) {
+            return '<option value="' + CT.esc(o[0]) + '">' + CT.esc(o[1]) + '</option>';
+        }).join('');
+        sel.value = seen[cur] ? cur : '';
+        if (sel.value !== cur) applyLogFilter();   // source disparue : filtre retire
+    }
+    function applyLogFilter() {
+        var list = CT.$('#history-list'), sel = CT.$('#log-source');
+        var source = sel ? sel.value : '';
+        var counts = {all: 0, clap: 0, ignored: 0, near: 0}, shown = 0;
+        CT.$$('li', list).forEach(function (li) {
+            var kind = li.getAttribute('data-kind');
+            var mine = !source || li.getAttribute('data-source') === source;
+            if (mine) { counts.all++; counts[kind]++; }
+            li.hidden = !mine || (logFilter !== 'all' && kind !== logFilter);
+            if (!li.hidden) shown++;
+        });
+        logChips.forEach(function (b) {
+            var f = b.getAttribute('data-log-filter'), n = counts[f];
+            b.setAttribute('aria-pressed', String(f === logFilter));
+            b.querySelector('[data-log-count]').textContent = n ? '(' + n + ')' : '';
+        });
+        var empty = CT.$('#history-empty');
+        empty.hidden = shown > 0;
+        empty.textContent = list.children.length ? 'Rien pour ce filtre.'
+            : 'Aucun clap pour l\'instant : démarrez la détection et tapez dans vos mains.';
+        var help = CT.$('#near-help');
+        if (help) help.hidden = logFilter !== 'near';
+        CT.$('#history-clear').disabled = !list.children.length;
+    }
+    var logChips = [];
     function bindHistory() {
         var list = CT.$('#history-list');
         var loaded = false;
-        var near = CT.$('#near-list');
+        logChips = CT.$$('[data-log-filter]');
         function loadHistory() {
-            CT.api('GET', '/api/detections/history').then(function (events) {
-                loaded = true;
+            // Chargements independants : un echec n'efface pas l'autre liste.
+            var none = function () { return null; };
+            Promise.all([
+                CT.api('GET', '/api/detections/history').then(function (events) { loaded = true; return events; }, none),
+                CT.api('GET', '/api/detections/near_misses').catch(none)
+            ]).then(function (r) {
+                if (r[0] === null && r[1] === null) { applyLogFilter(); return; }
+                var keep = function (items, fam) {
+                    return (Array.isArray(items) ? items : []).slice(0, LOG_MAX[fam]).map(fam === 'near' ? nearEntry : clapEntry);
+                };
+                var old = CT.$$('li', list);
+                var entries = (r[0] === null ? old.filter(function (li) { return family(li) === 'detection'; }) : keep(r[0], 'detection'))
+                    .concat(r[1] === null ? old.filter(function (li) { return family(li) === 'near'; }) : keep(r[1], 'near'));
+                entries.sort(function (x, y) { return +y.getAttribute('data-ts') - +x.getAttribute('data-ts'); });
                 list.innerHTML = '';
-                (Array.isArray(events) ? events : []).slice(0, 20).forEach(function (ev) { list.appendChild(historyItem(ev)); });
-                renderHistoryEmpty();
-            }).catch(renderHistoryEmpty);
-            if (near) CT.api('GET', '/api/detections/near_misses').then(function (items) {
-                near.innerHTML = '';
-                (Array.isArray(items) ? items : []).slice(0, 20).forEach(function (m) { near.appendChild(nearItem(m)); });
-                renderNearEmpty();
-            }).catch(renderNearEmpty);
+                entries.forEach(function (li) { list.appendChild(li); });
+                fillSources();
+                applyLogFilter();
+            });
         }
         loadHistory();
         // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus :
@@ -346,30 +412,34 @@
             if (wasConnected || !loaded) loadHistory();
             wasConnected = true;
         });
-        function addHistory(ev) {
-            list.insertBefore(historyItem(ev || {}), list.firstChild);
-            while (list.children.length > 20) list.removeChild(list.lastChild);
-            renderHistoryEmpty();
+        function add(li) {
+            insertLog(list, li);
+            applyLogFilter();
         }
-        CT.on('clap', addHistory);
-        CT.on('near_miss', function (m) {
-            if (!near || !m) return;
-            near.insertBefore(nearItem(m), near.firstChild);
-            while (near.children.length > 20) near.removeChild(near.lastChild);
-            renderNearEmpty();
-        });
+        CT.on('clap', function (ev) { add(clapEntry(ev || {})); });
+        CT.on('near_miss', function (m) { if (m) add(nearEntry(m)); });
         // Alerte : au debut seulement (comme l'historique du serveur).
-        CT.on('alert', function (ev) { if (ev && ev.alert === 'on') addHistory(ev); });
+        CT.on('alert', function (ev) { if (ev && ev.alert === 'on') add(clapEntry(ev)); });
+        logChips.forEach(function (b) {
+            b.addEventListener('click', function () { logFilter = b.getAttribute('data-log-filter'); applyLogFilter(); });
+        });
+        var sel = CT.$('#log-source');
+        if (sel) {
+            // Sources ajoutees ou renommees depuis : avant l'ouverture de la
+            // liste (pas au focus, qui l'ouvre deja sur mobile).
+            sel.addEventListener('pointerdown', fillSources);
+            sel.addEventListener('keydown', function (e) { if (e.key !== 'Tab') fillSources(); });
+            sel.addEventListener('change', applyLogFilter);
+        }
         CT.$('#history-clear').addEventListener('click', function () {
-            var nearList = CT.$('#near-list');
-            if (!list.children.length && !(nearList && nearList.children.length)) return;
+            if (!list.children.length) return;
             // Dialogue de l'interface : window.confirm est peu fiable dans
             // l'application mobile de Home Assistant.
-            CT.confirm('Effacer les dernières détections et les « presque » ?', 'Effacer').then(function (ok) {
+            CT.confirm('Effacer tout le journal (détections et « presque ») ?', 'Effacer').then(function (ok) {
                 if (!ok) return;
                 CT.api('DELETE', '/api/detections/history')
-                    .then(function () { list.innerHTML = ''; if (near) near.innerHTML = ''; renderHistoryEmpty(); renderNearEmpty(); })
-                    .catch(function (err) { CT.error('Historique non effacé : ' + err.message); });
+                    .then(function () { list.innerHTML = ''; applyLogFilter(); })
+                    .catch(function (err) { CT.error('Journal non effacé : ' + err.message); });
             });
         });
     }

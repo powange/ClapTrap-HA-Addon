@@ -146,7 +146,22 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('clap', { source_id: 'mic', clap_count: 2, score: 0.81, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 2e9 }); await tick(); const clapAnnounce = $('#announcer').textContent;
   ok('3.  clap : badge + ligne live', !$('#src-mic .group-live[data-slug="clap"] .clap-badge').hidden && /2 claps/.test($('#src-mic [data-role="live"]').textContent));
   // 4 : historique
-  ok('4. historique chargé + nouveau clap', $$('#history-list li').length === 2 && $('#history-empty').hidden);
+  ok('4. journal chargé (détection et presque) + nouveau clap en tête', $$('#history-list li').length === 3 && $('#history-empty').hidden &&
+     $('#history-list li').getAttribute('data-ts') === '2000000000' && /\(3\)/.test($('[data-log-count="all"]').textContent));
+  $('[data-log-filter="near"]').click(); await tick();
+  ok('4. filtre « Presque déclenchés » : explication et seul le presque visible', $$('#history-list li:not([hidden])').length === 1 &&
+     $('#history-list li:not([hidden])').classList.contains('near-item') && !$('#near-help').hidden &&
+     $('[data-log-filter="near"]').getAttribute('aria-pressed') === 'true');
+  $('[data-log-filter="clap"]').click(); await tick();
+  ok('4. filtre « Déclenchés »', $$('#history-list li:not([hidden])').length === 2 && $('#near-help').hidden);
+  $('[data-log-filter="ignored"]').click(); await tick();
+  ok('4. filtre vide : message adapté', $$('#history-list li:not([hidden])').length === 0 && !$('#history-empty').hidden &&
+     /Rien pour ce filtre/.test($('#history-empty').textContent));
+  $('#log-source').dispatchEvent(new w.Event('pointerdown'));
+  ok('4. sources proposées dans le filtre', [...$('#log-source').options].some(o => o.value === 'mic'));
+  $('#log-source').value = 'mic'; change($('#log-source')); $('[data-log-filter="all"]').click(); await tick();
+  ok('4. filtre par source', $$('#history-list li:not([hidden])').length === 3);
+  $('#log-source').value = ''; change($('#log-source')); await tick();
   $('#history-clear').click(); await tick(); $('.modal [data-r="ok"]').click(); await tick(3);
   ok('4. effacer l\'historique (serveur)', !!lastCall('DELETE', '/api/detections/history') && $$('#history-list li').length === 0);
   // seuil en direct
@@ -826,22 +841,27 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('clap', { source_id: 'mic', clap_count: 2, group_name: 'Clap', score: 0.8, ignored: true, room: 'Cuisine', timestamp: 1e9 }); await tick();
   ok('+  pièces : historique « entendu plus fort dans »', /entendu plus fort dans « Cuisine »/.test($('#history-list').textContent));
   // --- 6.98 : presque declenches
-  ok('+  presque : chargés avec la raison et la piste', $$('#near-list li').length === 1 && /\(1\)/.test($('#near-count').textContent) &&
-     /Pic de clap sans son reconnu : « Applaudissement » à 38 % pour un seuil de 50 %/.test($('#near-list').textContent) &&
-     /Baissez le seuil du groupe/.test($('#near-list').textContent));
+  ok('+  presque : chargés avec la raison et la piste', $$('#history-list li.near-item').length === 1 && /\(1\)/.test($('[data-log-count="near"]').textContent) &&
+     /Pic de clap sans son reconnu : « Applaudissement » à 38 % pour un seuil de 50 %/.test($('#history-list').textContent) &&
+     /Baissez le seuil du groupe/.test($('#history-list').textContent));
   emit('near_miss', { kind: 'weak', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.82, threshold: 0.5, strength: 2.1, required: 3 }); await tick();
-  ok('+  presque : son reconnu, pic trop faible (en direct)', $$('#near-list li').length === 2 &&
-     /reconnu à 82 %, mais aucun pic assez fort pour compter un clap \(2,1 × le bruit de fond, minimum 3 ×\)/.test($('#near-list li').textContent));
+  ok('+  presque : son reconnu, pic trop faible (en direct)', $$('#history-list li.near-item').length === 2 &&
+     /reconnu à 82 %, mais aucun pic assez fort pour compter un clap \(2,1 × le bruit de fond, minimum 3 ×\)/.test($('#history-list li.near-item').textContent));
   emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e9, counted: 3, expected: [1, 2], score: 0.9 }); await tick();
-  ok('+  presque : nombre de claps sans entité', /3 claps comptés, aucune entité pour ce nombre \(le groupe attend 1 ou 2\)/.test($('#near-list li').textContent));
+  ok('+  presque : nombre de claps sans entité', /3 claps comptés, aucune entité pour ce nombre \(le groupe attend 1 ou 2\)/.test($('#history-list li.near-item').textContent));
   emit('near_miss', { kind: 'margin', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.62, rival: 'Speech', rival_score: 0.58, margin: 0.1 }); await tick();
-  ok('+  presque : son trop proche d\'un autre', /« Applaudissement » à 62 %, mais « .+ » juste derrière à 58 % \(écart demandé : 10 points\)/.test($('#near-list li').textContent));
+  ok('+  presque : son trop proche d\'un autre', /« Applaudissement » à 62 %, mais « .+ » juste derrière à 58 % \(écart demandé : 10 points\)/.test($('#history-list li.near-item').textContent));
   emit('near_miss', { kind: 'margin', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.55, rival: 'Speech', rival_score: 0.9, margin: 0.1 }); await tick();
-  ok('+  presque : son battu par un autre (aucun écart n\'y fait rien)', /à 55 %, battu par « .+ » à 90 %/.test($('#near-list li').textContent) &&
-     /Aucun écart ne le ferait déclencher/.test($('#near-list li').textContent));
+  ok('+  presque : son battu par un autre (aucun écart n\'y fait rien)', /à 55 %, battu par « .+ » à 90 %/.test($('#history-list li.near-item').textContent) &&
+     /Aucun écart ne le ferait déclencher/.test($('#history-list li.near-item').textContent));
   emit('near_miss', { kind: 'shape', group: 'Clap', source_id: 'mic', timestamp: 1e9, reason: 'grave', high: 0.04, decay: 0.2 }); await tick();
-  ok('+  presque : pic écarté par sa forme', /Pic écarté : il ne ressemble pas à un clap \(son trop grave : 4 % de son énergie dans les aigus\)/.test($('#near-list li').textContent) &&
-     /Vérifier la forme des claps/.test($('#near-list li').textContent));
+  ok('+  presque : pic écarté par sa forme', /Pic écarté : il ne ressemble pas à un clap \(son trop grave : 4 % de son énergie dans les aigus\)/.test($('#history-list li.near-item').textContent) &&
+     /Vérifier la forme des claps/.test($('#history-list li.near-item').textContent));
+  const clapsBefore = $$('#history-list li:not(.near-item)').length;
+  for (let k = 0; k < 35; k++) emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e8 + k, counted: 3, expected: [1, 2], score: 0.9 });
+  await tick();
+  ok('+  journal : 30 « presque » au plus, sans chasser les détections', $$('#history-list li.near-item').length === 30 &&
+     $$('#history-list li:not(.near-item)').length === clapsBefore && clapsBefore > 0);
   // --- 6.80 : diagnostic de la detection sur la carte
   status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
              source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100, analyse_ms: 4.2, analyse_max_ms: 9.1, reconnexions: 1 } },
