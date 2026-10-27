@@ -878,6 +878,8 @@ class AudioDetector:
                     'ignored': ev['ignored'],
                     'alert': ev.get('alert'),   # mode alerte : 'on' / 'off'
                     'strength': ev.get('strength', 0.0),   # pic le plus fort / bruit de fond
+                    'rhythm': ev.get('rhythm', ''),
+                    'gaps': ev.get('gaps', []),
                 })
             except Exception as e:
                 logging.error(f"Erreur callback détection ({self.label}): {e}")

@@ -728,3 +728,22 @@ def test_detection_keeps_learned_evidence_for_feedback(session_env, monkeypatch)
     session._on_detection(src, {'timestamp': 1, 'score': 0.8, 'labels': [{'label': 'Appris : Bip', 'score': 0.8}],
                                 'group_slug': 'f', 'group_name': 'F', 'ignored': False, 'alert': 'off'})
     assert asked == ['Appris : Bip']                             # fin d'alerte : rien a corriger
+
+
+def test_rhythm_reaches_event_history_and_not_alerts(session_env, monkeypatch):
+    classify, sock, emitted, calls, sm = session_env
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    monkeypatch.setattr(classify, '_run_alert_effects', lambda *a: None)
+    monkeypatch.setattr(classify, '_event_effects', types.SimpleNamespace(submit=lambda *a, **k: None))
+    session = classify.DetectionSession([], sock)
+    src = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro', 'kind': 'mic', 'source_key': '0'}
+    base = {'timestamp': 1, 'score': 0.8, 'labels': [], 'group_slug': 'clap', 'group_name': 'Clap', 'ignored': False}
+    session._on_detection(src, dict(base, clap_count=3, group_clap_counts=[1, 2, 3], rhythm='2+1', gaps=[0.2, 0.6]))
+    ev = [d for e, d in emitted if e == 'clap'][-1]
+    assert ev['rhythm'] == '2+1' and ev['gaps'] == [0.2, 0.6]
+    assert posted[-1][3]['rhythm'] == '2+1'                       # evenement HA et webhook
+    assert classify.get_detection_history()[0]['rhythm'] == '2+1'
+    session._on_detection(src, dict(base, alert='on', clap_count=0, group_clap_counts=[]))
+    alert = [d for e, d in emitted if e == 'alert'][-1]
+    assert 'rhythm' not in alert and 'gaps' not in alert

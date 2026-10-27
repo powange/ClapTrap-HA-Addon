@@ -364,6 +364,7 @@ Ensuite, **Créer une automatisation** à partir du blueprint :
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_basculer_lumiere.yaml) | **Claps pour basculer une lumière** : des claps allument ou éteignent des lumières, des prises, des ventilateurs ou des interrupteurs virtuels. |
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_defiler_scenes.yaml) | **Claps pour faire défiler des scènes** : chaque déclenchement active la scène suivante (Hue ou Home Assistant), puis revient à la première ; extinction après la dernière en option. La scène en cours est la dernière activée par Home Assistant : une scène rappelée depuis l'application Hue n'est pas vue, et on repart de la première après 10 minutes (réglable). |
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_actions.yaml) | **Claps pour lancer des actions au choix** : script, commande RF ou infrarouge, télécommande… pour tout le reste. |
+| [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_rythme.yaml) | **Rythme de claps pour lancer des actions** : un rythme précis (« 2+1 », « 1+2 », « 1+1+1 »…) lance les actions de votre choix, pour un groupe et une source si vous le précisez. |
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Falerte_notification.yaml) | **Alerte sonore sur le téléphone** : un capteur d'alerte (fumée, pleurs, aboiement, sonnette) envoie une notification, avec flash des lumières en option. |
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_confirmation_vocale.yaml) | **Confirmation vocale après un clap** : une enceinte dit une phrase quand le geste est compris. |
 | [![Importer](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fpowange%2FClapTrap-HA-Addon%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fclaptrap%2Fclaps_assist.yaml) | **Un clap pour parler à Assist** : un clap lance une conversation sur un satellite vocal, à la place du mot d'activation. |
@@ -499,7 +500,9 @@ qu'un webhook :
   "timestamp": 1790000000.12,
   "clap_time": 1789999998.46,
   "score": 0.82,
-  "clap_count": 2,
+  "clap_count": 3,
+  "rhythm": "2+1",
+  "gaps": [0.21, 0.68],
   "labels": [{"label": "Clapping", "score": 0.82}],
   "group_slug": "clap",
   "group_name": "Clap",
@@ -514,7 +517,25 @@ qu'un webhook :
   tôt, la fenêtre de comptage).
 - `clap_count` : nombre de claps comptés (0 pour un groupe sans entité qui
   reconnaît un son sans aucun pic).
+- `rhythm` : rythme du geste, en groupes de claps rapides séparés par des
+  pauses. « 2+1 » veut dire deux claps, une pause, un clap ; « 3 » veut
+  dire trois claps réguliers ; « 1 » un clap seul. `gaps` : écarts entre
+  les claps, en secondes.
 - `labels` : sons reconnus (noms YAMNet en anglais) et leur score.
+
+**Rythmes** : un écart compte comme une pause à partir de 0,45 s. Il compte
+aussi à partir de 0,3 s s'il fait au moins 1,6 fois le plus court écart du
+geste, pour une pause marquée après des claps très rapides. Des claps
+réguliers donnent « 3 » s'ils sont rapides, « 1+1+1 » s'ils sont lents
+(0,45 s d'écart ou plus). Deux claps donnent « 2 » ou « 1+1 ». Seuls les
+groupes en mode « claps, coups » ont un rythme. Le geste doit tenir dans
+la fenêtre multi-clap (1,5 s par défaut ; plus longue pour « 2+1+1 »). Le
+groupe doit aussi compter jusqu'au nombre total de claps : cochez « 3 claps »
+pour un « 2+1 ». Sinon, la décision anticipée termine le geste dès son
+nombre maximal de claps (0,5 s de calme après le dernier). L'événement est envoyé même si le groupe
+n'a pas d'entité pour ce nombre. L'historique affiche le rythme
+(« 3 claps (2+1) »). Pour lancer des actions sur un rythme, utilisez le
+blueprint « Rythme de claps », ou un déclencheur :
 
 Un groupe en mode alerte émet `claptrap_alert` au début et à la fin de
 l'alerte, avec les mêmes champs (sans `clap_count`) et `"alert": "on"` ou
@@ -527,6 +548,14 @@ triggers:
     event_data:
       entity_key: mic
       clap_count: 3
+```
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: claptrap_clap
+    event_data:
+      rhythm: "2+1"
 ```
 
 ## Webhook

@@ -57,6 +57,34 @@ def normalize_group(g, idx=0, default_threshold=0.5):
     }
 
 
+# Rythme d'un geste : groupes de claps rapides separes par des pauses
+# (« 2+1 » : deux claps, une pause, un clap). Un ecart est une pause a partir
+# de PAUSE s, ou de PAUSE_MIN s s'il fait au moins PAUSE_FACTOR fois le plus
+# court ecart du geste (pause marquee apres des claps tres rapides). Claps
+# reguliers : « 3 » s'ils sont rapides, « 1+1+1 » s'ils sont lents.
+PAUSE = 0.45
+PAUSE_MIN = 0.3
+PAUSE_FACTOR = 1.6
+
+
+def rhythm_of(times):
+    """(rythme, ecarts en s) des instants des claps d'un geste : ('2+1',
+    [0.21, 0.68]) ; ('', []) sans clap."""
+    if not times:
+        return '', []
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    if not gaps:
+        return '1', []
+    shortest = min(gaps)
+    sizes = [1]
+    for g in gaps:
+        if g >= PAUSE or (g >= PAUSE_MIN and g >= PAUSE_FACTOR * shortest):
+            sizes.append(1)
+        else:
+            sizes[-1] += 1
+    return '+'.join(str(n) for n in sizes), [round(g, 2) for g in gaps]
+
+
 def default_group(threshold=0.5):
     return normalize_group({'slug': 'clap', 'name': 'Clap', 'whitelist': dict(DEFAULT_WHITELIST),
                             'threshold': threshold})
@@ -584,7 +612,11 @@ class ClapTracker:
             end = min(now, state['armed_at'] + self.window + self.WINDOW_EPS)
             recent = [t for t in self._times(group)
                       if state['armed_at'] <= t <= end and t > self._consumed_until]
+            # Rythme des claps seulement (sons tenus : un pic toutes les 0,3 s).
+            rhythm, gaps = rhythm_of(recent) if group.get('count_mode', 'attaques') == 'attaques' else ('', [])
             candidates.append({
+                'rhythm': rhythm,   # « 2+1 » : deux claps, une pause, un clap
+                'gaps': gaps,
                 '_end': end,
                 'start': state['armed_at'],   # instant du 1er clap (horloge audio)
                 'group': group,
