@@ -735,6 +735,15 @@ signalez le codec dans une issue pour qu'il soit ajouté.
 diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
+**Analyse centrée sur un clap** : YAMNet analyse une fenêtre d'environ 1 s
+toutes les 0,5 s. Un clap qui tombe au bord d'une fenêtre est moins bien
+reconnu (essai avec le vrai modèle : un bip noté 0,59 au bord et 0,89 au
+centre). À chaque nouveau pic, ClapTrap ajoute donc une analyse dont la
+fenêtre est centrée sur le pic, au plus une toutes les 0,4 s. Si le
+processeur est en retard, elle est sautée sans faire sauter une analyse
+régulière. Leur nombre s'affiche avec la durée des analyses sur la carte de
+la source.
+
 **Comprendre un clap raté** : sous « Dernières détections » (onglet
 Écoute), **Presque déclenchés** liste les gestes qui ont failli déclencher.
 Chacun est donné avec sa raison et une piste de réglage :

@@ -426,7 +426,9 @@
                 // Duree d'analyse YAMNet (performance) : toujours visible pendant
                 // la detection, le reste seulement s'il y a eu un probleme.
                 if (ds.analyse_ms != null) parts.push('Analyse : ' + String(ds.analyse_ms).replace('.', ',') + ' ms en moyenne' +
-                    (ds.analyse_max_ms != null ? ' (max ' + String(ds.analyse_max_ms).replace('.', ',') + ' ms)' : ''));
+                    (ds.analyse_max_ms != null ? ' (max ' + String(ds.analyse_max_ms).replace('.', ',') + ' ms)' : '') +
+                    (ds.analyses_centrees ? ' · ' + ds.analyses_centrees + ' analyse(s) centrée(s) sur un clap' +
+                        (ds.analyses ? ' sur ' + ds.analyses + ' depuis le démarrage' : '') : ''));
                 var late = (ds.analyses_sautees || 0) + (ds.blocs_perdus || 0);
                 if (late) parts.push(late + ' analyse(s) ou bloc(s) perdu(s) : processeur trop chargé');
                 if (ds.coupures) parts.push(ds.coupures + ' coupure(s) du flux depuis le démarrage');

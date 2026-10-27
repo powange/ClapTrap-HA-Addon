@@ -45,6 +45,13 @@ HOP_BLOCKS = 5
 ANALYSIS_HOP = HOP_BLOCKS * BLOCK_SAMPLES / 16000   # s entre deux analyses
 WINDOW_BLOCKS = -(-WINDOW_SAMPLES // BLOCK_SAMPLES)   # blocs gardes pour une fenetre
 JOBS_MAX = 2       # fenetres en attente d'analyse (au-dela, la plus ancienne est jetee)
+# Analyse centree sur un clap : une fenetre de plus, le pic en son milieu (la
+# grille fixe peut couper un clap au bord d'une fenetre, ou il est moins bien
+# reconnu). Au plus une par CENTER_GAP s ; inutile si une analyse reguliere
+# a deja le pic a moins de CENTER_NEAR s de son milieu.
+CENTER_GAP = 0.4
+CENTER_NEAR = 0.1
+CENTER_LATE = 0.2   # s : fenetre ratee de plus (bloc en retard, coupure) : abandonnee
 # Classes gardees par resultat (groupes, decouverte, capteurs) ; le classifieur
 # rend les 521 (max_results=-1) pour les sons appris.
 TOP_RESULTS = 30
@@ -77,7 +84,13 @@ class AudioDetector:
         # Serialise classify et close() : close() pendant une classification
         # n'est pas sur cote natif.
         self._clf_lock = threading.Lock()
-        self._blocks = collections.deque(maxlen=WINDOW_BLOCKS)   # derniere seconde (classifieur)
+        # Derniere seconde (classifieur), plus 2 blocs : marge pour une
+        # fenetre centree sur un pic.
+        self._blocks = collections.deque(maxlen=WINDOW_BLOCKS + 2)
+        self._centered = []       # pics en attente d'une analyse centree (horloge audio)
+        self._last_centered = -1e9   # pic de la derniere analyse centree envoyee
+        self._centered_done = 0
+        self._grid_end = None     # fin (horloge audio) de la derniere fenetre reguliere
         self._since_hop = 0       # blocs depuis la derniere analyse
         # Analyse dans un fil a part (comme le fil de MediaPipe en mode flux) :
         # l'inference et les rappels (socketio, MQTT) ne retardent jamais la
@@ -253,6 +266,8 @@ class AudioDetector:
                 self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain)
                 attacks, sustains = self.tracker.attack_count - attacks, self.tracker.sustain_count - sustains
                 pending = self.tracker.pending()
+            if (attacks or (sustains and self._uses_sustain())) and self._wants_centered(peak_time):
+                self._centered.append(peak_time)
             if pending and self._jobs.empty():
                 # Fenetre ouverte : fin sur l'horloge audio et decision
                 # anticipee, verifiees dans le fil d'analyse (les rappels ne
@@ -423,25 +438,93 @@ class AudioDetector:
         """Compteurs de diagnostic depuis le demarrage de la source."""
         n = self._analyses
         return {'analyses_sautees': self._dropped, 'blocs_perdus': self._lost_blocks, 'coupures': self._cuts,
-                'analyses': n,
+                'analyses': n, 'analyses_centrees': self._centered_done,
                 'analyse_ms': round(self._analysis_total / n * 1000, 1) if n else None,
                 'analyse_max_ms': round(self._analysis_max * 1000, 1) if n else None}
 
     def _reset_window(self):
         self._blocks.clear()
         self._since_hop = 0
+        self._centered = []   # fenetres centrees a cheval sur le trou : abandonnees
 
     def _push(self, block, end_clock):
         """Bloc de 100 ms vers la fenetre glissante ; une fenetre a analyser
         toutes les HOP_BLOCKS blocs, une fois la premiere seconde recue."""
         self._blocks.append(block)
         self._since_hop += 1
+        buf = None   # derniere seconde, assemblee une fois pour les deux sortes de fenetres
+        if self._centered:
+            buf = self._push_centered(end_clock)
         if len(self._blocks) < WINDOW_BLOCKS or self._since_hop < HOP_BLOCKS:
             return
         self._since_hop = 0
+        self._grid_end = end_clock
         if self.analysis_wanted is not None and not self.analysis_wanted(end_clock):
             return   # aucun groupe actif et aucun onglet ouvert : rien a reconnaitre
-        self._submit((np.concatenate(self._blocks)[-WINDOW_SAMPLES:], end_clock))
+        if buf is None:
+            buf = np.concatenate(self._blocks)
+        self._submit((buf[-WINDOW_SAMPLES:], end_clock))
+
+    def _uses_sustain(self):
+        return any(g.get('count_mode') == 'tenus' for g in self.tracker.groups)
+
+    def _wants_centered(self, peak):
+        """Analyse centree utile pour ce pic : assez loin de la derniere (ou
+        d'une deja prevue), et pic loin du milieu des prochaines fenetres
+        regulieres (elles le reconnaissent deja bien)."""
+        last = max(self._centered + [self._last_centered])
+        if peak - last < CENTER_GAP:
+            return False
+        if self._grid_end is not None:
+            half = WINDOW_SAMPLES / self.sample_rate / 2
+            hop = HOP_BLOCKS * BLOCK_SAMPLES / self.sample_rate
+            middles = [self._grid_end + k * hop - half for k in (1, 2)]
+            if min(abs(peak - m) for m in middles) <= CENTER_NEAR:
+                return False
+        return True
+
+    def _push_centered(self, end_clock):
+        """Fenetres centrees sur un pic des que le son qui suit est arrive :
+        le pic au milieu, datee a sa fin comme les autres. Retourne la
+        derniere seconde assemblee (ou None)."""
+        half = WINDOW_SAMPLES / self.sample_rate / 2
+        buf = None
+        for peak in list(self._centered):
+            if end_clock + 1e-6 < peak + half:
+                continue
+            self._centered.remove(peak)
+            late = end_clock - (peak + half)
+            if buf is None:
+                buf = np.concatenate(self._blocks)
+            stop = buf.size - int(round(late * self.sample_rate))
+            if late > CENTER_LATE or stop - WINDOW_SAMPLES < 0:
+                continue   # son d'avant le pic absent (debut, coupure) ou trop de retard
+            if self.analysis_wanted is not None and not self.analysis_wanted(peak + half):
+                continue
+            try:
+                # En plus des analyses regulieres : file pleine (Pi en retard),
+                # elle est sautee plutot que de faire sauter une autre.
+                self._jobs.put_nowait((buf[stop - WINDOW_SAMPLES:stop], peak + half, True))
+                self._centered_done += 1
+                self._last_centered = peak
+            except queue.Full:
+                pass
+        return buf
+
+    def _evict_centered(self):
+        """Retire de la file une analyse centree en attente (facultative) :
+        une fenetre reguliere prend sa place sans en faire sauter une autre."""
+        q = self._jobs
+        with q.mutex:
+            for item in list(q.queue):
+                if item is not None and len(item) > 2 and item[2]:
+                    q.queue.remove(item)
+                    q.unfinished_tasks -= 1
+                    if not q.unfinished_tasks:
+                        q.all_tasks_done.notify_all()
+                    q.not_full.notify()
+                    return True
+        return False
 
     def _submit(self, job):
         try:
@@ -449,10 +532,16 @@ class AudioDetector:
             return
         except queue.Full:
             pass
+        if self._evict_centered():
+            try:
+                self._jobs.put_nowait(job)
+                return
+            except queue.Full:
+                pass
         try:
             old = self._jobs.get_nowait()   # analyse en retard (Pi surcharge) : la plus ancienne saute
             self._jobs.task_done()
-            if job is not None and old is not None and old[0] is not None:
+            if job is not None and old is not None and old[0] is not None and not (len(old) > 2 and old[2]):
                 self._dropped += 1
                 if self._dropped <= 5 or self._dropped % 100 == 0:
                     logging.warning(f"[{self.label}] analyse en retard : fenêtre ignorée ({self._dropped}x)")
@@ -540,7 +629,7 @@ class AudioDetector:
         else:
             self.denoise.level = level
 
-    def _analyze(self, window, end_clock):
+    def _analyze(self, window, end_clock, centered=False):
         container = self._containers.AudioData.create_from_array(window, self.sample_rate)
         with self._clf_lock:
             if not self.running or not self.classifier:

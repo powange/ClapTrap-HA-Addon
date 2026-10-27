@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.99.0
+
+### Analyse centrée sur le clap
+
+- À chaque nouveau pic (clap, ou son tenu), une analyse YAMNet de plus est
+  lancée dès que le son qui suit est arrivé, avec le pic au milieu de la
+  fenêtre. Les analyses régulières (toutes les 0,5 s) peuvent couper un clap
+  au bord d'une fenêtre, où il est moins bien reconnu. Essai avec le vrai
+  modèle : un bip noté 0,59 au bord de la fenêtre et 0,89 au centre.
+- Au plus une analyse centrée toutes les 0,4 s. Aucune quand une analyse
+  régulière a déjà le pic près de son milieu, ni pour un son tenu si aucun
+  groupe ne compte les sons tenus. Si le processeur est en retard, une
+  analyse centrée en attente laisse sa place à une analyse régulière : elle
+  ne fait jamais sauter une analyse régulière.
+- Leur nombre s'affiche avec la durée des analyses sur la carte de la
+  source (`analyses_centrees` dans les diagnostics).
+- Finesse de la détection : chantier 2 sur 9.
+
 ## 6.98.0
 
 ### Journal des « presque »
