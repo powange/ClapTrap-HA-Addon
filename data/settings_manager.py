@@ -475,7 +475,8 @@ _SOURCE_KEYS = {
                            'entity_key', 'sound_groups', 'noise_reduction'},
 }
 _GROUP_KEYS = {'slug', 'name', 'threshold', 'ha_entities', 'clap_counts', 'sound_whitelist', 'enabled',
-               'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from', 'alert_confirm', 'device_class'}
+               'auto_add_sounds', 'count_mode', 'entity_slug', '_renamed_from', 'alert_confirm', 'device_class',
+               'margin'}
 
 
 def strip_unknown_keys(data):
@@ -789,6 +790,8 @@ def _norm_groups(src, path):
             g['count_mode'] = to_count_mode(g['count_mode'], f"{gp}.count_mode")
         if 'alert_confirm' in g:
             g['alert_confirm'] = to_number(g['alert_confirm'], f"{gp}.alert_confirm", 1, 4, integer=True)
+        if 'margin' in g:
+            g['margin'] = to_number(g['margin'], f"{gp}.margin", 0, 0.5)
         if 'device_class' in g:
             g['device_class'] = to_device_class(g['device_class'], f"{gp}.device_class")
         # Identifiant des entity_id (suit le nom du groupe ; le slug, lui,

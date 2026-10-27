@@ -74,7 +74,8 @@ ACTIONS = {
     'add_group': '{source, name?, preset?, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
                  'preset : claps, doigts, toc, sifflement, fumee, verre, bebe, aboiement, sonnette, alarme.',
     'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?, '
-                    'count_mode?("attaques"|"tenus"|"alerte"), alert_confirm?(1-4), device_class?}.',
+                    'count_mode?("attaques"|"tenus"|"alerte"), alert_confirm?(1-4), device_class?, '
+                    'margin?(0 à 0.5 : écart minimal avec les autres sons)}.',
     'delete_group': '{source, group} (le premier groupe est protégé).',
     'set_sound': '{source, group, label, enabled} : coche ou décoche une classe YAMNet dans un groupe.',
     'clear_unchecked_sounds': '{source, group} : retire les sons non cochés.',
@@ -717,7 +718,7 @@ def _api_or_raise(method, path, body=None):
 # choix. Elle se regle dans l'interface.
 _SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp')
 _GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode',
-                 'alert_confirm', 'device_class')
+                 'alert_confirm', 'device_class', 'margin')
 
 
 def _pick(cmd, fields):

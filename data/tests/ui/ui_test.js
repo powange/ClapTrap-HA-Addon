@@ -492,6 +492,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  choix du comptage par groupe', !!modeSel);
   change(modeSel, 'tenus'); await tick(2);
   ok('+  comptage « sons tenus » (serveur)', lastCall('PUT', '/api/source/sound_groups')[2].count_mode === 'tenus');
+  const marginSel = $('#src-mic .group-card[data-slug="clap"] [data-role="margin"]');
+  ok('+  écart avec les autres sons : aucun par défaut', !!marginSel && marginSel.value === '0');
+  change(marginSel, '0.1'); await tick(2);
+  ok('+  écart avec les autres sons enregistré', lastCall('PUT', '/api/source/sound_groups')[2].margin === 0.1);
   CT.state.settings.microphone.enabled = true; CT.state.settings.microphone.sound_groups[0].enabled = true; CT.render();
   $('#src-mic [data-action="calibrate"]').click(); await tick();
   ok('+  calibrage : fenêtre ouverte', !$('#calibration').hidden && !!$('#calibration [data-c="start"]'));
@@ -788,6 +792,11 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /reconnu à 82 %, mais aucun pic assez fort pour compter un clap \(2,1 × le bruit de fond, minimum 3 ×\)/.test($('#near-list li').textContent));
   emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e9, counted: 3, expected: [1, 2], score: 0.9 }); await tick();
   ok('+  presque : nombre de claps sans entité', /3 claps comptés, aucune entité pour ce nombre \(le groupe attend 1 ou 2\)/.test($('#near-list li').textContent));
+  emit('near_miss', { kind: 'margin', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.62, rival: 'Speech', rival_score: 0.58, margin: 0.1 }); await tick();
+  ok('+  presque : son trop proche d\'un autre', /« Applaudissement » à 62 %, mais « .+ » juste derrière à 58 % \(écart demandé : 10 points\)/.test($('#near-list li').textContent));
+  emit('near_miss', { kind: 'margin', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.55, rival: 'Speech', rival_score: 0.9, margin: 0.1 }); await tick();
+  ok('+  presque : son battu par un autre (aucun écart n\'y fait rien)', /à 55 %, battu par « .+ » à 90 %/.test($('#near-list li').textContent) &&
+     /Aucun écart ne le ferait déclencher/.test($('#near-list li').textContent));
   emit('near_miss', { kind: 'shape', group: 'Clap', source_id: 'mic', timestamp: 1e9, reason: 'grave', high: 0.04, decay: 0.2 }); await tick();
   ok('+  presque : pic écarté par sa forme', /Pic écarté : il ne ressemble pas à un clap \(son trop grave : 4 % de son énergie dans les aigus\)/.test($('#near-list li').textContent) &&
      /Vérifier la forme des claps/.test($('#near-list li').textContent));

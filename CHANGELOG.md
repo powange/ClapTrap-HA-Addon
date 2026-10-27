@@ -1,5 +1,25 @@
 # Changelog
 
+## 6.101.0
+
+### Seuil relatif (écart avec les autres sons)
+
+- Nouveau réglage par groupe, **Écart avec les autres sons** (Aucun, 5, 10,
+  20 ou 30 points ; « Aucun » par défaut). Le son du groupe doit battre de
+  cet écart le meilleur autre son entendu, en plus de dépasser le seuil :
+  « Applaudissement » à 62 % ne déclenche plus si « Voix » est à 58 % avec
+  un écart de 10 points. C'est plus robuste dans une pièce bruyante, ou avec
+  une caméra qui écrase tous les scores.
+- Ne comptent pas comme concurrents : les sons cochés dans un autre groupe
+  de la source (l'arbitrage les départage) et les sons appris. Un geste déjà
+  en cours de comptage n'est pas interrompu. L'affichage en direct montre
+  un groupe bloqué ainsi juste sous son seuil.
+- Les gestes écartés ainsi apparaissent dans « Presque déclenchés », avec le
+  son concurrent et son score (« battu par » quand il est devant).
+- Réglage `margin` des groupes (0 à 0,5), accessible par l'API et par la
+  commande MQTT `update_group`. Les groupes d'alerte ne sont pas concernés.
+- Finesse de la détection : chantier 4 sur 9.
+
 ## 6.100.0
 
 ### Forme des claps vérifiée

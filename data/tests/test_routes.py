@@ -651,3 +651,16 @@ def test_clap_shape_check_setting(client, settings_dir):
     assert client.put('/api/settings/advanced', json={'clap_shape_check': False}).status_code == 200
     assert settings_dir.load_settings()['global']['clap_shape_check'] is False
     assert client.put('/api/settings/advanced', json={'clap_shape_check': 'peut-être'}).status_code == 400
+
+
+def test_group_margin_setting(client, settings_dir):
+    s = settings_dir.load_settings()
+    s['microphone'] = {'configured': True, 'enabled': True,
+                       'sound_groups': [{'slug': 'clap', 'name': 'Clap', 'sound_whitelist': {'Clapping': True}}]}
+    settings_dir.save_settings(s)
+    body = {'kind': 'mic', 'source_key': 'mic', 'group_slug': 'clap', 'margin': 0.1}
+    assert client.put('/api/source/sound_groups', json=body).status_code == 200
+    assert settings_dir.load_settings()['microphone']['sound_groups'][0]['margin'] == 0.1
+    assert client.put('/api/source/sound_groups', json=dict(body, margin=0.9)).status_code == 400
+    from classify import build_sources_from_settings
+    assert build_sources_from_settings(settings_dir.load_settings())[0]['groups'][0]['margin'] == 0.1
