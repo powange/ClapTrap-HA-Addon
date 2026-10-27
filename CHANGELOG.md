@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.98.0
+
+### Journal des « presque »
+
+- Sous « Dernières détections », **Presque déclenchés** liste les gestes qui
+  ont failli déclencher, avec la raison et une piste de réglage :
+  - pic de clap sans son reconnu (meilleur score du groupe et son seuil) ;
+  - son reconnu sans pic assez fort (force mesurée et minimum demandé) ;
+  - nombre de claps sans entité (compté, et nombres attendus).
+- Seuls les vrais ratés sont notés. Un geste réussi n'y figure pas : 2e clap
+  dans sa fenêtre, clap ignoré exprès, ou même geste déclenché par une
+  autre source plus proche. Un son trop loin du seuil (moins de la moitié)
+  n'y figure pas non plus.
+- Mise à jour en direct. Les 50 derniers sont gardés jusqu'au redémarrage
+  (`GET /api/detections/near_misses`). Rien n'est noté pendant un calibrage.
+  « Effacer » vide aussi cette liste.
+- Premier chantier de la série sur la finesse de la détection : il permet
+  de mesurer l'effet des suivants sur de vraies sources.
+
 ## 6.97.0
 
 ### Plusieurs pièces : groupes de sources

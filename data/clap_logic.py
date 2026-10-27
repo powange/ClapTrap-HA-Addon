@@ -120,6 +120,14 @@ class ClapTracker:
         self._group_state = {}   # slug -> {armed_at, score, labels}
         self._alerts = {}        # slug -> {hits, on, last_hit, score, labels} (mode alerte)
         self._strength = {}      # instant d'un pic -> force (pic / bruit de fond)
+        # Journal des « presque » (gestes qui ont failli declencher) : lu et
+        # vide par le detecteur (near_misses).
+        self.near_misses = []
+        self._recent = collections.deque(maxlen=40)   # (instant, force, force exigee) des derniers blocs
+        self._peak_eval = {}     # pic en attente -> {slug: (score, classe)} meilleur score vu
+        self._used_peaks = set() # pics ayant arme un groupe
+        self._windows = []       # (debut, fin) des fenetres de comptage ouvertes recemment
+        self._last_weak = {}     # slug -> instant du dernier « son reconnu, pic trop faible »
 
     # --- Configuration ----------------------------------------------------
 
@@ -223,11 +231,14 @@ class ClapTracker:
         rate = 0.001 if self._above else 0.005
         self.avg_level = self.avg_level * (1 - rate) + raw_peak * rate
         threshold = max(floor, self.avg_level * self.peak_ratio)
+        self._recent.append((now, strength, threshold / max(self.avg_level, 1e-6)))
 
         max_age = max(2.0, self.window + 1.0)
         self.peak_times = [t for t in self.peak_times if (now - t) < max_age]
         self.sustain_times = [t for t in self.sustain_times if (now - t) < max_age]
         self._strength = {t: v for t, v in self._strength.items() if (now - t) < max_age}
+        self._used_peaks = {t for t in self._used_peaks if (now - t) < max_age}
+        self._windows = [w for w in self._windows if (now - w[1]) < max_age]
 
         if raw_peak > threshold:
             if not self._sus_above or (now - self._sus_last) >= self.SUSTAIN_RESET:
@@ -275,6 +286,7 @@ class ClapTracker:
             hits = [(name, score) for name, score in categories
                     if group['whitelist'].get(name, False) and name not in self.exclusions]
             best = max((score for _, score in hits), default=0.0)
+            best_label = max(hits, key=lambda h: h[1])[0] if hits else ''
             if group['count_mode'] == 'alerte':
                 # Hors des fenetres de comptage et de l'arbitrage : une alarme
                 # n'empeche pas un clap, et inversement.
@@ -283,21 +295,91 @@ class ClapTracker:
                     alert_events.append(ev)
                 continue
             state = self._group_state.setdefault(group['slug'], {'armed_at': 0.0, 'score': 0.0, 'labels': {}})
+            fresh = fresh_of(group)
+            if group['clap_counts']:
+                self._note_scores(group, fresh, best, best_label)
 
             if best >= group['threshold']:
-                fresh = fresh_of(group)
                 if not state['armed_at']:
                     if fresh or (can_arm_without_peak and not group['clap_counts']):
                         state['armed_at'] = fresh[0] if fresh else now
                         state['score'] = best
                         state['labels'] = {}
+                        self._used_peaks.update(fresh)
+                        self._windows.append((state['armed_at'], state['armed_at'] + self.window + self.WINDOW_EPS))
+                    elif group['clap_counts']:
+                        self._note_weak(group, best, best_label, now)
                 elif best > state['score']:
                     state['score'] = best
                 if state['armed_at']:
                     for name, score in hits:
                         if score >= group['threshold'] and score > state['labels'].get(name, 0):
                             state['labels'][name] = float(score)
+        self._missed_peaks(now)
         return alert_events + self._expire(now)
+
+    # --- Journal des « presque » ------------------------------------------
+
+    NEAR_FRACTION = 0.5      # « presque » : au moins la moitie du seuil du groupe (sinon du bruit)
+    WEAK_REPEAT = 2.5        # s : un meme son reconnu sans pic n'est note qu'une fois
+
+    def _counted(self, t):
+        """Pic deja pris par un geste : il a arme un groupe, il est dans une
+        fenetre de comptage (2e clap d'un geste), ou un evenement l'a consomme."""
+        return (t in self._used_peaks or t <= self._consumed_until
+                or any(a <= t <= b for a, b in self._windows))
+
+    def _note_scores(self, group, fresh, best, label):
+        """Meilleur score de chaque groupe a nombre de claps pendant que des
+        pics attendent un son reconnu."""
+        for t in fresh:
+            if self._counted(t):
+                continue
+            seen = self._peak_eval.setdefault(t, {})
+            if best > seen.get(group['slug'], (0.0, ''))[0]:
+                seen[group['slug']] = (best, label)
+
+    def _note_weak(self, group, best, label, now):
+        """Son du groupe reconnu sans pic assez fort pour compter un clap."""
+        if now - self._last_weak.get(group['slug'], -1e9) < self.WEAK_REPEAT:
+            return
+        lo = now - self.peak_lookback
+        if any(lo <= t <= now for t in self._times(group)):
+            return   # un pic est la (consomme par le geste precedent, ou ignore expres) : pas « trop faible »
+        recent = [r for r in self._recent if lo <= r[0] <= now]
+        strongest = max(recent, key=lambda r: r[1], default=None)
+        if strongest is not None and strongest[1] >= strongest[2]:
+            return   # assez fort, mais pas compte (attaque, ecart minimal) : la force minimale n'y est pour rien
+        self._last_weak[group['slug']] = now
+        self.near_misses.append({
+            'kind': 'weak', 'group': group['name'], 'slug': group['slug'], 'time': now,
+            'label': label, 'score': round(best, 3), 'threshold': group['threshold'],
+            'strength': round(strongest[1], 2) if strongest else None,
+            'required': round(strongest[2], 2) if strongest else round(self.peak_ratio, 2)})
+
+    def _missed_peaks(self, now):
+        """Pics qui n'ont arme aucun groupe une fois leurs resultats passes :
+        le son le plus proche du seuil est note (« pic sans son reconnu »)."""
+        expired = [t for t in self._peak_eval if now - t > self.peak_lookback]
+        if not expired:
+            return
+        groups = {g['slug']: g for g in self.groups if g['clap_counts']}
+        for t in expired:
+            seen = self._peak_eval.pop(t)
+            if self._counted(t):
+                continue
+            # Groupes actuels seulement (un groupe retire depuis ne masque pas les autres),
+            # sous leur seuil et au moins a sa moitie.
+            cands = [(sl, sc, lb) for sl, (sc, lb) in seen.items() if sl in groups
+                     and groups[sl]['threshold'] * self.NEAR_FRACTION <= sc < groups[sl]['threshold']]
+            if not cands:
+                continue
+            slug, score, label = max(cands, key=lambda c: c[1] / groups[c[0]]['threshold'])
+            group = groups[slug]
+            self.near_misses.append({
+                'kind': 'low_score', 'group': group['name'], 'slug': slug, 'time': t,
+                'label': label, 'score': round(score, 3), 'threshold': group['threshold'],
+                'strength': round(self._strength.get(t, 0.0), 2)})
 
     def _times(self, group):
         return self.sustain_times if group.get('count_mode') == 'tenus' else self.peak_times
@@ -397,6 +479,16 @@ class ClapTracker:
         winner = max(candidates, key=rank)
         for c in candidates:
             c['ignored'] = c is not winner
+        if rank(winner)[0] < 2:
+            # Rien n'a declenche d'entite : son reconnu, mais un nombre de
+            # claps sans entite (3 pour [1, 2]), pour chaque groupe concerne.
+            for c in candidates:
+                counts = c['group']['clap_counts']
+                if counts and c['clap_count'] and c['clap_count'] not in counts:
+                    self.near_misses.append({
+                        'kind': 'count', 'group': c['group']['name'], 'slug': c['group']['slug'],
+                        'time': c['start'], 'counted': c['clap_count'],
+                        'expected': list(counts), 'score': round(c['score'], 3)})
         # Les pics de la fenetre gagnante ne serviront plus ; ceux qui la
         # suivent restent pour l'evenement suivant (geste distinct).
         self._consumed_until = winner['_end']

@@ -184,14 +184,52 @@
         }
         return li;
     }
+    // « Presque » : raison en clair et piste de reglage.
+    function nearText(m) {
+        var lab = m.label ? '« ' + CT.esc(CT.soundLabel(m.label)) + ' »' : 'un son du groupe';
+        var x = function (v) { return String(Math.round(v * 10) / 10).replace('.', ',') + ' ×'; };
+        if (m.kind === 'low_score') {
+            return ['Pic de clap sans son reconnu : ' + lab + ' à ' + CT.pct(m.score) + ' pour un seuil de ' + CT.pct(m.threshold) + '.',
+                    'Baissez le seuil du groupe, ou cochez le son que YAMNet entend (sons entendus de la source).'];
+        }
+        if (m.kind === 'weak') {
+            return [lab + ' reconnu à ' + CT.pct(m.score) + ', mais aucun pic assez fort pour compter un clap' +
+                    (m.strength != null ? ' (' + x(m.strength) + ' le bruit de fond, minimum ' + x(m.required) + ')' : '') + '.',
+                    'Baissez « Force minimale d\'un clap » (Réglages › Comptage), ou rapprochez la source.'];
+        }
+        if (m.kind === 'count') {
+            return [m.counted + ' clap' + (m.counted > 1 ? 's' : '') + ' compté' + (m.counted > 1 ? 's' : '') +
+                    ', aucune entité pour ce nombre (le groupe attend ' + (m.expected || []).join(' ou ') + ').',
+                    'Ajustez la fenêtre multi-clap ou l\'écart minimal (Réglages › Comptage), ou lancez « Calibrer le comptage ».'];
+        }
+        return ['', ''];
+    }
+    function nearItem(m) {
+        var li = document.createElement('li');
+        li.className = 'history-item near-item';
+        var when = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
+        var t = nearText(m);
+        li.innerHTML = '<time>' + when.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '</time>' +
+            '<span class="history-main"><strong>' + CT.esc(m.group || '') + '</strong> · ' + CT.esc(m.source_name || sourceNameFor(m.source_id)) +
+            '<span class="history-labels">' + t[0] + '</span><span class="history-labels near-hint">' + t[1] + '</span></span>';
+        return li;
+    }
+    function renderNearEmpty() {
+        var list = CT.$('#near-list');
+        if (!list) return;
+        CT.$('#near-empty').hidden = list.children.length > 0;
+        CT.$('#near-count').textContent = list.children.length ? '(' + list.children.length + ')' : '';
+        renderHistoryEmpty();
+    }
     function renderHistoryEmpty() {
-        var list = CT.$('#history-list');
+        var list = CT.$('#history-list'), near = CT.$('#near-list');
         CT.$('#history-empty').hidden = list.children.length > 0;
-        CT.$('#history-clear').disabled = !list.children.length;
+        CT.$('#history-clear').disabled = !list.children.length && !(near && near.children.length);
     }
     function bindHistory() {
         var list = CT.$('#history-list');
         var loaded = false;
+        var near = CT.$('#near-list');
         function loadHistory() {
             CT.api('GET', '/api/detections/history').then(function (events) {
                 loaded = true;
@@ -199,6 +237,11 @@
                 (Array.isArray(events) ? events : []).slice(0, 20).forEach(function (ev) { list.appendChild(historyItem(ev)); });
                 renderHistoryEmpty();
             }).catch(renderHistoryEmpty);
+            if (near) CT.api('GET', '/api/detections/near_misses').then(function (items) {
+                near.innerHTML = '';
+                (Array.isArray(items) ? items : []).slice(0, 20).forEach(function (m) { near.appendChild(nearItem(m)); });
+                renderNearEmpty();
+            }).catch(renderNearEmpty);
         }
         loadHistory();
         // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus :
@@ -216,16 +259,23 @@
             renderHistoryEmpty();
         }
         CT.on('clap', addHistory);
+        CT.on('near_miss', function (m) {
+            if (!near || !m) return;
+            near.insertBefore(nearItem(m), near.firstChild);
+            while (near.children.length > 20) near.removeChild(near.lastChild);
+            renderNearEmpty();
+        });
         // Alerte : au debut seulement (comme l'historique du serveur).
         CT.on('alert', function (ev) { if (ev && ev.alert === 'on') addHistory(ev); });
         CT.$('#history-clear').addEventListener('click', function () {
-            if (!list.children.length) return;
+            var nearList = CT.$('#near-list');
+            if (!list.children.length && !(nearList && nearList.children.length)) return;
             // Dialogue de l'interface : window.confirm est peu fiable dans
             // l'application mobile de Home Assistant.
-            CT.confirm('Effacer les dernières détections ?', 'Effacer').then(function (ok) {
+            CT.confirm('Effacer les dernières détections et les « presque » ?', 'Effacer').then(function (ok) {
                 if (!ok) return;
                 CT.api('DELETE', '/api/detections/history')
-                    .then(function () { list.innerHTML = ''; renderHistoryEmpty(); })
+                    .then(function () { list.innerHTML = ''; if (near) near.innerHTML = ''; renderHistoryEmpty(); renderNearEmpty(); })
                     .catch(function (err) { CT.error('Historique non effacé : ' + err.message); });
             });
         });

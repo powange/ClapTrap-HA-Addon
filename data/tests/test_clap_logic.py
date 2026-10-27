@@ -577,3 +577,92 @@ def test_results_needed_only_after_a_peak_in_quiet_room():
     assert t.needs_results(101.6, 0.5) and not t.needs_results(101.8, 0.5)
     t.set_groups([{'slug': 'f', 'name': 'F', 'whitelist': {}, 'threshold': 0.5, 'count_mode': 'alerte'}])
     assert t.needs_results(200.0, 0.5)                         # alerte : toujours
+
+
+def _near_tracker(counts=(1, 2)):
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=1.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5,
+                   'clap_counts': list(counts)}])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    return t
+
+
+def test_near_miss_peak_without_recognised_sound():
+    """Pic de clap, mais « Clapping » sous le seuil : note une fois, avec le
+    meilleur score vu pendant que le pic attendait."""
+    t = _near_tracker()
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.2)], 100.3)
+    t.on_classification([('Clapping', 0.38)], 100.8)
+    assert t.near_misses == []
+    t.on_classification([('Speech', 0.6)], 101.4)                       # pic plus attendu
+    assert len(t.near_misses) == 1
+    m = t.near_misses[0]
+    assert (m['kind'], m['group'], m['label'], m['score'], m['threshold']) == ('low_score', 'Clap', 'Clapping', 0.38, 0.5)
+    assert m['strength'] > 20 and m['time'] == 100.0
+    t.on_classification([('Speech', 0.6)], 102.0)
+    assert len(t.near_misses) == 1                                       # une seule fois
+
+
+def test_near_miss_sound_without_strong_enough_peak():
+    t = _near_tracker()
+    t.feed_peak(0.02, 100.0, pre_level=0.01)                              # 2 x le bruit : sous le minimum (3 x)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.on_classification([('Clapping', 0.9)], 100.8)                       # meme son : pas de doublon
+    assert [m['kind'] for m in t.near_misses] == ['weak']
+    m = t.near_misses[0]
+    assert m['score'] == 0.9 and 1.5 < m['strength'] < 2.5 and m['required'] >= 3.0
+
+
+def test_near_miss_count_without_entity_and_none_for_a_real_detection():
+    t = _near_tracker((1, 2))
+    for k, at in enumerate((100.0, 100.3, 100.6)):
+        t.feed_peak(0.01, at - 0.1)
+        t.feed_peak(0.3, at, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.7)
+    t.on_classification([('Clapping', 0.9)], 101.6)
+    counts = [m for m in t.near_misses if m['kind'] == 'count']
+    assert len(counts) == 1 and counts[0]['counted'] == 3 and counts[0]['expected'] == [1, 2]
+    ok = _near_tracker((1, 2))
+    ok.feed_peak(0.3, 100.0, pre_level=0.01)
+    ok.on_classification([('Clapping', 0.9)], 100.3)
+    ok.on_classification([('Clapping', 0.9)], 101.6)
+    ok.on_classification([('Speech', 0.9)], 102.5)
+    assert ok.near_misses == []                                          # detection normale : rien
+
+
+def test_no_false_near_misses_for_a_successful_gesture():
+    """2e clap d'un geste dans sa fenetre (fenetre longue) : pas un « pic sans
+    son reconnu ». Clap ignore expres (decision anticipee) : pas « trop faible »."""
+    from clap_logic import ClapTracker
+    t = ClapTracker(window=2.5)
+    t.set_groups([{'slug': 'clap', 'name': 'Clap', 'whitelist': {'Clapping': True}, 'threshold': 0.5, 'clap_counts': [1, 2, 3]}])
+    for i in range(12):
+        t.feed_peak(0.01, 99.0 + i * 0.01)
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.feed_peak(0.01, 100.5)
+    t.feed_peak(0.3, 100.7, pre_level=0.01)                              # 2e clap, fenetre ouverte
+    for now in (100.8, 101.3, 101.8, 102.3, 102.8):
+        t.on_classification([('Clapping', 0.3)], now)
+    assert [m['kind'] for m in t.near_misses] == []
+    t2 = _near_tracker((1,))
+    t2.feed_peak(0.3, 100.0, pre_level=0.01)
+    t2.on_classification([('Clapping', 0.9)], 100.3)
+    t2.on_classification([('Clapping', 0.6)], 100.8)
+    assert t2.poll(100.85)                                               # decision anticipee
+    t2.feed_peak(0.01, 100.95)
+    t2.feed_peak(0.3, 101.1, pre_level=0.01)                              # clap tardif, ignore expres
+    t2.on_classification([('Clapping', 0.9)], 101.3)
+    assert [m['kind'] for m in t2.near_misses] == []
+
+
+def test_strong_but_uncounted_block_is_not_reported_as_weak():
+    """Son fort sans attaque nette (pas compte comme pic) : la force minimale
+    n'y est pour rien, pas de « pic trop faible »."""
+    t = _near_tracker()
+    t.feed_peak(0.3, 100.0, pre_level=0.29)                               # 30 x le bruit, mais aucune attaque
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    assert t.near_misses == []

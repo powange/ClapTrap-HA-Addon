@@ -51,6 +51,7 @@ _session = None
 _session_lock = threading.Lock()
 _detection_history = collections.deque(maxlen=50)
 _history_lock = threading.Lock()
+_near_misses = collections.deque(maxlen=50)   # « presque » : gestes qui ont failli declencher
 # Gain de chaque source (lu a chaque bloc), modifiable en direct par le
 # curseur, par la detection comme par le test du son. Indexe par source_id :
 # indexe par URL, deux cameras a la meme URL partageaient leur gain et une URL
@@ -229,6 +230,7 @@ class DetectionSession:
         # par la source qui l'entend le plus fort).
         self._room_pools = {}       # nom du groupe -> {'items': [(src, payload, data)], 'timer'}
         self._room_lock = threading.Lock()
+        self._recent_hits = collections.deque(maxlen=50)   # (groupe de sons, instant) des declenchements
         self._room_cfg = (0.0, False, 1.0, None)   # (lu a, active, attente, groupes) : relus toutes les 2 s
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
@@ -358,6 +360,34 @@ class DetectionSession:
             return   # en attente : la source la plus proche est choisie a la fin de la fenetre
         self._deliver(src, base_payload, data)
 
+    def _on_near_miss(self, src, miss):
+        """Geste qui a failli declencher : journal (onglet Ecoute) et
+        interface en direct. Rien pendant un calibrage (bruits joues a
+        repetition)."""
+        if src['source_id'] in _muted_sources:
+            return
+        at = miss.get('time') or time.monotonic()
+        entry = dict(miss, source_id=src['source_id'], source_name=src.get('name') or src['label'],
+                     timestamp=round(time.time() - max(0.0, time.monotonic() - at), 2))
+        entry.pop('time', None)
+        # Note un peu plus tard : si une autre source (plus proche, arbitrage
+        # entre pieces) a declenche le meme groupe, ce n'etait pas un rate.
+        _enabled, window, _zones = self._room_settings()
+        timer = threading.Timer(max(self.NEAR_SETTLE, window + 2.0), self._commit_near_miss, (src, entry, at))
+        timer.daemon = True
+        timer.start()
+
+    NEAR_SETTLE = 3.0   # s d'attente avant de noter un « presque »
+
+    def _commit_near_miss(self, src, entry, at):
+        key = (entry.get('group') or '').casefold()
+        if any(k == key and at - 3.0 <= t <= at + 8.0 for k, t in list(self._recent_hits)):
+            return   # le meme geste a declenche ailleurs
+        with _history_lock:
+            _near_misses.appendleft(entry)
+        logging.debug(f"Presque déclenché sur {src['label']} : {entry}")
+        self._emit('near_miss', entry)
+
     def _room_settings(self):
         """(active, attente, groupes) : groupes = {source_id: nom du groupe},
         ou None sans groupe (toutes les sources ensemble)."""
@@ -444,6 +474,7 @@ class DetectionSession:
             _detection_history.appendleft({**base_payload, 'score': round(data['score'], 3)})
         if base_payload['ignored']:
             return  # perdant de l'arbitrage : historique seulement
+        self._recent_hits.append(((base_payload.get('group_name') or '').casefold(), time.monotonic()))
         _side_effects.submit(_run_side_effects, src['source_id'], src['entity_key'], base_payload,
                              data['score'], base_payload['clap_count'], base_payload['group_slug'],
                              data['group_clap_counts'],
@@ -513,7 +544,8 @@ class DetectionSession:
             sound_seen_callback=lambda d: self._on_sound_seen(src, d),
             scores_callback=lambda scores: self._emit_live(
                 src['source_id'], 'group_scores', {'scores': {k: round(v, 3) for k, v in scores.items()}}),
-            analysis_callback=lambda top, scores: _publish_analysis(src['entity_key'], top, scores, det.stats()))
+            analysis_callback=lambda top, scores: _publish_analysis(src['entity_key'], top, scores, det.stats()),
+            near_miss_callback=lambda m: self._on_near_miss(src, m))
         # Aucun groupe actif : rien ne peut se declencher, YAMNet ne tourne
         # que pour un onglet ouvert (sons entendus en direct, decouverte).
         # Enregistrement ou calibrage en cours (ecoutes) : analyser aussi.
@@ -977,6 +1009,12 @@ def get_detection_history():
 def clear_detection_history():
     with _history_lock:
         _detection_history.clear()
+        _near_misses.clear()
+
+
+def get_near_misses():
+    with _history_lock:
+        return list(_near_misses)
 
 
 def room_zone_map(g):

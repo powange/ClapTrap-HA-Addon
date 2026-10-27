@@ -665,3 +665,33 @@ def test_paused_source_is_skipped_by_a_new_detection(session_env, monkeypatch):
         wait_until(lambda: det_of('rtsp_cam1'))
     finally:
         classify._paused_sources.discard('rtsp_cam1')
+
+
+def test_near_misses_are_kept_emitted_and_skipped_during_calibration(session_env, monkeypatch):
+    import time
+    classify, sock, emitted, calls, sm = session_env
+    classify.clear_detection_history()
+    session = classify.DetectionSession([], sock)
+    src = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro'}
+    monkeypatch.setattr(classify.DetectionSession, 'NEAR_SETTLE', 0.2)
+    session._room_cfg = (time.monotonic(), False, -1.9, None)          # attente : max(0,2 ; -1,9 + 2) = 0,2 s
+    session._on_near_miss(src, {'kind': 'weak', 'group': 'Clap', 'time': time.monotonic() - 2, 'score': 0.9})
+    assert classify.get_near_misses() == []                              # note un peu plus tard
+    items = wait_until(lambda: classify.get_near_misses())
+    assert len(items) == 1 and items[0]['source_name'] == 'Salon' and 'time' not in items[0]
+    assert abs(items[0]['timestamp'] - (time.time() - 2)) < 1
+    assert ('near_miss', items[0]) in emitted
+    classify.mute_source('mic', True)
+    try:
+        session._on_near_miss(src, {'kind': 'weak', 'group': 'Clap', 'time': time.monotonic()})
+    finally:
+        classify.mute_source('mic', False)
+    time.sleep(0.4)
+    assert len(classify.get_near_misses()) == 1                          # calibrage : rien
+    # Le meme geste a declenche ailleurs (source plus proche) : pas un rate
+    session._recent_hits.append(('clap', time.monotonic()))
+    session._on_near_miss(src, {'kind': 'low_score', 'group': 'Clap', 'time': time.monotonic() - 1, 'score': 0.4})
+    time.sleep(0.5)
+    assert len(classify.get_near_misses()) == 1
+    classify.clear_detection_history()
+    assert classify.get_near_misses() == []

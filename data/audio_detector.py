@@ -146,7 +146,7 @@ class AudioDetector:
 
     def configure(self, source_id, label=None, detection_callback=None,
                   labels_callback=None, sound_seen_callback=None,
-                  scores_callback=None, analysis_callback=None):
+                  scores_callback=None, analysis_callback=None, near_miss_callback=None):
         self.source_id = source_id
         self.label = label or source_id
         self._detection_callback = detection_callback
@@ -157,6 +157,8 @@ class AudioDetector:
         # Diagnostic Home Assistant : 3 classes les plus probables (meme sous
         # le seuil) et score de chaque groupe, a chaque resultat.
         self._analysis_callback = analysis_callback
+        # Journal des « presque » : gestes qui ont failli declencher, et pourquoi.
+        self._near_miss_callback = near_miss_callback
 
     def set_groups(self, groups):
         """Groupes de sons (modifiables en direct). Le seuil d'auto-decouverte
@@ -413,7 +415,9 @@ class AudioDetector:
             gate.reset()   # pas de tranche a cheval sur le trou
         with self.lock:
             events = self.tracker.interrupt(last_clock, gap)
+            misses = self._take_near_misses()
         self._dispatch(events)
+        self._report_near_misses(misses)
 
     def stats(self):
         """Compteurs de diagnostic depuis le demarrage de la source."""
@@ -487,9 +491,25 @@ class AudioDetector:
         try:
             with self.lock:
                 events = self.tracker.poll(clock)
+                misses = self._take_near_misses()
             self._dispatch(events)
+            self._report_near_misses(misses)
         except Exception:
             logging.exception("Erreur dans la fin des fenêtres de comptage")
+
+    def _take_near_misses(self):
+        """Presque declenches du tracker (sous self.lock)."""
+        misses, self.tracker.near_misses = self.tracker.near_misses, []
+        return misses
+
+    def _report_near_misses(self, misses):
+        if not misses or not self._near_miss_callback:
+            return
+        for m in misses:
+            try:
+                self._near_miss_callback(m)
+            except Exception as e:
+                logging.debug(f"near_miss: {e}")
 
     def wait_idle(self, timeout=5.0):
         """Attend que les fenetres en attente soient analysees (tests, autotest)."""
@@ -585,6 +605,7 @@ class AudioDetector:
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"[{self.label}] labels={[(n, round(s, 3)) for n, s in categories]}")
                 events = self.tracker.on_classification(categories, now)
+                misses = self._take_near_misses()
             if self._taps:
                 self._tap('result', categories, now)
             with self.lock:
@@ -626,6 +647,7 @@ class AudioDetector:
                         logging.error(f"Erreur callback labels ({self.label}): {e}")
 
             self._dispatch(events)
+            self._report_near_misses(misses)
         except Exception:
             logging.exception("Erreur dans le traitement du résultat")
 

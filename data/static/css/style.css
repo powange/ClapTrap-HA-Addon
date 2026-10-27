@@ -572,3 +572,8 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .zone { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
 .zone-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .zone-head .input { flex: 1 1 180px; min-width: 0; }
+
+/* « Presque déclenchés » (sous les dernières détections) */
+.near-misses { border-top: 1px solid var(--line); padding-top: 8px; }
+.near-misses summary { cursor: pointer; font-weight: 600; min-height: 32px; }
+.near-item .near-hint { color: var(--ink-3); }

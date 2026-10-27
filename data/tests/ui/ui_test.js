@@ -24,6 +24,8 @@ const dom = new JSDOM(html, {
       else if (url === '/api/settings') res = JSON.parse(JSON.stringify(settings));
       else if (url === '/api/settings/export?secrets=0') res = { rtsp_sources: [{ url: 'rtsp://***@cam/1' }], _shareable: true };
       else if (url === '/api/settings/export') res = { rtsp_sources: [{ url: 'rtsp://admin:secret@cam/1' }] };
+      else if (url === '/api/detections/near_misses') res = [{ kind: 'low_score', group: 'Clap', source_id: 'mic', source_name: 'Salon', timestamp: 1e9,
+          label: 'Clapping', score: 0.38, threshold: 0.5, strength: 25 }];
       else if (url === '/api/detections/history' && method === 'GET') res = [{ source_id: 'mic', timestamp: 1e9, score: 0.8, clap_count: 2, group_name: 'Clap', labels: [] }];
       else if (url === '/api/sound_exclusions' && method === 'GET') res = { excluded: ['Speech'], available: ['Knock', 'Dog'] };
       else if (url === '/api/calibration/count/record') res = { success: true, kind: body.kind, claps_found: body.kind === 'fond' ? 0 : 1, gestures: body.kind === 'fond' ? [] : [1] };
@@ -774,6 +776,15 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#tab-listen').click(); await tick(2);
   emit('clap', { source_id: 'mic', clap_count: 2, group_name: 'Clap', score: 0.8, ignored: true, room: 'Cuisine', timestamp: 1e9 }); await tick();
   ok('+  pièces : historique « entendu plus fort dans »', /entendu plus fort dans « Cuisine »/.test($('#history-list').textContent));
+  // --- 6.98 : presque declenches
+  ok('+  presque : chargés avec la raison et la piste', $$('#near-list li').length === 1 && /\(1\)/.test($('#near-count').textContent) &&
+     /Pic de clap sans son reconnu : « Applaudissement » à 38 % pour un seuil de 50 %/.test($('#near-list').textContent) &&
+     /Baissez le seuil du groupe/.test($('#near-list').textContent));
+  emit('near_miss', { kind: 'weak', group: 'Clap', source_id: 'mic', timestamp: 1e9, label: 'Clapping', score: 0.82, threshold: 0.5, strength: 2.1, required: 3 }); await tick();
+  ok('+  presque : son reconnu, pic trop faible (en direct)', $$('#near-list li').length === 2 &&
+     /reconnu à 82 %, mais aucun pic assez fort pour compter un clap \(2,1 × le bruit de fond, minimum 3 ×\)/.test($('#near-list li').textContent));
+  emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e9, counted: 3, expected: [1, 2], score: 0.9 }); await tick();
+  ok('+  presque : nombre de claps sans entité', /3 claps comptés, aucune entité pour ce nombre \(le groupe attend 1 ou 2\)/.test($('#near-list li').textContent));
   // --- 6.80 : diagnostic de la detection sur la carte
   status = { running: true, source: 'x', since: Date.now() / 1000, sources: ['mic'],
              source_stats: { mic: { analyses_sautees: 3, coupures: 2, analyses: 100, analyse_ms: 4.2, analyse_max_ms: 9.1, reconnexions: 1 } },

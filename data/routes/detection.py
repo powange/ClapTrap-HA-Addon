@@ -62,6 +62,14 @@ def detection_history():
     return jsonify(get_detection_history())
 
 
+@detection_bp.route('/api/detections/near_misses', methods=['GET'])
+def detection_near_misses():
+    """Gestes qui ont failli declencher (pic sans son reconnu, son reconnu
+    sans pic assez fort, nombre de claps sans entite), 50 au plus."""
+    from classify import get_near_misses
+    return jsonify(get_near_misses())
+
+
 @detection_bp.route('/api/detections/history', methods=['DELETE'])
 def clear_detection_history_route():
     from classify import clear_detection_history
