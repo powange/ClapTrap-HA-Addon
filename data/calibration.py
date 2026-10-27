@@ -133,10 +133,12 @@ def start(source_ref, purpose='source', learn_target=None):
     comme `learn_target` (son reappris)."""
     global _session
     import classify
+    import room_calibration
     from ha_control import _resolve_source, CommandError
     from routes.sources import _source_id_for
     from settings_manager import load_settings
     with _lock:
+        room_calibration.stop_quietly()   # un calibrage a la fois (sourdines)
         if _session is not None:
             _finish(_session)
         try:

@@ -577,11 +577,42 @@ def test_room_arbitration_keeps_the_loudest_source(session_env, monkeypatch):
     assert [a[1] for a in posted] == ['mic']
     s['global']['room_arbitration'] = False
     sm.save_settings(s)
-    session._room_cfg = (0.0, False, 1.0, None)               # reglages relus
+    session._room_cfg = (0.0, False, 1.0, None, {})               # reglages relus
     posted.clear()
     session._on_detection(salon, dict(base, strength=4.0))
     session._on_detection(cuisine, dict(base, strength=11.0))
     assert [a[1] for a in posted] == ['mic', 'rtsp_cam1']     # desactive : sans attente
+
+
+def test_room_weights_correct_a_source_that_hides_its_noise(session_env, monkeypatch):
+    """Correction par source (calibrage de l'arbitrage) : une camera au bruit
+    de fond efface (force 11 pour un clap lointain), ponderee x 0,2, perd
+    face au micro de la piece (force 4)."""
+    classify, sock, emitted, calls, sm = session_env
+    posted = []
+    monkeypatch.setattr(classify, '_side_effects', types.SimpleNamespace(submit=lambda *a, **k: posted.append(a)))
+    session = classify.DetectionSession([], sock)
+    session.detectors = {'mic': object(), 'rtsp_cam1': object()}
+    session.source_status = {'mic': 'connected', 'rtsp_cam1': 'connected'}
+    salon = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro'}
+    chambre = {'source_id': 'rtsp_cam1', 'entity_key': 'rtsp_cam1', 'name': 'Chambre', 'label': 'RTSP: Chambre'}
+    base = {'timestamp': 1, 'score': 0.8, 'labels': [], 'group_slug': 'clap', 'group_name': 'Clap',
+            'ignored': False, 'clap_count': 2, 'group_clap_counts': [1, 2]}
+    s = sm.load_settings()
+    s['microphone']['configured'] = True
+    s['rtsp_sources'] += [{'id': 'cam1', 'name': 'Chambre', 'url': 'rtsp://h/c', 'enabled': False}]
+    s['global'].update(room_arbitration=True, room_window=0.3, room_weights={'rtsp_cam1': 0.2})
+    sm.save_settings(s)
+    session._on_detection(salon, dict(base, strength=4.0))
+    session._on_detection(chambre, dict(base, strength=11.0))
+    wait_until(lambda: posted)
+    assert [a[1] for a in posted] == ['mic']
+    # Clap dans la chambre : force 60 x 0,2 = 12 > 3, la chambre gagne
+    posted.clear()
+    session._on_detection(salon, dict(base, strength=3.0))
+    session._on_detection(chambre, dict(base, strength=60.0))
+    wait_until(lambda: posted)
+    assert [a[1] for a in posted] == ['rtsp_cam1']
 
 
 def test_room_zones_arbitrate_only_within_a_group(session_env, monkeypatch):
@@ -674,7 +705,7 @@ def test_near_misses_are_kept_emitted_and_skipped_during_calibration(session_env
     session = classify.DetectionSession([], sock)
     src = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro'}
     monkeypatch.setattr(classify.DetectionSession, 'NEAR_SETTLE', 0.2)
-    session._room_cfg = (time.monotonic(), False, -1.9, None)          # attente : max(0,2 ; -1,9 + 2) = 0,2 s
+    session._room_cfg = (time.monotonic(), False, -1.9, None, {})          # attente : max(0,2 ; -1,9 + 2) = 0,2 s
     session._on_near_miss(src, {'kind': 'weak', 'group': 'Clap', 'time': time.monotonic() - 2, 'score': 0.9})
     assert classify.get_near_misses() == []                              # note un peu plus tard
     items = wait_until(lambda: classify.get_near_misses())

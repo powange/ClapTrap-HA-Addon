@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.107.0
+
+### Calibrer l'arbitrage entre pièces
+
+- Nouvelle **correction par source** dans Réglages › Plusieurs pièces. Elle
+  multiplie la force des claps d'une source dans l'arbitrage (× 1 par
+  défaut). C'est utile pour une caméra qui réduit elle-même son bruit de
+  fond : le clap d'une autre pièce y paraissait très fort, et elle gagnait
+  à tort.
+- Nouvel assistant **Calibrer l'arbitrage…** : deux fois 3 claps près de
+  chaque source. Toutes les sources écoutent en même temps, et ClapTrap
+  propose la correction qui fait gagner la bonne pièce avec la plus grande
+  marge. Il affiche les prises gagnées avant et après, ainsi que la force
+  vue par chaque source, et les valeurs restent modifiables avant
+  d'appliquer.
+- Pendant ce calibrage, les sources concernées ne déclenchent rien. Il
+  remplace un autre calibrage en cours, et inversement.
+- API : `PUT /api/settings/rooms` accepte `weights` (fusionné, 1 pour
+  retirer une correction), aussi par la commande MQTT `set_rooms`. Les
+  routes de l'assistant sont `/api/calibration/rooms/…`. La correction d'une
+  source supprimée est effacée.
+
 ## 6.106.0
 
 ### Calibrer une source règle aussi la force minimale d'un clap

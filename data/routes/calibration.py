@@ -95,6 +95,52 @@ def count_calibration_apply():
     return _run(count_calibration.apply, values)
 
 
+# --- Calibrage de l'arbitrage entre pieces (voir room_calibration.py) ----------
+
+@calibration_bp.route('/api/calibration/rooms', methods=['GET'])
+def room_calibration_status():
+    import room_calibration
+    from settings_manager import load_settings
+    return jsonify({'success': True, **room_calibration.status(),
+                    'groups': room_calibration.candidates(load_settings())})
+
+
+@calibration_bp.route('/api/calibration/rooms/start', methods=['POST'])
+def room_calibration_start():
+    import room_calibration
+    return _run(room_calibration.start, _body().get('zone'))
+
+
+@calibration_bp.route('/api/calibration/rooms/record', methods=['POST'])
+def room_calibration_record():
+    import room_calibration
+    source = _body().get('source')
+    if not isinstance(source, str):
+        raise ApiError('source : identifiant de source attendu')
+    return _run(room_calibration.record, source)
+
+
+@calibration_bp.route('/api/calibration/rooms/analyze', methods=['POST'])
+def room_calibration_analyze():
+    import room_calibration
+    return _run(room_calibration.analyze)
+
+
+@calibration_bp.route('/api/calibration/rooms/apply', methods=['POST'])
+def room_calibration_apply():
+    import room_calibration
+    weights = _body().get('weights')
+    if weights is not None and not isinstance(weights, dict):
+        raise ApiError('weights : objet {source: poids} attendu')
+    return _run(room_calibration.apply, weights)
+
+
+@calibration_bp.route('/api/calibration/rooms/cancel', methods=['POST'])
+def room_calibration_cancel():
+    import room_calibration
+    return _run(room_calibration.cancel)
+
+
 # --- Sons appris (voir learned.py) ---------------------------------------------
 # Apprentissage : meme session que le calibrage (annulation : /api/calibration/cancel).
 

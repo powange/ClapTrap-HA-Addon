@@ -80,7 +80,17 @@ const dom = new JSDOM(html, {
       }
       else if (url === '/api/settings/rooms') { settings.global = settings.global || {}; res = { success: true };
         if ('enabled' in body) { res.room_arbitration = body.enabled; settings.global.room_arbitration = body.enabled; }
-        if ('zones' in body) { res.room_zones = body.zones; settings.global.room_zones = body.zones; } }
+        if ('zones' in body) { res.room_zones = body.zones; settings.global.room_zones = body.zones; }
+        if ('weights' in body) { res.room_weights = Object.assign({}, settings.global.room_weights, body.weights); settings.global.room_weights = res.room_weights; } }
+      else if (url === '/api/calibration/rooms' && method === 'GET') res = { success: true, active: false,
+        groups: [{ zone: null, sources: [{ source_id: 'mic', name: 'Salon' }, { source_id: 'rtsp_cam', name: 'Chambre' }] }] };
+      else if (url === '/api/calibration/rooms/start') res = { success: true, active: true };
+      else if (url === '/api/calibration/rooms/record') res = { success: true, home: body.source, forces: { Salon: 25, Chambre: 80.5 }, loudest: 'Chambre' };
+      else if (url === '/api/calibration/rooms/analyze') res = { success: true, zone: null, margin: 2.4, warnings: [],
+        sources: [{ source_id: 'mic', name: 'Salon', current: 1, proposed: 1 }, { source_id: 'rtsp_cam', name: 'Chambre', current: 1, proposed: 0.12 }],
+        score: { current: 2, proposed: 4, takes: 4 },
+        rows: [{ home: 'Salon', forces: [{ source: 'Salon', force: 25 }, { source: 'Chambre', force: 80.5 }], current: 'Chambre', proposed: 'Salon', current_ok: false, proposed_ok: true }] };
+      else if (url === '/api/calibration/rooms/apply') res = { success: true, applied: body.weights, active: false };
       else if (url === '/api/sound_groups/presets') res = { presets: [
         { id: 'claps', name: 'Applaudissements', sounds: ['Clapping', 'Hands'], ha_entities: [1, 2], count_mode: 'attaques' },
         { id: 'fumee', name: 'Détecteur de fumée', sounds: ['Smoke detector, smoke alarm', 'Fire alarm'], count_mode: 'alerte', alert_confirm: 3 }] };
@@ -791,6 +801,27 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   w.__hold.release(); w.__hold = null; await tick(4);
   const last = lastCall('PUT', '/api/settings/rooms')[2].zones[0].sources;
   ok('+  pièces : modification faite pendant l\'envoi, envoyée ensuite', roomPuts() === putsBefore0 + 2 && last.indexOf('mic') === -1 && last.length === 1);
+  // --- 6.107 : correction par source et calibrage de l'arbitrage
+  const wIn = $('#rooms-weights [data-weight-src="mic"]');
+  ok('+  pièces : correction par source affichée (× 1 par défaut)', !!wIn && wIn.value === '1' && !wIn.disabled && !$('#room-calibrate').disabled);
+  wIn.value = '0.4'; change(wIn); await tick(3);
+  ok('+  pièces : correction enregistrée', JSON.stringify(lastCall('PUT', '/api/settings/rooms')[2]) === '{"weights":{"mic":0.4}}');
+  $('#room-calibrate').click(); await tick(3);
+  ok('+  arbitrage : fenêtre ouverte avec les sources', !$('#room-calibration').hidden && /Salon, Chambre/.test($('#rc-group').textContent));
+  $('#room-calibration [data-c="start"]').click(); await tick(3);
+  ok('+  arbitrage : démarré, prise près de la première source', !!lastCall('POST', '/api/calibration/rooms/start') &&
+     /prise 1\/4/.test($('#room-calibration-title').textContent) && /Près de « Salon »/.test($('#room-calibration').textContent));
+  $('#room-calibration [data-c="record"]').click(); await tick(3);
+  ok('+  arbitrage : forces affichées après la prise', /Salon × 25, Chambre × 80,5 \(plus fort, sans correction : Chambre\)/.test($('#room-calibration').textContent) &&
+     lastCall('POST', '/api/calibration/rooms/record')[2].source === 'mic');
+  while ($('#room-calibration [data-c="record"]')) { $('#room-calibration [data-c="record"]').click(); await tick(3); }
+  ok('+  arbitrage : 2 prises par source', calls.filter(c => c[1] === '/api/calibration/rooms/record').map(c => c[2].source).join() === 'mic,mic,rtsp_cam,rtsp_cam');
+  ok('+  arbitrage : proposition affichée', /2\/4.*4\/4/.test($('#room-calibration').textContent) && $('#rc-w1').value === '0.12' && /× 2,4/.test($('#room-calibration').textContent));
+  $('#rc-w1').value = '0.15';
+  $('#room-calibration [data-c="apply"]').click(); await tick(4);
+  ok('+  arbitrage : appliqué (valeur modifiée), fenêtre fermée, liste à jour',
+     JSON.stringify(lastCall('POST', '/api/calibration/rooms/apply')[2].weights) === '{"mic":1,"rtsp_cam":0.15}' && $('#room-calibration').hidden &&
+     $('#rooms-weights [data-weight-src="mic"]').value === '1');
   $('#tab-listen').click(); await tick(2);
   emit('clap', { source_id: 'mic', clap_count: 2, group_name: 'Clap', score: 0.8, ignored: true, room: 'Cuisine', timestamp: 1e9 }); await tick();
   ok('+  pièces : historique « entendu plus fort dans »', /entendu plus fort dans « Cuisine »/.test($('#history-list').textContent));

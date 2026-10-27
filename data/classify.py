@@ -245,7 +245,7 @@ class DetectionSession:
         self._room_pools = {}       # nom du groupe -> {'items': [(src, payload, data)], 'timer'}
         self._room_lock = threading.Lock()
         self._recent_hits = collections.deque(maxlen=50)   # (groupe de sons, instant) des declenchements
-        self._room_cfg = (0.0, False, 1.0, None)   # (lu a, active, attente, groupes) : relus toutes les 2 s
+        self._room_cfg = (0.0, False, 1.0, None, {})   # (lu a, active, attente, groupes, corrections) : relus toutes les 2 s
         self.detectors = {}   # source_id -> AudioDetector
         self.seen = {}        # source_id -> labels deja presents dans les groupes
         self._supervisor = None
@@ -412,13 +412,18 @@ class DetectionSession:
         """(active, attente, groupes) : groupes = {source_id: nom du groupe},
         ou None sans groupe (toutes les sources ensemble)."""
         now = time.monotonic()
-        read_at, enabled, window, zones = self._room_cfg
+        read_at, enabled, window, zones, _weights = self._room_cfg
         if now - read_at > 2.0:   # sans copie des reglages a chaque clap
             g = load_settings().get('global', {})
             enabled, window = bool(g.get('room_arbitration')), float(g.get('room_window', 1.0))
             zones = room_zone_map(g)
-            self._room_cfg = (now, enabled, window, zones)
+            self._room_cfg = (now, enabled, window, zones, dict(g.get('room_weights') or {}))
         return enabled, window, zones
+
+    def _room_weight(self, source_id):
+        """Correction de l'arbitrage d'une source (calibrage de l'arbitrage) :
+        multiplie la force de ses claps (camera qui reduit son bruit)."""
+        return float(self._room_cfg[4].get(source_id, 1.0))
 
     def _room_arbitration(self, src, base_payload, data):
         """Met le clap en attente si l'arbitrage entre pieces est actif et
@@ -466,15 +471,17 @@ class DetectionSession:
     def _room_choose(self, items):
         """Fin de l'attente : d'abord une source dont le nombre de claps
         declenche une entite, puis le pic le plus fort par rapport a son
-        bruit de fond ; les autres sont notees « entendu plus fort dans … »."""
+        bruit de fond (corrige par source) ; les autres sont notees « entendu
+        plus fort dans … »."""
         if self.stop_event.is_set():
             logging.info(f"Arbitrage entre pièces : {len(items)} clap(s) abandonné(s) (détection arrêtée)")
             return
+        self._room_settings()   # corrections a jour (modifiees pendant l'attente)
         def rank(i):
             data = items[i][2]
             counts = data.get('group_clap_counts') or []
             useful = (data.get('clap_count') in counts) if counts else bool(data.get('clap_count'))
-            return (useful, data.get('strength') or 0.0, data['score'])
+            return (useful, (data.get('strength') or 0.0) * self._room_weight(items[i][0]['source_id']), data['score'])
         best = max(range(len(items)), key=rank)
         for i, (src, payload, data) in enumerate(items):
             if i != best:
@@ -852,7 +859,7 @@ class DetectionSession:
             if self.stop_event.is_set():
                 return None
             self._applying += 1
-        self._room_cfg = (0.0, False, 1.0, None)   # groupes de sources relus au clap suivant
+        self._room_cfg = (0.0,) + self._room_cfg[1:]   # reglages relus au clap suivant (corrections gardees d'ici la)
         try:
             built = {s['source_id']: s for s in build_sources_from_settings(settings)}
             if not built:
