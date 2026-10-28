@@ -157,7 +157,7 @@
             '<div class="field"><label class="field-label" for="wz-url">Adresse du flux</label>' +
             '<input class="input" id="wz-url" type="url" placeholder="rtsp://utilisateur:motdepasse@192.168.1.20:554/stream" spellcheck="false">' +
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
-            '<label class="check"><input type="checkbox" id="wz-tcp"> Transport TCP (si le son se coupe, en Wi-Fi)</label>' +
+            '<label class="switch-inline"><input type="checkbox" role="switch" id="wz-tcp"> Transport TCP (si le son se coupe, en Wi-Fi)</label>' +
             '<div class="field"><button type="button" class="btn btn-ghost" id="wz-probe">Vérifier l\'adresse</button>' +
             '<div id="wz-probe-result" role="status" aria-live="polite"></div></div>' +
             actions('Ajouter la caméra');

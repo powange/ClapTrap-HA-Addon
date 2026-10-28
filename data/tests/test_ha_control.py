@@ -489,3 +489,35 @@ def test_perf_reads_cgroup_without_page_cache(tmp_path):
     assert perf._memory_mb(str(tmp_path)) == 200.0              # cache recuperable retire
     assert perf.cpu_percent((10.0, 1.0), (12.0, 2.0)) == 50.0
     assert perf.cpu_percent(None, (12.0, 2.0)) is None
+
+
+def test_perf_ignores_a_cgroup_without_this_process(tmp_path, monkeypatch):
+    """Hierarchie de l'hote montee dans le conteneur : le cgroup indique ne
+    contient pas ce processus (compteurs de tout l'hote). Somme des processus
+    du conteneur (/proc) a la place."""
+    import os
+    import perf
+    root, proc = tmp_path / 'cgroup', tmp_path / 'proc'
+    (root / 'hote').mkdir(parents=True)
+    (root / 'hote' / 'cpu.stat').write_text('usage_usec 999000000\n')
+    (root / 'hote' / 'cgroup.procs').write_text('1\n2\n')            # pas nous
+    (proc / 'self').mkdir(parents=True)
+    (proc / 'self' / 'cgroup').write_text('0::/hote\n')
+    tick, page = os.sysconf('SC_CLK_TCK'), os.sysconf('SC_PAGE_SIZE')
+    for pid, (ut, st, rss) in {'7': (tick, tick, 256), '9': (2 * tick, 0, 768)}.items():
+        (proc / pid).mkdir()
+        (proc / pid / 'stat').write_text(f'{pid} (ffmpeg (x)) S 1 1 1 0 -1 0 0 0 0 0 {ut} {st} {3 * tick if pid == "7" else 0} 0 20 0\n')
+        (proc / pid / 'statm').write_text(f'1000 {rss} 0 0 0 0 0\n')
+    monkeypatch.setattr(perf, 'CGROUP_ROOT', str(root))
+    monkeypatch.setattr(perf, 'PROC', str(proc))
+    assert perf._cgroup_dir() is None and perf._measure_mode() == perf.PROC_MODE
+    cpu, mem = perf._read(perf.PROC_MODE)
+    assert cpu == 4.0 + 3.0                                         # 1 + 1 + 2 s, + 3 s d'enfants termines
+    assert mem == 1024 * page / 1024 / 1024                          # RSS (pas de smaps_rollup)
+    (proc / '9' / 'smaps_rollup').write_text('Rss: 9999 kB\nPss: 100 kB\n')   # PSS prefere : pages partagees une fois
+    assert perf._read(perf.PROC_MODE)[1] == (256 * page / 1024 + 100) / 1024
+    for i in range(70):                                             # /proc montre l'hote : ce seul processus
+        (proc / str(100 + i)).mkdir()
+    assert perf._measure_mode() is None and perf._proc_totals() is None
+    (root / 'hote' / 'cgroup.procs').write_text(f'1\n{os.getpid()}\n')   # le bon cgroup : utilise
+    assert perf._cgroup_dir() == str(root / 'hote')

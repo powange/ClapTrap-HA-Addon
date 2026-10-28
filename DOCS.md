@@ -399,7 +399,7 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes (nombre de sons cochés), entités, sons ignorés ; listes complètes par la commande `get_settings` |
 | `sensor.claptrap_<source>_analyse_ms`, `_analyses_perdues`, `_coupures`, `_reconnexions` | performance de la source (diagnostic, mis à jour toutes les 30 s) : durée moyenne d'une analyse YAMNet, analyses perdues faute de processeur, coupures et reconnexions du flux depuis le démarrage de la détection |
-| `sensor.claptrap_processeur`, `sensor.claptrap_memoire` | processeur (% d'un cœur) et mémoire de l'add-on, ffmpeg compris (diagnostic) |
+| `sensor.claptrap_processeur`, `sensor.claptrap_memoire` | processeur (% d'un cœur) et mémoire de l'add-on seul, ffmpeg compris, pas de tout Home Assistant (diagnostic ; aussi dans la barre d'état pendant la détection, « add-on : processeur … ») |
 | `sensor.claptrap_derniere_piece` | source (pièce) du dernier clap déclenché ; attributs : `entity_key`, `claps`, `groupe`, `heure` |
 | `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
 

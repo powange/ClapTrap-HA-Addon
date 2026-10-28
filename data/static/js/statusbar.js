@@ -56,7 +56,8 @@
         var emptyText = empty ? ' · ' + empty + ' groupe' + (empty > 1 ? 's' : '') + ' sans son' : '';
         // Processeur et memoire de l'add-on (tout le conteneur : ffmpeg compris).
         var perf = st.perf || {};
-        var perfText = perf.processeur != null ? ' · processeur ' + String(perf.processeur).replace('.', ',') + ' %' +
+        // « add-on » : pas l'usage de tout Home Assistant (lu ailleurs, dans HA).
+        var perfText = perf.processeur != null ? ' · add-on : processeur ' + String(perf.processeur).replace('.', ',') + ' %' +
             (perf.memoire_mo != null ? ', ' + Math.round(perf.memoire_mo) + ' Mo' : '') : '';
         setText(CT.$('#status-detail'), (running
             ? n + ' source' + (n > 1 ? 's' : '') + (bad ? ' · ' + bad + ' en erreur' : '') + ' · ' + sinceText(st.since)

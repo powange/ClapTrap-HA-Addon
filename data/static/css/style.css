@@ -137,7 +137,23 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
     display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
     color: var(--ink-2); font-size: 0.9rem; cursor: pointer;
 }
-.switch-inline input { width: 18px; height: 18px; accent-color: var(--accent); }
+.switch-inline input {
+    /* Case dessinee en interrupteur (role="switch") : piste et curseur, comme .switch. */
+    -webkit-appearance: none; appearance: none; flex: none; margin: 0; cursor: pointer;
+    width: 40px; height: 22px; border-radius: 11px;
+    background-color: var(--line); box-shadow: inset 0 0 0 1px var(--ink-3);
+    /* Curseur blanc cerne d'une ombre : visible sur la piste claire comme sur l'accent. */
+    background-image: radial-gradient(circle at 11px 11px, #fff 7.5px, rgba(0,0,0,.28) 8px, transparent 9.5px);
+    background-repeat: no-repeat; background-position: 0 0;
+    transition: background-color 0.15s, background-position 0.15s;
+}
+.switch-inline input:checked { background-color: var(--accent); background-position: 18px 0; box-shadow: none; }
+.switch-inline input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch-inline input:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Contraste eleve (Windows) : arriere-plans retires, la case native reste lisible. */
+@media (forced-colors: active) {
+    .switch-inline input { -webkit-appearance: auto; appearance: auto; width: 18px; height: 18px; background: none; box-shadow: none; }
+}
 
 /* ---- Barre d'etat ------------------------------------------------------------ */
 .statusbar {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.113.0
+
+### Processeur et mémoire de l'add-on, interrupteurs
+
+- La barre d'état affiche « add-on : processeur … %, … Mo » : c'est la
+  consommation de l'add-on seul (ffmpeg compris), pas celle de tout Home
+  Assistant. Avant, si la hiérarchie des cgroups de l'hôte était visible
+  dans le conteneur, les compteurs lus pouvaient être ceux de tout l'hôte.
+  Le cgroup n'est désormais utilisé que s'il contient bien le processus de
+  l'add-on. Sinon, ClapTrap fait la somme des processus du conteneur. Même
+  correction pour les capteurs `sensor.claptrap_processeur` et
+  `sensor.claptrap_memoire`.
+- Les options activer/désactiver deviennent des interrupteurs : « Démarrer
+  au lancement de l'add-on » dans la barre d'état, « Ajouter les sons
+  entendus » et « Transport TCP » dans les réglages d'une source et dans
+  l'assistant, ainsi que les autres options du même type (arbitrage entre
+  pièces, forme des claps, mode débogage).
+
 ## 6.112.0
 
 ### Port d'écoute VBAN configurable
