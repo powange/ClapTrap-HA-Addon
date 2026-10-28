@@ -36,6 +36,8 @@ import threading
 import time
 import uuid
 
+import numpy as np
+
 import calibration
 
 PREFIX = 'Appris : '
@@ -142,18 +144,44 @@ def _prepared(examples, background):
 
 
 class Matcher:
-    """Sons appris pour le detecteur (lecture seule : partage entre fils)."""
+    """Sons appris pour le detecteur (lecture seule : partage entre fils).
+
+    Tout est prepare une fois en tableaux (exemples et contre-exemples
+    centres, divises par leur norme) : chaque analyse de chaque source ne
+    fait plus que quelques produits de vecteurs, au lieu de dictionnaires
+    parcourus pour chaque exemple de chaque son (36 ms par analyse avec 20
+    sons, mesure sur PC ; plusieurs fois plus sur un Pi). Memes calculs que
+    cosine() et centered() (test : memes scores)."""
 
     def __init__(self, sounds):
-        # Exemples centres et leurs normes calcules une fois (match tourne a
-        # chaque analyse de chaque source).
-        self.sounds = []
+        prepared = []
+        vocab = {}
         for s in sounds:
             center = s.get('center') or {}
             examples = [centered(e, center) for e in s['examples']]
             negatives = [centered(e, center) for e in s.get('negatives') or []]
-            self.sounds.append((PREFIX + s['name'], center, [(e, _norm(e)) for e in examples],
-                                [(e, _norm(e)) for e in negatives], s['floor'], s['ceiling']))
+            for d in [center] + examples + negatives:
+                for k in d:
+                    vocab.setdefault(k, len(vocab))
+            prepared.append((PREFIX + s['name'], center, examples, negatives, s['floor'], s['ceiling']))
+        self._vocab = vocab
+        n = len(vocab)
+
+        def dense(d):
+            v = np.zeros(n)
+            for k, x in d.items():
+                v[vocab[k]] = x
+            return v
+
+        def unit_rows(fps):
+            # Une ligne par empreinte, divisee par sa norme (norme nulle : 0,
+            # comme cosine()).
+            m = np.array([dense(e) for e in fps]) if fps else np.zeros((0, n))
+            norms = np.linalg.norm(m, axis=1, keepdims=True) if fps else np.zeros((0, 1))
+            return np.divide(m, norms, out=np.zeros_like(m), where=norms > 0)
+
+        self.sounds = [(label, dense(center), unit_rows(examples), unit_rows(negatives), floor, ceiling)
+                       for label, center, examples, negatives, floor, ceiling in prepared]
 
     def __bool__(self):
         return bool(self.sounds)
@@ -171,13 +199,24 @@ class Matcher:
         fp = fingerprint(categories)
         if not fp:
             return fp, []
-        logged = _log(fp)
+        # Empreinte compressee : classes connues des sons appris en vecteur,
+        # les autres ne comptent que dans la norme (aucun exemple ne les a).
+        logged = np.zeros(len(self._vocab))
+        extra = 0.0
+        for k, v in _log(fp).items():
+            i = self._vocab.get(k)
+            if i is None:
+                extra += v * v
+            else:
+                logged[i] = v
         out = []
         for label, center, examples, negatives, floor, ceiling in self.sounds:
-            c = centered(fp, center, logged)
-            nc = _norm(c)
-            sim = max((cosine(c, e, nc, ne) for e, ne in examples), default=0.0)
-            if negatives and max(cosine(c, e, nc, ne) for e, ne in negatives) > sim:
+            c = logged - center
+            nc = math.sqrt(float(c @ c) + extra)
+            # Norme nulle : similarites nulles, comme cosine() (le score suit
+            # floor, qui peut etre negatif).
+            sim = float((examples @ c).max()) / nc if len(examples) and nc else 0.0
+            if len(negatives) and nc and float((negatives @ c).max()) / nc > sim:
                 out.append((label, 0.0))   # plus proche d'une fausse detection signalee
                 continue
             out.append((label, round(score_of(sim, floor, ceiling), 4)))

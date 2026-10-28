@@ -332,6 +332,11 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // Onglet reglages : 5, 6, 17
   $('#tab-settings').click(); await tick(3);
   ok('5. réglages avancés affichés', $('#adv-delay').value !== '' && !$('#panel-settings').hidden);
+  ok('5. décision rapide après un seul clap : désactivée par défaut', $('#quick-toggle') && !$('#quick-toggle').checked &&
+     $('#quick-toggle').getAttribute('role') === 'switch' && /0,8 s de calme/.test(d.getElementById('quick-tip').textContent));
+  change($('#quick-toggle'), true); await tick(2);
+  ok('5. décision rapide : enregistrée', lastCall('PUT', '/api/settings/advanced')[2].quick_single === true);
+  change($('#quick-toggle'), false); await tick(2);
   const settingsTips = ['adv-delay-tip', 'adv-cooldown-tip', 'adv-ratio-tip', 'shape-tip', 'count-calibrate-tip',
                         'rooms-window-tip', 'rooms-zones-tip', 'rooms-weights-tip', 'ha-cleanup-tip'];
   const visibleHints = [...$('#panel-settings').querySelectorAll('.hint')].map(h => h.textContent).join(' ');

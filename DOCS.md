@@ -676,6 +676,7 @@ actions:
 | Fenêtre multi-clap | 1,5 s | Durée pendant laquelle les claps consécutifs sont comptés ensemble (3 claps en 1,5 s = « 3 claps »). |
 | Écart minimal entre deux claps | 0,08 s | Filtre les rebonds d'un même clap. |
 | Force minimale d'un clap | 3 × le bruit ambiant | Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs. |
+| Décision rapide après un seul clap | désactivée | Pour un groupe qui compte 1 clap et plus (« 1 ou 2 claps ») : un clap seul suivi de 0,8 s de calme déclenche « 1 clap » sans attendre la fin de la fenêtre (environ 0,7 s plus tôt). À laisser désactivée si vos doubles claps sont lents (plus de 0,8 s d'écart) ou si vous utilisez des rythmes à longue pause. Sans effet sur les sources départagées par l'arbitrage entre pièces. |
 
 **Force minimale par source** : dans les réglages d'une source, **Force
 minimale d'un clap** vaut « Réglage global » par défaut. Vous pouvez aussi

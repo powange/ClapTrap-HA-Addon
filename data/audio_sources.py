@@ -316,6 +316,7 @@ class VbanSource:
         # 5 s, soit jusqu'a 5 s de retard de detection si l'inference traine).
         self._queue = queue.Queue(maxsize=10)
         self._dropped = 0   # blocs jetes (file pleine), pour l'horloge audio
+        self._drop_lock = threading.Lock()   # compte par le fil VBAN, lu par celui de la detection
 
     def _on_chunk(self, chunk, _timestamp=None):
         try:
@@ -323,14 +324,16 @@ class VbanSource:
         except queue.Full:
             try:
                 self._queue.get_nowait()
-                self._dropped += 1
+                with self._drop_lock:
+                    self._dropped += 1
                 self._queue.put_nowait(chunk)
             except (queue.Empty, queue.Full):
                 pass
 
     def take_dropped(self):
         """Nombre de blocs jetes depuis le dernier appel."""
-        n, self._dropped = self._dropped, 0
+        with self._drop_lock:
+            n, self._dropped = self._dropped, 0
         return n
 
     def iter_blocks(self, stop_event):

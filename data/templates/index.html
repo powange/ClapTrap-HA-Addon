@@ -166,6 +166,8 @@
                         {%- call info_tip('shape-tip', 'Explication de la vérification de la forme des claps') %}Pour les groupes qui ne cochent que des sons de clap (applaudissement, mains, claquement de doigts) :
                        un pic n'est compté que s'il est bref et aigu comme un clap. Une porte, un coup sourd ou une voix ne comptent
                        plus. Les pics écartés apparaissent dans le journal (filtre « Presque déclenchés »).{% endcall %}</div>
+                    <div class="with-tip"><label class="switch-inline"><input type="checkbox" role="switch" id="quick-toggle" aria-describedby="quick-tip"> Décision rapide après un seul clap</label>
+                        {%- call info_tip('quick-tip', 'Explication de la décision rapide après un seul clap') %}Pour un groupe qui compte 1 clap et plus (« 1 ou 2 claps ») : après un clap seul suivi de 0,8 s de calme, il déclenche « 1 clap » sans attendre la fin de la fenêtre multi-clap (environ 0,7 s plus tôt). Désactivez-le si vos doubles claps sont lents (plus de 0,8 s entre les deux) ou si vous utilisez des rythmes avec de longues pauses.{% endcall %}</div>
                     <div class="button-row">
                         <div class="with-tip"><button type="button" class="btn btn-primary" id="count-calibrate" aria-describedby="count-calibrate-tip">Calibrer le comptage…</button>
                             {%- call info_tip('count-calibrate-tip', 'Explication du calibrage du comptage') %}Mesure votre bruit de fond, la force de vos claps et la durée de vos gestes, puis propose ces trois réglages.{% endcall %}</div>

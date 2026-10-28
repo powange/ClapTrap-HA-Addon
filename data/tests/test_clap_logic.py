@@ -519,6 +519,38 @@ def test_early_decision_for_single_clap_group():
     assert [e['clap_count'] for e in ev] == [2]
 
 
+def test_quick_decision_after_a_single_clap_on_a_one_or_two_group():
+    """Groupe « 1 ou 2 claps » : un clap seul puis 0,8 s de calme couvert par
+    un resultat : « 1 clap » sans attendre la fin de la fenetre ; un double
+    clap rapide reste « 2 claps » ; reglage coupe : fin de fenetre."""
+    t = _counting_tracker([1, 2])
+    assert t.quick_single is False                             # desactive par defaut
+    t.quick_single = True
+    t.feed_peak(0.3, 100.0, pre_level=0.01)
+    t.on_classification([('Clapping', 0.9)], 100.3)
+    t.on_classification([('Clapping', 0.5)], 100.6)
+    assert t.poll(100.65) == []                                # 0,8 s de calme pas encore atteintes
+    t.on_classification([('Clapping', 0.5)], 100.85)
+    ev = [e for e in t.poll(100.9) if not e['ignored']]
+    assert [e['clap_count'] for e in ev] == [1]
+    t2 = _counting_tracker([1, 2])
+    t2.quick_single = True
+    t2.feed_peak(0.3, 100.0, pre_level=0.01)
+    t2.on_classification([('Clapping', 0.9)], 100.3)
+    t2.feed_peak(0.01, 100.2)
+    t2.feed_peak(0.3, 100.4, pre_level=0.01)                   # 2e clap avant les 0,8 s de calme
+    t2.on_classification([('Clapping', 0.9)], 100.95)
+    ev = [e for e in t2.poll(100.96) if not e['ignored']]      # 2 = max : decision (0,5 s de calme)
+    assert [e['clap_count'] for e in ev] == [2]
+    t3 = _counting_tracker([1, 2])
+    t3.quick_single = False
+    t3.feed_peak(0.3, 100.0, pre_level=0.01)
+    t3.on_classification([('Clapping', 0.9)], 100.3)
+    t3.on_classification([('Clapping', 0.5)], 100.85)
+    assert t3.poll(100.9) == []                                # attend la fin de la fenetre
+    assert [e['clap_count'] for e in t3.poll(101.6) if not e['ignored']] == [1]
+
+
 def test_slow_double_clap_after_early_decision_toggles_once():
     """Clap tardif dans la fenetre deja decidee : ignore, pas un 2e geste."""
     t = _counting_tracker([1])
@@ -818,3 +850,29 @@ def test_held_sounds_have_no_rhythm():
     tracker.sustain_times = [10.0, 10.3, 10.9]
     events = [e for e in tracker.on_classification([('Clapping', 0.9)], 12.0) if not e['ignored']]
     assert events and all(e['rhythm'] == '' and e['gaps'] == [] for e in events)
+
+
+def test_noise_floor_falls_fast_after_a_loud_period_but_not_in_steady_noise():
+    """Aspirateur coupe : le fond redescend en 2 s environ (claps faibles de
+    nouveau comptes). Bruit ordinaire qui varie de +-40 % : moyenne inchangee
+    (meme echelle de force)."""
+    tr = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t = _warm(tr)
+    tr.avg_level = 0.05                                  # apres un bruit fort
+    for i in range(30):                                  # 3 s de calme (0,002)
+        tr.feed_peak(0.002, t + i * 0.1, pre_level=0.002)
+    assert tr.avg_level < 0.025                          # lent seul : encore ~0,043
+    # Source a porte de bruit (camera) : silence un bloc sur deux, le fond ne
+    # plonge pas (pas de calme durable)
+    tr3 = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t3 = _warm(tr3)
+    tr3.avg_level = 0.01
+    for i in range(100):
+        tr3.feed_peak(0.0 if i % 2 else 0.01, t3 + i * 0.1, pre_level=0.005)
+    assert tr3.avg_level > 0.006
+    tr2 = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t2 = _warm(tr2)
+    tr2.avg_level = 0.01
+    for i in range(400):                                 # fond qui varie de +-40 %
+        tr2.feed_peak(0.01 * (0.6 if i % 2 else 1.4), t2 + i * 0.1, pre_level=0.01)
+    assert 0.0095 < tr2.avg_level < 0.0105

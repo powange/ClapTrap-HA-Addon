@@ -253,6 +253,26 @@ def test_no_result_after_stop(fake_classifier):
     assert not det._worker.is_alive()
 
 
+def test_short_drop_keeps_the_analysis_window(fake_classifier):
+    """Un bloc jete (consommateur en retard) : silence a sa place, la fenetre
+    d'analyse est gardee (YAMNet n'attend pas 1 s de nouveau) ; un trou long
+    reste une coupure."""
+    det = AudioDetector('m.tflite')
+    det.initialize(max_results=-1, score_threshold=0.3)
+    det.configure('s')
+    det.start()
+    for _ in range(12):
+        det.process_audio(np.full(BLOCK_SAMPLES, 0.01, dtype=np.float32))
+    kept = len(det._blocks)
+    clock = det._clock_end
+    det.skip_audio(BLOCK_SAMPLES)
+    assert len(det._blocks) >= kept and not np.any(det._blocks[-1])   # silence ajoute, fenetre gardee
+    assert abs(det._clock_end - clock - 0.1) < 1e-9 and det._lost_blocks == 1
+    det.skip_audio(10 * BLOCK_SAMPLES)                                  # 1 s : coupure
+    assert len(det._blocks) == 0
+    det.stop()
+
+
 def test_skip_audio_advances_clock(fake_classifier):
     det, clf, _ = make(fake_classifier)
     det.process_audio(block(0.002))
