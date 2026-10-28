@@ -64,6 +64,7 @@ DENOISE_KEEP = 120.0   # s : reduction du bruit reactivee dans ce delai : profil
 # sinon, ecart corrige en douceur (SLEW_STEP s par bloc au plus, au-dela de
 # SLEW_DEADBAND) sans vider la fenetre d'analyse.
 CUT_GAP = 0.5
+FILL_GAP = 0.5        # audio perdu en amont jusqu'a 0,5 s : comble de silence (au-dela : coupure)
 SLEW_DEADBAND = 0.05
 SLEW_STEP = 0.002
 PRE_GAP = 80       # 5 ms laisses entre cette mesure et le pic
@@ -489,12 +490,33 @@ class AudioDetector:
 
     def skip_audio(self, samples):
         """Audio perdu en amont (blocs VBAN jetes) : l'horloge audio avance
-        d'autant, l'espacement des claps suivants reste juste."""
+        d'autant, l'espacement des claps suivants reste juste. Trou court :
+        du silence a sa place dans la fenetre d'analyse et le son brut (pas
+        de remise a zero : YAMNet n'est plus aveugle pendant 1 s pour un
+        bloc perdu, sans analyse de plus pour un processeur deja en retard).
+        Trou long : coupure (fenetre et comptage interrompus)."""
         gap = samples / self.sample_rate
         # File pleine (consommateur en retard, souvent le processeur) : compte
         # a part, ce n'est pas une coupure du flux.
-        self._lost_blocks += samples // BLOCK_SAMPLES
-        self._on_gap(self._clock_end, gap, cut=False)
+        n = samples // BLOCK_SAMPLES
+        self._lost_blocks += n
+        if gap <= FILL_GAP:
+            # Comme une coupure (niveau d'avant, son brut pour la forme et
+            # reduction du bruit : sans objet de part et d'autre du trou),
+            # sauf la fenetre d'analyse, prolongee de silence au rythme normal
+            # (grille des analyses et analyses centrees inchangees).
+            self._prev_tail = np.zeros(0, dtype=np.float32)
+            self._raw.clear()
+            self._shape_pending = []
+            gate = self.denoise
+            if gate is not None:
+                gate.reset()
+            self._pending = np.zeros(0, dtype=np.float32)
+            for i in range(n):
+                self._push(np.zeros(BLOCK_SAMPLES, dtype=np.float32),
+                           self._clock_end + (i + 1) * BLOCK_SAMPLES / self.sample_rate)
+        else:
+            self._on_gap(self._clock_end, gap, cut=False)
         self._clock_end += gap
 
     def _on_gap(self, last_clock, gap, cut=True):

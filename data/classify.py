@@ -681,6 +681,7 @@ class DetectionSession:
                 g = settings.get('global', {})
                 det.tracker.early_decision = not arbitrated(g, sid, room_zone_map(g))
                 det.tracker.shape_check = bool(g.get('clap_shape_check', True))
+                det.tracker.quick_single = bool(g.get('quick_single', False))
                 det.set_params(window=p['delay'], peak_cooldown=p['peak_cooldown'],
                                peak_ratio=source_peak_ratio(current, p))
                 exclusions = set(settings.get('global', {}).get('sound_exclusions') or [])

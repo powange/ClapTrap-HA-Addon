@@ -28,6 +28,7 @@ DEFAULT_SETTINGS = {
         "peak_ratio": 3.0,
         # Groupes de claps : seuls les pics qui ont la forme d'un clap comptent.
         "clap_shape_check": True,
+        "quick_single": False,
         "sound_exclusions": [],
         # Arbitrage entre pieces : desactive par defaut (comportement inchange).
         "room_arbitration": False,
@@ -465,7 +466,8 @@ def _commit(settings):
 # enregistree telle quelle et recopiee a chaque lecture.
 _KNOWN_SECTIONS = ('global', 'microphone', 'rtsp_sources', 'saved_vban_sources')
 _GLOBAL_KEYS = {'threshold', 'delay', 'debug', 'peak_cooldown', 'peak_ratio', 'sound_exclusions',
-                'room_arbitration', 'room_window', 'room_zones', 'room_weights', 'clap_shape_check'}
+                'room_arbitration', 'room_window', 'room_zones', 'room_weights', 'clap_shape_check',
+                'quick_single'}
 _SOURCE_KEYS = {
     'microphone': {'device_index', 'audio_source', 'pulse_name', 'webhook_url', 'enabled', 'volume',
                    'auto_volume', 'auto_start', 'configured', 'sound_groups', 'noise_reduction', 'peak_ratio'},
@@ -985,7 +987,7 @@ def normalize_settings(data):
         for key, (lo, hi) in GLOBAL_LIMITS.items():
             if key in g:
                 g[key] = to_number(g[key], f"global.{key}", lo, hi)
-        for flag in ('debug', 'room_arbitration', 'clap_shape_check'):
+        for flag in ('debug', 'room_arbitration', 'clap_shape_check', 'quick_single'):
             if flag in g:
                 g[flag] = to_bool(g[flag], f'global.{flag}')
         if 'room_zones' in g:

@@ -106,6 +106,8 @@ class ClapTracker:
     # pic n'est compte pendant ce temps. Sans cela, le niveau partait de 0.001
     # et chaque bloc d'une piece bruyante etait un "pic" pendant ~40 s.
     WARMUP_BLOCKS = 10
+    FAST_FALL = 0.05    # bruit de fond durablement plus calme : redescend en quelques secondes (au lieu de ~20 s)
+    QUIET_BLOCKS = 20   # calme durable : mediane des 2 dernieres secondes (descente rapide)
     # Apres un declenchement, le score YAMNet reste haut ~1 s sur le meme son :
     # un groupe ne se re-arme qu'avec un nouveau pic ou apres ce delai.
     RETRIGGER_GUARD = 1.0
@@ -128,6 +130,7 @@ class ClapTracker:
 
     WINDOW_EPS = 1e-6   # pic pile a la fin de la fenetre : compte (arrondis)
     EARLY_SETTLE = 0.5  # s de calme apres le dernier clap avant une decision anticipee
+    EARLY_QUIET = 0.8   # s de calme apres un clap seul (groupe « 1 ou 2 claps ») : decision rapide
     LATE_MAX = 5.0      # s : coupure au-dela de laquelle un geste en cours est abandonne (interrupt)
 
     def __init__(self, window=1.5, peak_cooldown=0.08, peak_ratio=3.0):
@@ -169,6 +172,8 @@ class ClapTracker:
         # Forme des pics (clap_shape) : les groupes qui ne cochent que des sons
         # de clap ne comptent que les pics qui en ont la forme.
         self.shape_check = True
+        self.quick_single = False  # reglage « Décision rapide après un seul clap » (desactive par defaut)
+        self._quiet = collections.deque(maxlen=self.QUIET_BLOCKS)   # derniers pics de bloc (calme durable)
         self._shape = {}         # instant d'un pic -> (est un clap, raison, mesures)
         self._rejected = {}      # pic ecarte -> note dans les « presque » ? (une fois, son reconnu)
         self.replaced = []       # pics comptes puis remplaces par un plus fort (bloc suivant) : a oublier (take_replaced)
@@ -282,8 +287,26 @@ class ClapTracker:
         strength = raw_peak / max(noise, 1e-6)
         # Moyenne glissante du bruit de fond. Elle continue (plus lentement)
         # pendant un son : un bruit qui s'installe finit par etre absorbe.
-        rate = 0.001 if self._above else 0.005
+        # Nettement plus calme (moins de la moitie : aspirateur ou television
+        # coupes) : elle redescend vite, sinon le seuil restait haut des
+        # dizaines de secondes et les claps faibles etaient manques. Dans les
+        # variations ordinaires du fond, le rythme lent est garde (meme
+        # echelle de force : calibrages et corrections inchanges).
+        # Calme DURABLE seulement (mediane des 2 dernieres secondes), et
+        # jamais sous cette mediane : une source qui coupe son son entre deux
+        # bruits (camera, VBAN avec porte de bruit) ne fait pas plonger le
+        # fond a chaque silence.
+        self._quiet.append(raw_peak)
+        if self._above:
+            rate, low = 0.001, None
+        elif raw_peak < self.avg_level * 0.5 and len(self._quiet) == self.QUIET_BLOCKS:
+            low = sorted(self._quiet)[self.QUIET_BLOCKS // 2]
+            rate = self.FAST_FALL if low < self.avg_level * 0.5 else 0.005
+        else:
+            rate, low = 0.005, None
         self.avg_level = self.avg_level * (1 - rate) + raw_peak * rate
+        if rate == self.FAST_FALL:
+            self.avg_level = max(self.avg_level, low)
         threshold = max(floor, self.avg_level * self.peak_ratio)
         self._recent.append((now, strength, threshold / max(self.avg_level, 1e-6)))
 
@@ -598,8 +621,19 @@ class ClapTracker:
         group = armed[0]
         state = self._group_state[group['slug']]
         counted = [t for t in self._times(group) if state['armed_at'] <= t <= now and t > self._consumed_until]
-        if (len(counted) != max(group['clap_counts']) or now - counted[-1] < self.EARLY_SETTLE
-                or self._last_result < counted[-1] + self.EARLY_SETTLE):
+        if not counted:
+            return []
+        if len(counted) == max(group['clap_counts']):
+            settle = self.EARLY_SETTLE
+        elif self.quick_single and len(counted) == 1 and 1 in group['clap_counts']:
+            # Un clap seul, suivi de EARLY_QUIET s de calme, sur un groupe qui
+            # compte aussi plus : « 1 clap » sans attendre toute la fenetre
+            # (environ 0,7 s de moins). Un double clap plus lent que ce calme
+            # serait coupe : reglage desactivable.
+            settle = self.EARLY_QUIET
+        else:
+            return []
+        if now - counted[-1] < settle or self._last_result < counted[-1] + settle:
             return []
         window_end = state['armed_at'] + self.window + self.WINDOW_EPS
         events = self._expire(now, early=True)

@@ -44,17 +44,19 @@ def toggle_debug():
 # Reglages avances : tous les reglages globaux bornes sauf le seuil (par
 # groupe dans l'interface), avec les bornes de l'import.
 _ADVANCED_KEYS = ('delay', 'peak_cooldown', 'peak_ratio')   # liste explicite (pas tout GLOBAL_LIMITS)
+_ADVANCED_FLAGS = ('clap_shape_check', 'quick_single')       # reglages avances oui/non
 
 
 @settings_bp.route('/api/settings/advanced', methods=['PUT'])
 def update_advanced_settings():
     data = _json()
-    unknown = sorted(set(data) - set(_ADVANCED_KEYS) - {'clap_shape_check'})
+    unknown = sorted(set(data) - set(_ADVANCED_KEYS) - set(_ADVANCED_FLAGS))
     if unknown:
         raise ValueError(f"Champ(s) inconnu(s) : {', '.join(unknown)}")
     values = {key: to_number(data[key], key, *GLOBAL_LIMITS[key]) for key in _ADVANCED_KEYS if key in data}
-    if 'clap_shape_check' in data:
-        values['clap_shape_check'] = to_bool(data['clap_shape_check'], 'clap_shape_check')
+    for flag in _ADVANCED_FLAGS:
+        if flag in data:
+            values[flag] = to_bool(data[flag], flag)
 
     def _mut(settings):
         settings.setdefault('global', {}).update(values)

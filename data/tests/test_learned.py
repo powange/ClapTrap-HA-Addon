@@ -271,3 +271,72 @@ def test_detector_keeps_recent_learned_evidence():
     assert det.learned_evidence('Appris : A') == {'b': 1.0}       # meilleur score recent
     assert det.learned_evidence('Appris : B') is None              # trop faible
     assert det.learned_evidence('Appris : C') is None
+
+
+def _reference_match(sounds, categories):
+    """Ancien calcul (dictionnaires), reference du Matcher vectorise."""
+    fp = learned.fingerprint(categories)
+    if not fp:
+        return []
+    logged = learned._log(fp)
+    out = []
+    for s in sounds:
+        center = s.get('center') or {}
+        examples = [learned.centered(e, center) for e in s['examples']]
+        negatives = [learned.centered(e, center) for e in s.get('negatives') or []]
+        c = learned.centered(fp, center, logged)
+        nc = learned._norm(c)
+        sim = max((learned.cosine(c, e, nc, learned._norm(e)) for e in examples), default=0.0)
+        if negatives and max(learned.cosine(c, e, nc, learned._norm(e)) for e in negatives) > sim:
+            out.append((learned.PREFIX + s['name'], 0.0))
+            continue
+        out.append((learned.PREFIX + s['name'], round(learned.score_of(sim, s['floor'], s['ceiling']), 4)))
+    return out
+
+
+def test_vectorized_matcher_gives_the_same_scores():
+    """Matcher en tableaux : memes scores que l'ancien calcul, contre-exemples
+    et classes inconnues des sons appris compris."""
+    import random
+    rng = random.Random(7)
+    names = [f'c{i}' for i in range(120)]
+
+    def fp(k=12):
+        return {n: round(rng.uniform(learned.KEEP, 0.9), 4) for n in rng.sample(names, k)}
+    sounds = []
+    for i in range(6):
+        bg = [fp() for _ in range(3)]
+        sounds.append({'name': f's{i}', 'center': learned.center_of(bg), 'examples': [fp() for _ in range(5)],
+                       'negatives': [fp() for _ in range(rng.randint(0, 4))], 'floor': 0.2, 'ceiling': 0.8})
+    m = learned.Matcher(sounds)
+    for _ in range(200):
+        cats = [(n, rng.uniform(0, 0.9)) for n in rng.sample(names + [f'x{j}' for j in range(30)], 40)]
+        got = m.match(cats)
+        ref = _reference_match(sounds, cats)
+        assert [l for l, _ in got] == [l for l, _ in ref]
+        assert all(abs(a - b) <= 1e-4 for (_, a), (_, b) in zip(got, ref)), (got, ref)
+    assert m.match([('c1', 0.0)]) == []                           # empreinte vide
+
+
+def test_vectorized_matcher_is_fast_with_many_sounds():
+    """20 sons de 10 exemples et 20 contre-exemples : une analyse en bien
+    moins de temps que l'ancien calcul (36 ms mesures sur PC)."""
+    import random
+    import time as _t
+    rng = random.Random(3)
+    names = [f'c{i}' for i in range(521)]
+
+    def fp():
+        return {n: round(rng.uniform(learned.KEEP, 0.9), 4) for n in rng.sample(names, 60)}
+    sounds = [{'name': f's{i}', 'center': learned.center_of([fp(), fp()]), 'examples': [fp() for _ in range(10)],
+               'negatives': [fp() for _ in range(20)], 'floor': 0.2, 'ceiling': 0.8} for i in range(20)]
+    m = learned.Matcher(sounds)
+    cats = [(n, rng.uniform(0, 0.9)) for n in names]
+    t0 = _t.perf_counter()
+    for _ in range(20):
+        m.match(cats)
+    per = (_t.perf_counter() - t0) / 20
+    t0 = _t.perf_counter()
+    _reference_match(sounds, cats)
+    ref = _t.perf_counter() - t0
+    assert per < ref / 3, (per, ref)

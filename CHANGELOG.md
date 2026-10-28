@@ -1,5 +1,30 @@
 # Changelog
 
+## 6.117.0
+
+### Détection plus légère et plus réactive
+
+- **Sons appris environ 40 fois plus rapides** : la comparaison avec les
+  sons appris est précalculée en tableaux numériques au chargement. Avec
+  20 sons, une analyse passe de 19,8 ms à 0,5 ms (mesure sur PC ; le gain
+  est du même ordre sur un Raspberry Pi, pour chaque source). Les scores
+  sont identiques.
+- **Bloc VBAN perdu** : quand le processeur prend du retard et qu'un bloc
+  est jeté, du silence le remplace dans l'analyse. Avant, YAMNet repartait
+  de zéro et restait aveugle environ 1 s. Un trou de plus de 0,5 s reste
+  traité comme une coupure.
+- **Bruit de fond** : après un bruit fort qui s'arrête (aspirateur,
+  télévision), il redescend en quelques secondes au lieu de plusieurs
+  dizaines, et les claps faibles sont de nouveau comptés. Seul un calme
+  durable (2 s) accélère la descente : une source qui coupe son son entre
+  deux bruits (caméra à porte de bruit) n'est pas touchée, et dans les
+  variations ordinaires du fond rien ne change (calibrages et corrections
+  restent valables).
+- **Nouveau réglage « Décision rapide après un seul clap »** (Réglages ›
+  Comptage, désactivé par défaut). Pour un groupe « 1 ou 2 claps », un
+  clap seul suivi de 0,8 s de calme déclenche environ 0,7 s plus tôt. À
+  laisser désactivé si vos doubles claps sont lents.
+
 ## 6.116.0
 
 ### Correctifs issus de l'analyse complète
