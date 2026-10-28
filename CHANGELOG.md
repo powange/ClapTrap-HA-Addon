@@ -1,5 +1,49 @@
 # Changelog
 
+## 6.116.0
+
+### Correctifs issus de l'analyse complète
+
+- **Clap qui disparaissait** : un petit bruit (main qui frôle, déclic)
+  juste avant un clap, mais dans le bloc audio précédent, gardait la place
+  du clap. Sa forme, mesurée sur le clap qui le suit, était alors jugée
+  « tenue » et le geste était écarté. Désormais le pic le plus fort
+  l'emporte aussi à cheval sur deux blocs, sauf s'il a déjà déclenché un
+  geste. La force mesurée pour l'arbitrage entre pièces est aussi juste.
+- **Réduction du bruit coupée pendant la détection** : un bloc audio
+  pouvait partir en erreur. Elle est lue une seule fois par bloc.
+- **Blueprint « Alerte sonore »** : chaque automatisation a sa propre scène
+  de sauvegarde des lumières. Deux alertes simultanées (fumée et pleurs,
+  par exemple) ne se restaurent plus l'état l'une de l'autre. Mettez le
+  blueprint à jour depuis l'onglet Blueprints.
+- **Événements HA refusés** : un événement `claptrap_clap` ou
+  `claptrap_alert` refusé par Home Assistant (jeton, Core en redémarrage)
+  est signalé dans le journal de l'add-on, une fois par cause toutes les
+  10 minutes. Avant, rien n'indiquait pourquoi une automatisation ne
+  partait pas.
+- **Interrupteurs MQTT** : seules les valeurs ON/OFF (ou 1/0, TRUE/FALSE)
+  sont acceptées. Une autre valeur (« toggle », faute de frappe) est
+  refusée et l'état réel est republié ; avant, elle éteignait en silence.
+- **Import d'une configuration** : il demande confirmation, car il
+  remplace toutes les sources et tous les réglages.
+- **Connexion perdue** : la barre d'état affiche « Connexion perdue,
+  reconnexion… » au lieu de « Détection en cours » avec des VU-mètres
+  figés. Au bout de 30 s, un message propose de recharger la page.
+- **Calibrages et apprentissage d'un son** : fermer la fenêtre après au
+  moins une prise demande confirmation. Un appui à côté de la fenêtre ne
+  ferme plus le calibrage d'une source ni l'assistant d'ajout. Le compte
+  à rebours des prises enchaînées est mis en pause pendant la question.
+- **Fenêtres empilées** : quand une question s'ouvre par-dessus une
+  autre fenêtre (confirmation sur un calibrage, dans les réglages d'une
+  source), seule la fenêtre du dessus répond au clavier : Échap ferme la
+  question sans la rouvrir. La page reste inactive tant que la dernière
+  fenêtre n'est pas fermée.
+- **Journal** : les conseils sur le seuil renvoient au curseur « Seuil de
+  confiance » de la carte de la source, et non plus à un réglage
+  inexistant.
+- **Documentation** : `margin` et `peak_ratio` sont décrits dans les
+  commandes MQTT, et le champ `ignored` de l'événement est expliqué.
+
 ## 6.115.0
 
 ### Onglet Réglages : explications en infobulles

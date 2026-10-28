@@ -475,10 +475,10 @@ data:
 | `add_rtsp` | `name`, `url`, `enabled`, `rtsp_tcp` (transport TCP, pour une caméra qui coupe en UDP) |
 | `add_vban` | `name`, `ip`, `port` (informatif, par défaut le port d'écoute `vban_port`), `stream_name`, `enabled` |
 | `add_microphone` | `device`, `enabled` |
-| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) ; pas `webhook_url` (interface seulement) |
+| `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra), `peak_ratio` (force minimale d'un clap propre à la source, 1 à 50 ; `null` pour revenir au réglage global) ; pas `webhook_url` (interface seulement) |
 | `delete_source` | `source` |
 | `add_group` | `source`, `name`, `threshold` (0 à 1), `ha_entities` (ex. `[1, 2]`), ou `preset` (`claps`, `doigts`, `toc`, `sifflement`, `fumee`, `verre`, `bebe`, `aboiement`, `sonnette`, `alarme`) avec `name` facultatif |
-| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques`, `tenus` ou `alerte`), `alert_confirm` (1 à 4), `device_class` (`sound`, `smoke`, `safety`, `problem`, `occupancy`) |
+| `update_group` | `source`, `group` + `name`, `threshold`, `ha_entities`, `enabled`, `auto_add_sounds`, `count_mode` (`attaques`, `tenus` ou `alerte`), `alert_confirm` (1 à 4), `device_class` (`sound`, `smoke`, `safety`, `problem`, `occupancy`), `margin` (écart avec les autres sons, 0 à 0,5 : 0,1 = 10 points) |
 | `delete_group` | `source`, `group` (le premier groupe est protégé) |
 | `set_sound` | `source`, `group`, `label` (classe YAMNet, ex. `Whistling`), `enabled` |
 | `clear_unchecked_sounds` | `source`, `group` |
@@ -534,6 +534,9 @@ qu'un webhook :
   dire trois claps réguliers ; « 1 » un clap seul. `gaps` : écarts entre
   les claps, en secondes.
 - `labels` : sons reconnus (noms YAMNet en anglais) et leur score.
+- `ignored` : toujours `false` dans l'événement et le webhook. Un clap
+  perdu à l'arbitrage entre pièces ou face à un groupe prioritaire n'émet
+  rien ; il apparaît seulement dans le journal (« Non retenus »).
 - `room_forces` (seulement quand plusieurs sources se sont départagées,
   arbitrage entre pièces) : pour chacune, `source_id`, `name`, `strength`
   (force du clap face à son bruit ambiant), `weight` (correction) et

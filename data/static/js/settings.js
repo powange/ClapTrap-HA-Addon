@@ -331,6 +331,16 @@
         input.addEventListener('change', function () {
             var file = input.files[0];
             if (!file) return;
+            // Remplace toutes les sources et tous les reglages : confirmer
+            // (un mauvais fichier choisi d'un doigt effacait tout).
+            CT.confirm('Remplacer toute la configuration actuelle (sources, groupes, réglages) par « ' + file.name +
+                       ' » ? Exportez d\'abord la configuration actuelle si vous voulez pouvoir y revenir.', 'Importer')
+                .then(function (ok) {
+                    if (ok) importFile(file);
+                    else input.value = '';
+                });
+        });
+        function importFile(file) {
             var fd = new FormData();
             fd.append('file', file);
             CT.apiForm('/api/settings/import', fd)
@@ -346,7 +356,7 @@
                 })
                 .catch(function (err) { CT.error('Import refusé : ' + err.message); })
                 .finally(function () { input.value = ''; });
-        });
+        }
         var dbg = CT.$('#debug-toggle');
         dbg.addEventListener('change', function () {
             var v = dbg.checked;

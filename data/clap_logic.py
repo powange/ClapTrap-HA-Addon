@@ -171,6 +171,7 @@ class ClapTracker:
         self.shape_check = True
         self._shape = {}         # instant d'un pic -> (est un clap, raison, mesures)
         self._rejected = {}      # pic ecarte -> note dans les « presque » ? (une fois, son reconnu)
+        self.replaced = []       # pics comptes puis remplaces par un plus fort (bloc suivant) : a oublier (take_replaced)
         self._taken = None       # sons coches dans un groupe (cache, refait par set_groups)
 
     # --- Configuration ----------------------------------------------------
@@ -324,14 +325,21 @@ class ClapTracker:
                 continue
             attacked = True
             force = peak / max(noise, 1e-6)
-            if counted and t - counted[-1] <= self.peak_cooldown:
-                # Meme geste dans ce bloc : le plus fort l'emporte (un petit
-                # bruit juste avant le clap ne prend pas sa place, sa force ni
-                # sa forme).
-                if force > self._strength.get(counted[-1], 0.0):
-                    old = counted.pop()
-                    self.peak_times.remove(old)
-                    self._strength.pop(old, None)
+            last = counted[-1] if counted else (self.peak_times[-1] if self.peak_times else None)
+            if last is not None and 0 < t - last <= self.peak_cooldown:
+                # Meme geste : le plus fort l'emporte, dans ce bloc comme a
+                # cheval sur le precedent (un petit bruit juste avant le clap
+                # ne prend pas sa place, sa force ni sa forme, mesuree sinon
+                # sur le clap qui le suit et jugee « tenue »). Pas un pic qui a
+                # deja arme un groupe : son geste est en cours.
+                if force > self._strength.get(last, 0.0) and last not in self._used_peaks:
+                    if counted:
+                        counted.pop()
+                    else:
+                        self.replaced.append(last)
+                    self.peak_times.remove(last)
+                    for d in (self._strength, self._shape, self._rejected, self._peak_eval):
+                        d.pop(last, None)
                     self._last_peak_time = t
                     self.peak_times.append(t)
                     self._strength[t] = force
@@ -557,6 +565,12 @@ class ClapTracker:
             return True
         last = max(self.peak_times[-1:] + self.sustain_times[-1:], default=None)
         return last is not None and now - last < self.peak_lookback + hop
+
+    def take_replaced(self):
+        """Pics comptes dans un bloc precedent puis remplaces par un plus fort :
+        le detecteur les retire de ses mesures de forme et analyses centrees."""
+        out, self.replaced = self.replaced, []
+        return out
 
     def pending(self):
         """Une fenetre de comptage est-elle ouverte ?"""

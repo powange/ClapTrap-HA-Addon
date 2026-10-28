@@ -103,7 +103,7 @@ const dom = new JSDOM(html, {
       return Promise.resolve(reply);
     };
     w.confirm = () => true;
-    w.addEventListener('error', e => errors.push(e.message));
+    w.addEventListener('error', e => { errors.push(e.message); if (process.env.UI_DEBUG) console.log('ERRSTACK', e.error && e.error.stack); });
     w.HTMLCanvasElement.prototype.getContext = () => null;
   }
 });
@@ -369,6 +369,14 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#ha-cleanup').click(); await tick();
   ok('+  nettoyage des entités orphelines', !!lastCall('POST', '/api/ha/cleanup'));
   ok('17. export / import présents', !!$('#export-config') && !!$('#import-config'));
+  const imp = $('#import-config');
+  Object.defineProperty(imp, 'files', { configurable: true, value: [new w.File(['{}'], 'ancienne.json', { type: 'application/json' })] });
+  const importsBefore = calls.filter(c => c[1] === '/api/settings/import').length;
+  change(imp); await tick();
+  ok('17. import : confirmation avant de tout remplacer', /Remplacer toute la configuration actuelle .* « ancienne\.json »/.test($('.modal-message').textContent) &&
+     calls.filter(c => c[1] === '/api/settings/import').length === importsBefore);
+  $('.modal [data-r="cancel"]').click(); await tick(2);
+  ok('17. import : refusé, rien n\'est envoyé', calls.filter(c => c[1] === '/api/settings/import').length === importsBefore);
   // 20 : statut + resync
   status = { running: false, sources: [] }; emit('detection_status', { status: 'stopped' }); await tick(3);
   ok('20. arrêt reçu du serveur', $('#status-title').textContent === 'Détection arrêtée');
@@ -376,6 +384,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('connect'); emit('connect'); await tick(3);
   ok('20. resynchronisation à la reconnexion', calls.filter(c => c[1] === '/api/settings').length >= 1);
   ok('+  historique rechargé à la reconnexion seulement (pas à la 1re connexion)', histGets() === histBefore + 1);
+  emit('disconnect'); await tick();
+  ok('+  connexion perdue affichée', /Connexion perdue, reconnexion/.test($('#status-title').textContent) && $('#statusbar').classList.contains('is-offline'));
+  emit('connect'); await tick(3);
+  ok('+  connexion rétablie', !/Connexion perdue/.test($('#status-title').textContent) && !$('#statusbar').classList.contains('is-offline'));
   // 18 : messages
   ok('18. messages (toasts aria-live)', $$('#toasts .toast').length > 0);
   // micro : suppression + re-ajout via assistant
@@ -568,6 +580,17 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const nTakes = calls.filter(c => c[1] === '/api/calibration/record').length;
   $('#calibration [data-c="record"]').click(); await tick(3);
   ok('+  calibrage : prise enregistrée', calls.filter(c => c[1] === '/api/calibration/record').length === nTakes + 1 && /Applaudissement 85 %/.test($('#calibration').textContent));
+  $('#calibration').click(); await tick();
+  ok('+  calibrage : un appui à côté de la fenêtre ne l\'efface plus', !$('#calibration').hidden);
+  $('#calibration [data-c="close"]').click(); await tick();
+  ok('+  calibrage : fermer après une prise demande confirmation', /Abandonner \? Ce qui a été enregistré sera perdu \(1 prise\)/.test($('.modal-message').textContent));
+  const openDialogs = () => $$('.modal-backdrop').filter(b => !b.hidden && !b.id).length;
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick();
+  ok('+  calibrage : Échap ferme la question sans la rouvrir', openDialogs() === 0 && !$('#calibration').hidden);
+  ok('+  calibrage : la page derrière reste inactive (fenêtres empilées)', d.querySelector('body > main').inert === true);
+  $('#calibration [data-c="close"]').click(); await tick();
+  $('.modal [data-r="cancel"]').click(); await tick();
+  ok('+  calibrage : « Annuler » garde la session', !$('#calibration').hidden && !lastCall('POST', '/api/calibration/cancel'));
   while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
   ok('+  calibrage : propositions affichées', /Seuil : 50 % → 70 %/.test($('#calibration').textContent) && !!$('#cal-apply-gain'));
   ok('+  calibrage : écart avec les autres sons proposé', /Écart avec les autres sons : aucun → 5 points/.test($('#calibration').textContent));
@@ -733,6 +756,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   w.__hold.release(); w.__hold = null; await tick(3);
   ok('+  couleur de l\'étape : orange de nouveau avant la prise suivante', ccState() === 'wait');
   ccBox().querySelector('[data-c="cancel"]').click(); await tick();
+  $('.modal [data-r="ok"]').click(); await tick();   // « Abandonner ? » : prises deja faites
   $('#count-calibrate').click(); await tick();
   ok('+  prises enchaînées : choix mémorisé', $('#cc-auto').checked);
   ccBox().querySelector('[data-c="cancel"]').click(); await tick();
@@ -749,6 +773,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   w.__hold.release(); w.__hold = null; await tick(3);
   $('#calibration [data-c="pause"]').click(); await tick();
   $('#calibration [data-c="cancel"]').click(); await tick();
+  $('.modal [data-r="ok"]').click(); await tick();   // « Abandonner ? »
   const probe = d.createElement('p');
   w.CT.recordCountdown(probe, 1, 'Écoute… ');
   const listening = probe.getAttribute('data-state');
@@ -814,6 +839,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
   ok('+  calibrage : analyse en attente', /Analyse des prises/.test($('#calibration').textContent) && !!w.__hold.release);
   $('#calibration [data-c="close"]').click(); await tick();
+  $('.modal [data-r="ok"]').click(); await tick();   // « Abandonner ? » : prises deja faites
   w.CT.openCalibration(w.CT.sourceList().filter(x => x.kind === 'mic')[0]); await tick();
   ok('+  calibrage : nouvelle ouverture sur l\'écran de départ', !!$('#calibration [data-c="start"]'));
   if (w.__hold.release) w.__hold.release();

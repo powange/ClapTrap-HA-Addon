@@ -8,7 +8,7 @@
     var run = 0;          // ouverture en cours : une reponse d'une ouverture precedente est ignoree
     var limits = {min_examples: 3, max_examples: 10, recommended_examples: 5, max_sounds: 20};
     var sounds = [];
-    var name = '', examples = 0;
+    var name = '', examples = 0, backgroundDone = false;
     var relearn = null;   // son reappris (memes nom et id) ; null : nouveau son
 
     function setTitle(text) { CT.$('#learn-title').textContent = text; }
@@ -77,6 +77,7 @@
         back.hidden = false;
         run += 1;
         examples = 0;
+        backgroundDone = false;
         release = CT.trapFocus(back.querySelector('.modal'), close);
         choose();
     }
@@ -84,6 +85,12 @@
     function close() {
         if (!back || back.hidden) return;
         if (busy) { CT.error('Patientez quelques secondes : enregistrement en cours.'); return; }
+        // Bruit de fond compris : une prise faite, meme sans exemple.
+        var takes = examples + (backgroundDone ? 1 : 0);
+        CT.closeGuard(active ? takes : 0, closeNow, ['prise', 'prises']);
+    }
+
+    function closeNow() {
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;
         run += 1;
@@ -205,7 +212,7 @@
                 stopTimer();
                 busy = false;
                 if (mine !== run) return;
-                if (kind === 'fond') { take('exemple', 'Bruit de fond enregistré.'); return; }
+                if (kind === 'fond') { backgroundDone = true; take('exemple', 'Bruit de fond enregistré.'); return; }
                 examples = d.examples;
                 var top = (d.top || []).map(function (c) { return esc(CT.soundLabel(c.classe)) + ' ' + CT.pct(c.score); }).join(', ');
                 var msg = 'Exemple ' + examples + ' enregistré' + (top ? ' (YAMNet y entend : ' + top + ')' : '') + '.';

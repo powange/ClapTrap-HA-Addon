@@ -377,7 +377,6 @@
     });
     CT.initWizard = function () {
         var back = document.getElementById('wizard');
-        back.addEventListener('click', function (e) { if (e.target === back) close(); });
         back.querySelector('[data-w="close"]').addEventListener('click', close);
         // Entree (ou « OK » du clavier mobile) dans un champ : action principale
         // de l'etape (« Ajouter ce flux » dans l'ajout VBAN a la main).

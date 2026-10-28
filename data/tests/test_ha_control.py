@@ -119,6 +119,17 @@ def test_source_switch(ctl, mqtt):
     assert ctl.load_settings()['rtsp_sources'][0]['enabled'] is True
 
 
+def test_unknown_switch_payload_is_refused_not_off(ctl, mqtt):
+    """« toggle » ou faute de frappe : refuse (erreur visible), la source
+    reste active au lieu d'etre coupee en silence."""
+    ha_control._handle('claptrap/rtsp_abcdef12/source_active/set', b'ON')
+    ha_control._handle('claptrap/rtsp_abcdef12/source_active/set', b'toggle')
+    assert result(mqtt)['success'] is False and 'ON ou OFF attendu' in result(mqtt)['error']
+    assert ctl.load_settings()['rtsp_sources'][0]['enabled'] is True
+    ha_control._handle('claptrap/rtsp_abcdef12/source_active/set', b'off')
+    assert ctl.load_settings()['rtsp_sources'][0]['enabled'] is False
+
+
 def test_commands_groups_and_sounds_by_name(ctl, mqtt):
     command({'id': 'a1', 'action': 'add_group', 'source': 'AtomSalon', 'name': 'Siffler', 'ha_entities': [1]})
     r = result(mqtt)

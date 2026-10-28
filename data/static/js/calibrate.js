@@ -26,8 +26,15 @@
 
     function close() {
         if (!back || back.hidden) return;
-        // × et Echap ne faisaient rien pendant une prise, sans retour.
         if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
+        // Compte a rebours en pause pendant la confirmation, comme le bouton
+        // Pause (« En pause » affiche : « Enregistrer » pour reprendre).
+        var pause = body && body.querySelector('[data-c="pause"]');
+        if (pause && stopAuto) pause.click(); else cancelAuto();
+        CT.closeGuard(active ? step : 0, closeNow, ['prise', 'prises']);
+    }
+
+    function closeNow() {
         // Fermee pendant le demarrage : le calibrage sera annule a la reponse.
         cancelAuto();
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
@@ -269,7 +276,6 @@
     CT.initCalibration = function () {
         var b = document.getElementById('calibration');
         if (!b) return;
-        b.addEventListener('click', function (e) { if (e.target === b) close(); });
         b.querySelector('[data-c="close"]').addEventListener('click', close);
     };
 })();

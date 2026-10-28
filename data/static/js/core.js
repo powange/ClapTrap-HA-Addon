@@ -123,14 +123,25 @@
     // Piege de focus sur le document entier (et non sur la fenetre) : quand
     // le bouton qui avait le focus disparait, Echap et Tab restent geres. Le
     // reste de la page est rendu inerte.
+    // Fenetres empilees (confirmation par-dessus un calibrage) : seule celle du
+    // dessus repond au clavier, et la page ne redevient active qu'a la
+    // fermeture de la derniere (compteur par element rendu inerte).
+    var trapStack = [], inertCount = new Map();
     CT.trapFocus = function (container, onClose, returnFocus) {
         var previous = document.activeElement;
         // Sauf l'ancetre de la fenetre (confirmation ouverte dans les reglages
         // d'une source, eux-memes dans <main>).
         var outside = CT.$$('body > header, body > main, body > .skip-link')
             .filter(function (el) { return !el.contains(container); });
-        outside.forEach(function (el) { el.inert = true; el.setAttribute('aria-hidden', 'true'); });
+        outside.forEach(function (el) {
+            inertCount.set(el, (inertCount.get(el) || 0) + 1);
+            el.inert = true;
+            el.setAttribute('aria-hidden', 'true');
+        });
+        var me = {};
+        trapStack.push(me);
         function onKey(e) {
+            if (trapStack[trapStack.length - 1] !== me) return;   // une fenetre est ouverte par-dessus
             if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
             if (e.key !== 'Tab') return;
             var f = CT.focusables(container);
@@ -143,7 +154,15 @@
         document.addEventListener('keydown', onKey, true);
         return function release() {
             document.removeEventListener('keydown', onKey, true);
-            outside.forEach(function (el) { el.inert = false; el.removeAttribute('aria-hidden'); });
+            var i = trapStack.indexOf(me);
+            if (i !== -1) trapStack.splice(i, 1);
+            outside.forEach(function (el) {
+                var n = (inertCount.get(el) || 1) - 1;
+                if (n > 0) { inertCount.set(el, n); return; }   // encore cache par une autre fenetre
+                inertCount.delete(el);
+                el.inert = false;
+                el.removeAttribute('aria-hidden');
+            });
             var target = typeof returnFocus === 'function' ? returnFocus() : previous;
             if (target && target.isConnected && target.focus) target.focus();
         };
@@ -616,6 +635,19 @@
         pause.focus();
         return function () { stop(); if (pause.parentNode) pause.remove(); };
     };
+    // Fenetre a prises (calibrages, apprentissage) : fermer apres au moins une
+    // prise demande confirmation (× , Echap, Annuler effacaient tout).
+    // `what` : [singulier, pluriel] (« prise », « prises »).
+    var guarding = false;   // une seule question a la fois
+    CT.closeGuard = function (takes, closeNow, what) {
+        if (!takes) { closeNow(); return; }
+        if (guarding) return;
+        guarding = true;
+        what = what || ['prise', 'prises'];
+        CT.confirm('Abandonner ? Ce qui a été enregistré sera perdu (' + takes + ' ' + what[takes > 1 ? 1 : 0] + ').',
+                   'Abandonner').then(function (ok) { guarding = false; if (ok) closeNow(); });
+    };
+
     // Icone d'information : le texte s'affiche au survol, au focus clavier
     // et au toucher (bouton), et se ferme avec Echap ou en touchant ailleurs.
     // `text` : texte simple (echappe ici).
@@ -706,7 +738,26 @@
         var connectedOnce = false;
         // Reglage modifie depuis Home Assistant (entite, commande MQTT).
         CT.on('settings_changed', function () { CT.resync(); });
+        // Connexion temps reel perdue (add-on redemarre, Wi-Fi, application en
+        // arriere-plan) : la barre le dit, au lieu de « Détection en cours »
+        // avec des VU-metres figes ; apres 30 s, proposer de recharger.
+        var offlineTimer = null;
+        CT.on('disconnect', function () {
+            CT.state.offline = true;
+            if (CT.renderStatus) CT.renderStatus();
+            CT.announce('Connexion perdue, reconnexion…', true);
+            clearTimeout(offlineTimer);
+            offlineTimer = setTimeout(function () {
+                if (CT.state.offline) CT.error('Toujours pas de connexion à ClapTrap : rechargez la page si cela dure.');
+            }, 30000);
+        });
         CT.on('connect', function () {
+            clearTimeout(offlineTimer);
+            var wasOffline = CT.state.offline;
+            CT.state.offline = false;
+            // Barre redessinee tout de suite : resync peut echouer (add-on
+            // encore en demarrage) ou differer le rendu.
+            if (wasOffline && CT.renderStatus) CT.renderStatus();
             if (connectedOnce) CT.resync();
             connectedOnce = true;
         });

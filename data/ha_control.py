@@ -532,7 +532,14 @@ def _handle(topic, payload):
 
 
 def _on(text):
-    return text.strip().upper() in ('ON', '1', 'TRUE')
+    """ON/OFF d'un interrupteur. Autre valeur (faute de frappe, « toggle ») :
+    refusee (etat reel republie) au lieu d'eteindre en silence."""
+    value = text.strip().upper()
+    if value in ('ON', '1', 'TRUE'):
+        return True
+    if value in ('OFF', '0', 'FALSE'):
+        return False
+    raise ValueError(f"« {text.strip()[:20]} » : ON ou OFF attendu")
 
 
 def _detection_request(text):
