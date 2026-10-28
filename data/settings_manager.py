@@ -877,6 +877,15 @@ MAX_ROOM_ZONES = 10
 ROOM_WEIGHT_LIMITS = (0.05, 20.0)
 
 
+def merge_room_weights(g, changes):
+    """Fusionne `changes` ({source_id: poids}) dans les corrections de la
+    section globale `g` (1 retire une correction) ; rend le resultat."""
+    merged = dict(g.get('room_weights') or {})
+    merged.update(changes)
+    g['room_weights'] = to_room_weights(merged)
+    return g['room_weights']
+
+
 def to_room_weights(value, path='weights'):
     """Correction de l'arbitrage entre pieces par source : {source_id:
     poids}, multiplie la force de ses claps (1 : sans correction, retire)."""

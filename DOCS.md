@@ -527,6 +527,10 @@ qu'un webhook :
   dire trois claps réguliers ; « 1 » un clap seul. `gaps` : écarts entre
   les claps, en secondes.
 - `labels` : sons reconnus (noms YAMNet en anglais) et leur score.
+- `room_forces` (seulement quand plusieurs sources se sont départagées,
+  arbitrage entre pièces) : pour chacune, `source_id`, `name`, `strength`
+  (force du clap face à son bruit ambiant), `weight` (correction) et
+  `useful` (nombre de claps qui déclenche une entité).
 
 **Rythmes** : un écart compte comme une pause à partir de 0,45 s. Il compte
 aussi à partir de 0,3 s s'il fait au moins 1,6 fois le plus court écart du
@@ -616,7 +620,20 @@ dans l'arbitrage. Elle se règle à la main pour chaque source, ou avec
 
 Si une source entend aussi fort le clap d'une autre pièce que le sien, aucune
 correction ne suffit : un avertissement le signale (rapprochez-la de sa
-pièce, ou retirez-la du groupe). API : `PUT /api/settings/rooms` avec
+pièce, ou retirez-la du groupe).
+
+**Vérifier au quotidien** : pour un clap entendu par plusieurs sources, le
+journal affiche la force vue par chacune, avec sa correction, la gagnante en
+premier (« Arbitrage : Salon × 25 · Chambre × 80 → × 9,6 (correction
+× 0,12) »). Si la mauvaise pièce a gagné, **Ce n'était pas ça** propose
+**Le clap venait de « … »** : les corrections sont recalculées pour que
+cette source gagne ce clap d'au moins 25 %. Les sources plus fortes sont
+d'abord baissées, puis la bonne source est montée si les bornes l'imposent.
+Un clap compté avec un nombre sans entité sur la bonne source ne peut pas
+être corrigé ainsi : il perd quelle que soit la correction. Pour plusieurs
+pièces à la fois, préférez l'assistant.
+
+API : `PUT /api/settings/rooms` avec
 `{"weights": {"rtsp_xxx": 0.3}}` (fusionné avec les corrections existantes,
 1 pour en retirer une) ; commande MQTT `set_rooms` avec `weights`.
 
@@ -896,8 +913,10 @@ n'était pas ça** propose, pour ce groupe :
 
 Chaque correction est faite une fois par détection, et se défait dans les
 réglages de la source. API : `POST /api/detections/<id>/feedback` avec
-`{action: ignore | threshold | negative, label}` (`id` est le champ de
-l'historique, qui n'est envoyé ni dans l'événement HA ni dans le webhook).
+`{action: ignore | threshold | negative | room, label}` (`id` est le champ de
+l'historique, qui n'est envoyé ni dans l'événement HA ni dans le webhook ;
+pour `room`, `label` est le `source_id` de la bonne pièce, et la réponse
+donne les corrections modifiées, `{weights: {source_id: poids}}`).
 
 **Comprendre ce que la reconnaissance entend** : pendant la détection, le
 bouton **Enregistrer 5 s** des réglages d'une source garde 5 secondes du son

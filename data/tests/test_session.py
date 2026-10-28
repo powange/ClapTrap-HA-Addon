@@ -607,6 +607,9 @@ def test_room_weights_correct_a_source_that_hides_its_noise(session_env, monkeyp
     session._on_detection(chambre, dict(base, strength=11.0))
     wait_until(lambda: posted)
     assert [a[1] for a in posted] == ['mic']
+    forces = posted[0][3]['room_forces']   # journal : force et correction de chaque source
+    assert [(f['source_id'], f['strength'], f['weight'], f['useful']) for f in forces] == \
+        [('mic', 4.0, 1.0, True), ('rtsp_cam1', 11.0, 0.2, True)]
     # Clap dans la chambre : force 60 x 0,2 = 12 > 3, la chambre gagne
     posted.clear()
     session._on_detection(salon, dict(base, strength=3.0))

@@ -5,7 +5,8 @@ from datetime import datetime
 import requests
 
 from settings_manager import (load_settings, save_settings, modify_settings, normalize_settings,
-                              to_bool, to_number, to_room_zones, to_room_weights, SettingsSaveError, GLOBAL_LIMITS)
+                              to_bool, to_number, to_room_zones, to_room_weights, merge_room_weights,
+                              SettingsSaveError, GLOBAL_LIMITS)
 from webhook import send_webhook
 from routes.sources import (ApiError, add_restart_to_response, api_error_response, _apply_live, _json,
                            _sync_and_apply)
@@ -89,9 +90,7 @@ def update_room_settings():
         g = settings.setdefault('global', {})
         g.update(values)
         if 'weights' in data:
-            merged = dict(g.get('room_weights') or {})
-            merged.update(data['weights'])
-            g['room_weights'] = to_room_weights(merged)
+            merge_room_weights(g, data['weights'])
     modify_settings(_mut)
     if 'weights' in data:
         # Apres l'ecriture : sans les sources inconnues (retirees a l'enregistrement).
