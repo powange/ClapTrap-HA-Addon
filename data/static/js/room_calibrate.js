@@ -55,14 +55,14 @@
             body.innerHTML =
                 '<p>Vous allez faire ' + REPEAT + ' fois 3 claps près de chaque source, dans sa pièce. Toutes les sources ' +
                 'écoutent en même temps : ClapTrap mesure la force que chacune donne à vos claps et propose une ' +
-                'correction pour que la source de la pièce gagne toujours. Pendant le calibrage, ces sources ne déclenchent rien.</p>' +
+                'correction pour que la source de la pièce gagne toujours. Pendant le calibrage, ces sources ne déclenchent rien.</p>' + CT.calibrationOrder('rooms') +
                 (groups.length
                     ? '<div class="field"><label class="field-label" for="rc-group">Sources à départager</label>' +
                       '<select class="input" id="rc-group">' + groups.map(function (g, i) {
                           return '<option value="' + i + '">' + esc(label(g)) + '</option>';
                       }).join('') + '</select></div>'
                     : '<p class="hint text-warn">Il faut au moins deux sources actives' +
-                      (((CT.state.settings.global || {}).room_zones || []).length ? ' dans un même groupe.</p>' : '.</p>')) +
+                      (((CT.state.settings.global || {}).room_zones || []).length ? ' dans une même zone.</p>' : '.</p>')) +
                 actions(groups.length ? '<button type="button" class="btn btn-primary" data-c="start">Commencer</button>' : '');
             body.querySelector('[data-c="cancel"]').addEventListener('click', close);
             var startBtn = body.querySelector('[data-c="start"]');

@@ -188,12 +188,13 @@
                            1 à 2 s de retard sur un micro. Plus long = plus fiable, mais réaction plus lente.{% endcall %}</div>
                     </div>
                     <div class="field" id="rooms-zones-field">
-                        <div class="with-tip"><h3 class="field-label">Groupes de sources</h3>
-                            {%- call info_tip('rooms-zones-tip', 'Explication des groupes de sources') %}Sans groupe, toutes les sources se départagent entre elles. Avec des groupes, seules les
-                           sources d'un même groupe se départagent (par exemple le micro et la caméra du salon) ; une source hors
-                           de tout groupe déclenche toujours.{% endcall %}</div>
+                        <div class="with-tip"><h3 class="field-label">Zones</h3>
+                            {%- call info_tip('rooms-zones-tip', 'Explication des zones') %}Sans zone, toutes les sources se départagent entre elles. Avec des zones, seules les
+                           sources d'une même zone se départagent (par exemple le micro et la caméra du salon) ; une source hors
+                           de toute zone déclenche toujours. Ce sont des regroupements de sources, à ne pas confondre avec les
+                           groupes de sons d'une source.{% endcall %}</div>
                         <div class="zones" id="rooms-zones"></div>
-                        <button type="button" class="btn btn-ghost" id="rooms-zone-add">Ajouter un groupe</button>
+                        <button type="button" class="btn btn-ghost" id="rooms-zone-add">Ajouter une zone</button>
                     </div>
                     <div class="field" id="rooms-weights-field">
                         <div class="with-tip"><h3 class="field-label">Correction par source</h3>

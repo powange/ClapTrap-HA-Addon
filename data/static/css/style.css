@@ -638,3 +638,4 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 
 /* « Presque déclenchés » (journal) */
 .near-item .near-hint { color: var(--ink-3); }
+.near-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; font-size: 0.8rem; }

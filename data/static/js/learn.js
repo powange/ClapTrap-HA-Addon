@@ -9,6 +9,7 @@
     var limits = {min_examples: 3, max_examples: 10, recommended_examples: 5, max_sounds: 20};
     var sounds = [];
     var name = '', examples = 0, backgroundDone = false;
+    var learnedOn = null;   // source de l'apprentissage (proposee ensuite pour cocher le son)
     var relearn = null;   // son reappris (memes nom et id) ; null : nouveau son
 
     function setTitle(text) { CT.$('#learn-title').textContent = text; }
@@ -99,6 +100,40 @@
         release = null;
     }
 
+    // Son enregistre : le cocher tout de suite dans un groupe de la source
+    // ecoutee (sinon : onglet Ecoute, carte, Reglages, groupe, recherche).
+    function addToGroup(s) {
+        var src = CT.findSource(function (x) { return CT.sourceRef(x) === learnedOn; });
+        var groups = src ? (src.data.sound_groups || []).filter(function (g) { return g && g.slug; }) : [];
+        setTitle('« ' + s.label + ' » enregistré');
+        body.innerHTML = '<p>Le son est appris. Pour qu\'il déclenche quelque chose, cochez-le dans un groupe' +
+            (src ? ' de « ' + esc(src.name) + ' »' : '') + '.</p>' +
+            (groups.length
+                ? '<div class="field"><label class="field-label" for="ln-group">Groupe</label><select class="input" id="ln-group">' +
+                  groups.map(function (g) { return '<option value="' + esc(g.slug) + '">' + esc(g.name || g.slug) + '</option>'; }).join('') +
+                  '</select></div>'
+                : '<p class="hint">' + (src ? 'Cette source n\'a pas encore de groupe : créez-en un dans ses réglages, puis cochez-y le son.'
+                                             : 'Cochez-le dans un groupe d\'une source (réglages de la source).') + '</p>') +
+            '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="later">Plus tard</button>' +
+            (groups.length ? '<button type="button" class="btn btn-primary" data-c="add">Cocher dans ce groupe</button>' : '') + '</div>';
+        var later = body.querySelector('[data-c="later"]');
+        later.addEventListener('click', function () { close(); CT.success('« ' + s.label + ' » enregistré : cochez-le dans un groupe'); });
+        var add = body.querySelector('[data-c="add"]');
+        if (!add) { later.focus(); return; }
+        add.addEventListener('click', function () {
+            var slug = CT.$('#ln-group').value;
+            var g = groups.filter(function (x) { return x.slug === slug; })[0] || {};
+            add.disabled = true;
+            CT.setGroupSound(src, slug, s.label, true)
+                .then(function () {
+                    close();
+                    CT.success('« ' + s.label + ' » coché dans « ' + (g.name || slug) + ' »');
+                })
+                .catch(function (err) { add.disabled = false; CT.error('Son non coché : ' + err.message); });
+        });
+        add.focus();
+    }
+
     function actions(extra) {
         return '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-c="cancel">Annuler</button>' + extra + '</div>';
     }
@@ -144,6 +179,7 @@
             startBtn.disabled = true;
             starting = true;
             var req = {source: CT.$('#ln-source').value};
+            learnedOn = req.source;
             if (relearn) req.sound_id = relearn.id;
             CT.api('POST', '/api/learned/start', req)
                 .then(function () {
@@ -268,9 +304,13 @@
                     CT.api('POST', '/api/learned/save', relearn ? {} : {name: name}).then(function (s) {
                         busy = false;
                         active = false;
-                        close();
-                        CT.success(relearn ? '« ' + s.label + ' » réappris' : '« ' + s.label + ' » enregistré : cochez-le dans un groupe');
                         reload();
+                        if (relearn) {
+                            close();
+                            CT.success('« ' + s.label + ' » réappris');
+                            return;
+                        }
+                        addToGroup(s);
                     }).catch(function (err) {
                         busy = false;
                         save.disabled = false;

@@ -633,7 +633,7 @@ def test_room_zones_route_and_validation(client, settings_dir):
     for body in bad:
         assert client.put('/api/settings/rooms', json=body).status_code == 400, body
     r = client.put('/api/settings/rooms', json={'zones': [{'name': '', 'sources': []}]})
-    assert r.json['room_zones'] == [{'name': 'Groupe 1', 'sources': []}]
+    assert r.json['room_zones'] == [{'name': 'Zone 1', 'sources': []}]
 
 
 def test_room_zones_drop_deleted_sources(client, settings_dir):

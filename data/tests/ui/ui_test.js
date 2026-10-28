@@ -579,6 +579,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   CT.state.settings.microphone.enabled = true; CT.state.settings.microphone.sound_groups[0].enabled = true; CT.render();
   $('#src-mic [data-action="calibrate"]').click(); await tick();
   ok('+  calibrage : fenêtre ouverte', !$('#calibration').hidden && !!$('#calibration [data-c="start"]'));
+  ok('+  calibrage : ordre conseillé des trois calibrages, celui-ci en gras', /Ordre conseillé : .*le comptage.*l'arbitrage/.test($('#calibration').textContent) &&
+     /chaque source/.test(($('#calibration .cal-order strong') || {}).textContent || ''));
   $('#cal-reps').value = '2'; $('#cal-bg').checked = false;
   $('#calibration [data-c="start"]').click(); await tick(3);
   ok('+  calibrage : démarré sur la source', lastCall('POST', '/api/calibration/start')[2].source === 'mic' && /prise 1\//.test($('#calibration-title').textContent));
@@ -863,13 +865,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  pièces : aucun groupe, bouton actif', $$('#rooms-zones .zone').length === 0 && !$('#rooms-zone-add').disabled);
   $('#rooms-zone-add').click(); await tick(3);
   let zcall = lastCall('PUT', '/api/settings/rooms')[2];
-  ok('+  pièces : groupe ajouté', JSON.stringify(zcall.zones) === JSON.stringify([{ name: 'Groupe 1', sources: [] }]) && $$('#rooms-zones .zone').length === 1);
+  ok('+  pièces : groupe ajouté', JSON.stringify(zcall.zones) === JSON.stringify([{ name: 'Zone 1', sources: [] }]) && $$('#rooms-zones .zone').length === 1);
   const zoneSrc = (zi, sid) => $('#rooms-zones [data-zone="' + zi + '"] [data-zone-src="' + sid + '"]');
   change(zoneSrc(0, 'mic'), true); await tick(3);
   zcall = lastCall('PUT', '/api/settings/rooms')[2];
   ok('+  pièces : source cochée dans le groupe', JSON.stringify(zcall.zones[0].sources) === '["mic"]');
   $('#rooms-zone-add').click(); await tick(3);
-  ok('+  pièces : source déjà prise grisée dans l\'autre groupe', zoneSrc(1, 'mic').disabled && /dans « Groupe 1 »/.test($('#rooms-zones [data-zone="1"]').textContent));
+  ok('+  pièces : source déjà prise grisée dans l\'autre groupe', zoneSrc(1, 'mic').disabled && /dans « Zone 1 »/.test($('#rooms-zones [data-zone="1"]').textContent));
   const zname = $('#rooms-zones [data-zone="0"] [data-zone-name]');
   zname.value = 'Salon'; zname.dispatchEvent(new w.Event('change', { bubbles: true })); await tick(3);
   ok('+  pièces : groupe renommé', lastCall('PUT', '/api/settings/rooms')[2].zones[0].name === 'Salon' && /dans « Salon »/.test($('#rooms-zones [data-zone="1"]').textContent));
@@ -926,6 +928,15 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   emit('near_miss', { kind: 'shape', group: 'Clap', source_id: 'mic', timestamp: 1e9, reason: 'grave', high: 0.04, decay: 0.2 }); await tick();
   ok('+  presque : pic écarté par sa forme', /Pic écarté : il ne ressemble pas à un clap \(son trop grave : 4 % de son énergie dans les aigus\)/.test($('#history-list li.near-item').textContent) &&
      /Vérifier la forme des claps/.test($('#history-list li.near-item').textContent));
+  emit('near_miss', { kind: 'low_score', group: 'Clap', slug: 'clap', source_id: 'mic', timestamp: 2.5e9, label: 'Clapping', score: 0.38, threshold: 0.5 }); await tick();
+  const nearBtns = $$('#history-list li.near-item')[0].querySelectorAll('.near-actions button');
+  ok('+  presque : boutons d\'action (seuil, réglages du groupe)', nearBtns.length === 2 && /Baisser le seuil à 37 %/.test(nearBtns[0].textContent) &&
+     /Ouvrir les réglages du groupe/.test(nearBtns[1].textContent));
+  nearBtns[0].click(); await tick();
+  ok('+  presque : forte baisse du seuil confirmée d\'abord', /Baisser le seuil de « Clap » de 50 % à 37 %/.test($('.modal-message').textContent));
+  $('.modal [data-r="ok"]').click(); await tick(4);
+  ok('+  presque : seuil baissé en un clic', lastCall('PUT', '/api/source/sound_groups')[2].threshold === 0.37 &&
+     lastCall('PUT', '/api/source/sound_groups')[2].group_slug === 'clap' && /✓/.test(nearBtns[0].textContent));
   const clapsBefore = $$('#history-list li:not(.near-item)').length;
   for (let k = 0; k < 35; k++) emit('near_miss', { kind: 'count', group: 'Clap', source_id: 'mic', timestamp: 1e8 + k, counted: 3, expected: [1, 2], score: 0.9 });
   await tick();
@@ -939,7 +950,10 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   const diag = $('#src-mic [data-role="diag"]');
   ok('+  diagnostic : analyses sautées et coupures sur la carte', !!diag && !diag.hidden &&
      /3 analyse\(s\) ou bloc\(s\) perdu\(s\)/.test(diag.textContent) && /2 coupure\(s\)/.test(diag.textContent));
-  ok('+  performance : durée d\'analyse et reconnexions sur la carte', /Analyse : 4,2 ms en moyenne \(max 9,1 ms\)/.test(diag.textContent) && /1 reconnexion/.test(diag.textContent));
+  ok('+  performance : analyse rapide non affichée, reconnexions oui', !/Analyse/.test(diag.textContent) && /1 reconnexion/.test(diag.textContent));
+  status.source_stats.mic.analyse_ms = 420;
+  await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
+  ok('+  performance : analyse lente signalée sur la carte', /Analyse lente : 420 ms en moyenne/.test(diag.textContent));
   ok('+  performance : processeur et mémoire dans la barre d\'état', /add-on : processeur 12,5 %, 210 Mo/.test($('#status-detail').textContent));
   status = { running: false, sources: [] }; await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
   ok('+  diagnostic : masqué détection arrêtée', diag.hidden);
@@ -1046,8 +1060,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#learn [data-c="finish"]').click(); await tick(3);
   ok('+  sons appris : bilan', /3 exemples sur 3/.test($('#learn').textContent) && /Appris : Sonnette/.test($('#learn').textContent));
   $('#learn [data-c="save"]').click(); await tick(4);
-  ok('+  sons appris : enregistré, fenêtre fermée, liste à jour', lastCall('POST', '/api/learned/save')[2].name === 'Sonnette' &&
-     $('#learn').hidden && /Appris : Sonnette/.test($('#learned-list').textContent));
+  ok('+  sons appris : enregistré, proposé dans un groupe de la source', lastCall('POST', '/api/learned/save')[2].name === 'Sonnette' &&
+     !$('#learn').hidden && !!$('#ln-group') && /Cocher dans ce groupe/.test($('#learn').textContent) &&
+     /Appris : Sonnette/.test($('#learned-list').textContent));
+  $('#learn [data-c="add"]').click(); await tick(4);
+  const wl = lastCall('PUT', '/api/source/sound_whitelist');
+  ok('+  sons appris : coché dans le groupe choisi, fenêtre fermée', !!wl && wl[2].label === 'Appris : Sonnette' && wl[2].enabled === true &&
+     wl[2].kind === 'mic' && !!wl[2].group_slug && $('#learn').hidden);
   $('#learn-sound').click(); await tick();
   $('#ln-name').value = 'sonnette'; $('#learn [data-c="start"]').click(); await tick();
   ok('+  sons appris : nom déjà pris refusé', calls.filter(c => c[1] === '/api/learned/start').length === 1);

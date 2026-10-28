@@ -903,13 +903,13 @@ def to_room_zones(value, path='zones'):
     if not isinstance(value, list):
         raise ValueError(f"{path} : liste attendue")
     if len(value) > MAX_ROOM_ZONES:
-        raise ValueError(f"{path} : {MAX_ROOM_ZONES} groupes au plus")
+        raise ValueError(f"{path} : {MAX_ROOM_ZONES} zones au plus")
     out, seen, names = [], {}, set()
     for i, z in enumerate(value):
         zp = f"{path}[{i}]"
         if not isinstance(z, dict):
             raise ValueError(f"{zp} : objet attendu")
-        name = to_name(z.get('name'), f"{zp}.name", default=f"Groupe {i + 1}")
+        name = to_name(z.get('name'), f"{zp}.name", default=f"Zone {i + 1}")
         if len(name) > 40:
             raise ValueError(f"{zp}.name : 40 caractères au plus")
         if name.casefold() in names:

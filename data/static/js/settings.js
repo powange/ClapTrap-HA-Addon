@@ -23,7 +23,7 @@
         renderZones();
     }
 
-    // ---- Groupes de sources (arbitrage entre pieces) ----------------------
+    // ---- Zones : groupes de sources (arbitrage entre pieces) ---------------
     var zonesSaving = false, zonesPending = null;
     function zones() { return ((CT.state.settings.global || {}).room_zones || []).map(function (z) {
         return {name: z.name, sources: (z.sources || []).slice()};
@@ -38,7 +38,7 @@
         list.forEach(function (z) { z.sources.forEach(function (sid) { owner[sid] = z.name; }); });
         box.innerHTML = list.map(function (z, i) {
             return '<div class="zone" data-zone="' + i + '"><div class="zone-head">' +
-                '<input class="input" type="text" maxlength="40" aria-label="Nom du groupe" data-zone-name value="' + CT.esc(z.name) + '"' + (on ? '' : ' disabled') + '>' +
+                '<input class="input" type="text" maxlength="40" aria-label="Nom de la zone ' + (i + 1) + '" data-zone-name value="' + CT.esc(z.name) + '"' + (on ? '' : ' disabled') + '>' +
                 '<button type="button" class="btn btn-ghost" data-zone-del' + (on ? '' : ' disabled') + '>Supprimer</button></div>' +
                 '<div class="checks">' + (sources.length ? sources.map(function (src) {
                     var mine = z.sources.indexOf(src.sourceId) !== -1;
@@ -77,7 +77,7 @@
         CT.api('PUT', '/api/settings/rooms', {zones: build(zones())}).then(function (d) {
             (CT.state.settings.global = CT.state.settings.global || {}).room_zones = d.room_zones;
             CT.success(msg);
-        }).catch(function (err) { CT.error('Groupes refusés : ' + err.message); })
+        }).catch(function (err) { CT.error('Zones refusées : ' + err.message); })
           .finally(function () {
               zonesSaving = false;
               renderZones(true);   // etat enregistre, meme apres un renommage refuse
@@ -128,10 +128,10 @@
             saveZones(function (list) {
                 var n = list.length + 1;
                 var taken = list.map(function (z) { return z.name.toLowerCase(); });
-                while (taken.indexOf(('Groupe ' + n).toLowerCase()) !== -1) n++;
-                list.push({name: 'Groupe ' + n, sources: []});
+                while (taken.indexOf(('Zone ' + n).toLowerCase()) !== -1) n++;
+                list.push({name: 'Zone ' + n, sources: []});
                 return list;
-            }, 'Groupe ajouté : cochez ses sources');
+            }, 'Zone ajoutée : cochez ses sources');
         });
         if (box) {
             box.addEventListener('change', function (e) {
@@ -147,11 +147,11 @@
                             if (on) z.sources.push(sid);
                         }
                         return list;
-                    }, 'Groupe enregistré');
+                    }, 'Zone enregistrée');
                 } else if (e.target.hasAttribute('data-zone-name')) {
                     var name = e.target.value.trim();
-                    if (!name) { renderZones(true); CT.error('Donnez un nom au groupe.'); return; }
-                    saveZones(function (list) { if (list[i]) list[i].name = name; return list; }, 'Groupe renommé');
+                    if (!name) { renderZones(true); CT.error('Donnez un nom à la zone.'); return; }
+                    saveZones(function (list) { if (list[i]) list[i].name = name; return list; }, 'Zone renommée');
                 }
             });
             box.addEventListener('click', function (e) {
@@ -159,13 +159,13 @@
                 if (!del) return;
                 var i = +del.closest('[data-zone]').getAttribute('data-zone'), shown = zones(), name = (shown[i] || {}).name;
                 if (!name) return;
-                CT.confirm('Supprimer le groupe « ' + name + ' » ? Ses sources ne se départageront plus entre elles' +
-                           (shown.length === 1 ? ' (sans groupe, toutes les sources se départagent).' : '.')).then(function (ok) {
+                CT.confirm('Supprimer la zone « ' + name + ' » ? Ses sources ne se départageront plus entre elles' +
+                           (shown.length === 1 ? ' (sans zone, toutes les sources se départagent).' : '.')).then(function (ok) {
                     if (!ok) return;
                     // Liste a jour au moment de l'envoi, groupe retrouve par son nom.
                     saveZones(function (list) {
                         return list.filter(function (z) { return z.name !== name; });
-                    }, 'Groupe supprimé');
+                    }, 'Zone supprimée');
                 });
             });
         }

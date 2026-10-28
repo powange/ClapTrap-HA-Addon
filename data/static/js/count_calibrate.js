@@ -66,7 +66,7 @@
         body.innerHTML =
             '<p>Ces réglages valent pour toutes les sources. Ils sont mesurés sur celle que vous utilisez le plus : ' +
             'bruit de fond, force de vos claps, rebonds et durée de vos gestes. Comptez environ 2 minutes. ' +
-            'Pendant le calibrage, la source ne déclenche rien.</p>' +
+            'Pendant le calibrage, la source ne déclenche rien.</p>' + CT.calibrationOrder('count') +
             (sources.length
                 ? '<div class="field"><label class="field-label" for="cc-source">Source de mesure</label>' +
                   '<select class="input" id="cc-source">' + sources.map(function (s) {
