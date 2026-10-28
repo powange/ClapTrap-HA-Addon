@@ -55,27 +55,88 @@ def _api(method, path, body=None):
         raise CalibrationError(str(e), e.status)
 
 
-def _watchdog(session):
-    """Session abandonnee (onglet ferme, client MQTT muet) : la source ne
-    reste pas en sourdine indefiniment."""
-    while _session is session:
-        time.sleep(30)
-        with _lock:
-            if _session is session and time.monotonic() - session.last_activity > IDLE_TIMEOUT:
-                logging.info(f"Calibrage de {session.label} abandonné (inactif)")
-                _finish(session)
+# ===== Socle des sessions (calibrage d'une source, de l'arbitrage) =============
+# Le comptage et les sons appris reutilisent la session d'une source ; le
+# calibrage de l'arbitrage (room_calibration.py) a la sienne, sur plusieurs
+# sources. Les deux partagent _lock : un seul calibrage a la fois.
+
+def acquire_sources(source_ids, missing_message):
+    """Detection demarree si besoin, attente que chaque source ecoute, puis
+    sourdine (les bruits joues ne declenchent rien). Rend was_running.
+    `missing_message(ids)` : erreur si des sources n'ecoutent pas a temps
+    (la detection demarree pour l'occasion est alors arretee)."""
+    import classify
+    was_running = classify.get_status()['running']
+    if not was_running:
+        status_code, data = _call('POST', '/api/detection/start')
+        if status_code >= 400 and status_code != 409:
+            raise CalibrationError((data or {}).get('error') or 'démarrage de la détection impossible')
+    deadline = time.monotonic() + DETECTOR_WAIT
+    while True:
+        missing = [sid for sid in source_ids if classify.detector_for(sid) is None]
+        if not missing:
+            break
+        if time.monotonic() > deadline:
+            if not was_running:
+                _call('POST', '/api/detection/stop')
+            raise CalibrationError(missing_message(missing), 503)
+        time.sleep(0.2)
+    for sid in source_ids:
+        classify.mute_source(sid, True)
+    return was_running
+
+
+def release_sources(session, source_ids, what):
+    """Fin d'une session : sourdine levee, detection arretee si la session
+    l'avait demarree, surveillance d'inactivite liberee."""
+    import classify
+    ended = getattr(session, 'ended', None)
+    if ended is not None:
+        ended.set()
+    was_running = session.was_running
+    for sid in source_ids:
+        classify.mute_source(sid, False)
+    if not was_running:
+        try:
+            _call('POST', '/api/detection/stop')
+        except Exception as e:
+            logging.warning(f"{what} : arrêt de la détection impossible : {e}")
+
+
+def _expired(session):
+    return time.monotonic() - session.last_activity > IDLE_TIMEOUT
+
+
+def watch_idle(session, is_current, finish, label, name):
+    """Session abandonnee (onglet ferme, client MQTT muet) : les sources ne
+    restent pas en sourdine indefiniment. Le fil s'arrete des la fin de la
+    session (release_sources), sans garder ses prises 30 s de plus."""
+    session.ended = threading.Event()
+
+    def loop():
+        while is_current(session) and not session.ended.wait(30):
+            with _lock:
+                if is_current(session) and _expired(session):
+                    logging.info(f"{label} abandonné (inactif)")
+                    finish(session)
+    threading.Thread(target=loop, daemon=True, name=name).start()
+
+
+def touch(session, finish, none_message, label):
+    """Session en cours, marquee active, ou CalibrationError (aucune, ou
+    abandonnee depuis IDLE_TIMEOUT)."""
+    if session is not None and _expired(session):
+        logging.info(f"{label} abandonné (inactif)")
+        finish(session)
+        session = None
+    if session is None:
+        raise CalibrationError(none_message, 409)
+    session.last_activity = time.monotonic()
+    return session
 
 
 def _current():
-    s = _session
-    if s is not None and time.monotonic() - s.last_activity > IDLE_TIMEOUT:
-        logging.info("Calibrage abandonné (inactif)")
-        _finish(s)
-        s = None
-    if s is None:
-        raise CalibrationError('aucun calibrage en cours : commencez par « start »', 409)
-    s.last_activity = time.monotonic()
-    return s
+    return touch(_session, _finish, 'aucun calibrage en cours : commencez par « start »', 'Calibrage')
 
 
 class _Session:
@@ -148,39 +209,30 @@ def start(source_ref, purpose='source', learn_target=None):
         if not src.get('enabled'):
             raise CalibrationError('source désactivée : activez-la avant de la calibrer')
         source_id = _source_id_for(kind, None if kind == 'mic' else key)
-        was_running = classify.get_status()['running']
-        if not was_running:
-            status_code, data = _call('POST', '/api/detection/start')
-            if status_code >= 400 and status_code != 409:
-                raise CalibrationError((data or {}).get('error') or 'démarrage de la détection impossible')
-        deadline = time.monotonic() + DETECTOR_WAIT
-        while classify.detector_for(source_id) is None:
-            if time.monotonic() > deadline:
-                if not was_running:
-                    _call('POST', '/api/detection/stop')
-                raise CalibrationError("la source n'écoute pas (flux absent ?) : calibrage impossible", 503)
-            time.sleep(0.2)
         from ha_entities import source_label
-        _session = _Session(kind, key, source_id, source_label(kind, src), was_running)
+        label = source_label(kind, src)   # avant la sourdine : une erreur ici ne laisse pas la source muette
+        was_running = acquire_sources([source_id], lambda missing: "la source n'écoute pas (flux absent ?) : "
+                                                                  "calibrage impossible")
+        _session = _Session(kind, key, source_id, label, was_running)
         _session.purpose = purpose
         _session.learn_target = learn_target
-        classify.mute_source(source_id, True)
-        threading.Thread(target=_watchdog, args=(_session,), daemon=True, name='calibration-watchdog').start()
+        watch_idle(_session, lambda s: _session is s, _finish, f"Calibrage de {label}", 'calibration-watchdog')
         logging.info(f"Calibrage de {_session.label} commencé")
         return _session.summary()
 
 
 def _finish(session):
     global _session
-    import classify
-    classify.mute_source(session.source_id, False)
-    if not session.was_running:
-        try:
-            _call('POST', '/api/detection/stop')
-        except Exception as e:
-            logging.warning(f"Calibrage : arrêt de la détection impossible : {e}")
+    release_sources(session, [session.source_id], 'Calibrage')
     if _session is session:
         _session = None
+
+
+def stop_quietly():
+    """Un autre calibrage commence (arbitrage) : celui-ci s'arrete."""
+    with _lock:
+        if _session is not None:
+            _finish(_session)
 
 
 def cancel():

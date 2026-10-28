@@ -25,7 +25,6 @@ GRACE = 0.3
 HOME_OVER_FLOOR = 3.0   # la source de la piece doit entendre ses claps nettement
 MAX_MARGIN = math.log(10)   # marge visee au plus (x 10) : borne la recherche
 from settings_manager import ROOM_WEIGHT_LIMITS as WEIGHT_LIMITS
-IDLE_TIMEOUT = 15 * 60
 
 # Verrou du calibrage d'une source : un seul calibrage a la fois (les
 # sourdines ne se comptent pas, deux sessions se les retireraient).
@@ -72,31 +71,15 @@ def status():
     return s.summary() if s is not None else {'active': False}
 
 
-def _watchdog(session):
-    while _session is session:
-        time.sleep(30)
-        with _lock:
-            if _session is session and time.monotonic() - session.last_activity > IDLE_TIMEOUT:
-                logging.info("Calibrage de l'arbitrage abandonné (inactif)")
-                _finish(session)
-
-
 def _current():
-    s = _session
-    if s is not None and time.monotonic() - s.last_activity > IDLE_TIMEOUT:
-        _finish(s)
-        s = None
-    if s is None:
-        raise calibration.CalibrationError("aucun calibrage de l'arbitrage en cours : commencez par « start »", 409)
-    s.last_activity = time.monotonic()
-    return s
+    return calibration.touch(_session, _finish, "aucun calibrage de l'arbitrage en cours : commencez par « start »",
+                             "Calibrage de l'arbitrage")
 
 
 def start(zone=None):
     """Commence le calibrage d'un groupe de sources (`zone` : son nom ; sans
     groupe de sources, toutes). Remplace un calibrage en cours."""
     global _session
-    import classify
     from settings_manager import load_settings
     with _lock:
         settings = load_settings()
@@ -109,42 +92,21 @@ def start(zone=None):
                                                else f'groupe « {zone} » introuvable ou avec moins de deux sources actives')
         if _session is not None:
             _finish(_session)
-        if calibration._session is not None:
-            calibration._finish(calibration._session)
-        was_running = classify.get_status()['running']
-        if not was_running:
-            code, data = calibration._call('POST', '/api/detection/start')
-            if code >= 400 and code != 409:
-                raise calibration.CalibrationError((data or {}).get('error') or 'démarrage de la détection impossible')
-        deadline = time.monotonic() + calibration.DETECTOR_WAIT
-        missing = group['sources']
-        while missing:
-            missing = [s for s in group['sources'] if classify.detector_for(s['source_id']) is None]
-            if missing and time.monotonic() > deadline:
-                if not was_running:
-                    calibration._call('POST', '/api/detection/stop')
-                raise calibration.CalibrationError('ces sources n\'écoutent pas (flux absent ?) : '
-                                                   + ', '.join(s['name'] for s in missing), 503)
-            if missing:
-                time.sleep(0.2)
+        calibration.stop_quietly()   # un calibrage a la fois (sourdines)
+        names = _names(group['sources'])
+        was_running = calibration.acquire_sources(
+            list(names), lambda missing: 'ces sources n\'écoutent pas (flux absent ?) : '
+                                         + ', '.join(names[sid] for sid in missing))
         _session = _Session(group['zone'], group['sources'], was_running)
-        for s in group['sources']:
-            classify.mute_source(s['source_id'], True)
-        threading.Thread(target=_watchdog, args=(_session,), daemon=True, name='room-calibration-watchdog').start()
+        calibration.watch_idle(_session, lambda s: _session is s, _finish, "Calibrage de l'arbitrage",
+                               'room-calibration-watchdog')
         logging.info(f"Calibrage de l'arbitrage commencé ({', '.join(s['name'] for s in group['sources'])})")
         return _session.summary()
 
 
 def _finish(session):
     global _session
-    import classify
-    for s in session.sources:
-        classify.mute_source(s['source_id'], False)
-    if not session.was_running:
-        try:
-            calibration._call('POST', '/api/detection/stop')
-        except Exception as e:
-            logging.warning(f"Calibrage de l'arbitrage : arrêt de la détection impossible : {e}")
+    calibration.release_sources(session, [s['source_id'] for s in session.sources], "Calibrage de l'arbitrage")
     if _session is session:
         _session = None
 

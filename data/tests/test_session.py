@@ -709,11 +709,12 @@ def test_near_misses_are_kept_emitted_and_skipped_during_calibration(session_env
     src = {'source_id': 'mic', 'entity_key': 'mic', 'name': 'Salon', 'label': 'Micro'}
     monkeypatch.setattr(classify.DetectionSession, 'NEAR_SETTLE', 0.2)
     session._room_cfg = (time.monotonic(), False, -1.9, None, {})          # attente : max(0,2 ; -1,9 + 2) = 0,2 s
+    called_at = time.time()
     session._on_near_miss(src, {'kind': 'weak', 'group': 'Clap', 'time': time.monotonic() - 2, 'score': 0.9})
     assert classify.get_near_misses() == []                              # note un peu plus tard
     items = wait_until(lambda: classify.get_near_misses())
     assert len(items) == 1 and items[0]['source_name'] == 'Salon' and 'time' not in items[0]
-    assert abs(items[0]['timestamp'] - (time.time() - 2)) < 1
+    assert abs(items[0]['timestamp'] - (called_at - 2)) < 0.5   # heure du geste, pas de la note (machine chargee)
     assert ('near_miss', items[0]) in emitted
     classify.mute_source('mic', True)
     try:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.111.0
+
+### Calibrages : un socle commun
+
+- Le calibrage d'une source et celui de l'arbitrage partagent le même code
+  de session : démarrage de la détection si besoin, attente que les
+  sources écoutent, sourdine, fin après 15 minutes d'inactivité, et arrêt
+  de la détection si le calibrage l'avait démarrée. Le comptage et les sons
+  appris l'utilisaient déjà. Rien ne change à l'usage.
+- Nouveaux tests : fin d'une session inactive (sources rendues) et un seul
+  calibrage à la fois. Un test d'horodatage, trop sensible à la charge de
+  la machine, est rendu fiable.
+
 ## 6.110.0
 
 ### Journal conservé
