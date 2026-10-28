@@ -8,9 +8,10 @@ import uuid
 
 from settings_manager import (load_settings, modify_settings, SettingsSaveError, with_default_groups,
                               to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url,
-                              MAX_NR_LEVEL, GLOBAL_LIMITS)
+                              MAX_NR_LEVEL, GLOBAL_LIMITS, MIN_THRESHOLD)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector, listen_port
+
 
 sources_bp = Blueprint('sources', __name__)
 _socketio = None
@@ -832,7 +833,7 @@ def create_source_sound_group():
             'slug': slug, 'name': gname,
             **({'entity_slug': entity_slug} if entity_slug != slug else {}),
             'sound_whitelist': {}, 'auto_add_sounds': False,
-            'threshold': to_number(data.get('threshold', 0.5), 'threshold', 0, 1),
+            'threshold': to_number(data.get('threshold', 0.5), 'threshold', MIN_THRESHOLD, 1),
             # [] = aucune entite (un `or` le remplacait par 1 et 2 claps)
             'ha_entities': to_clap_counts(data['ha_entities'] if data.get('ha_entities') is not None else [1, 2]),
         }
@@ -896,7 +897,7 @@ def update_source_sound_group():
                 target['name'] = new_name
                 state['renamed'] = _rename_entity_slug(groups, target)
         if 'threshold' in data:
-            target['threshold'] = to_number(data['threshold'], 'threshold', 0, 1)
+            target['threshold'] = to_number(data['threshold'], 'threshold', MIN_THRESHOLD, 1)
         if 'auto_add_sounds' in data:
             target['auto_add_sounds'] = to_bool(data['auto_add_sounds'], 'auto_add_sounds')
         if 'enabled' in data:

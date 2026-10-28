@@ -24,7 +24,7 @@ def settings(**over):
 
 def entity_ids(client):
     return sorted(json.loads(p)['default_entity_id'] for t, p, r in client.published
-                  if t.endswith('/config') and p and '/binary_sensor/' in t)
+                  if t.endswith('/config') and p and '/binary_sensor/' in t and not t.endswith('_flux/config'))
 
 
 def test_publication_ascii_ids_and_empty_list(mqtt):

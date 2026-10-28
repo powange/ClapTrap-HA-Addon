@@ -196,7 +196,7 @@ def _origin_block():
 
 # ===== MQTT : connexion ======================================================
 
-def _mqtt_publish(topic, payload, retain=False):
+def _mqtt_publish(topic, payload, retain=False, qos=None):
     client = _mqtt_client
     if client is None or not _mqtt_connected.is_set():
         return None
@@ -205,7 +205,7 @@ def _mqtt_publish(topic, payload, retain=False):
         # QoS 1 pour les messages retenus (configurations, suppressions,
         # disponibilite, etats) : une suppression perdue pendant une
         # micro-coupure laissait une entite orpheline. Impulsions en QoS 0.
-        return client.publish(topic, data, qos=1 if retain else 0, retain=retain)
+        return client.publish(topic, data, qos=(1 if retain else 0) if qos is None else qos, retain=retain)
     except Exception as e:
         logging.warning(f"MQTT: publication sur {topic} impossible: {e}")
         return None
@@ -702,6 +702,13 @@ def _friendly_name(g_name, n):
     return f'{g_name} · {n} clap{"s" if n > 1 else ""}'
 
 
+def source_availability(source_slug):
+    """Disponibilite d'une entite liee au flux d'une source : l'add-on tourne
+    ET la source ecoute (capteurs de clap, mesures du flux)."""
+    return {'availability': [{'topic': AVAILABILITY_TOPIC}, {'topic': f'claptrap/{source_slug}/availability'}],
+            'availability_mode': 'all'}
+
+
 def _entity_config(obj, name, source_slug, entity_obj=None):
     """`obj` (slug du groupe) : unique_id et topics, stables ; `entity_obj`
     (nom du groupe) : entity_id propose a la creation."""
@@ -712,11 +719,7 @@ def _entity_config(obj, name, source_slug, entity_obj=None):
         # default_entity_id, l'entity_id etait derive du nom.
         'default_entity_id': f'binary_sensor.claptrap_{entity_obj or obj}',
         'state_topic': f'claptrap/{obj}/state',
-        'availability': [
-            {'topic': AVAILABILITY_TOPIC},
-            {'topic': f'claptrap/{source_slug}/availability'},
-        ],
-        'availability_mode': 'all',
+        **source_availability(source_slug),
         'device_class': 'sound',
         'icon': 'mdi:hand-clap',
         'payload_on': 'ON',

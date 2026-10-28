@@ -862,6 +862,7 @@ def _norm_source(src, path):
 
 
 # Bornes des reglages globaux (import et onglet Reglages avances).
+MIN_THRESHOLD = 0.05   # seuil d'un groupe saisi (API, HA) : 0 % declenchait sur n'importe quel son
 GLOBAL_LIMITS = {'threshold': (0, 1), 'delay': (0.1, 10), 'peak_cooldown': (0, 2), 'peak_ratio': (1, 50),
                  'room_window': (0.3, 3)}
 MAX_NAME = 80   # nom affiche d'une source ou d'un groupe (API)

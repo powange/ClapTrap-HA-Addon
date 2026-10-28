@@ -33,6 +33,7 @@ import ha_entities as ha
 
 COMMAND_TOPIC = 'claptrap/command'
 RESULT_TOPIC = 'claptrap/command/result'
+PRIVATE_RESULTS = ('get_settings', 'help')   # resultat complet non conserve par le broker
 RESULT_ATTRIBUTES_TOPIC = 'claptrap/command/result/attributs'
 CONFIG_TOPIC = 'claptrap/configuration'
 ROOM_TOPIC = 'claptrap/derniere_piece'
@@ -71,9 +72,9 @@ ACTIONS = {
     'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
                      'rtsp_tcp?(caméra), peak_ratio?(1-50, null : réglage global)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
-    'add_group': '{source, name?, preset?, threshold?(0-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
+    'add_group': '{source, name?, preset?, threshold?(0,05-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
                  'preset : claps, doigts, toc, sifflement, fumee, verre, bebe, aboiement, sonnette, alarme.',
-    'update_group': '{source, group, name?, threshold?(0-1), ha_entities?, enabled?, auto_add_sounds?, '
+    'update_group': '{source, group, name?, threshold?(0,05-1), ha_entities?, enabled?, auto_add_sounds?, '
                     'count_mode?("attaques"|"tenus"|"alerte"), alert_confirm?(1-4), device_class?, '
                     'margin?(0 à 0.5 : écart minimal avec les autres sons)}.',
     'delete_group': '{source, group} (le premier groupe est protégé).',
@@ -143,16 +144,22 @@ def publish_diagnostics():
 
 # ===== Entites de reglage ===================================================
 
-def _base_config(component, obj, name, entity_obj=None, **extra):
+def _base_config(component, obj, name, entity_obj=None, source=None, **extra):
     """`obj` : unique_id (stable) ; `entity_obj` : entity_id propose (suit le
     nom du groupe, renomme dans le registre de HA par ha_registry). L'appareil
-    est porte par le message de decouverte de l'appareil (ha_entities)."""
+    est porte par le message de decouverte de l'appareil (ha_entities).
+    `source` (slug) : disponible seulement si la source ecoute aussi (mesures
+    du flux : derniere classe, scores... perimees sinon) ; sans `source`, des
+    que l'add-on tourne (reglages modifiables, flux coupe ou non)."""
     cfg = {
         'name': name,
         'unique_id': f'claptrap_{obj}',
         'default_entity_id': f'{component}.claptrap_{entity_obj or obj}',
-        'availability_topic': ha.AVAILABILITY_TOPIC,
     }
+    if source:
+        cfg.update(ha.source_availability(source))
+    else:
+        cfg['availability_topic'] = ha.AVAILABILITY_TOPIC
     cfg.update(extra)
     return cfg
 
@@ -167,8 +174,14 @@ def source_entities(info):
             'switch', f'{slug}_source_active', 'Source active',
             command_topic=f'claptrap/{slug}/source_active/set', state_topic=f'claptrap/{slug}/source_active',
             payload_on='ON', payload_off='OFF', entity_category='config', icon='mdi:microphone-settings')),
+        # Flux de la source : suivi dans HA (« prévenir si la caméra est
+        # coupée depuis 10 min »), distinct de l'add-on arrete.
+        ('binary_sensor', f'{slug}_flux', _base_config(
+            'binary_sensor', f'{slug}_flux', 'Flux connecté',
+            state_topic=f'claptrap/{slug}/availability', payload_on='online', payload_off='offline',
+            device_class='connectivity', entity_category='diagnostic')),
         ('sensor', f'{slug}_derniere_classe', _base_config(
-            'sensor', f'{slug}_derniere_classe', 'Dernière classe',
+            'sensor', f'{slug}_derniere_classe', 'Dernière classe', source=slug,
             state_topic=analyse, value_template='{{ value_json.classe }}',
             json_attributes_topic=analyse,
             json_attributes_template='{{ {"score": value_json.score, "top3": value_json.top3, '
@@ -176,7 +189,7 @@ def source_entities(info):
                                      '"diagnostic": value_json.diagnostic | default({})} | tojson }}',
             entity_category='diagnostic', icon='mdi:waveform')),
         ('sensor', f'{slug}_top3', _base_config(
-            'sensor', f'{slug}_top3', '3 classes probables',
+            'sensor', f'{slug}_top3', '3 classes probables', source=slug,
             state_topic=analyse,
             value_template='{{ value_json.top3 | map(attribute="resume") | join(", ") }}',
             entity_category='diagnostic', icon='mdi:format-list-numbered')),
@@ -191,7 +204,7 @@ def source_entities(info):
             ('coupures', 'Coupures du flux', 'coupures', dict(state_class='total_increasing', icon='mdi:lan-disconnect')),
             ('reconnexions', 'Reconnexions', 'reconnexions', dict(state_class='total_increasing', icon='mdi:restart'))):
         out.append(('sensor', f'{slug}_{obj}', _base_config(
-            'sensor', f'{slug}_{obj}', name, state_topic=diag,
+            'sensor', f'{slug}_{obj}', name, source=slug, state_topic=diag,
             value_template='{{ value_json.' + field + ' }}', entity_category='diagnostic', **extra)))
     for g_slug, g in info['groups'].items():
         base, ebase = f'{slug}_{g_slug}', f"{slug}_{g.get('entity_slug') or g_slug}"
@@ -201,6 +214,8 @@ def source_entities(info):
             ('number', f'{base}_seuil', _base_config(
                 'number', f'{base}_seuil', f'{name} · seuil', f'{ebase}_seuil',
                 command_topic=f'{topic}/seuil/set', state_topic=f'{topic}/seuil',
+                # Des 0 : un seuil importe plus bas reste affiche ; l'API refuse
+                # moins de 5 % (MIN_THRESHOLD) et republie la vraie valeur.
                 min=0, max=100, step=1, unit_of_measurement='%', mode='slider',
                 entity_category='config', icon='mdi:tune-vertical')),
             ('switch', f'{base}_groupe_actif', _base_config(
@@ -208,7 +223,7 @@ def source_entities(info):
                 command_topic=f'{topic}/groupe_actif/set', state_topic=f'{topic}/groupe_actif',
                 payload_on='ON', payload_off='OFF', entity_category='config', icon='mdi:toggle-switch-outline')),
             ('sensor', f'{base}_score', _base_config(
-                'sensor', f'{base}_score', f'{name} · score', f'{ebase}_score',
+                'sensor', f'{base}_score', f'{name} · score', f'{ebase}_score', source=slug,
                 state_topic=analyse, unit_of_measurement='%',
                 value_template=('{% set s = value_json.groupes.get("' + g_slug + '") %}'
                                 '{{ (s * 100) | round(0) if s is not none else none }}'),
@@ -239,7 +254,7 @@ def source_entity_ids(info):
     """object_id des entites de reglage et de diagnostic d'une source (memes
     que source_entities, sans construire les configurations)."""
     slug = info['slug']
-    ids = {f'{slug}_source_active', f'{slug}_derniere_classe', f'{slug}_top3', f'{slug}_analyse_ms',
+    ids = {f'{slug}_source_active', f'{slug}_flux', f'{slug}_derniere_classe', f'{slug}_top3', f'{slug}_analyse_ms',
            f'{slug}_analyses_perdues', f'{slug}_coupures', f'{slug}_reconnexions'}
     for g_slug, g in info['groups'].items():
         ids |= {f'{slug}_{g_slug}_{s}' for s in ('seuil', 'groupe_actif', 'score', 'nom', 'sons')}
@@ -644,12 +659,18 @@ def _publish_result(result):
     depassaient la limite du recorder de HA."""
     result = _masked(result)
     attributes = result
-    if len(json.dumps(result, ensure_ascii=False).encode()) > ATTRIBUTES_MAX:
+    # Configuration complete (get_settings, help) : envoyee une fois, sans etre
+    # conservee par le broker ni dans les attributs du capteur (adresses des
+    # cameras et des flux visibles de tout abonne et gardees par le recorder).
+    private = result.get('action') in PRIVATE_RESULTS
+    if private or len(json.dumps(result, ensure_ascii=False).encode()) > ATTRIBUTES_MAX:
         attributes = {k: v for k, v in result.items() if k not in ('data', 'actions')}
-        attributes['detail'] = f"résultat complet sur le topic {RESULT_TOPIC}"
+        attributes['detail'] = (f"résultat complet envoyé sur le topic {RESULT_TOPIC} (non conservé)" if private
+                                else f"résultat complet sur le topic {RESULT_TOPIC}")
     with _result_lock:
         ha._mqtt_publish(RESULT_ATTRIBUTES_TOPIC, attributes, retain=True)
-        ha._mqtt_publish(RESULT_TOPIC, result, retain=True)
+        # QoS 1 meme sans retenue : un gros resultat perdu ne se redemande pas seul.
+        ha._mqtt_publish(RESULT_TOPIC, result, retain=not private, qos=1)
 
 
 def _run_command(text):
