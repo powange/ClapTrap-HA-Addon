@@ -616,6 +616,52 @@
         pause.focus();
         return function () { stop(); if (pause.parentNode) pause.remove(); };
     };
+    // Icone d'information : le texte s'affiche au survol, au focus clavier
+    // et au toucher (bouton), et se ferme avec Echap ou en touchant ailleurs.
+    // `text` : texte simple (echappe ici).
+    CT.infoTip = function (id, text, label) {
+        return '<span class="info-tip"><button type="button" class="info-tip-btn" aria-label="' + CT.esc(label || 'Explication') +
+            '" aria-describedby="' + id + '" aria-expanded="false">i</button>' +
+            '<span class="info-tip-text" role="tooltip" id="' + id + '">' + CT.esc(text) + '</span></span>';
+    };
+    function closeTips(except) {
+        CT.$$('.info-tip.is-open').forEach(function (t) {
+            if (t === except) return;
+            t.classList.remove('is-open');
+            t.querySelector('.info-tip-btn').setAttribute('aria-expanded', 'false');
+        });
+    }
+    // Echap masque aussi une bulle affichee au survol ou au focus, jusqu'a
+    // ce que la souris ou le focus en sorte.
+    function shownTip() {
+        var a = document.activeElement;
+        return (a && a.classList && a.classList.contains('info-tip-btn') ? a.parentNode : null) ||
+            CT.$$('.info-tip').filter(function (t) { return t.matches(':hover'); })[0] || null;
+    }
+    ['mouseleave', 'focusout'].forEach(function (ev) {
+        document.addEventListener(ev, function (e) {
+            var t = e.target.closest && e.target.closest('.info-tip');
+            if (t && !t.contains(e.relatedTarget)) t.classList.remove('is-dismissed');
+        }, true);
+    });
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('.info-tip-btn');
+        var tip = btn && btn.parentNode;
+        closeTips(tip);
+        if (!tip) return;
+        tip.classList.remove('is-dismissed');
+        var open = tip.classList.toggle('is-open');
+        btn.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        var shown = shownTip();
+        if (!CT.$('.info-tip.is-open') && (!shown || shown.classList.contains('is-dismissed'))) return;   // Echap ferme la fenetre
+        closeTips(null);
+        if (shown) shown.classList.add('is-dismissed');
+        e.stopPropagation();
+    }, true);
+
     CT.autoTakesHtml = function (id) {
         return '<label class="check"><input type="checkbox" id="' + id + '"' + (CT.autoTakes() ? ' checked' : '') + '> ' +
             'Enchaîner les prises automatiquement (' + CT.AUTO_DELAY + ' s pour se préparer, sans cliquer entre deux prises)</label>';

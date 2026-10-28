@@ -66,7 +66,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/calibration/analyze') res = { success: true, gain: { field: 'volume', current: 80, proposed: 100, change: true },
         peak_ratio: { field: 'peak_ratio', current: 3, proposed: 4.5, change: true, own: false }, warnings: [],
         groups: [{ target: 'Clap', group: 'clap', new: false, sounds: ['Clapping'], add: [], remove: ['Speech'], threshold: { current: 0.5, proposed: 0.7 },
-                   count_mode: { current: 'attaques', proposed: 'attaques' }, before: { recall: 1, false_positive: 0.5 }, after: { recall: 1, false_positive: 0 }, warnings: [] }] };
+                   count_mode: { current: 'attaques', proposed: 'attaques' }, margin: { current: 0, proposed: 0.05 }, before: { recall: 1, false_positive: 0.5 }, after: { recall: 1, false_positive: 0 }, warnings: [] }] };
       else if (url === '/api/calibration/apply') res = { success: true, applied: ['a', 'b'], errors: [] };
       else if (url === '/api/microphone' && method === 'POST') { Object.assign(settings.microphone, { configured: true, enabled: true }); }
       else if (url.startsWith('/api/rtsp/stream/') && method === 'DELETE') { settings.rtsp_sources = settings.rtsp_sources.filter(s => !url.endsWith(s.id)); }
@@ -211,6 +211,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('12. gain RTSP', lastCall('PATCH', /rtsp\/abc-123/)[2].gain === 20);
   change($('#src-rtsp-abc_123 [data-field="rtsp_tcp"]'), true); await tick(2);
   ok('+  transport TCP de la caméra', lastCall('PATCH', /rtsp\/abc-123/)[2].rtsp_tcp === true);
+  ok('+  transport TCP : explication en infobulle', /Plus fiable en Wi-Fi/.test(d.getElementById('src-rtsp-abc_123-tcp-tip') ? d.getElementById('src-rtsp-abc_123-tcp-tip').textContent : ''));
   $('#src-rtsp-abc_123 [data-action="test"]').click(); await tick();
   ok('12. test RTSP (remplace le test micro)', lastCall('POST', '/api/rtsp/test/start')[2].id === 'abc-123');
   change($('#src-rtsp-abc_123 [data-field="name"]'), 'Entrée'); await tick(3);
@@ -288,6 +289,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#add-source').click(); await tick();
   ok('7. assistant : micro déjà ajouté grisé', $('.choice[data-kind="mic"]').disabled);
   $('.choice[data-kind="rtsp"]').click(); await tick();
+  ok('7. assistant : transport TCP en interrupteur, explication en infobulle', $('#wz-tcp').getAttribute('role') === 'switch' &&
+     /Plus fiable en Wi-Fi/.test(($('#wz-tcp-tip') || {}).textContent || ''));
   $('#wz-url').value = 'rtsp://cam/nope'; $('#wz-probe').click(); await tick(3);
   ok('7. assistant : vérification en échec expliquée', /Pas de son.*mot de passe refusés/.test($('#wz-probe-result').textContent));
   $('#wz-url').value = 'rtsp://cam/8k'; $('#wz-probe').click(); await tick(3);
@@ -526,6 +529,18 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  écart avec les autres sons : aucun par défaut', !!marginSel && marginSel.value === '0');
   change(marginSel, '0.1'); await tick(2);
   ok('+  écart avec les autres sons enregistré', lastCall('PUT', '/api/source/sound_groups')[2].margin === 0.1);
+  const tipBtn = $('#src-mic .group-card[data-slug="clap"] .info-tip-btn');
+  const tipText = tipBtn && d.getElementById(tipBtn.getAttribute('aria-describedby'));
+  ok('+  écart : explication dans une icône d\'information (plus sous le menu)', !!tipText && /doit battre de cet écart/.test(tipText.textContent) &&
+     tipText.getAttribute('role') === 'tooltip' && !/doit battre de cet écart/.test(([...$('#src-mic .group-card[data-slug="clap"]').querySelectorAll('.hint')].map(h => h.textContent).join(''))));
+  tipBtn.click(); await tick();
+  ok('+  écart : icône ouverte au toucher', tipBtn.parentNode.classList.contains('is-open') && tipBtn.getAttribute('aria-expanded') === 'true');
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick();
+  ok('+  écart : fermée avec Échap', !tipBtn.parentNode.classList.contains('is-open'));
+  const tipFor = (sel) => { const b = d.querySelector(sel + ' .info-tip-btn'); return b && d.getElementById(b.getAttribute('aria-describedby')); };
+  ok('+  infobulles : réduction du bruit et force minimale à côté du menu', /Atténue un bruit continu/.test((tipFor('.with-tip:has([data-field="noise_reduction"])') || {}).textContent || '') &&
+     /plus fort que le bruit ambiant/.test((tipFor('.with-tip:has([id$="-ratio"])') || {}).textContent || '') &&
+     !/Atténue un bruit continu|Combien de fois plus fort/.test([...d.querySelectorAll('.hint')].map(h => h.textContent).join('')));
   CT.state.settings.microphone.enabled = true; CT.state.settings.microphone.sound_groups[0].enabled = true; CT.render();
   $('#src-mic [data-action="calibrate"]').click(); await tick();
   ok('+  calibrage : fenêtre ouverte', !$('#calibration').hidden && !!$('#calibration [data-c="start"]'));
@@ -537,6 +552,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  calibrage : prise enregistrée', calls.filter(c => c[1] === '/api/calibration/record').length === nTakes + 1 && /Applaudissement 85 %/.test($('#calibration').textContent));
   while ($('#calibration [data-c="record"]')) { $('#calibration [data-c="record"]').click(); await tick(3); }
   ok('+  calibrage : propositions affichées', /Seuil : 50 % → 70 %/.test($('#calibration').textContent) && !!$('#cal-apply-gain'));
+  ok('+  calibrage : écart avec les autres sons proposé', /Écart avec les autres sons : aucun → 5 points/.test($('#calibration').textContent));
   ok('+  calibrage : force minimale proposée pour la source', /Force minimale d'un clap : × 3 → × 4,5 \(propre à cette source, au lieu du réglage global\)/.test($('#calibration').textContent) && $('#cal-apply-ratio').checked);
   $('#cal-apply-ratio').click();
   $('#calibration [data-c="apply"]').click(); await tick(4);

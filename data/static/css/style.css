@@ -558,6 +558,31 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .cc-details summary { cursor: pointer; color: var(--ink-2); margin: 8px 0; }
 .field-row-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 4px 0; }
 
+/* Icone d'information (CT.infoTip) : texte au survol, au focus et au toucher. */
+.with-tip { display: flex; align-items: center; gap: 2px; }
+.with-tip > .input { flex: 1 1 auto; min-width: 0; }
+.info-tip { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 4px; }
+.info-tip-btn {
+    display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+    border: 0; background: none; cursor: help; color: var(--ink-3); font: 600 0.8rem var(--font);
+}
+.info-tip-btn::before {
+    content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    border: 1.5px solid currentColor; left: 50%; top: 50%; transform: translate(-50%, -50%);
+}
+.info-tip-btn:hover, .info-tip.is-open .info-tip-btn { color: var(--accent); }
+.info-tip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-radius: 50%; }
+.info-tip-text {
+    position: absolute; z-index: 20; right: -6px; bottom: calc(100% + 4px); width: max-content; max-width: min(300px, 80vw);
+    padding: 8px 10px; border-radius: var(--radius-sm); background: var(--ink); color: var(--surface);
+    font-size: 0.8rem; line-height: 1.4; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+    visibility: hidden; opacity: 0; transition: opacity 0.12s; pointer-events: none;
+}
+.info-tip-btn:focus-visible + .info-tip-text, .info-tip.is-open .info-tip-text { visibility: visible; opacity: 1; }
+/* Survol a la souris seulement : au toucher, :hover reste colle apres un appui. */
+@media (hover: hover) { .info-tip:hover .info-tip-text { visibility: visible; opacity: 1; } }
+.info-tip.is-dismissed .info-tip-text { visibility: hidden; opacity: 0; }   /* Echap, jusqu'a la sortie */
+
 /* Cibles tactiles de 44 px sur ecran tactile (24 a 36 px avant) */
 @media (pointer: coarse) {
     .chip, .check, .btn-link, .chip-remove, .toast-close, .switch-inline { min-height: 44px; }

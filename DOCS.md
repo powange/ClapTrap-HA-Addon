@@ -191,8 +191,14 @@ de vos propres bruits.
      si elle s'écarte de plus de 15 % de la valeur actuelle ;
    - pour chaque groupe, les **sons** à cocher et à retirer (un son présent
      aussi dans les essais d'un autre groupe est écarté), le **seuil** qui
-     reconnaît ses essais sans se déclencher sur les autres, et le **mode de
-     comptage** qui retrouve le nombre de pics attendu ;
+     reconnaît ses essais sans se déclencher sur les autres, le **mode de
+     comptage** qui retrouve le nombre de pics attendu (attaques ou sons
+     tenus ; le mode alerte se choisit à la main), et l'**écart avec les
+     autres sons**. Seuil et écart sont cherchés ensemble, fenêtre par
+     fenêtre : quand le seuil seul ne sépare pas le groupe d'un autre son
+     (de la parole juste derrière « Applaudissement »), l'écart écarte ces
+     fausses détections sans perdre les essais du groupe. Sinon, le seuil
+     ne change pas et l'écart actuel est gardé ;
    - la reconnaissance et les fausses détections avant / après, mesurées sur
      les mêmes essais.
 4. **Appliquer** enregistre les réglages choisis.

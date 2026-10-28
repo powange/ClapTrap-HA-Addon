@@ -76,7 +76,8 @@
                     (hidden ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
                 '<div class="field"><label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
-                    '> Transport TCP</label><p class="hint">Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; certaines caméras ne le gèrent pas.</p></div>' +
+                    '> Transport TCP</label>' + CT.infoTip(src.domId + '-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; ' +
+                    'certaines caméras ne le gèrent pas.', 'Explication du transport TCP') + '</div>' +
                 '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
                 gainField(src, gain, 100);
         } else {
@@ -88,18 +89,20 @@
                 gainField(src, d.gain != null ? d.gain : 1, 100);
         }
         var nr = d.noise_reduction || 0;
-        html += field('Réduction du bruit de fond',
+        html += field('Réduction du bruit de fond', withTip(
             '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr">' +
             CT.NR_NAMES.map(function (label, level) {
                 return '<option value="' + level + '"' + (level === nr ? ' selected' : '') + '>' + label + '</option>';
-            }).join('') + '</select>' +
-            '<p class="hint">Atténue un bruit continu (souffle, ventilation, réfrigérateur) avant la reconnaissance. ' +
-            'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
-            'une réduction trop forte peut aussi effacer des sons faibles.</p>', src.domId + '-nr');
-        html += field('Force minimale d\'un clap', peakRatioSelect(src, d) +
-            '<p class="hint">Combien de fois plus fort que le bruit ambiant un pic doit être pour compter. ' +
-            'Plus haut pour une source bruyante ou très sensible (claps comptés en trop), ' +
-            'plus bas pour une source lointaine (claps manqués). Avec une valeur propre, « Calibrer le comptage » sur cette source la règle elle (et non la valeur globale).</p>',
+            }).join('') + '</select>',
+            CT.infoTip(src.domId + '-nr-tip', 'Atténue un bruit continu (souffle, ventilation, réfrigérateur) avant la reconnaissance. ' +
+                'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
+                'une réduction trop forte peut aussi effacer des sons faibles.', 'Explication de la réduction du bruit de fond')),
+            src.domId + '-nr');
+        html += field('Force minimale d\'un clap', withTip(peakRatioSelect(src, d),
+            CT.infoTip(src.domId + '-ratio-tip', 'Combien de fois plus fort que le bruit ambiant un pic doit être pour compter. ' +
+                'Plus haut pour une source bruyante ou très sensible (claps comptés en trop), plus bas pour une source lointaine ' +
+                '(claps manqués). Avec une valeur propre, « Calibrer le comptage » sur cette source la règle elle (et non la valeur globale).',
+                'Explication de la force minimale d\'un clap')),
             src.domId + '-ratio');
         html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
@@ -296,6 +299,8 @@
             '<p class="hint">Sons reconnus sur cet extrait' + legend + '</p>' + timeline(d.timeline) + '</div>';
     }
 
+    // Controle et son icone d'information cote a cote.
+    function withTip(control, tip) { return '<div class="with-tip">' + control + tip + '</div>'; }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
     }
