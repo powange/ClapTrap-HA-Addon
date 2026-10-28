@@ -99,6 +99,20 @@ def fake_classifier():
 
 
 # --- Reglages dans un dossier temporaire ---------------------------------------------
+@pytest.fixture(autouse=True)
+def no_journal_writes(monkeypatch):
+    """Journal conserve : aucune ecriture differee pendant les tests (sans
+    settings_dir, elle irait dans le dossier du code). test_journal ecrit
+    explicitement (journal_store.real_schedule et real_read : les vraies).
+    Pas de lecture non plus : importer app relirait le journal du dossier
+    du code."""
+    import journal_store
+    if not hasattr(journal_store, 'real_schedule'):
+        journal_store.real_schedule, journal_store.real_read = journal_store.schedule, journal_store.read
+    monkeypatch.setattr(journal_store, 'schedule', lambda snapshot_fn: None)
+    monkeypatch.setattr(journal_store, 'read', lambda: None)
+
+
 @pytest.fixture
 def settings_dir(tmp_path, monkeypatch):
     import settings_manager as sm

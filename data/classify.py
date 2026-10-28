@@ -405,6 +405,7 @@ class DetectionSession:
             return   # le meme geste a declenche ailleurs
         with _history_lock:
             _near_misses.appendleft(entry)
+        _journal_changed()
         logging.debug(f"Presque déclenché sur {src['label']} : {entry}")
         self._emit('near_miss', entry)
 
@@ -1069,7 +1070,48 @@ def _remember(payload, score):
             _feedback_info[info['id']] = info
             while len(_feedback_info) > _detection_history.maxlen:
                 _feedback_info.popitem(last=False)
+    _journal_changed()
     return public, ui
+
+
+# --- Journal conserve (voir journal_store.py) ----------------------------------
+
+def _journal_snapshot():
+    with _history_lock:
+        # Copies : l'ecriture se fait hors du verrou.
+        return {'history': [dict(e) for e in _detection_history], 'near': [dict(e) for e in _near_misses],
+                'feedback': dict(_feedback_info)}
+
+
+def _journal_changed():
+    import journal_store
+    journal_store.schedule(_journal_snapshot)
+
+
+def load_journal():
+    """Demarrage : journal du precedent lancement (le plus recent d'abord)."""
+    import journal_store
+    data = journal_store.read()
+    if not data:
+        return 0
+    with _history_lock:
+        _detection_history.clear()
+        _near_misses.clear()
+        _feedback_info.clear()
+        _detection_history.extend(e for e in data['history'] if isinstance(e, dict))
+        _near_misses.extend(e for e in data['near'] if isinstance(e, dict))
+        ids = {e.get('id') for e in _detection_history}
+        # Ordre d'origine (les plus anciennes sortent d'abord), entrees du journal seulement.
+        for det_id, info in data['feedback'].items():
+            if det_id in ids and isinstance(info, dict):
+                _feedback_info[det_id] = info
+        return len(_detection_history) + len(_near_misses)
+
+
+def flush_journal():
+    """Arret : ecriture en attente faite tout de suite."""
+    import journal_store
+    journal_store.flush(_journal_snapshot)
 
 
 def feedback_target(det_id):
@@ -1087,8 +1129,12 @@ def mark_feedback(det_id, action, label=None):
         for e in _detection_history:
             if e.get('id') == det_id:
                 e['feedback'] = list(e.get('feedback') or []) + [{'action': action, 'label': label}]
-                return e['feedback']
-    return []
+                fb = e['feedback']
+                break
+        else:
+            return []
+    _journal_changed()
+    return fb
 
 
 def get_detection_history():
@@ -1101,6 +1147,7 @@ def clear_detection_history():
         _detection_history.clear()
         _feedback_info.clear()
         _near_misses.clear()
+    _journal_changed()
 
 
 def get_near_misses():

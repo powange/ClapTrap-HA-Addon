@@ -888,7 +888,11 @@ plus récent au plus ancien (30 détections et 30 « presque » au plus : des
 « presque » nombreux ne chassent pas les détections). Les filtres **Tout**, **Déclenchés**, **Non retenus** (perdus
 à l'arbitrage entre pièces ou face à un groupe prioritaire) et **Presque
 déclenchés** affichent chacun leur nombre, et une liste choisit la source.
-**Effacer** vide tout le journal.
+**Effacer** vide tout le journal. Le journal est conservé après un
+redémarrage ou une mise à jour de l'add-on (fichier `/data/journal.json`,
+écrit au plus toutes les 2 s, et à l'arrêt) : « Ce n'était pas ça » reste
+possible sur les détections d'avant. Un fichier illisible est mis de côté
+(`journal.json.corrompu-…`) et le journal repart vide.
 
 **Comprendre un clap raté** : le filtre **Presque déclenchés** du journal
 liste les gestes qui ont failli déclencher. Chacun est donné avec sa raison
@@ -900,7 +904,7 @@ et une piste de réglage :
 - **nombre de claps sans entité** (3 claps pour un groupe qui attend 1 ou 2)
   → ajuster la fenêtre multi-clap ou lancer « Calibrer le comptage ».
 
-Les 50 derniers sont gardés jusqu'au redémarrage de l'add-on (API :
+Les 50 derniers sont gardés, redémarrages compris (API :
 `GET /api/detections/near_misses`), et rien n'est noté pendant un calibrage.
 
 **Corriger une fausse détection** : dans le journal, **Ce

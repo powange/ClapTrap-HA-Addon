@@ -1,5 +1,18 @@
 # Changelog
 
+## 6.110.0
+
+### Journal conservé
+
+- Le journal (détections, « presque » et corrections déjà faites) est
+  conservé après un redémarrage ou une mise à jour de l'add-on : on peut
+  comparer avant et après un changement de réglage. « Ce n'était pas ça »
+  reste possible sur les détections d'avant le redémarrage.
+- Fichier `/data/journal.json`, écrit au plus toutes les 2 s après un
+  changement, et à l'arrêt. Un fichier illisible est mis de côté sans
+  bloquer le démarrage. Si le disque refuse l'écriture, le journal reste
+  en mémoire.
+
 ## 6.109.0
 
 ### Forces de l'arbitrage dans le journal
