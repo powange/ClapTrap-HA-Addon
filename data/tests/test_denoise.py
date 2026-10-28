@@ -261,7 +261,6 @@ def test_recording_analyses_the_clip_before_noise_reduction(monkeypatch):
     """Reduction active : les sons reconnus sur l'extrait d'avant (analyse
     par le meme classifieur, sons appris compris) en plus de ceux de la
     detection (son reduit)."""
-    import threading
     import time
     import types
     import recording

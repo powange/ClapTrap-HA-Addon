@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.119.0
+
+### Qualité du code et CI
+
+- Une seule écriture atomique des fichiers JSON (nouveau module
+  `atomic_io`) pour les réglages, les sons appris, le journal et l'état des
+  blueprints. Elle remplace quatre copies. L'état des blueprints est
+  désormais synchronisé sur le disque comme les autres fichiers, et la
+  sauvegarde des réglages est copiée de façon atomique. En cas d'erreur
+  d'écriture, le fichier temporaire est supprimé et l'ancien fichier reste
+  intact.
+- Un fichier de sons appris, de journal ou d'état des blueprints illisible
+  est mis de côté (`.corrompu-<date>`). Une erreur de lecture passagère sur
+  les sons appris fait échouer l'opération au lieu de mettre le fichier de
+  côté : l'enregistrement suivant ne peut plus effacer les autres sons.
+- CI : vérification du code (ruff : imports inutilisés, noms inconnus,
+  arguments par défaut modifiables), délai de 60 s par test (un test
+  bloqué échoue avec sa pile au lieu de bloquer la CI 15 minutes) et
+  couverture des tests affichée (90 % du code de l'add-on).
+- Erreurs d'arrêt d'un processus (ffmpeg, parecord) et messages qu'il
+  envoie mal compris : tracés dans le journal détaillé au lieu d'être
+  ignorés, et un message mal compris n'arrête plus la lecture des suivants
+  (ffmpeg pouvait se bloquer).
+- Nettoyage : un import inutile retiré du calibrage, deux variables et
+  imports morts retirés des tests.
+
 ## 6.118.0
 
 ### Home Assistant : flux surveillé, mesures fiables

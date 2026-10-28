@@ -42,14 +42,20 @@ def drain_stderr(proc, name, sanitize=None, on_line=None):
         try:
             for raw in iter(proc.stderr.readline, b''):
                 line = raw.decode('utf-8', errors='replace').rstrip()
-                if sanitize:
-                    line = sanitize(line)
-                if on_line and line:
-                    on_line(line)
+                try:
+                    if sanitize:
+                        line = sanitize(line)
+                    if on_line and line:
+                        on_line(line)
+                except Exception:
+                    # Une ligne mal comprise : tracee (journal detaille), la
+                    # lecture continue (sinon le tuyau se remplit et ffmpeg bloque).
+                    logging.debug(f"{name}: message non traité", exc_info=True)
+                    continue
                 if logging.getLogger().isEnabledFor(logging.DEBUG):
                     logging.debug(f"{name}: {line}")
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            pass   # processus arrete, flux ferme : fin normale
     thread = threading.Thread(target=_drain, daemon=True)
     thread.start()
     return thread
@@ -60,12 +66,12 @@ def terminate_process(proc, timeout=2):
     try:
         proc.terminate()
         proc.wait(timeout=timeout)
-    except Exception:
+    except Exception:   # TimeoutExpired surtout : ne repond pas a SIGTERM
         try:
             proc.kill()
             proc.wait(timeout=timeout)
         except Exception:
-            pass
+            logging.debug("Processus non termine", exc_info=True)
 
 _audio_devices_cache = None
 _audio_devices_cache_time = 0

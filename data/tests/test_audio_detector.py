@@ -375,7 +375,7 @@ def test_peak_centred_analysis(fake_classifier, monkeypatch):
 
 def test_centred_analysis_is_skipped_rather_than_dropping_a_regular_one(fake_classifier, monkeypatch):
     import queue
-    clock = _fake_clock(monkeypatch)
+    _fake_clock(monkeypatch)
     det, clf, _ = make(fake_classifier)
     det.stop()                                                          # pas de fil d'analyse sur la fausse file
     det._centered = [100.0]

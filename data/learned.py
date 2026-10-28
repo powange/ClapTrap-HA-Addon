@@ -38,6 +38,7 @@ import uuid
 
 import numpy as np
 
+import atomic_io
 import calibration
 
 PREFIX = 'Appris : '
@@ -249,15 +250,14 @@ def _read():
             data = json.load(f)
     except FileNotFoundError:
         return []
-    except (OSError, ValueError) as e:
+    except ValueError as e:
         # Mis de cote : l'enregistrement suivant ne l'ecrase pas en silence.
-        aside = f"{path}.corrompu-{time.strftime('%Y%m%d-%H%M%S')}"
-        try:
-            os.replace(path, aside)
-            logging.error(f"Sons appris illisibles ({e}) : fichier gardé sous {os.path.basename(aside)}")
-        except OSError:
-            logging.error(f"Sons appris illisibles : {e}")
+        atomic_io.set_aside(path, 'Sons appris illisibles', e)
         return []
+    except OSError as e:
+        # Erreur passagere (acces, disque) : fichier garde, et l'operation
+        # echoue plutot que de reecrire un fichier sans les autres sons.
+        raise LearnError(f'lecture des sons appris impossible ({e}) : réessayez', 503)
     sounds = data.get('sounds') if isinstance(data, dict) else None
     good = [s for s in sounds or [] if _valid(s)]
     if len(good) != len(sounds or []):
@@ -268,21 +268,7 @@ def _read():
 def _write(sounds):
     """Ecriture atomique et durable (coupure de courant : l'ancien fichier
     ou le nouveau, jamais un fichier tronque)."""
-    path = _path()
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump({'sounds': sounds}, f, ensure_ascii=False, separators=(',', ':'))
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-    try:
-        fd = os.open(os.path.dirname(path) or '.', os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass
+    atomic_io.write_json(_path(), {'sounds': sounds}, ensure_ascii=False, separators=(',', ':'))
 
 
 def matcher():
@@ -291,7 +277,11 @@ def matcher():
     path = _path()
     with _lock:
         if _matcher is None or _matcher[0] != path:
-            _matcher = (path, Matcher(_read()))
+            try:
+                _matcher = (path, Matcher(_read()))
+            except LearnError as e:   # relu a l'appel suivant
+                logging.warning(f"Sons appris non chargés : {e}")
+                return Matcher([])
         return _matcher[1]
 
 
