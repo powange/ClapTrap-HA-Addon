@@ -175,11 +175,15 @@ class FakeMqtt:
 
     # Entites clap (binary_sensor) ; les entites de reglage (ha_control) ont
     # leurs propres tests.
+    # Capteurs binaires de clap (le capteur « Flux connecté » d'une source,
+    # *_flux, a ses propres tests).
     def configs(self, component='binary_sensor'):
-        return [t for t, p, r in self.published if t.endswith('/config') and p and f'/{component}/' in t]
+        return [t for t, p, r in self.published if t.endswith('/config') and p and f'/{component}/' in t
+                and not t.endswith('_flux/config')]
 
     def deleted(self, component='binary_sensor'):
-        return [t for t, p, r in self.published if t.endswith('/config') and p == '' and f'/{component}/' in t]
+        return [t for t, p, r in self.published if t.endswith('/config') and p == '' and f'/{component}/' in t
+                and not t.endswith('_flux/config')]
 
 
 @pytest.fixture

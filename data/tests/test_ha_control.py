@@ -532,3 +532,37 @@ def test_perf_ignores_a_cgroup_without_this_process(tmp_path, monkeypatch):
     assert perf._measure_mode() is None and perf._proc_totals() is None
     (root / 'hote' / 'cgroup.procs').write_text(f'1\n{os.getpid()}\n')   # le bon cgroup : utilise
     assert perf._cgroup_dir() == str(root / 'hote')
+
+
+def test_flux_sensor_and_source_availability_on_measurements():
+    """« Flux connecté » par source ; mesures du flux (derniere classe,
+    scores, performance) indisponibles quand la source n'ecoute pas ;
+    reglages et liste des sons toujours disponibles ; seuil a 5 % au moins."""
+    info = {'slug': 'rtsp_cam', 'label': 'Cam', 'groups': {'clap': {'name': 'Clap', 'clap_counts': [1]}}}
+    cfgs = {obj: (c, cfg) for c, obj, cfg in ha_control.source_entities(info)}
+    comp, flux = cfgs['rtsp_cam_flux']
+    assert comp == 'binary_sensor' and flux['device_class'] == 'connectivity' and flux['entity_category'] == 'diagnostic'
+    assert flux['state_topic'] == 'claptrap/rtsp_cam/availability' and flux['payload_on'] == 'online'
+    assert flux['availability_topic'] == ha_control.ha.AVAILABILITY_TOPIC          # visible meme flux coupe
+    for obj in ('rtsp_cam_derniere_classe', 'rtsp_cam_top3', 'rtsp_cam_analyse_ms', 'rtsp_cam_clap_score'):
+        cfg = cfgs[obj][1]
+        assert cfg['availability_mode'] == 'all' and 'availability_topic' not in cfg
+        assert {'topic': 'claptrap/rtsp_cam/availability'} in cfg['availability']
+    for obj in ('rtsp_cam_source_active', 'rtsp_cam_clap_seuil', 'rtsp_cam_clap_sons'):
+        assert 'availability' not in cfgs[obj][1]                                     # reglables flux coupe
+    assert cfgs['rtsp_cam_clap_seuil'][1]['min'] == 0   # seuil importe plus bas affiche ; l'API refuse < 5 %
+    assert set(cfgs) == ha_control.source_entity_ids(info)
+
+
+def test_full_settings_result_is_not_retained(ctl, mqtt):
+    """get_settings : configuration complete envoyee, seul le bilan est
+    retenu par le broker (adresses des cameras pas visibles de tout abonne)."""
+    n = len([1 for t, p, r in mqtt.published if t == ha_control.RESULT_TOPIC])
+    command({'action': 'get_settings'})
+    msgs = [(json.loads(p), r) for t, p, r in mqtt.published if t == ha_control.RESULT_TOPIC][n:]
+    assert len(msgs) == 1 and 'data' in msgs[0][0] and msgs[0][1] is False      # un message, non retenu
+    attrs = json.loads(last(mqtt, ha_control.RESULT_ATTRIBUTES_TOPIC))
+    assert 'data' not in attrs and 'non conservé' in attrs['detail']             # ni dans les attributs
+    command({'action': 'add_group', 'source': 'AtomSalon', 'name': 'Toc'})
+    msgs = [(json.loads(p), r) for t, p, r in mqtt.published if t == ha_control.RESULT_TOPIC]
+    assert msgs[-1][1] is True and 'data' in msgs[-1][0]                         # autres commandes : retenues

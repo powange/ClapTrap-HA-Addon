@@ -47,7 +47,7 @@
             (empty ? '<p class="group-empty">Aucun son choisi : ce groupe ne se déclenchera pas. ' +
                 '<button type="button" class="btn-link" data-action="choose-sounds" data-group="' + esc(g.slug) + '">Choisir les sons</button></p>' : '') +
             '<div class="scorebar"><div class="scorebar-fill"></div>' +
-            '<input type="range" class="threshold" data-role="threshold" min="0" max="1" step="0.01" value="' + t + '" ' +
+            '<input type="range" class="threshold" data-role="threshold" min="' + Math.min(0.05, t) + '" max="1" step="0.01" value="' + t + '" ' +
             'aria-valuetext="' + CT.pct(t) + '" ' +
             'aria-label="Seuil de confiance du groupe ' + esc(g.name || g.slug) + '"></div>' +
             '<canvas class="spark" width="320" height="40" aria-hidden="true"></canvas>' +

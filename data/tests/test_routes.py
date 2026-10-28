@@ -768,6 +768,20 @@ def test_detection_feedback_wrong_room_recomputes_weights(client, settings_dir, 
     assert r.json['weights'] == {'rtsp_cam1': 0.25}
 
 
+def test_group_threshold_has_a_floor(client, settings_dir):
+    """Seuil d'un groupe : 5 % au moins (0 % declenchait sur n'importe quel
+    son) ; les reglages importes gardent leurs valeurs."""
+    settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [
+        {'slug': 'clap', 'name': 'Clap', 'threshold': 0.5, 'ha_entities': [1]}]}})
+    body = {'kind': 'mic', 'source_key': None, 'group_slug': 'clap'}
+    assert client.put('/api/source/sound_groups', json={**body, 'threshold': 0}).status_code == 400
+    assert client.put('/api/source/sound_groups', json={**body, 'threshold': 0.05}).status_code == 200
+    assert client.post('/api/source/sound_groups', json={'kind': 'mic', 'source_key': None, 'name': 'Toc',
+                                                          'threshold': 0.01}).status_code == 400
+    assert settings_dir.normalize_settings({'microphone': {'sound_groups': [
+        {'slug': 'x', 'name': 'X', 'threshold': 0.0}]}})['microphone']['sound_groups'][0]['threshold'] == 0.0
+
+
 def test_source_peak_ratio_overrides_global_and_clears(client, settings_dir, monkeypatch):
     """Force minimale d'un clap par source : enregistree, appliquee en
     direct, null pour revenir au reglage global."""

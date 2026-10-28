@@ -401,13 +401,14 @@ services de HA) peuvent les lire et les modifier, sans ouvrir l'interface.
 | `sensor.claptrap_<source>_<groupe>_score` | dernier score du groupe, même sous le seuil (diagnostic) |
 | `text.claptrap_<source>_<groupe>_nom` | nom du groupe (modifiable : voir « Renommer un groupe ») |
 | `sensor.claptrap_<source>_<groupe>_sons` | nombre de sons (classes YAMNet) cochés ; attributs : leur liste, le nombre de sons non cochés, le mode de comptage (diagnostic) |
+| `binary_sensor.claptrap_<source>_flux` (« Flux connecté ») | connecté tant que la source écoute ; déconnecté aussi quand la détection est arrêtée ou la source désactivée (pour une alerte « caméra coupée », ajoutez la condition `switch.claptrap_detection` allumé). Les mesures de la source (dernière classe, scores, performance) sont indisponibles tant qu'elle n'écoute pas, au lieu de garder leur dernière valeur |
 | `sensor.claptrap_<source>_derniere_classe` | classe YAMNet la plus probable du dernier son (hors silence) ; attributs : score, 3 premières classes, score de chaque groupe, `diagnostic` (analyses sautées et blocs perdus faute de processeur, coupures du flux, durée moyenne et maximale d'une analyse) |
 | `sensor.claptrap_<source>_top3` | les 3 classes les plus probables, avec leur score |
 | `sensor.claptrap_configuration` | résumé ; attributs : sources, groupes (nombre de sons cochés), entités, sons ignorés ; listes complètes par la commande `get_settings` |
 | `sensor.claptrap_<source>_analyse_ms`, `_analyses_perdues`, `_coupures`, `_reconnexions` | performance de la source (diagnostic, mis à jour toutes les 30 s) : durée moyenne d'une analyse YAMNet, analyses perdues faute de processeur, coupures et reconnexions du flux depuis le démarrage de la détection |
 | `sensor.claptrap_processeur`, `sensor.claptrap_memoire` | processeur (% d'un cœur) et mémoire de l'add-on seul, ffmpeg compris, pas de tout Home Assistant (diagnostic ; aussi dans la barre d'état pendant la détection, « add-on : processeur … ») |
 | `sensor.claptrap_derniere_piece` | source (pièce) du dernier clap déclenché ; attributs : `entity_key`, `claps`, `groupe`, `heure` |
-| `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux, comme `get_settings`, reste sur le topic `claptrap/command/result`) |
+| `sensor.claptrap_derniere_commande` | `ok` ou `erreur` ; attributs : détail du résultat (un résultat volumineux reste sur le topic `claptrap/command/result` ; celui de `get_settings` et `help` y est envoyé une fois, sans être conservé) |
 
 Une modification faite dans HA est enregistrée dans les réglages de l'add-on
 et appliquée aussitôt ; une modification faite dans l'interface est
@@ -443,7 +444,9 @@ source ne peuvent pas porter le même nom.
 **Commandes** : pour ajouter, modifier ou supprimer des sources, des groupes
 ou des sons, publiez un JSON sur le topic `claptrap/command` (service
 `mqtt.publish`). Le résultat apparaît dans `sensor.claptrap_derniere_commande`
-(et sur `claptrap/command/result`, secrets masqués). Les mêmes vérifications
+(et sur `claptrap/command/result`, secrets masqués ; une configuration
+complète, `get_settings` ou `help`, y est envoyée sans être conservée par le
+broker : seul le bilan reste retenu). Les mêmes vérifications
 que dans l'interface s'appliquent ; les commandes sont exécutées une par une,
 dans l'ordre. Publiez-les sans `retain` : une commande retenue est ignorée.
 

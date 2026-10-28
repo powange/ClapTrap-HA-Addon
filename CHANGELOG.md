@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.118.0
+
+### Home Assistant : flux surveillé, mesures fiables
+
+- Nouveau capteur **« Flux connecté »** par source
+  (`binary_sensor.claptrap_<source>_flux`, catégorie diagnostic) : connecté
+  tant que la source écoute. Il permet par exemple d'être prévenu quand la
+  caméra de la chambre est coupée depuis 10 minutes (avec la condition
+  « Détection allumée » : il est aussi déconnecté quand la détection est
+  arrêtée ou la source désactivée).
+- Les mesures d'une source (dernière classe, 3 classes probables, score de
+  chaque groupe, durée d'analyse, analyses perdues, coupures,
+  reconnexions) deviennent indisponibles quand elle n'écoute pas, au lieu
+  de garder leur dernière valeur comme si elles étaient récentes. Les
+  réglages (source active, seuil, nom, actif) restent modifiables.
+- **Seuil d'un groupe : 5 % au moins**, depuis Home Assistant, l'API et le
+  curseur de la carte. À 0 %, le groupe déclenchait sur n'importe quel son.
+  Une configuration importée garde ses valeurs, et elles restent affichées.
+- La réponse complète de `get_settings` (et de `help`) est envoyée une fois
+  sur `claptrap/command/result`, sans être conservée par le broker ni dans
+  les attributs de « Dernière commande ». Les adresses des caméras et des
+  flux ne restent plus visibles de tout abonné.
+
 ## 6.117.0
 
 ### Détection plus légère et plus réactive
