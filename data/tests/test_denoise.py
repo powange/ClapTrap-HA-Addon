@@ -148,6 +148,30 @@ def test_failing_gate_falls_back_to_raw_with_warning(fake_classifier, caplog):
     assert det._blocks and np.any(det._blocks[-1])
 
 
+def test_denoise_switched_off_mid_block_does_not_break_it(fake_classifier, caplog):
+    """Reduction coupee depuis les reglages (autre fil) pendant le traitement
+    d'un bloc : le bloc va au bout avec la reduction lue au debut."""
+    from audio_detector import AudioDetector
+    from audio_utils import BLOCK_SAMPLES
+
+    det = AudioDetector('model.tflite')
+
+    class Gate:
+        level, delay = 2, 0.0
+
+        def process(self, x):
+            det.denoise = None   # set_denoise(0) arrive ici
+            return x
+    det.initialize(max_results=-1, score_threshold=0.3)
+    det.configure('s')
+    det.start()
+    det.denoise = Gate()
+    det.process_audio(fan(BLOCK_SAMPLES))
+    det.stop()
+    assert not [r for r in caplog.records if r.levelname in ('ERROR', 'CRITICAL') or r.exc_info]
+    assert det._blocks
+
+
 def test_recording_adds_denoised_clip(monkeypatch):
     """Reduction active : extrait avant et apres, pour comparer."""
     import types

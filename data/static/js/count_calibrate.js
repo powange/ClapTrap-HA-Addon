@@ -42,6 +42,14 @@
     function close() {
         if (!back || back.hidden) return;
         if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
+        // Compte a rebours en pause pendant la confirmation, comme le bouton
+        // Pause (« En pause » affiche : « Enregistrer » pour reprendre).
+        var pause = body && body.querySelector('[data-c="pause"]');
+        if (pause && stopAuto) pause.click(); else cancelAuto();
+        CT.closeGuard(active ? step : 0, closeNow, ['prise', 'prises']);
+    }
+
+    function closeNow() {
         cancelAuto();
         if (active || starting) CT.api('POST', '/api/calibration/cancel', {}).catch(function () {});
         active = false;

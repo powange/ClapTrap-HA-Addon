@@ -139,6 +139,7 @@ class AudioDetector:
         self._denoise_errors = 0
         self._denoise_kept = None     # (reduction coupee, instant) : profil repris si on la reactive vite
         self._denoise_switched = False
+        self._gate_seen = None    # reduction utilisee au bloc precedent (changement : fenetre remise a zero)
         self._pending = np.zeros(0, dtype=np.float32)
         self._dc = 0.0            # composante continue, suivie en douceur
         self._agc = 1.0           # auto-gain lisse (pour le classifieur seulement)
@@ -293,7 +294,13 @@ class AudioDetector:
                 sustains = self.tracker.sustain_count
                 attacks = self.tracker.feed_peak(raw_peak, peak_time, pre_level=pre_level, gain=gain, onsets=onsets)
                 sustains = self.tracker.sustain_count - sustains
+                replaced = self.tracker.take_replaced()
                 pending = self.tracker.pending()
+            for t in replaced:   # remplace par un pic plus fort du meme geste
+                if t in self._shape_pending:
+                    self._shape_pending.remove(t)
+                if t in self._centered:
+                    self._centered.remove(t)
             for t in attacks:
                 if self._wants_centered(t):
                     self._centered.append(t)
@@ -315,6 +322,8 @@ class AudioDetector:
                 self._tap('block', raw_peak, gain, peak_time, pre_level, onsets)
                 for t in attacks:
                     self._tap('peak', 'attack', t)
+                for t in replaced:   # compte au bloc precedent puis remplace : retire (calibrages, extraits)
+                    self._tap('peak', 'replaced', t)
                 if sustains:
                     self._tap('peak', 'sustain', peak_time)
             # Auto-gain (classifieur seulement) sur le son le plus fort des 3
@@ -327,14 +336,19 @@ class AudioDetector:
             self._agc = target if target < self._agc else 0.95 * self._agc + 0.05 * target
             total = gain * self._agc
             raw = audio_data
-            if self._denoise_switched:
-                # Reduction activee ou coupee : pas de fenetre melant les deux
-                # (son decale de 24 ms, ou tranches en attente perdues).
+            # Lue une fois par bloc (coupee depuis les reglages, autre fil, entre
+            # deux lectures : le bloc echouait). Changee depuis le bloc
+            # precedent : pas de fenetre melant les deux (son decale de 24 ms,
+            # ou tranches en attente perdues), quel que soit l'instant du
+            # changement.
+            gate = self.denoise
+            if gate is not self._gate_seen:
+                self._gate_seen = gate
                 self._denoise_switched = False
                 self._reset_window()
                 self._pending = np.zeros(0, dtype=np.float32)
-            clean = self._denoised(raw)
-            delay = self.denoise.delay if clean is not None else 0
+            clean = self._denoised(raw, gate)
+            delay = gate.delay if clean is not None else 0
             if clean is not None:
                 audio_data = clean   # reduction du bruit : entree du classifieur seulement
             # Pic du son effectivement amplifie (traite : en retard de 24 ms,
@@ -359,7 +373,7 @@ class AudioDetector:
                 else:
                     raw_total = min(total, AGC_CEILING / raw_peak) if raw_peak > 0 else total
                     self._tap('audio_raw', self._amplify(raw, min(last_total, raw_total), raw_total),
-                              self.denoise.level)
+                              gate.level)
 
             if self._pending.size:
                 audio_data = np.concatenate((self._pending, audio_data))
@@ -385,9 +399,9 @@ class AudioDetector:
             return np.clip(x * np.float32(total), -1.0, 1.0)
         return x
 
-    def _denoised(self, raw):
-        """Son reduit (denoise.SpectralGate), ou None (desactivee, erreur)."""
-        gate = self.denoise
+    def _denoised(self, raw, gate):
+        """Son reduit par `gate` (denoise.SpectralGate), ou None (desactivee,
+        erreur)."""
         if gate is None:
             return None
         try:

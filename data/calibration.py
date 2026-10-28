@@ -331,7 +331,8 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
             # « sature » pour un son simplement limite trompait).
             'clipped': saturation(max_raw, gain)[0],
             'limited': saturation(max_raw, gain)[1],
-            'attacks': sum(1 for p in peaks if p[0] == 'attack'),
+            # Pic remplace par un plus fort du meme geste (bloc suivant) : un seul clap.
+            'attacks': sum(1 for p in peaks if p[0] == 'attack') - sum(1 for p in peaks if p[0] == 'replaced'),
             'sustains': sum(1 for p in peaks if p[0] == 'sustain'),
             'classes': {k: round(v, 3) for k, v in classes.items()},
             'top': [{'classe': k, 'score': round(v, 2)}

@@ -748,6 +748,35 @@ def test_onsets_strongest_attack_wins_within_cooldown():
     assert got == [t + 0.15, t + 0.24]                          # deux claps a 90 ms : deux pics
 
 
+def test_strongest_wins_across_a_block_boundary():
+    """Petit bruit en fin de bloc, vrai clap 30 ms plus tard dans le bloc
+    suivant : le clap remplace le bruit (instant, force, forme a mesurer).
+    Avant, le premier pic gagnait et sa forme, mesuree sur le clap qui le
+    suit, le faisait ecarter : geste perdu."""
+    tr = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t = _warm(tr)
+    first = tr.feed_peak(0.05, t + 0.095, pre_level=0.002, onsets=[(0.05, t + 0.095, 0.002)])
+    assert first == [t + 0.095]
+    tr.set_peak_shape(t + 0.095, False, 'tenu', {})                # forme deja jugee (sur le clap)
+    got = tr.feed_peak(0.5, t + 0.125, pre_level=0.002, onsets=[(0.5, t + 0.125, 0.002)])
+    assert got == [t + 0.125] and tr.peak_times == [t + 0.125] and tr.attack_count == 1
+    assert tr.take_replaced() == [t + 0.095] and tr.take_replaced() == []
+    assert tr._strength[t + 0.125] > 100 and t + 0.095 not in tr._rejected and t + 0.095 not in tr._peak_eval
+    # Plus faible que le pic compte : ignore, rien de remplace
+    assert tr.feed_peak(0.2, t + 0.15, pre_level=0.002, onsets=[(0.2, t + 0.15, 0.002)]) == []
+    assert tr.peak_times == [t + 0.125] and tr.take_replaced() == []
+
+
+def test_armed_peak_is_not_replaced_across_blocks():
+    """Un pic qui a deja arme un groupe (geste en cours) n'est pas remplace."""
+    tr = ClapTracker(peak_cooldown=0.08, peak_ratio=3.0)
+    t = _warm(tr)
+    tr.feed_peak(0.3, t + 0.095, pre_level=0.002, onsets=[(0.3, t + 0.095, 0.002)])
+    tr._used_peaks.add(t + 0.095)
+    assert tr.feed_peak(0.5, t + 0.125, pre_level=0.002, onsets=[(0.5, t + 0.125, 0.002)]) == []
+    assert tr.peak_times == [t + 0.095] and tr.take_replaced() == []
+
+
 def test_onsets_without_attack_keep_noise_tracking_fast():
     """Bruit qui monte sans attaque : _above reste faux (le bruit de fond
     le rattrape vite, comme avant)."""

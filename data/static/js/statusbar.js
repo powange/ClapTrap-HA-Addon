@@ -36,7 +36,8 @@
         // arret en cours : dit tel quel, au lieu de « Détection arrêtée ».
         var pending = CT.state.detectionPending;
         var pendingText = pending === 'start' ? 'Démarrage…' : pending === 'stop' ? 'Arrêt…' : '';
-        setText(CT.$('#status-title'), CT.state.restarting ? 'Redémarrage…' : pendingText ||
+        setText(CT.$('#status-title'), CT.state.offline ? 'Connexion perdue, reconnexion…' :
+                CT.state.restarting ? 'Redémarrage…' : pendingText ||
                 (running ? 'Détection en cours' : 'Détection arrêtée'));
         var n = running ? (st.sources || []).length : enabled.length;
         // Sources en erreur ou en reconnexion : la barre ne dit plus « tout va
@@ -45,7 +46,8 @@
             var r = CT.state.sourceStatus[id] || (st.source_status || {})[id];
             return r === 'error' || r === 'reconnecting';
         }).length : 0;
-        bar.classList.toggle('is-degraded', bad > 0);
+        bar.classList.toggle('is-degraded', bad > 0 || !!CT.state.offline);
+        bar.classList.toggle('is-offline', !!CT.state.offline);
         // Groupes actifs sans son coche (ne se declencheront jamais).
         var empty = 0;
         enabled.forEach(function (src) {
@@ -265,7 +267,7 @@
             acts.push({action: 'threshold', label: null, text: 'Relever le seuil du groupe à ' + CT.pct(t),
                        done: function (d) {
                            return 'Seuil du groupe « ' + (ev.group_name || '') + ' » relevé à ' + CT.pct(d.threshold) +
-                                  ' (modifiable dans les réglages de la source)';
+                                  ' (curseur « Seuil de confiance » du groupe, sur la carte de la source)';
                        }});
         }
         return acts;
@@ -306,7 +308,7 @@
         var x = function (v) { return String(Math.round(v * 10) / 10).replace('.', ',') + ' ×'; };
         if (m.kind === 'low_score') {
             return ['Pic de clap sans son reconnu : ' + lab + ' à ' + CT.pct(m.score) + ' pour un seuil de ' + CT.pct(m.threshold) + '.',
-                    'Baissez le seuil du groupe, ou cochez le son que YAMNet entend (sons entendus de la source).'];
+                    'Baissez le seuil du groupe (curseur sur la carte de la source), ou cochez le son que YAMNet entend (sons entendus de la source).'];
         }
         if (m.kind === 'weak') {
             return [lab + ' reconnu à ' + CT.pct(m.score) + ', mais aucun pic assez fort pour compter un clap' +

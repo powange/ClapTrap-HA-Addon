@@ -782,3 +782,41 @@ def test_rhythm_reaches_event_history_and_not_alerts(session_env, monkeypatch):
     session._on_detection(src, dict(base, alert='on', clap_count=0, group_clap_counts=[]))
     alert = [d for e, d in emitted if e == 'alert'][-1]
     assert 'rhythm' not in alert and 'gaps' not in alert
+
+
+def test_refused_ha_event_is_logged_once(monkeypatch, caplog):
+    """Evenement claptrap_clap refuse par HA (jeton, Core en redemarrage) :
+    un avertissement, pas un par clap ; erreur reseau signalee aussi."""
+    import logging
+    import types as _types
+    import classify
+    monkeypatch.setenv('SUPERVISOR_TOKEN', 'x')
+    monkeypatch.setattr(classify, '_event_failures', {})
+    calls = []
+    monkeypatch.setattr(classify, '_http', _types.SimpleNamespace(
+        post=lambda *a, **k: calls.append(a) or _types.SimpleNamespace(ok=False, status_code=401)))
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            classify._send_event({'clap_count': 1}, '')
+    assert len(calls) == 3
+    assert [r.getMessage() for r in caplog.records if 'refusé' in r.getMessage()] == [
+        "Événement HA claptrap_clap refusé (HTTP 401) : les automatisations sur cet événement ne se déclenchent pas"]
+
+    def boom(*a, **k):
+        raise ConnectionError('down')
+    monkeypatch.setattr(classify, '_http', _types.SimpleNamespace(post=boom))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        classify._send_event({'clap_count': 1}, '', event_type='claptrap_alert')
+    assert 'claptrap_alert refusé (ConnectionError : down)' in caplog.text
+    # Retabli puis nouvelle panne dans les 10 min : signalee de nouveau
+    monkeypatch.setattr(classify, '_http', _types.SimpleNamespace(post=lambda *a, **k: _types.SimpleNamespace(ok=True, status_code=200)))
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        classify._send_event({'clap_count': 1}, '', event_type='claptrap_alert')
+    assert 'claptrap_alert de nouveau acceptés' in caplog.text
+    monkeypatch.setattr(classify, '_http', _types.SimpleNamespace(post=boom))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        classify._send_event({'clap_count': 1}, '', event_type='claptrap_alert')
+    assert 'claptrap_alert refusé' in caplog.text

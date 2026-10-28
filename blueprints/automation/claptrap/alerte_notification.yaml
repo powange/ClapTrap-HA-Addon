@@ -61,6 +61,9 @@ max_exceeded: silent
 
 variables:
   lumieres: !input lumieres
+  # Une scene de sauvegarde par automatisation : deux alertes en meme temps
+  # (fumee, pleurs) ne restaurent pas l'etat l'une de l'autre.
+  sauvegarde: "claptrap_avant_alerte_{{ this.entity_id.split('.')[1] }}"
 
 triggers:
   # Aussi depuis « indisponible » : une alarme toujours en cours apres une
@@ -82,7 +85,7 @@ actions:
     then:
       - action: scene.create
         data:
-          scene_id: claptrap_avant_alerte
+          scene_id: "{{ sauvegarde }}"
           snapshot_entities: "{{ lumieres }}"
       - action: light.turn_on
         target:
@@ -92,6 +95,6 @@ actions:
       - delay: 5
       - action: scene.turn_on
         target:
-          entity_id: scene.claptrap_avant_alerte
+          entity_id: "scene.{{ sauvegarde }}"
   - delay:
       minutes: !input pause

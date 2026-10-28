@@ -25,6 +25,10 @@
     function close() {
         if (!back || back.hidden) return;
         if (busy) { CT.error('Patientez quelques secondes : enregistrement ou application en cours.'); return; }
+        CT.closeGuard(active ? step : 0, closeNow, ['prise', 'prises']);
+    }
+
+    function closeNow() {
         if (active || starting) CT.api('POST', '/api/calibration/rooms/cancel', {}).catch(function () {});
         active = false;
         run += 1;

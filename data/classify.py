@@ -207,16 +207,38 @@ def _run_alert_effects(source_id, entity_key, payload, webhook_url):
     _event_effects.submit(_send_event, payload, webhook_url, 'claptrap_alert', 'alert')
 
 
+_event_failures = {}   # (type, cause) -> instant du dernier avertissement ; vide apres un succes
+EVENT_WARN_EVERY = 600   # s : un avertissement par cause, pas un par clap
+
+
+def _warn_event_failure(event_type, cause):
+    """Evenement refuse par Home Assistant : signale (une fois par cause et
+    par EVENT_WARN_EVERY), sinon les automatisations ne declenchent plus sans
+    aucune trace."""
+    key, now = (event_type, cause), time.monotonic()
+    if now - _event_failures.get(key, -1e9) >= EVENT_WARN_EVERY:
+        _event_failures[key] = now
+        logging.warning(f"Événement HA {event_type} refusé ({cause}) : les automatisations sur cet "
+                        f"événement ne se déclenchent pas")
+
+
 def _send_event(base_payload, webhook_url, event_type='claptrap_clap', webhook_event='clap'):
     """Evenement claptrap_clap (API REST du Core) et webhook."""
     token = os.environ.get('SUPERVISOR_TOKEN')
     if token:
         try:
-            _http.post(f'http://supervisor/core/api/events/{event_type}',
-                       headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                       json=base_payload, timeout=3)
+            resp = _http.post(f'http://supervisor/core/api/events/{event_type}',
+                              headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                              json=base_payload, timeout=3)
+            if not resp.ok:   # jeton refuse, Core en redemarrage...
+                _warn_event_failure(event_type, f'HTTP {resp.status_code}')
+            elif _event_failures:
+                # Retabli : une nouvelle panne sera signalee, meme dans les 10 min.
+                for key in [k for k in _event_failures if k[0] == event_type]:
+                    del _event_failures[key]
+                logging.info(f"Événements HA {event_type} de nouveau acceptés")
         except Exception as e:
-            logging.warning(f"Evenement HA {event_type} non envoye: {e}")
+            _warn_event_failure(event_type, f'{type(e).__name__} : {e}'[:200])
     if webhook_url:
         send_webhook_async(webhook_url, {**base_payload, 'event': webhook_event})
 

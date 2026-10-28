@@ -111,6 +111,8 @@ def _simulate(bg_blocks, blocks, params):
     for raw, gain, t, pre, *rest in blocks:
         # Attaques du bloc (tranches de 5 ms) : comme la detection.
         attacks += tracker.feed_peak(raw, t, pre_level=pre, gain=gain or 1.0, onsets=rest[0] if rest else None)
+        gone = tracker.take_replaced()   # remplace par un plus fort du meme geste (bloc suivant)
+        attacks = [a for a in attacks if a not in gone]
     gestures, i = [], 0
     while i < len(attacks):
         end = attacks[i] + params['delay'] + ClapTracker.WINDOW_EPS

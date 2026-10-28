@@ -50,6 +50,20 @@ def test_simulate_counts_gestures_like_the_detector():
     assert cc._simulate(bg, blocks(seconds=5), p) == []   # bruit seul : aucun clap
 
 
+def test_simulate_counts_one_clap_when_a_click_precedes_it_across_blocks():
+    """Petit bruit en fin de bloc, clap 30 ms plus tard dans le bloc suivant :
+    un seul clap, comme le detecteur (le pic remplace n'est plus compte)."""
+    bg = blocks(seconds=5)
+    p = {'delay': 1.5, 'peak_cooldown': 0.08, 'peak_ratio': 3.0}
+    take = blocks(seconds=2)
+    i = 10
+    raw, gain, t, pre = take[i]
+    take[i] = (0.05, gain, t, 0.002, [(0.05, t + 0.095, 0.002)])
+    raw, gain, t2, pre = take[i + 1]
+    take[i + 1] = (0.5, gain, t2, 0.002, [(0.5, t + 0.125, 0.002)])
+    assert cc._simulate(bg, take, p) == [1]
+
+
 def test_analyze_proposes_values_that_fix_the_takes(session):
     out = cc.analyze()
     prop = out['proposed']

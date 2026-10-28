@@ -179,6 +179,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; word-
     animation: breathe 2.4s ease-in-out infinite;
 }
 .statusbar.is-running.is-degraded .status-dot { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 25%, transparent); }
+.statusbar.is-offline .status-dot { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 25%, transparent); }
 /* Enregistrement reussi, a cote du champ */
 .saved-mark { display: inline-block; margin-left: 8px; font-size: 0.8rem; color: var(--ok); opacity: 0; transition: opacity .2s; }
 .saved-mark.is-on { opacity: 1; }
