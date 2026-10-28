@@ -157,7 +157,7 @@
             '<div class="field"><label class="field-label" for="wz-url">Adresse du flux</label>' +
             '<input class="input" id="wz-url" type="url" placeholder="rtsp://utilisateur:motdepasse@192.168.1.20:554/stream" spellcheck="false">' +
             '<p class="hint">Vous la trouverez dans l\'application ou la documentation de la caméra.</p></div>' +
-            CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" id="wz-tcp"> Transport TCP</label>',
+            CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" id="wz-tcp" aria-describedby="wz-tcp-tip"> Transport TCP</label>',
                        CT.infoTip('wz-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; certaines caméras ne le gèrent pas.',
                                   'Explication du transport TCP')) +
             '<div class="field"><button type="button" class="btn btn-ghost" id="wz-probe">Vérifier l\'adresse</button>' +

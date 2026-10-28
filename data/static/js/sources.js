@@ -75,7 +75,7 @@
                     (hidden ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
                     (hidden ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
-                '<div class="field">' + CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
+                '<div class="field">' + CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp" aria-describedby="' + src.domId + '-tcp-tip"' + (d.rtsp_tcp ? ' checked' : '') +
                     '> Transport TCP</label>', CT.infoTip(src.domId + '-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; ' +
                     'certaines caméras ne le gèrent pas.', 'Explication du transport TCP')) + '</div>' +
                 '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
@@ -90,7 +90,7 @@
         }
         var nr = d.noise_reduction || 0;
         html += field('Réduction du bruit de fond', CT.withTip(
-            '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr">' +
+            '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr" aria-describedby="' + src.domId + '-nr-tip">' +
             CT.NR_NAMES.map(function (label, level) {
                 return '<option value="' + level + '"' + (level === nr ? ' selected' : '') + '>' + label + '</option>';
             }).join('') + '</select>',
@@ -205,7 +205,7 @@
         var choices = RATIO_CHOICES.slice();
         if (own != null && choices.indexOf(own) === -1) choices.push(own);
         choices.sort(function (a, b) { return a - b; });
-        return '<select class="input" data-field="peak_ratio" id="' + src.domId + '-ratio">' +
+        return '<select class="input" data-field="peak_ratio" id="' + src.domId + '-ratio" aria-describedby="' + src.domId + '-ratio-tip">' +
             '<option value=""' + (own == null ? ' selected' : '') + '>Réglage global (' + ratioText(g != null ? g : 3) + ')</option>' +
             choices.map(function (v) {
                 return '<option value="' + v + '"' + (own === v ? ' selected' : '') + '>' + ratioText(v) + ' le bruit ambiant</option>';
