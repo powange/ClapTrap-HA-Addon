@@ -103,8 +103,8 @@ def rooms(settings_dir, monkeypatch):
     dets = {}
     monkeypatch.setattr(classify, 'detector_for', lambda sid: dets.get(sid))
     yield client, dets
-    if rc._session is not None:
-        rc._finish(rc._session)
+    rc.stop_quietly()            # meme apres un echec en cours de test : sources rendues
+    calibration.stop_quietly()
 
 
 def test_session_through_the_api(rooms, settings_dir):
@@ -170,3 +170,37 @@ def test_rooms_route_merges_and_cleans_weights(rooms, settings_dir):
     # Source supprimee : sa correction disparait
     settings_dir.modify_settings(lambda s: s.update(saved_vban_sources=s['saved_vban_sources'][:1]))
     assert settings_dir.load_settings()['global']['room_weights'] == {}
+
+
+def test_idle_sessions_end_and_release_their_sources(rooms, monkeypatch):
+    """Socle commun : une session inactive depuis IDLE_TIMEOUT se termine
+    a la requete suivante, sources rendues (arbitrage comme source)."""
+    import classify
+    client, dets = rooms
+    dets['vban_salon'] = FakeDetector(0.01, 0.3)
+    dets['vban_chambre'] = FakeDetector(0.01, 0.3)
+    assert client.post('/api/calibration/rooms/start', json={}).status_code == 200
+    rc._session.last_activity -= calibration.IDLE_TIMEOUT + 1
+    r = client.post('/api/calibration/rooms/analyze')
+    assert r.status_code == 409 and 'aucun calibrage' in r.json['error']
+    assert rc._session is None and not ({'vban_salon', 'vban_chambre'} & classify._muted_sources)
+    # Calibrage d'une source : meme socle
+    assert client.post('/api/calibration/start', json={'source': 'Salon'}).status_code == 200
+    assert 'vban_salon' in classify._muted_sources
+    calibration._session.last_activity -= calibration.IDLE_TIMEOUT + 1
+    assert client.post('/api/calibration/analyze').status_code == 409
+    assert calibration._session is None and 'vban_salon' not in classify._muted_sources
+
+
+def test_one_calibration_at_a_time(rooms):
+    """Commencer l'un arrete l'autre : sourdines rendues, pas de melange."""
+    import classify
+    client, dets = rooms
+    dets['vban_salon'] = FakeDetector(0.01, 0.3)
+    dets['vban_chambre'] = FakeDetector(0.01, 0.3)
+    assert client.post('/api/calibration/start', json={'source': 'Chambre'}).status_code == 200
+    assert client.post('/api/calibration/rooms/start', json={}).status_code == 200
+    assert calibration._session is None and rc._session is not None
+    assert client.post('/api/calibration/start', json={'source': 'Salon'}).status_code == 200
+    assert rc._session is None and classify._muted_sources & {'vban_salon', 'vban_chambre'} == {'vban_salon'}
+    calibration.cancel()
