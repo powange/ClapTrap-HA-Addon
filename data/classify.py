@@ -477,13 +477,22 @@ class DetectionSession:
             logging.info(f"Arbitrage entre pièces : {len(items)} clap(s) abandonné(s) (détection arrêtée)")
             return
         self._room_settings()   # corrections a jour (modifiees pendant l'attente)
+        def useful(data):
+            counts = data.get('group_clap_counts') or []
+            return (data.get('clap_count') in counts) if counts else bool(data.get('clap_count'))
+
         def rank(i):
             data = items[i][2]
-            counts = data.get('group_clap_counts') or []
-            useful = (data.get('clap_count') in counts) if counts else bool(data.get('clap_count'))
-            return (useful, (data.get('strength') or 0.0) * self._room_weight(items[i][0]['source_id']), data['score'])
+            return (useful(data), (data.get('strength') or 0.0) * self._room_weight(items[i][0]['source_id']), data['score'])
         best = max(range(len(items)), key=rank)
+        # Forces de chaque source (journal : verifier la correction, et
+        # « pas la bonne piece » la recalcule a partir de ce clap).
+        forces = [{'source_id': src['source_id'], 'name': src['name'],
+                   'strength': round(float(data.get('strength') or 0.0), 2),
+                   'weight': self._room_weight(src['source_id']), 'useful': useful(data)}
+                  for src, _payload, data in items] if len(items) > 1 else None
         for i, (src, payload, data) in enumerate(items):
+            payload = dict(payload, room_forces=forces) if len(items) > 1 else payload
             if i != best:
                 payload = dict(payload, ignored=True, room=items[best][0]['name'])
             try:

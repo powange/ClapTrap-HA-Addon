@@ -715,6 +715,52 @@ def test_detection_feedback_ignore_threshold_negative(client, settings_dir, monk
     assert r.status_code == 409 and 'maximum' in r.json['error']          # 99 % n'aurait rien change
 
 
+def test_detection_feedback_wrong_room_recomputes_weights(client, settings_dir, monkeypatch):
+    """« Le clap venait de … » : la correction de l'arbitrage est recalculee
+    pour que la bonne source gagne ce clap (marge 25 %)."""
+    import classify
+    import routes.sources as rs
+    monkeypatch.setattr(rs, '_apply_live', lambda: None)
+    settings_dir.save_settings({'microphone': {'configured': True},
+                                'rtsp_sources': [{'id': 'cam1', 'name': 'Chambre', 'url': 'rtsp://c/1'}]})
+    classify.clear_detection_history()
+
+    def remember(det_id, forces):
+        classify._remember({'source_id': 'rtsp_cam1', 'group_slug': 'clap', 'labels': [], 'ignored': False,
+                            'room_forces': forces,
+                            '_feedback': {'id': det_id, 'kind': 'rtsp', 'source_key': 'cam1', 'group_slug': 'clap',
+                                          'evidence': {}}}, 0.8)
+    f = lambda sid, name, strength, useful=True: {'source_id': sid, 'name': name, 'strength': strength,
+                                                  'weight': 1.0, 'useful': useful}
+    remember('r1', [f('mic', 'Salon', 25.0), f('rtsp_cam1', 'Chambre', 80.0)])
+    url = '/api/detections/r1/feedback'
+    assert client.post(url, json={'action': 'room', 'label': 'autre'}).status_code == 400
+    r = client.post(url, json={'action': 'room', 'label': 'mic'})
+    assert r.status_code == 200 and r.json['weights'] == {'rtsp_cam1': 0.25} and 'warning' not in r.json
+    assert settings_dir.load_settings()['global']['room_weights'] == {'rtsp_cam1': 0.25}
+    assert client.post(url, json={'action': 'room', 'label': 'mic'}).status_code == 409   # deja fait
+    remember('r2', [f('mic', 'Salon', 25.0), f('rtsp_cam1', 'Chambre', 60.0)])   # 25 >= 1,25 x 15 : gagne deja
+    r = client.post('/api/detections/r2/feedback', json={'action': 'room', 'label': 'mic'})
+    assert r.status_code == 409 and 'déjà' in r.json['error']
+    remember('r3', [f('mic', 'Salon', 25.0, useful=False), f('rtsp_cam1', 'Chambre', 80.0)])
+    r = client.post('/api/detections/r3/feedback', json={'action': 'room', 'label': 'mic'})
+    assert r.status_code == 409 and 'sans entité' in r.json['error']
+    # Ecart enorme : camera bornee a 0,05, le micro monte (borne 20 : insuffisant)
+    remember('r4', [f('mic', 'Salon', 1.0), f('rtsp_cam1', 'Chambre', 5000.0)])
+    r = client.post('/api/detections/r4/feedback', json={'action': 'room', 'label': 'mic'})
+    assert r.status_code == 200 and r.json['weights'] == {'rtsp_cam1': 0.05, 'mic': 20.0} and 'limites' in r.json['warning']
+    r = client.post('/api/detections/r4/feedback', json={'action': 'room', 'label': ['mic']})
+    assert r.status_code == 400   # pas une erreur 500
+    remember('r5', [f('mic', 'Salon', 1.0), f('rtsp_cam1', 'Chambre', 5000.0)])   # deja aux bornes : rien a faire
+    r = client.post('/api/detections/r5/feedback', json={'action': 'room', 'label': 'mic'})
+    assert r.status_code == 409 and 'limites' in r.json['error']
+    # Baisse arrondie vers le bas : 25 / (1,25 x 78) = 0,256 -> 0,25, le salon ne bouge pas
+    settings_dir.modify_settings(lambda st: st['global'].pop('room_weights', None))
+    remember('r6', [f('mic', 'Salon', 25.0), f('rtsp_cam1', 'Chambre', 78.0)])
+    r = client.post('/api/detections/r6/feedback', json={'action': 'room', 'label': 'mic'})
+    assert r.json['weights'] == {'rtsp_cam1': 0.25}
+
+
 def test_source_peak_ratio_overrides_global_and_clears(client, settings_dir, monkeypatch):
     """Force minimale d'un clap par source : enregistree, appliquee en
     direct, null pour revenir au reglage global."""

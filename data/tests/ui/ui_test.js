@@ -85,6 +85,7 @@ const dom = new JSDOM(html, {
       else if (url === '/api/calibration/rooms' && method === 'GET') res = { success: true, active: false,
         groups: [{ zone: null, sources: [{ source_id: 'mic', name: 'Salon' }, { source_id: 'rtsp_cam', name: 'Chambre' }] }] };
       else if (url === '/api/calibration/rooms/start') res = { success: true, active: true };
+      else if (/\/feedback$/.test(url) && body && body.action === 'room') res = { success: true, weights: { rtsp_cam: 0.25 }, feedback: [{ action: 'room', label: body.label }] };
       else if (url === '/api/calibration/rooms/record') res = { success: true, home: body.source, forces: { Salon: 25, Chambre: 80.5 }, loudest: 'Chambre' };
       else if (url === '/api/calibration/rooms/analyze') res = { success: true, zone: null, margin: 2.4, warnings: [],
         sources: [{ source_id: 'mic', name: 'Salon', current: 1, proposed: 1 }, { source_id: 'rtsp_cam', name: 'Chambre', current: 1, proposed: 0.12 }],
@@ -1025,6 +1026,18 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      lastCall('POST', '/api/detections/d9/feedback')[2].label === 'Clapping' && fbBtns[0].disabled && /✓/.test(fbBtns[0].textContent));
   fbBtns[1].click(); await tick(3);
   ok('+  historique : contre-exemple envoyé', lastCall('POST', '/api/detections/d9/feedback')[2].action === 'negative');
+  // --- 6.109 : forces de l'arbitrage et « pas la bonne pièce »
+  emit('clap', { id: 'r1', source_id: 'rtsp_cam', clap_count: 2, score: 0.8, group_slug: 'clap', group_name: 'Clap', ignored: false, timestamp: 4e9, labels: [],
+                 room_forces: [{ source_id: 'mic', name: 'Salon', strength: 25, weight: 1, useful: true },
+                               { source_id: 'rtsp_cam', name: 'Chambre', strength: 80, weight: 0.5, useful: true }] }); await tick();
+  ok('+  journal : forces de l\'arbitrage, gagnante en premier', /Arbitrage : Chambre × 80 → × 40 \(correction × 0,5\) · Salon × 25/.test($('#history-list li').textContent));
+  $('#history-list li .history-wrong').click(); await tick();
+  const roomBtn = $$('#history-list li:first-child .history-feedback button').find(b => /Le clap venait de « Salon »/.test(b.textContent));
+  ok('+  journal : « pas la bonne pièce » proposé (autres sources seulement)', !!roomBtn &&
+     !$$('#history-list li:first-child .history-feedback button').some(b => /venait de « Chambre »/.test(b.textContent)));
+  roomBtn.click(); await tick(3);
+  ok('+  journal : correction recalculée envoyée', lastCall('POST', '/api/detections/r1/feedback')[2].action === 'room' &&
+     lastCall('POST', '/api/detections/r1/feedback')[2].label === 'mic' && /Chambre × 0,25/.test($('#toasts').textContent) && roomBtn.disabled);
   // --- 6.95 : onglet Blueprints
   $('#tab-blueprints').click(); await tick(3);
   const bpItems = () => $$('#bp-list .bp-item');

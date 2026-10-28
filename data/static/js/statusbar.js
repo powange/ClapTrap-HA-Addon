@@ -184,6 +184,13 @@
             lab.textContent = labels;
             li.querySelector('.history-main').appendChild(lab);
         }
+        var forces = roomForcesText(ev);
+        if (forces) {
+            var rf = document.createElement('span');
+            rf.className = 'history-labels room-forces';
+            rf.textContent = forces;
+            li.querySelector('.history-main').appendChild(rf);
+        }
         if (ev.id && !ev.ignored) {
             var toggle = document.createElement('button');
             toggle.type = 'button';
@@ -206,6 +213,21 @@
         }
         return li;
     }
+    // Arbitrage entre pieces : force vue par chaque source, corrigee, la
+    // gagnante en premier.
+    function x(v) { return '× ' + String(Math.round(v * 10) / 10).replace('.', ','); }
+    function xw(v) { return '× ' + String(Math.round(v * 100) / 100).replace('.', ','); }   // correction : 2 decimales
+    function roomForcesText(ev) {
+        var f = ev.room_forces;
+        if (!f || f.length < 2) return '';
+        var rows = f.map(function (s) { return {s: s, v: (s.strength || 0) * (s.weight == null ? 1 : s.weight)}; });
+        rows.sort(function (a, b) { return (b.s.useful !== false) - (a.s.useful !== false) || b.v - a.v; });
+        return 'Arbitrage : ' + rows.map(function (r) {
+            var w = r.s.weight == null ? 1 : r.s.weight;
+            return r.s.name + ' ' + x(r.s.strength || 0) + (w !== 1 ? ' → ' + x(r.v) + ' (correction ' + xw(w) + ')' : '') +
+                (r.s.useful === false ? ' (nombre de claps sans entité)' : '');
+        }).join(' · ');
+    }
     // « Ce n'etait pas ca » : corrections proposees pour une detection.
     // Meme calcul que le serveur : score de l'historique (3 decimales) + 1 point.
     function raisedThreshold(score) { return Math.round(Math.min(0.99, Math.round((score || 0) * 1000) / 1000 + 0.01) * 100) / 100; }
@@ -220,6 +242,22 @@
                 acts.push({action: 'ignore', label: l.label, text: 'Ne plus réagir à ' + name + ' dans ce groupe',
                            done: name + ' décoché dans le groupe « ' + (ev.group_name || '') + ' »'});
             }
+        });
+        // Mauvaise piece : la correction de l'arbitrage est recalculee pour
+        // que la bonne source gagne ce clap.
+        var rf = ev.room_forces && ev.room_forces.length > 1 ? ev.room_forces : [];
+        var names = {}, mine = rf.filter(function (s) { return s.source_id === ev.source_id; })[0] || {};
+        rf.forEach(function (s) { names[s.source_id] = s.name; });
+        rf.forEach(function (s) {
+            // Comme le serveur : sans force mesuree, ou nombre de claps sans
+            // entite face a une gagnante qui en a une, aucune correction n'y fait.
+            if (s.source_id === ev.source_id || !(s.strength > 0) || (s.useful === false && mine.useful !== false)) return;
+            acts.push({action: 'room', label: s.source_id, text: 'Le clap venait de « ' + s.name + ' » (pas la bonne pièce)',
+                       done: function (d) {
+                           var w = d.weights || {};
+                           return 'Corrections de l\'arbitrage : ' + Object.keys(w).map(function (sid) { return (names[sid] || sid) + ' ' + xw(w[sid]); }).join(', ') +
+                                  ' (Réglages › Plusieurs pièces)';
+                       }});
         });
         if ((ev.score || 0) < 0.99) {
             var t = raisedThreshold(ev.score);

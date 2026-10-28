@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify
 import logging
+import math
 
 from classify import stop_detection, get_detection_history
 from routes.sources import ApiError, api_error_response
@@ -81,6 +82,59 @@ FEEDBACK_STEP = 0.01   # seuil releve juste au-dessus du score observe
 MAX_RAISED = 0.99
 
 
+ROOM_MARGIN = 1.25   # « pas la bonne piece » : la bonne source gagne ce clap d'au moins 25 %
+
+
+def _room_feedback(entry, source_id):
+    """Corrections de l'arbitrage pour que `source_id` gagne ce clap : les
+    sources plus fortes sont baissees (sans descendre sous la borne), puis
+    la bonne source montee s'il le faut. Calcule a l'ecriture, sur les
+    corrections enregistrees (pas celles du clap, modifiees depuis peut-etre)."""
+    from settings_manager import modify_settings, merge_room_weights, ROOM_WEIGHT_LIMITS
+    forces = {f['source_id']: f for f in entry.get('room_forces') or [] if isinstance(f, dict)}
+    if not isinstance(source_id, str) or source_id not in forces:
+        raise ApiError('label : une des sources qui ont entendu ce clap attendue')
+    target = forces[source_id]['strength']
+    if target <= 0:
+        raise ApiError('cette source n\'a pas mesuré la force de ce clap', 409)
+    if forces[source_id].get('useful') is False and any(f.get('useful') for f in forces.values()):
+        raise ApiError('cette source a compté un nombre de claps sans entité : elle perd quelle que soit '
+                       'la correction (voir le comptage de ses groupes)', 409)
+    rivals = [sid for sid in forces if sid != source_id and forces[sid]['strength'] > 0
+              and forces[sid].get('useful', True) == forces[source_id].get('useful', True)]
+    lo, hi = ROOM_WEIGHT_LIMITS
+    out = {}
+
+    def wins(w):
+        return all(w[source_id] * target >= ROOM_MARGIN * w[o] * forces[o]['strength'] * 0.999 for o in rivals)
+
+    def _mut(settings):
+        g = settings.setdefault('global', {})
+        saved = g.get('room_weights') or {}
+        w = {sid: float(saved.get(sid, 1.0)) for sid in forces}
+        if wins(w):
+            raise ApiError('cette source gagnerait déjà ce clap avec les corrections actuelles', 409)
+        for o in rivals:
+            need = w[source_id] * target / (ROOM_MARGIN * forces[o]['strength'])
+            if w[o] > need:
+                w[o] = max(lo, math.floor(need * 100) / 100)   # vers le bas : la baisse suffit
+        for o in rivals:   # baisse bornee : la bonne source monte
+            need = ROOM_MARGIN * w[o] * forces[o]['strength'] / target
+            if w[source_id] < need:
+                w[source_id] = min(hi, math.ceil(need * 100) / 100)
+        changed = {sid: v for sid, v in w.items() if abs(v - float(saved.get(sid, 1.0))) > 1e-9}
+        if not changed:
+            raise ApiError('corrections déjà aux limites : lancez « Calibrer l\'arbitrage », ou retirez '
+                           'cette source du groupe', 409)
+        merge_room_weights(g, changed)
+        out['weights'] = changed
+        if not wins(w):
+            out['warning'] = ('corrections aux limites : cette source ne gagnerait toujours pas ce clap, '
+                              'lancez « Calibrer l\'arbitrage »')
+    modify_settings(_mut)
+    return out
+
+
 @detection_bp.route('/api/detections/<det_id>/feedback', methods=['POST'])
 def detection_feedback(det_id):
     """« Ce n'etait pas ca » sur une detection de l'historique.
@@ -88,7 +142,9 @@ def detection_feedback(det_id):
     Body: {action, label?}
     - ignore : decoche `label` dans le groupe qui a declenche ;
     - threshold : seuil du groupe juste au-dessus du score observe ;
-    - negative : l'empreinte du son appris `label` devient un contre-exemple.
+    - negative : l'empreinte du son appris `label` devient un contre-exemple ;
+    - room : le clap venait de la source `label` (arbitrage entre pieces) :
+      corrections recalculees pour qu'elle gagne ce clap avec une marge.
     """
     from classify import feedback_target, mark_feedback
     from routes.sources import _json, _require_source, _apply_live
@@ -144,8 +200,10 @@ def detection_feedback(det_id):
             result.update(learned.add_negative(label, fp))
         except learned.LearnError as e:
             raise ApiError(str(e), e.status)
+    elif action == 'room':
+        result.update(_room_feedback(entry, label))
     else:
-        raise ApiError('action : « ignore », « threshold » ou « negative » attendu')
+        raise ApiError('action : « ignore », « threshold », « negative » ou « room » attendu')
     if action != 'negative':
         _apply_live()
     result['feedback'] = mark_feedback(det_id, action, label)

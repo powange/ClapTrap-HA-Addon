@@ -1,5 +1,22 @@
 # Changelog
 
+## 6.109.0
+
+### Forces de l'arbitrage dans le journal
+
+- Pour un clap entendu par plusieurs sources, le journal affiche la force
+  vue par chacune et sa correction, la gagnante en premier. On peut ainsi
+  vérifier au quotidien que la correction de l'arbitrage tient.
+- **Ce n'était pas ça** propose **Le clap venait de « … »** pour les
+  autres sources. Les corrections sont alors recalculées à partir de ce
+  clap réel, pour que la bonne source le gagne d'au moins 25 %, sans
+  relancer l'assistant. Un avertissement s'affiche si les bornes (× 0,05
+  à × 20) ne suffisent pas.
+- Événement `claptrap_clap`, webhook et API : nouveau champ `room_forces`
+  (`source_id`, `name`, `strength`, `weight`, `useful`) quand plusieurs
+  sources se sont départagées. L'action `room` (label : `source_id`) est
+  ajoutée à `POST /api/detections/<id>/feedback`.
+
 ## 6.108.0
 
 ### Journal unique et filtrable
