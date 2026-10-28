@@ -561,8 +561,10 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 /* Icone d'information (CT.infoTip) : texte au survol, au focus et au toucher. */
 .with-tip { display: flex; align-items: center; gap: 2px; }
 .with-tip > .input { flex: 1 1 auto; min-width: 0; }
-.info-tip { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 4px; }
+.with-tip > label { min-width: 0; }   /* texte et menu se resserrent sur un ecran etroit */
+.info-tip { position: relative; display: inline-flex; flex: none; align-items: center; margin-left: 4px; }
 .info-tip-btn {
+    position: relative;   /* cercle (::before) centre sur la lettre */
     display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
     border: 0; background: none; cursor: help; color: var(--ink-3); font: 600 0.8rem var(--font);
 }
@@ -573,7 +575,9 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 .info-tip-btn:hover, .info-tip.is-open .info-tip-btn { color: var(--accent); }
 .info-tip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-radius: 50%; }
 .info-tip-text {
-    position: absolute; z-index: 20; right: -6px; bottom: calc(100% + 4px); width: max-content; max-width: min(300px, 80vw);
+    /* Fixe a l'ecran, place par CT (placeTip) : le cadre defilant d'une
+       fenetre ne la coupe pas, et elle reste dans l'ecran des deux cotes. */
+    position: fixed; z-index: 1000; left: 0; top: 0; width: max-content; max-width: min(300px, calc(100vw - 16px));
     padding: 8px 10px; border-radius: var(--radius-sm); background: var(--ink); color: var(--surface);
     font-size: 0.8rem; line-height: 1.4; box-shadow: 0 4px 12px rgba(0,0,0,.2);
     visibility: hidden; opacity: 0; transition: opacity 0.12s; pointer-events: none;

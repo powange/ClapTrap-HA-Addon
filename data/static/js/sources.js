@@ -75,9 +75,9 @@
                     (hidden ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
                     (hidden ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
-                '<div class="field"><label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
-                    '> Transport TCP</label>' + CT.infoTip(src.domId + '-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; ' +
-                    'certaines caméras ne le gèrent pas.', 'Explication du transport TCP') + '</div>' +
+                '<div class="field">' + CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp"' + (d.rtsp_tcp ? ' checked' : '') +
+                    '> Transport TCP</label>', CT.infoTip(src.domId + '-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; ' +
+                    'certaines caméras ne le gèrent pas.', 'Explication du transport TCP')) + '</div>' +
                 '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
                 gainField(src, gain, 100);
         } else {
@@ -89,7 +89,7 @@
                 gainField(src, d.gain != null ? d.gain : 1, 100);
         }
         var nr = d.noise_reduction || 0;
-        html += field('Réduction du bruit de fond', withTip(
+        html += field('Réduction du bruit de fond', CT.withTip(
             '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr">' +
             CT.NR_NAMES.map(function (label, level) {
                 return '<option value="' + level + '"' + (level === nr ? ' selected' : '') + '>' + label + '</option>';
@@ -98,7 +98,7 @@
                 'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
                 'une réduction trop forte peut aussi effacer des sons faibles.', 'Explication de la réduction du bruit de fond')),
             src.domId + '-nr');
-        html += field('Force minimale d\'un clap', withTip(peakRatioSelect(src, d),
+        html += field('Force minimale d\'un clap', CT.withTip(peakRatioSelect(src, d),
             CT.infoTip(src.domId + '-ratio-tip', 'Combien de fois plus fort que le bruit ambiant un pic doit être pour compter. ' +
                 'Plus haut pour une source bruyante ou très sensible (claps comptés en trop), plus bas pour une source lointaine ' +
                 '(claps manqués). Avec une valeur propre, « Calibrer le comptage » sur cette source la règle elle (et non la valeur globale).',
@@ -299,8 +299,6 @@
             '<p class="hint">Sons reconnus sur cet extrait' + legend + '</p>' + timeline(d.timeline) + '</div>';
     }
 
-    // Controle et son icone d'information cote a cote.
-    function withTip(control, tip) { return '<div class="with-tip">' + control + tip + '</div>'; }
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
     }
