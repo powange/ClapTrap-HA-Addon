@@ -619,6 +619,8 @@
     // Icone d'information : le texte s'affiche au survol, au focus clavier
     // et au toucher (bouton), et se ferme avec Echap ou en touchant ailleurs.
     // `text` : texte simple (echappe ici).
+    // Controle et son icone d'information sur une meme ligne.
+    CT.withTip = function (control, tip) { return '<div class="with-tip">' + control + tip + '</div>'; };
     CT.infoTip = function (id, text, label) {
         return '<span class="info-tip"><button type="button" class="info-tip-btn" aria-label="' + CT.esc(label || 'Explication') +
             '" aria-describedby="' + id + '" aria-expanded="false">i</button>' +
@@ -638,6 +640,33 @@
         return (a && a.classList && a.classList.contains('info-tip-btn') ? a.parentNode : null) ||
             CT.$$('.info-tip').filter(function (t) { return t.matches(':hover'); })[0] || null;
     }
+    // Bulle au-dessus de l'icone (en dessous faute de place), alignee sur
+    // elle puis ramenee dans l'ecran (barre de defilement exclue).
+    function placeTip(tip) {
+        var text = tip.querySelector('.info-tip-text');
+        var r = tip.querySelector('.info-tip-btn').getBoundingClientRect();
+        var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+        var w = text.offsetWidth, h = text.offsetHeight;
+        var left = Math.max(8, Math.min(r.left - 6, vw - w - 8));
+        var top = r.top - h - 4 >= 8 ? r.top - h - 4 : Math.min(r.bottom + 4, vh - h - 8);
+        text.style.left = left + 'px';
+        text.style.top = top + 'px';
+    }
+    // Defilement ou redimensionnement : les bulles affichees suivent leur icone.
+    function replaceShown() {
+        var shown = CT.$$('.info-tip.is-open');
+        var other = shownTip();
+        if (other && shown.indexOf(other) === -1) shown.push(other);
+        shown.forEach(placeTip);
+    }
+    window.addEventListener('resize', replaceShown);
+    document.addEventListener('scroll', replaceShown, true);
+    ['mouseover', 'focusin'].forEach(function (ev) {
+        document.addEventListener(ev, function (e) {
+            var t = e.target.closest && e.target.closest('.info-tip');
+            if (t && !t.contains(e.relatedTarget)) placeTip(t);
+        }, true);
+    });
     ['mouseleave', 'focusout'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
             var t = e.target.closest && e.target.closest('.info-tip');
@@ -651,6 +680,7 @@
         if (!tip) return;
         tip.classList.remove('is-dismissed');
         var open = tip.classList.toggle('is-open');
+        if (open) placeTip(tip);
         btn.setAttribute('aria-expanded', String(open));
     });
     document.addEventListener('keydown', function (e) {

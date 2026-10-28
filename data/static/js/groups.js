@@ -96,13 +96,13 @@
                     '<option value="tenus"' + (g.count_mode === 'tenus' ? ' selected' : '') + '>Sons tenus (sifflement)</option>' +
                     '<option value="alerte"' + (g.count_mode === 'alerte' ? ' selected' : '') + '>Alerte (alarme, pleurs)</option></select></label>' +
                 (g.count_mode === 'alerte' ? '' :
-                    '<label class="field-row-inline">Écart avec les autres sons <select class="input" data-role="margin" aria-label="Écart minimal avec les autres sons du groupe ' + gname + '">' +
+                    CT.withTip('<label class="field-row-inline">Écart avec les autres sons <select class="input" data-role="margin" aria-label="Écart minimal avec les autres sons du groupe ' + gname + '">' +
                     marginChoices(g.margin).map(function (o) {
                         return '<option value="' + o[0] + '"' + (Math.abs((g.margin || 0) - o[0]) < 1e-6 ? ' selected' : '') + '>' + o[1] + '</option>';
-                    }).join('') + '</select></label>' +
+                    }).join('') + '</select></label>',
                     CT.infoTip(src.domId + '-' + esc(g.slug) + '-margin-tip', 'Le son du groupe doit battre de cet écart le meilleur autre ' +
                         'son entendu (voix, musique…) : moins de fausses détections dans une pièce bruyante. Le journal (filtre « Presque ' +
-                        'déclenchés ») montre les gestes écartés ainsi.', 'Explication de l\'écart avec les autres sons')) +
+                        'déclenchés ») montre les gestes écartés ainsi.', 'Explication de l\'écart avec les autres sons'))) +
                 // Recherche dans la liste, et parmi tous les sons connus : un son
                 // s'ajoute sans avoir ete entendu (« Applaudissement »...).
                 '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher ou ajouter un son…" aria-label="Rechercher ou ajouter un son au groupe ' + gname + '" value="' +

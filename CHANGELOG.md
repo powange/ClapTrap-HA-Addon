@@ -1,5 +1,20 @@
 # Changelog
 
+## 6.114.1
+
+### Icônes d'information mieux placées
+
+- Le cercle de l'icône est centré sur le « i » ; il s'en écartait dans
+  les réglages d'une source.
+- L'icône se place juste après le réglage, sur la même ligne (« Transport
+  TCP », écart avec les autres sons), et non plus seule sur la ligne
+  suivante.
+- La bulle se place par rapport à l'écran, au-dessus de l'icône, ou en
+  dessous faute de place. Elle reste entièrement visible, sur téléphone
+  comme dans une fenêtre qui défile, sans être coupée par le cadre des
+  réglages. Elle suit l'icône quand on fait défiler la page ou qu'on
+  tourne le téléphone.
+
 ## 6.114.0
 
 ### Le calibrage d'une source propose l'écart avec les autres sons
