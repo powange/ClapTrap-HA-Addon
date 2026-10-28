@@ -1,0 +1,7 @@
+# Couverture des tests (CI, pour information) : le code de l'add-on, sans
+# les tests eux-memes ni l'autotest de YAMNet (lance a la construction de
+# l'image).
+[run]
+omit =
+    data/tests/*
+    data/selftest_yamnet.py

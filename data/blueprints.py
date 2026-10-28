@@ -23,6 +23,8 @@ import os
 import re
 import threading
 
+import atomic_io
+
 DOMAIN = 'automation'
 _lock = threading.Lock()
 
@@ -120,18 +122,16 @@ def _read_state():
         with open(_state_path(), encoding='utf-8') as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
+    except ValueError as e:
+        # Mis de cote : l'installation suivante ne l'ecrase pas en silence.
+        atomic_io.set_aside(_state_path(), 'État des blueprints illisible', e)
+        return {}
+    except OSError:
         return {}
 
 
 def _write_state(state):
-    path = _state_path()
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(state, f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    atomic_io.write_json(_state_path(), state)
 
 
 def _connect():

@@ -195,7 +195,6 @@ def start(source_ref, purpose='source', learn_target=None):
     sous le verrou (une autre requete ne voit jamais une session sans but),
     comme `learn_target` (son reappris)."""
     global _session
-    import classify
     import room_calibration
     from ha_control import _resolve_source, CommandError
     from routes.sources import _source_id_for

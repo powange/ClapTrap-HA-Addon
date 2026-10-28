@@ -162,7 +162,7 @@ class ProcessSource:
         try:
             proc.kill()
         except Exception:
-            pass
+            logging.debug("Processus non arrete", exc_info=True)
 
     def close(self):
         """Debloque un read() en cours (arret de la detection)."""

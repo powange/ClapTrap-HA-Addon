@@ -2,10 +2,11 @@ import copy
 import re
 import json
 import os
-import shutil
 import time
 import logging
 from threading import RLock
+
+import atomic_io
 
 MAX_NR_LEVEL = 3   # reduction du bruit de fond : niveaux 0 a 3 (denoise.LEVELS)
 
@@ -299,21 +300,10 @@ def _write_atomic(data, keep_backup=True):
     remplace : une coupure entre les deux laissait zero fichier et le
     redemarrage repartait sur les valeurs par defaut).
     """
-    with open(SETTINGS_TEMP, 'w') as f:
-        json.dump(data, f, indent=4)
-        f.flush()
-        os.fsync(f.fileno())
-    if keep_backup and os.path.exists(SETTINGS_FILE):
-        shutil.copy2(SETTINGS_FILE, SETTINGS_BACKUP)
-    os.replace(SETTINGS_TEMP, SETTINGS_FILE)
-    try:
-        dir_fd = os.open(PERSISTENT_DIR, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except OSError:
-        pass
+    def backup():
+        if keep_backup and os.path.exists(SETTINGS_FILE):
+            atomic_io.copy_file(SETTINGS_FILE, SETTINGS_BACKUP)
+    atomic_io.write_json(SETTINGS_FILE, data, tmp=SETTINGS_TEMP, before_replace=backup, indent=4)
 
 
 def _read_saved():

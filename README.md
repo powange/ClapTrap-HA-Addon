@@ -73,6 +73,8 @@ Tests (lancés aussi par GitHub Actions à chaque push et pull request) :
 ```sh
 pip install -r data/requirements-dev.txt -r data/tests/ui/requirements.txt
 python -m pytest data/tests          # comptage, détecteur, VBAN, sources, session, HA, réglages, routes, serveur
+ruff check --select F,E9,B006,B008 data scripts --extend-exclude data/static,data/tests/ui/node_modules   # vérification du code
+# CI : python -m pytest data/tests --timeout=60 --cov=data (couverture affichée pour information)
 cd data/tests/ui && npm ci && python render_page.py && node ui_test.js page.html   # interface
 ```
 

@@ -49,7 +49,10 @@ jobs:
             data/constraints.txt
       - run: pip install -r data/requirements-dev.txt
       - run: python scripts/check_lock.py
-      - run: python -m pytest -q data/tests
+      # Imports inutilises, noms inconnus, arguments par defaut mutables.
+      - run: ruff check --select F,E9,B006,B008 data scripts --extend-exclude data/static,data/tests/ui/node_modules
+      # Delai par test : un blocage echoue avec sa pile ; couverture pour information.
+      - run: python -m pytest -q data/tests --timeout=60 --cov=data --cov-report=term:skip-covered
 
   ui:
     name: Tests de l'interface

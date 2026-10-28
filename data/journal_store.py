@@ -10,8 +10,8 @@ import json
 import logging
 import os
 import threading
-import time
 
+import atomic_io
 import settings_manager
 
 SAVE_DELAY = 2.0
@@ -50,34 +50,15 @@ def read():
             raise ValueError('format inattendu')
         return data
     except ValueError as e:
-        aside = f"{p}.corrompu-{time.strftime('%Y%m%d-%H%M%S')}"
-        try:
-            os.replace(p, aside)
-            logging.error(f"Journal illisible ({e}) : fichier gardé sous {os.path.basename(aside)}")
-        except OSError:
-            logging.error(f"Journal illisible ({e})")
+        atomic_io.set_aside(p, 'Journal illisible', e)
         return None
 
 
 def write(snapshot):
     """Ecriture atomique et durable (coupure : l'ancien journal ou le nouveau)."""
-    p = path()
-    tmp = p + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        # Valeurs numpy (scores, empreintes) : en nombres ou listes simples.
-        json.dump(dict(snapshot, version=VERSION), f, ensure_ascii=False, separators=(',', ':'),
-                  default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o))
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, p)
-    try:   # le renommage lui-meme, sur carte SD
-        fd = os.open(os.path.dirname(p) or '.', os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass
+    # Valeurs numpy (scores, empreintes) : en nombres ou listes simples.
+    atomic_io.write_json(path(), dict(snapshot, version=VERSION), ensure_ascii=False, separators=(',', ':'),
+                         default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o))
 
 
 def schedule(snapshot_fn):
