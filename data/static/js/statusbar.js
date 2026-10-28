@@ -441,8 +441,8 @@
             });
         }
         loadHistory();
-        // Apres un redemarrage de l'add-on, l'historique affiche n'existe plus :
-        // recharge a chaque reconnexion. La premiere connexion suit le
+        // Apres un redemarrage de l'add-on, le journal a pu changer (claps
+        // pendant l'arret de l'onglet) : recharge a chaque reconnexion. La premiere connexion suit le
         // chargement ci-dessus (fait deux fois au demarrage) : rechargement
         // seulement s'il a echoue (add-on encore en demarrage).
         var wasConnected = !!(CT.socket && CT.socket.connected);

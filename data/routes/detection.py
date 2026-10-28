@@ -154,7 +154,7 @@ def detection_feedback(det_id):
     label = data.get('label')
     entry, info = feedback_target(det_id)
     if entry is None:
-        raise ApiError('détection introuvable (historique effacé ou add-on redémarré)', 404)
+        raise ApiError('détection introuvable (journal effacé, ou détection trop ancienne)', 404)
     if {'action': action, 'label': label} in (entry.get('feedback') or []):
         raise ApiError('déjà fait pour cette détection', 409)
     heard = {lab.get('label') for lab in entry.get('labels') or [] if isinstance(lab, dict)}

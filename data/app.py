@@ -131,6 +131,20 @@ app.wsgi_app = IngressOnlyMiddleware(app.wsgi_app)
 # Initialiser le détecteur VBAN au démarrage (singleton)
 init_vban_detector()
 
+
+def _load_journal():
+    """Journal du lancement precedent (detections, « presque »)."""
+    try:
+        from classify import load_journal
+        n = load_journal()
+        if n:
+            logging.info(f"Journal rechargé : {n} entrée(s)")
+    except Exception as e:
+        logging.warning(f"Journal non rechargé : {e}")
+
+
+_load_journal()
+
 # Appliquer le volume micro sauvegardé au démarrage
 def _apply_saved_mic_volume():
     try:
@@ -182,6 +196,13 @@ def cleanup():
 
 def _do_cleanup():
     logging.info("Arrêt de ClapTrap : publication de l'état et arrêt de la détection")
+    # Journal d'abord (rapide) : l'arret de MQTT et de la detection peut
+    # epuiser le delai de grace. Reecrit a la fin pour les derniers claps.
+    try:
+        from classify import flush_journal
+        flush_journal()
+    except Exception as e:
+        logging.debug(f"Journal non enregistré à l'arrêt: {e}")
     # MQTT d'abord (detection OFF, entites indisponibles) : ces publications
     # se perdaient quand l'arret de la detection consommait le delai de grace.
     try:
@@ -196,6 +217,11 @@ def _do_cleanup():
         stop_detection(timeout=2)
     except Exception as e:
         logging.debug(f"Arret de la detection: {e}")
+    try:
+        from classify import flush_journal
+        flush_journal()   # claps arrives pendant l'arret
+    except Exception as e:
+        logging.debug(f"Journal non enregistré à l'arrêt: {e}")
     cleanup_vban_detector()
 
 
