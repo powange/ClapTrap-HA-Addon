@@ -186,12 +186,15 @@
             return '<div class="cal-result"><h4>' + esc(g.target) + '</h4><p class="hint">' + esc(g.error) + '</p></div>';
         }
         var mode = function (m) { return m === 'tenus' ? 'sons tenus' : 'attaques'; };
+        var gap = function (m) { return m ? Math.round(m * 100) + ' points' : 'aucun'; };
         return '<div class="cal-result"><label class="check"><input type="checkbox" data-apply="' + i + '" checked> <strong>' +
             esc(g.target) + '</strong>' + (g.new ? ' <span class="pill">nouveau groupe</span>' : '') + '</label><ul>' +
             '<li>Sons : ' + sounds(g.sounds) + (g.add.length ? ' (ajout : ' + sounds(g.add) + ')' : '') +
             (g.remove.length ? ' · retirés : ' + sounds(g.remove) : '') + '</li>' +
             '<li>Seuil : ' + (g.threshold.current != null ? CT.pct(g.threshold.current) + ' → ' : '') + CT.pct(g.threshold.proposed) + '</li>' +
             '<li>Comptage : ' + (g.count_mode.current ? mode(g.count_mode.current) + ' → ' : '') + mode(g.count_mode.proposed) + '</li>' +
+            (g.margin ? '<li>Écart avec les autres sons : ' + (g.margin.current != null && g.margin.current !== g.margin.proposed
+                ? gap(g.margin.current) + ' → ' : '') + gap(g.margin.proposed) + '</li>' : '') +
             '<li>Reconnu : ' + (g.before ? pctOrDash(g.before.recall) + ' → ' : '') + pctOrDash(g.after.recall) + ' des essais · ' +
             'fausses détections : ' + (g.before ? pctOrDash(g.before.false_positive) + ' → ' : '') + pctOrDash(g.after.false_positive) + '</li>' +
             (g.warnings || []).map(function (w) { return '<li class="text-warn">' + esc(w) + '</li>'; }).join('') + '</ul></div>';

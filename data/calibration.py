@@ -25,6 +25,7 @@ DEFAULT_DURATION = 4.0
 MIN_DURATION = 1.0
 MAX_DURATION = 15.0
 from recording import RESULT_GRACE, YAMNET_WINDOW, capture, saturation   # ecoute commune (calibrage, extraits)
+from clap_logic import LEARNED_PREFIX
 TARGET_LEVEL = 0.5       # niveau vise (bruit le plus fort x gain) : fort, sans ecretage
 MIN_TAKES = 2
 BACKGROUND = 'fond'
@@ -145,6 +146,7 @@ class _Session:
         self.was_running = was_running
         self.takes = []
         self.take_blocks = {}   # id(prise) -> blocs bruts (force minimale), hors des reponses
+        self.take_windows = {}  # id(prise) -> classes de chaque fenetre YAMNet (ecart avec les autres sons)
         self.proposal = None
         self.last_activity = time.monotonic()
         # Calibrage du comptage (count_calibration.py) : meme session, autre but.
@@ -337,6 +339,9 @@ def record(target, expected=None, duration=DEFAULT_DURATION):
         }
         s.takes.append(take)
         s.take_blocks[id(take)] = blocks
+        # Triees une fois (concurrent de l'ecart), arrondies comme les classes de la prise.
+        s.take_windows[id(take)] = [sorted(((n, round(float(sc), 3)) for n, sc in categories),
+                                           key=lambda c: c[1], reverse=True) for categories, _now in results]
         s.proposal = None
         n = sum(1 for t in s.takes if t['target'] == name)
         return dict(take, take_number=n)
@@ -487,9 +492,10 @@ def analyze():
             elif expected and expected not in (g.get('ha_entities') or []):
                 res['warnings'].append(f'aucune entité Home Assistant pour {expected} clap(s) dans ce groupe')
             if res['after']['false_positive'] > 0:
-                res['warnings'].append('ce groupe se déclencherait encore sur d\'autres prises')
+                res['warnings'].append(STILL_TRIGGERS)
             groups.append(res)
 
+        _margin_proposals(s, groups, groups_by_slug, exclusions)
         gain = _gain_proposal(s, src)
         peak_ratio = _peak_ratio_proposal(s, src, settings, groups)
         warnings += peak_ratio.pop('warnings')
@@ -584,6 +590,93 @@ def _peak_ratio_proposal(s, src, settings, groups):
                 weak=warning is not None, sounds=len(levels))
 
 
+MARGINS = (0.0, 0.05, 0.1, 0.2, 0.3)   # memes choix que l'interface
+STILL_TRIGGERS = 'ce groupe se déclencherait encore sur d\'autres prises'
+
+
+def _window_gap(categories, sounds, taken, exclusions):
+    """(score du groupe, ecart avec le meilleur autre son) d'une fenetre,
+    comme a la detection (clap_logic.margin_rival : autres sons hors sons
+    coches, ignores et appris). `categories` : triees par score decroissant
+    (record)."""
+    best = max((sc for name, sc in categories if name in sounds), default=0.0)
+    for name, sc in categories:
+        if name in taken or name in exclusions or name.startswith(LEARNED_PREFIX):
+            continue
+        return best, best - sc
+    return best, 1.0
+
+
+def _margin_proposals(s, groups, groups_by_slug, exclusions):
+    """Seuil et ecart avec les autres sons, cherches ensemble sur les
+    fenetres YAMNet des prises : une prise declenche si une de ses fenetres
+    atteint le seuil avec au moins cet ecart. Meme objectif que le seuil (une
+    fausse detection pese 1,5 prise manquee). Utile quand le seuil seul ne
+    separe pas le groupe d'un autre son (parole juste derriere « Clapping ») :
+    il etait alors monte au point de ne plus jamais declencher. Sinon, seuil
+    inchange et ecart actuel garde. Avant / apres : avec l'ecart en vigueur."""
+    calibrated = {r.get('group') for r in groups}
+    # Sons qui ne sont pas des concurrents a la detection : coches dans un
+    # groupe actif de la source (les groupes desactives ne comptent pas).
+    taken = {label for slug, g in groups_by_slug.items() if slug not in calibrated and g.get('enabled', True) is not False
+             for label, on in (g.get('sound_whitelist') or {}).items() if on}
+    taken |= {c for r in groups if not r.get('error') for c in r.get('sounds') or []}
+    for r in groups:
+        if r.get('error'):
+            continue
+        g = groups_by_slug.get(r['group']) if r.get('group') else None
+        if r['count_mode']['proposed'] == 'alerte':
+            continue   # pas d'ecart en mode alerte
+        takes = [(t['target'] == r['target'], s.take_windows.get(id(t))) for t in s.takes]
+        if any(w is None for _pos, w in takes):
+            continue   # prises sans fenetres : pas de proposition
+        sounds = set(r['sounds'])
+        gaps = [(pos, [_window_gap(c, sounds, taken, exclusions) for c in wins]) for pos, wins in takes]
+        n_pos = sum(1 for pos, _w in gaps if pos)
+        n_neg = len(gaps) - n_pos
+
+        def evaluate(th, m):
+            hits = fps = 0
+            for pos, wins in gaps:
+                if any(b >= th - 1e-9 and gap >= m - 1e-9 for b, gap in wins):
+                    hits, fps = (hits + 1, fps) if pos else (hits, fps + 1)
+            recall = hits / n_pos if n_pos else 0.0
+            fp = fps / n_neg if n_neg else 0.0
+            return recall - 1.5 * fp, hits, fps
+
+        def result(hits, fps):
+            return {'recall': round(hits / n_pos, 2) if n_pos else 0.0,
+                    'false_positive': round(fps / n_neg, 2) if n_neg else 0.0,
+                    'missed': n_pos - hits, 'false_alarms': fps}
+
+        cur = float((g or {}).get('margin') or 0.0)
+        if g and r.get('before') is not None and set(r.get('remove') or []) | set(r.get('add') or []) == set():
+            # Memes sons qu'avant : « avant » avec l'ecart en vigueur.
+            _o, h, f = evaluate(float(r['threshold']['current']), cur)
+            r['before'] = result(h, f)
+        th0 = r['threshold']['proposed']
+        base = evaluate(th0, cur)
+        # Meilleur couple ; a egalite, l'ecart actuel puis le plus petit, et le
+        # seuil au milieu de la plage des meilleurs (marge des deux cotes).
+        ths = [i / 100 for i in range(10, 91)]
+        best_obj, choice = None, None
+        for m in sorted(MARGINS, key=lambda x: (abs(x - cur) > 1e-9, x)):
+            objs = [evaluate(th, m)[0] for th in ths]
+            top = max(objs)
+            if best_obj is None or top > best_obj + 1e-9:
+                good = [th for th, o in zip(ths, objs) if abs(o - top) <= 1e-9]
+                best_obj, choice = top, (good[len(good) // 2], m)
+        if best_obj > base[0] + 1e-9:
+            th, m = choice
+            r['threshold']['proposed'] = th
+            _o, hits, fps = evaluate(th, m)
+        else:
+            m, (_o, hits, fps) = cur, base   # seuil inchange, ecart actuel garde
+        r['after'] = result(hits, fps)
+        r['warnings'] = [w for w in r['warnings'] if w != STILL_TRIGGERS] + ([STILL_TRIGGERS] if fps else [])
+        r['margin'] = {'current': cur if g else None, 'proposed': m}
+
+
 # ===== Application ==============================================================
 
 def apply(gain=True, groups=None, peak_ratio=True):
@@ -649,10 +742,14 @@ def apply(gain=True, groups=None, peak_ratio=True):
                     continue
                 step(f"{r['target']} : {label} coché", 'PUT', '/api/source/sound_whitelist',
                      {**base, 'group_slug': r['group'], 'label': label, 'enabled': True})
-            step(f"{r['target']} : seuil {r['threshold']['proposed']}, comptage {r['count_mode']['proposed']}",
-                 'PUT', '/api/source/sound_groups',
-                 {**base, 'group_slug': r['group'], 'threshold': r['threshold']['proposed'],
-                  'count_mode': r['count_mode']['proposed']})
+            body = {**base, 'group_slug': r['group'], 'threshold': r['threshold']['proposed'],
+                    'count_mode': r['count_mode']['proposed']}
+            label = f"{r['target']} : seuil {r['threshold']['proposed']}, comptage {r['count_mode']['proposed']}"
+            mg = r.get('margin') or {}
+            if mg.get('proposed') is not None and mg['proposed'] != mg.get('current'):   # sinon : reglage laisse tel quel
+                body['margin'] = r['margin']['proposed']
+                label += f", écart {round(r['margin']['proposed'] * 100)} points"
+            step(label, 'PUT', '/api/source/sound_groups', body)
         _finish(s)
         logging.info(f"Calibrage de {s.label} appliqué : {len(done)} modification(s), {len(errors)} erreur(s)")
         return {'applied': done, 'errors': errors, 'active': False}

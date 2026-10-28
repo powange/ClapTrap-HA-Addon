@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.114.0
+
+### Le calibrage d'une source propose l'écart avec les autres sons
+
+- Pour chaque groupe, « Calibrer » propose maintenant l'**écart avec les
+  autres sons**, en plus des sons, du seuil et du mode de comptage
+  (attaques ou sons tenus ; le mode alerte reste un choix manuel). Seuil
+  et écart sont cherchés ensemble, à partir des fenêtres d'analyse de
+  chaque essai, comme à la détection.
+- Cas corrigé : quand le seuil seul ne séparait pas le groupe d'un autre
+  son (de la parole juste derrière « Applaudissement »), le calibrage le
+  montait au point que le groupe ne déclenchait plus du tout. L'écart
+  écarte désormais ces fausses détections en gardant les essais du groupe.
+  Quand le seuil suffit, l'écart déjà réglé est conservé.
+- Les explications de quatre réglages passent dans une icône d'information
+  placée à côté du réglage : écart avec les autres sons, réduction du bruit
+  de fond, force minimale d'un clap, et transport TCP (réglages de la
+  source et assistant). Elles s'affichent au survol, au clavier ou au
+  toucher, et se ferment avec Échap ou en touchant ailleurs.
+- Les sons cochés dans un groupe désactivé restent des concurrents, comme
+  à la détection. « Avant » et « après » tiennent compte de l'écart
+  réellement appliqué. L'écart n'est réécrit que s'il change.
+
 ## 6.113.0
 
 ### Processeur et mémoire de l'add-on, interrupteurs

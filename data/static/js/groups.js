@@ -100,8 +100,9 @@
                     marginChoices(g.margin).map(function (o) {
                         return '<option value="' + o[0] + '"' + (Math.abs((g.margin || 0) - o[0]) < 1e-6 ? ' selected' : '') + '>' + o[1] + '</option>';
                     }).join('') + '</select></label>' +
-                    '<p class="hint">Le son du groupe doit battre de cet écart le meilleur autre son entendu (voix, musique…) : moins de ' +
-                    'fausses détections dans une pièce bruyante. « Presque déclenchés » montre les gestes écartés ainsi.</p>') +
+                    CT.infoTip(src.domId + '-' + esc(g.slug) + '-margin-tip', 'Le son du groupe doit battre de cet écart le meilleur autre ' +
+                        'son entendu (voix, musique…) : moins de fausses détections dans une pièce bruyante. Le journal (filtre « Presque ' +
+                        'déclenchés ») montre les gestes écartés ainsi.', 'Explication de l\'écart avec les autres sons')) +
                 // Recherche dans la liste, et parmi tous les sons connus : un son
                 // s'ajoute sans avoir ete entendu (« Applaudissement »...).
                 '<input type="search" class="input sound-search" data-role="sound-search" placeholder="Rechercher ou ajouter un son…" aria-label="Rechercher ou ajouter un son au groupe ' + gname + '" value="' +

@@ -198,6 +198,79 @@ def test_peak_ratio_needs_background_take(cal, monkeypatch):
     assert r['field'] is None and 'bruit de fond' in r['note']
 
 
+def test_margin_proposed_when_threshold_cannot_separate(cal, settings_dir, monkeypatch):
+    """Fond de parole ou YAMNet donne « Clapping » aussi haut que de vrais
+    claps, mais la parole juste derriere : le seuil n'y peut rien, un ecart
+    de 5 points ecarte ces fausses detections sans perdre les claps."""
+    s = calibration._Session('vban', 'v1', 'vban_v1', 'VBAN: AtomSalon', True)
+    claps = [take('Clap', {'Clapping': 0.8, 'Speech': 0.2}, attacks=2, sustains=2, group='clap', expected=2)
+             for _ in range(4)]
+    fond = [take('fond', {'Clapping': 0.8, 'Speech': 0.78}, kind='fond') for _ in range(2)]
+    s.takes = claps + fond
+    for t in claps:
+        s.take_windows[id(t)] = [[('Clapping', 0.8), ('Speech', 0.2)], [('Silence', 0.9)]]
+    for t in fond:
+        s.take_windows[id(t)] = [[('Clapping', 0.8), ('Speech', 0.78)]]
+    monkeypatch.setattr(calibration, '_session', s)
+    clap = next(g for g in calibration.analyze()['groups'] if g['target'] == 'Clap')
+    # Seuil seul : monte a 0,86, plus aucun clap reconnu. Avec l'ecart : seuil
+    # sous 0,8, tous les claps, aucune fausse detection.
+    assert clap['margin'] == {'current': 0.0, 'proposed': 0.05}
+    assert clap['threshold']['proposed'] <= 0.8
+    assert clap['after'] == {'recall': 1.0, 'false_positive': 0.0, 'missed': 0, 'false_alarms': 0}
+    assert not any('déclencherait encore' in w for w in clap['warnings'])
+    r = calibration.apply()
+    assert not r['errors'] and any('écart 5 points' in a for a in r['applied'])
+    g = next(g for g in settings_dir.load_settings()['saved_vban_sources'][0]['sound_groups'] if g['slug'] == 'clap')
+    assert g['margin'] == 0.05
+
+
+def test_disabled_group_sounds_are_rivals(cal, settings_dir, monkeypatch):
+    """La parole cochee dans un groupe desactive reste un concurrent a la
+    detection : le fond (« Clapping » 0,8, parole 0,75) s'ecarte avec 10
+    points. Comptee a tort comme « prise », la parole disparaissait des
+    concurrents et aucun ecart n'etait propose."""
+    settings_dir.modify_settings(lambda st: st['saved_vban_sources'][0]['sound_groups'].append(
+        {'slug': 'voix', 'name': 'Voix', 'enabled': False, 'threshold': 0.5, 'ha_entities': [],
+         'sound_whitelist': {'Speech': True}}))
+    s = calibration._Session('vban', 'v1', 'vban_v1', 'VBAN: AtomSalon', True)
+    claps = [take('Clap', {'Clapping': 0.8}, attacks=2, group='clap', expected=2) for _ in range(3)]
+    fond = [take('fond', {'Clapping': 0.8, 'Speech': 0.75}, kind='fond') for _ in range(2)]
+    s.takes = claps + fond
+    for t in claps:
+        s.take_windows[id(t)] = [[('Clapping', 0.8), ('Speech', 0.2)]]
+    for t in fond:
+        s.take_windows[id(t)] = [[('Clapping', 0.8), ('Speech', 0.75), ('Music', 0.3)]]
+    groups = [{'target': 'Clap', 'group': 'clap', 'sounds': ['Clapping'], 'warnings': [], 'before': None, 'remove': [], 'add': [],
+               'threshold': {'current': 0.5, 'proposed': 0.5}, 'count_mode': {'proposed': 'attaques'}}]
+    by = {g['slug']: g for g in settings_dir.load_settings()['saved_vban_sources'][0]['sound_groups']}
+    calibration._margin_proposals(s, groups, by, set())
+    assert groups[0]['margin']['proposed'] == 0.1
+    assert groups[0]['after'] == {'recall': 1.0, 'false_positive': 0.0, 'missed': 0, 'false_alarms': 0}
+
+
+def test_no_margin_proposal_without_windows(cal, monkeypatch):
+    session_with_takes(monkeypatch)   # prises sans fenetres (tests, anciennes)
+    assert all('margin' not in g for g in calibration.analyze()['groups'])
+
+
+def test_margin_kept_when_threshold_already_separates(cal, settings_dir, monkeypatch):
+    """Le seuil suffit : il ne change pas, et l'ecart choisi par
+    l'utilisateur (10 points) est garde, pas remis a « Aucun »."""
+    settings_dir.modify_settings(lambda st: st['saved_vban_sources'][0]['sound_groups'][0].update(margin=0.1))
+    s = calibration._Session('vban', 'v1', 'vban_v1', 'VBAN: AtomSalon', True)
+    claps = [take('Clap', {'Clapping': 0.85}, attacks=2, group='clap', expected=2) for _ in range(3)]
+    fond = [take('fond', {'Speech': 0.7, 'Clapping': 0.2}, kind='fond') for _ in range(2)]
+    s.takes = claps + fond
+    for t in claps:
+        s.take_windows[id(t)] = [[('Clapping', 0.85), ('Speech', 0.1)]]
+    for t in fond:
+        s.take_windows[id(t)] = [[('Speech', 0.7), ('Clapping', 0.2)]]
+    monkeypatch.setattr(calibration, '_session', s)
+    clap = next(g for g in calibration.analyze()['groups'] if g['target'] == 'Clap')
+    assert clap['margin'] == {'current': 0.1, 'proposed': 0.1}
+
+
 def test_too_few_takes(cal, monkeypatch):
     s = session_with_takes(monkeypatch)
     s.takes = s.takes[:1]
