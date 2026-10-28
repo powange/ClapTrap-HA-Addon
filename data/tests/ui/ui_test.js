@@ -875,7 +875,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  diagnostic : analyses sautées et coupures sur la carte', !!diag && !diag.hidden &&
      /3 analyse\(s\) ou bloc\(s\) perdu\(s\)/.test(diag.textContent) && /2 coupure\(s\)/.test(diag.textContent));
   ok('+  performance : durée d\'analyse et reconnexions sur la carte', /Analyse : 4,2 ms en moyenne \(max 9,1 ms\)/.test(diag.textContent) && /1 reconnexion/.test(diag.textContent));
-  ok('+  performance : processeur et mémoire dans la barre d\'état', /processeur 12,5 %, 210 Mo/.test($('#status-detail').textContent));
+  ok('+  performance : processeur et mémoire dans la barre d\'état', /add-on : processeur 12,5 %, 210 Mo/.test($('#status-detail').textContent));
   status = { running: false, sources: [] }; await w.CT.reloadStatus(); w.CT.renderStatus(); await tick();
   ok('+  diagnostic : masqué détection arrêtée', diag.hidden);
   $('#tab-listen').click(); await tick(2);
