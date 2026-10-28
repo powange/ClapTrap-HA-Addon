@@ -66,7 +66,7 @@ ACTIONS = {
     'start_detection': 'Démarre la détection.',
     'stop_detection': 'Arrête la détection.',
     'add_rtsp': '{name, url, enabled?, rtsp_tcp?} : ajoute une caméra RTSP.',
-    'add_vban': '{name, ip, port?=6980, stream_name?, enabled?} : ajoute un flux VBAN.',
+    'add_vban': '{name, ip, port?(port d\'écoute de l\'add-on, informatif), stream_name?, enabled?} : ajoute un flux VBAN.',
     'add_microphone': '{device?: {name, index, pulse_name}, enabled?} : ajoute le micro.',
     'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
                      'rtsp_tcp?(caméra), peak_ratio?(1-50, null : réglage global)}.',
@@ -745,8 +745,8 @@ def execute(action, cmd):
     if action == 'add_rtsp':
         return _api_or_raise('POST', '/api/rtsp/stream', _pick(cmd, ('name', 'url', 'enabled', 'rtsp_tcp')))
     if action == 'add_vban':
+        # Sans port : celui d'ecoute de l'add-on (informatif), fixe par la route.
         body = _pick(cmd, ('name', 'ip', 'port', 'stream_name', 'enabled'))
-        body.setdefault('port', 6980)
         return _api_or_raise('POST', '/api/vban/save', body)
     if action == 'add_microphone':
         return _api_or_raise('POST', '/api/microphone', _pick(cmd, ('device', 'enabled')) or None)

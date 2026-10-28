@@ -82,7 +82,7 @@
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
             html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
-                '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(d.port || 6980)) +
+                '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(window.vbanPort || d.port || 6980)) +
                 ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p>' +
                 '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>' +
                 gainField(src, d.gain != null ? d.gain : 1, 100);

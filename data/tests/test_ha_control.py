@@ -348,6 +348,18 @@ def test_ambiguous_source_refused(ctl, mqtt):
     assert len(ctl.load_settings()['rtsp_sources']) == 1
 
 
+def test_add_vban_defaults_to_the_listening_port(ctl, mqtt, monkeypatch):
+    """Port d'un flux : informatif (un seul socket d'ecoute), par defaut celui
+    de l'option vban_port de l'add-on."""
+    import ha_entities
+    import vban_manager
+    monkeypatch.setattr(ha_entities, '_addon_options', lambda: {'vban_port': 6981})
+    monkeypatch.setattr(vban_manager, 'vban_detector', None)   # pas d'ecoute ouverte : l'option fait foi
+    command({'action': 'add_vban', 'name': 'Atom', 'ip': '2.2.2.3'})
+    assert result(mqtt)['success']
+    assert ctl.load_settings()['saved_vban_sources'][-1]['port'] == 6981
+
+
 def test_results_masked(ctl, mqtt):
     command({'action': 'add_rtsp', 'name': 'Garage', 'url': 'rtsp://admin:topsecret@h/g'})
     raw = last(mqtt, ha_control.RESULT_TOPIC)

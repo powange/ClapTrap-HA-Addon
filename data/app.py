@@ -13,7 +13,7 @@ from werkzeug.exceptions import HTTPException
 from flask_socketio import SocketIO
 
 from settings_manager import load_settings, DEFAULT_SETTINGS
-from vban_manager import init_vban_detector, cleanup_vban_detector
+from vban_manager import init_vban_detector, cleanup_vban_detector, listen_port
 from audio_utils import get_audio_input_devices
 import ha_control
 
@@ -235,6 +235,7 @@ def index():
                            # Valeurs par defaut du comptage : l'interface les recopiait en dur.
                            advanced_defaults={k: DEFAULT_SETTINGS['global'][k]
                                               for k in ('delay', 'peak_cooldown', 'peak_ratio')},
+                           vban_port=listen_port(),
                            ingress_path=request.script_root,
                            # Version dans le chemin des CSS/JS (servis « immutable ») :
                            # l'heure les faisait retelecharger a chaque ouverture.

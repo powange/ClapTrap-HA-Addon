@@ -24,6 +24,7 @@ services:
 options:
   mqtt_tls_verify: true
   mqtt_commands: true
+  vban_port: 6980
 schema:
   mqtt_host: str?
   mqtt_port: port?
@@ -32,6 +33,7 @@ schema:
   mqtt_tls: bool?
   mqtt_tls_verify: bool?
   mqtt_commands: bool?
+  vban_port: port?
 ingress: true
 ingress_port: 16045
 init: false

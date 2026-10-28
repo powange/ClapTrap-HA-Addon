@@ -10,7 +10,7 @@ from settings_manager import (load_settings, modify_settings, SettingsSaveError,
                               to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url,
                               MAX_NR_LEVEL, GLOBAL_LIMITS)
 from audio_utils import get_audio_input_devices
-from vban_manager import get_vban_detector
+from vban_manager import get_vban_detector, listen_port
 
 sources_bp = Blueprint('sources', __name__)
 _socketio = None
@@ -376,6 +376,8 @@ def delete_rtsp_stream(stream_id):
 @sources_bp.route('/api/vban/save', methods=['POST'])
 def save_vban_source():
     source = _json()
+    if 'port' not in source:   # informatif : port d'ecoute de l'add-on (un seul pour tous les flux)
+        source = dict(source, port=listen_port())
     if not all(field in source for field in ('name', 'ip', 'port')):
         raise ApiError('Données manquantes pour la source VBAN')
     name = to_name(source['name'])

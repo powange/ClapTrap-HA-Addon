@@ -43,7 +43,7 @@ def test_rtsp_add_duplicate_update_delete(client, settings_dir):
     assert settings_dir.load_settings()['rtsp_sources'] == []
 
 
-def test_vban_add_rename_and_delete_by_id(client, settings_dir):
+def test_vban_add_rename_and_delete_by_id(client, settings_dir, monkeypatch):
     assert client.post('/api/vban/save', json={'name': 'A', 'ip': '300.1.1.1', 'port': 6980}).status_code == 400
     r = client.post('/api/vban/save', json={'name': 'Bureau', 'ip': '10.0.0.5', 'port': 6980, 'stream_name': 'Stream1'})
     vid = r.json['source']['id']
@@ -53,6 +53,13 @@ def test_vban_add_rename_and_delete_by_id(client, settings_dir):
     v = settings_dir.load_settings()['saved_vban_sources'][0]
     assert (v['name'], v['stream_name']) == ('PC', 'Stream1')
     assert client.delete(f'/api/vban/{vid}').status_code == 200
+    import ha_entities
+    import vban_manager
+    monkeypatch.setattr(ha_entities, '_addon_options', lambda: {'vban_port': 6981})
+    monkeypatch.setattr(vban_manager, 'vban_detector', None)   # pas d'ecoute ouverte : l'option fait foi
+    # Sans port : celui de l'option vban_port (informatif, un seul socket d'ecoute)
+    r = client.post('/api/vban/save', json={'name': 'Atom', 'ip': '10.0.0.6', 'stream_name': 'Atom'})
+    assert r.status_code == 200 and r.json['source']['port'] == 6981
     assert client.delete(f'/api/vban/{vid}').status_code == 404
 
 

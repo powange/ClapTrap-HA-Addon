@@ -25,7 +25,7 @@ from audio_utils import BLOCK_SAMPLES, level_db
 from ha_entities import source_label, source_entity_key
 from settings_manager import load_settings
 from url_validator import mask_url_credentials
-from vban_manager import get_vban_detector
+from vban_manager import get_vban_detector, listen_port
 from webhook import send_webhook_async
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
@@ -708,10 +708,11 @@ class DetectionSession:
         sid = src['source_id']
         listener = get_vban_detector() if kind == 'vban' else None
         if kind == 'vban' and listener is None:
-            # Avant YAMNet (plusieurs secondes sur Pi pour rien) : port 6980
-            # occupe. La carte restait sur « Connexion… » sans explication.
+            # Avant YAMNet (plusieurs secondes sur Pi pour rien) : port
+            # d'ecoute occupe. La carte restait sur « Connexion… » sans explication.
+            port = listen_port()
             logging.error(f"VBAN: écoute UDP indisponible, source {src['label']} ignorée")
-            self._set_status(sid, 'error', "écoute VBAN indisponible (port UDP 6980 déjà utilisé ?)")
+            self._set_status(sid, 'error', f"écoute VBAN indisponible (port UDP {port} déjà utilisé ?)")
             return
         try:
             det = self._create_detector(src, runner['stop'])

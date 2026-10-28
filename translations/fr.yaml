@@ -27,3 +27,9 @@ configuration:
       Écouter le topic claptrap/command (ajout, modification, suppression de
       sources et de groupes). Décocher pour l'interdire ; les entités de
       réglage (seuil, activation, nom) restent utilisables.
+  vban_port:
+    name: Port d'écoute VBAN
+    description: >-
+      Port UDP sur lequel ClapTrap reçoit les flux VBAN (6980 par défaut).
+      À changer si un autre service écoute déjà ce port sur Home Assistant
+      (Wyoming VBAN par exemple), puis régler l'émetteur sur ce port.

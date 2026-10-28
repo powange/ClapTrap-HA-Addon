@@ -1,5 +1,23 @@
 # Changelog
 
+## 6.112.0
+
+### Port d'écoute VBAN configurable
+
+- Nouvelle option d'add-on **Port d'écoute VBAN** (`vban_port`, 6980 par
+  défaut). Elle permet de recevoir un flux sur un autre port quand
+  Wyoming VBAN occupe déjà le 6980 en unicast sur le même hôte. Exemple :
+  l'émetteur envoie une copie dédiée à ClapTrap sur le 6981. Redémarrez
+  l'add-on après un changement.
+- Les messages affichent le port réel (« écoute VBAN indisponible (port UDP
+  6981 déjà utilisé ?) », journal de l'add-on). La carte d'un flux VBAN et
+  l'assistant d'ajout montrent ce port.
+- Le port enregistré avec chaque flux reste informatif, car un seul port
+  d'écoute sert tous les flux. Il prend par défaut la valeur de l'option :
+  commande MQTT `add_vban`, `POST /api/vban/save` sans port, assistant.
+  Une valeur invalide dans l'option fait revenir au port 6980, avec un
+  avertissement dans le journal.
+
 ## 6.111.0
 
 ### Calibrages : un socle commun

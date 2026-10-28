@@ -4,6 +4,7 @@
     var CT = window.CT;
     var esc = CT.esc;
     var modal, body, release, created;
+    var VBAN_PORT = window.vbanPort || 6980;   // port d'ecoute de l'add-on (option vban_port)
     // Numero de session : une reponse arrivee apres la fermeture (ou une
     // reouverture) est ignoree. Fermer pendant l'ajout lancait sinon un test
     // dans la fenetre cachee, sans rafraichir la grille.
@@ -229,9 +230,13 @@
             '<div class="form-grid">' +
             '<label>Nom affiché<input class="input" id="wz-v-name" placeholder="Bureau"></label>' +
             '<label>Adresse IP<input class="input" id="wz-v-ip" placeholder="192.168.1.10 ou 239.255.0.1"></label>' +
-            '<label>Port<input class="input" id="wz-v-port" type="number" value="6980"></label>' +
+            // Un seul port d'ecoute pour tous les flux : option de l'add-on, pas par source.
+            '<label>Port d\'écoute<input class="input" id="wz-v-port" type="number" value="' + VBAN_PORT + '" readonly ' +
+            'aria-describedby="wz-v-port-hint"></label>' +
             '<label>Nom du flux<input class="input" id="wz-v-stream" placeholder="Stream1"></label>' +
-            '</div><button type="button" class="btn btn-ghost" id="wz-v-add">Ajouter ce flux</button></details>' +
+            '</div><p class="hint" id="wz-v-port-hint">Réglez l\'émetteur sur ce port. Pour en changer : option « Port d\'écoute VBAN » ' +
+            'de l\'add-on (onglet Configuration), puis redémarrage.</p>' +
+            '<button type="button" class="btn btn-ghost" id="wz-v-add">Ajouter ce flux</button></details>' +
             '<div class="modal-actions"><button type="button" class="btn btn-ghost" data-w="back">Retour</button></div>';
         body.querySelector('[data-w="back"]').addEventListener('click', stepType);
         CT.focusFirst(body);
@@ -239,7 +244,7 @@
         CT.$('#wz-v-add').addEventListener('click', function () {
             var name = CT.$('#wz-v-name').value.trim(), ip = CT.$('#wz-v-ip').value.trim();
             if (!name || !ip) { CT.error('Nom et adresse IP sont obligatoires.'); return; }
-            saveVban({name: name, ip: ip, port: parseInt(CT.$('#wz-v-port').value, 10) || 6980,
+            saveVban({name: name, ip: ip, port: VBAN_PORT,
                       stream_name: CT.$('#wz-v-stream').value.trim() || name, enabled: true});
         });
         refreshVban();
@@ -250,7 +255,7 @@
         CT.api('GET', '/refresh_vban_sources').then(function (d) {
             var sources = d.sources || [];
             if (!sources.length) {
-                list.innerHTML = '<p class="hint">Aucun flux VBAN détecté. Vérifiez que l\'émetteur diffuse vers l\'adresse de Home Assistant (port 6980), ou ajoutez-le à la main.</p>';
+                list.innerHTML = '<p class="hint">Aucun flux VBAN détecté. Vérifiez que l\'émetteur diffuse vers l\'adresse de Home Assistant (port ' + VBAN_PORT + '), ou ajoutez-le à la main.</p>';
                 return;
             }
             var saved = CT.state.settings.saved_vban_sources || [];
@@ -264,7 +269,7 @@
             CT.$$('.vban-item', list).forEach(function (b) {
                 b.addEventListener('click', function () {
                     var s = sources[parseInt(b.getAttribute('data-i'), 10)];
-                    saveVban({name: s.name, ip: s.ip, port: s.port || 6980, stream_name: s.name, enabled: true});
+                    saveVban({name: s.name, ip: s.ip, port: s.port || VBAN_PORT, stream_name: s.name, enabled: true});
                 });
             });
         }).catch(function () { list.innerHTML = '<p class="hint">Recherche impossible.</p>'; });

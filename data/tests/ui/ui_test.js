@@ -218,6 +218,7 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 13 : vban
   const vb = $$('.source-card').find(c => c.id.startsWith('src-vban'));
   ok('10. badge multicast VBAN', /multicast/.test(vb.textContent));
+  ok('10. port d\'écoute réel affiché sur la carte VBAN', /:6981/.test(vb.textContent));
   change(vb.querySelector('[data-field="gain"]'), '4'); await wait(650);   // enregistre 600 ms apres le dernier changement
   ok('13. gain VBAN (ip/nom)', lastCall('PATCH', /\/api\/sources\/vban\/vb-1$/)[2].gain === 4);
   vb.querySelector('[data-action="test"]').click(); await tick();
@@ -316,11 +317,13 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   $('#add-source').click(); await tick(); $('.choice[data-kind="vban"]').click(); await tick(3);
   ok('7. assistant VBAN : flux découverts', /PC2/.test($('#wz-vban-list').textContent));
   $('.vban-item').click(); await tick(5);
-  ok('7. assistant VBAN : ajout', lastCall('POST', '/api/vban/save')[2].name === 'PC2');
+  ok('7. assistant VBAN : ajout (port d\'écoute de l\'add-on, 6981)', lastCall('POST', '/api/vban/save')[2].name === 'PC2' &&
+     lastCall('POST', '/api/vban/save')[2].port === 6981);
   $('[data-w="done"]').click(); await tick(3);
   $('#add-source').click(); await tick(); $('.choice[data-kind="vban"]').click(); await tick(2);
   $('#wz-v-name').value = 'Manuel'; $('#wz-v-ip').value = '192.168.1.50'; $('#wz-v-add').click(); await tick(5);
-  ok('7. assistant VBAN : ajout manuel', lastCall('POST', '/api/vban/save')[2].ip === '192.168.1.50');
+  ok('7. assistant VBAN : ajout manuel, port 6981 par défaut', lastCall('POST', '/api/vban/save')[2].ip === '192.168.1.50' &&
+     lastCall('POST', '/api/vban/save')[2].port === 6981);
   d.querySelector('.modal').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick(2);
   ok('+  Échap ferme l\'assistant', $('#wizard').hidden);
   // Onglet reglages : 5, 6, 17

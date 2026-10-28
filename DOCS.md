@@ -66,8 +66,9 @@ Bouton **Ajouter une source**, puis :
   cause (mot de passe refusé, chemin introuvable, caméra injoignable, aucune
   piste audio…).
 - **Flux VBAN** : un PC qui diffuse du son avec Voicemeeter. Réglez
-  l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980 :
-  le flux apparaît alors dans la liste. Pour un flux multicast ou un émetteur
+  l'émetteur pour qu'il envoie vers l'adresse IP de Home Assistant, port 6980
+  (ou celui de l'option **Port d'écoute VBAN**, voir plus bas) : le flux
+  apparaît alors dans la liste. Pour un flux multicast ou un émetteur
   qui ne diffuse pas encore, utilisez **Ajouter à la main** (le nom du flux
   doit être celui configuré dans Voicemeeter).
   Le nom affiché d'une source VBAN se modifie dans ses réglages ; le nom du
@@ -466,7 +467,7 @@ data:
 | `help`, `get_settings` | liste des commandes ; réglages complets (secrets masqués) |
 | `start_detection`, `stop_detection` | — |
 | `add_rtsp` | `name`, `url`, `enabled`, `rtsp_tcp` (transport TCP, pour une caméra qui coupe en UDP) |
-| `add_vban` | `name`, `ip`, `port` (6980), `stream_name`, `enabled` |
+| `add_vban` | `name`, `ip`, `port` (informatif, par défaut le port d'écoute `vban_port`), `stream_name`, `enabled` |
 | `add_microphone` | `device`, `enabled` |
 | `update_source` | `source` + `name`, `url`, `enabled`, `gain`, `device`, `volume`, `auto_volume`, `rtsp_tcp` (caméra) ; pas `webhook_url` (interface seulement) |
 | `delete_source` | `source` |
@@ -721,6 +722,16 @@ Onglet **Configuration** de l'add-on (laisser vide pour utiliser Mosquitto) :
 | Connexion TLS (`mqtt_tls`) | chiffrer la connexion |
 | Vérifier le certificat (`mqtt_tls_verify`) | coché par défaut ; décocher seulement pour un certificat auto-signé |
 | Commandes MQTT (`mqtt_commands`) | coché par défaut ; décocher pour ignorer `claptrap/command` |
+| Port d'écoute VBAN (`vban_port`) | port UDP de réception des flux VBAN, 6980 par défaut |
+
+**Port d'écoute VBAN** : ClapTrap reçoit tous les flux VBAN sur un seul port
+UDP, 6980 par défaut. Si un autre service l'occupe déjà sur Home Assistant
+(Wyoming VBAN en unicast, par exemple), choisissez un autre port (6981) et
+réglez l'émetteur pour qu'il envoie une copie de son flux vers ce port. Les
+flux sont reconnus par l'adresse de l'émetteur et le nom du flux ; le port
+enregistré avec chaque source n'est qu'indicatif (il prend par défaut celui
+de l'option). Si le port est occupé, les cartes VBAN l'indiquent (« écoute
+VBAN indisponible (port UDP 6981 déjà utilisé ?) »).
 
 Redémarrez l'add-on après une modification. **L'intégration MQTT de Home
 Assistant doit être reliée au même broker** (Paramètres > Appareils et
@@ -847,7 +858,8 @@ AAC ou G.711 dans les réglages audio de la caméra si elle le permet, et
 signalez le codec dans une issue pour qu'il soit ajouté.
 
 **Un flux VBAN affiche « Aucun paquet reçu »** : vérifiez que l'émetteur
-diffuse vers l'IP de Home Assistant, port 6980, et que le nom du flux est
+diffuse vers l'IP de Home Assistant, sur le port d'écoute (6980, ou l'option
+`vban_port`), et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).
 
 **Écart avec les autres sons** (réglage de chaque groupe, « Aucun » par

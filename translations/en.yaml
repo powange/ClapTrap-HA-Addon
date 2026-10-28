@@ -27,3 +27,9 @@ configuration:
       Listen to the claptrap/command topic (adding, changing and deleting
       sources and groups). Uncheck to forbid it; the settings entities
       (threshold, enable, name) stay usable.
+  vban_port:
+    name: VBAN listening port
+    description: >-
+      UDP port on which ClapTrap receives VBAN streams (6980 by default).
+      Change it if another service already listens on that port on Home
+      Assistant (Wyoming VBAN for example), then set the sender to this port.
