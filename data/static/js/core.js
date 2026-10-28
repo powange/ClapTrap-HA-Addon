@@ -635,6 +635,30 @@
         pause.focus();
         return function () { stop(); if (pause.parentNode) pause.remove(); };
     };
+    // Groupe de sons d'une source : modification ou son coche/decoche, puis
+    // cartes, barre d'etat et reglages redessines (journal, apprentissage).
+    CT.updateGroup = function (src, slug, body) {
+        return CT.api('PUT', '/api/source/sound_groups', Object.assign({kind: src.kind, source_key: src.key, group_slug: slug}, body))
+            .then(function (d) { return CT.refresh().catch(function () {}).then(function () { return d; }); });
+    };
+    CT.setGroupSound = function (src, slug, label, on) {
+        return CT.api('PUT', '/api/source/sound_whitelist', {kind: src.kind, source_key: src.key, group_slug: slug,
+                                                             label: label, enabled: on})
+            .then(function (d) { return CT.refresh().catch(function () {}).then(function () { return d; }); });
+    };
+
+    // Trois calibrages : lequel lancer et dans quel ordre (rappele dans chacun,
+    // celui en cours en gras).
+    CT.calibrationOrder = function (current) {
+        var steps = [['source', 'chaque source (menu ⋯ de la carte) : sons, seuils, gain'],
+                     ['count', 'le comptage (Réglages) : facultatif, si des claps sont mal comptés'],
+                     ['rooms', 'l\'arbitrage (Réglages) : seulement avec plusieurs pièces']];
+        return '<p class="hint cal-order">Ordre conseillé : ' + steps.map(function (st, i) {
+            var text = (i + 1) + '. calibrer ' + st[1];
+            return st[0] === current ? '<strong>' + text + '</strong>' : text;
+        }).join(' ; ') + '.</p>';
+    };
+
     // Fenetre a prises (calibrages, apprentissage) : fermer apres au moins une
     // prise demande confirmation (× , Echap, Annuler effacaient tout).
     // `what` : [singulier, pluriel] (« prise », « prises »).

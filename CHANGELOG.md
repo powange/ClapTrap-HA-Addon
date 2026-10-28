@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.120.0
+
+### Interface plus claire
+
+- **« Zones »** remplace « Groupes de sources » dans « Plusieurs pièces »
+  (ajouter, renommer, supprimer une zone ; libellés distincts pour les
+  lecteurs d'écran). On ne les confond plus avec les groupes de sons d'une
+  source. Une zone sans nom s'appelle « Zone N ». L'API ne change pas
+  (`room_zones`, `zones`).
+- **Journal** : les « presque » proposent la correction en un clic, selon
+  la cause : **Baisser le seuil à … %** (son reconnu sous le seuil),
+  **Cocher « … » dans le groupe** (son concurrent trop proche), et toujours
+  **Ouvrir les réglages du groupe**. Le seuil proposé est vérifié au moment
+  du clic : un bouton ne remonte jamais un seuil déjà baissé, et une baisse
+  de plus de 10 points demande confirmation (un seul geste ambigu ne divise
+  plus le seuil par deux).
+- **Apprendre un son** : une fois le son enregistré, l'assistant propose de
+  le cocher tout de suite dans un groupe de la source écoutée, au lieu
+  d'un simple message.
+- **Calibrages** : chacun rappelle l'ordre conseillé (1. chaque source,
+  2. le comptage si besoin, 3. l'arbitrage avec plusieurs pièces), celui
+  en cours en gras. Le menu de la carte dit « Calibrer cette source… ».
+- **Cartes** : la durée d'analyse n'est plus affichée en permanence,
+  seulement quand elle devient lente (processeur chargé). Les chiffres
+  complets restent dans Home Assistant (capteurs de diagnostic).
+
 ## 6.119.0
 
 ### Qualité du code et CI

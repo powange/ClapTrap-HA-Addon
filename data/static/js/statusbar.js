@@ -347,7 +347,73 @@
             '<span class="history-main"><span class="pill log-kind">Presque</span><strong>' + CT.esc(m.group || '') + '</strong> · ' +
             CT.esc(m.source_name || sourceNameFor(m.source_id)) +
             '<span class="history-labels">' + t[0] + '</span><span class="history-labels near-hint">' + t[1] + '</span></span>';
+        var acts = nearActions(m);
+        if (acts.length) {
+            var box = document.createElement('span');
+            box.className = 'near-actions';
+            acts.forEach(function (a) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'btn-link';
+                b.textContent = a.text;
+                b.addEventListener('click', function () { a.run(b); });
+                box.appendChild(b);
+            });
+            li.querySelector('.history-main').appendChild(box);
+        }
         return li;
+    }
+    // « Presque » : la piste de reglage en un clic (seuil, son concurrent),
+    // sinon les reglages du groupe. Source et groupe encore presents.
+    function nearActions(m) {
+        var src = CT.findSource(function (s) { return s.sourceId === m.source_id; });
+        var groupOf = function () {   // etat courant (un autre bouton a pu le changer)
+            var cur = CT.findSource(function (s) { return s.sourceId === m.source_id; });
+            return cur && (cur.data.sound_groups || []).filter(function (g) { return g && g.slug === m.slug; })[0];
+        };
+        if (!src || !m.slug || !groupOf()) return [];
+        var done = function (btn, msg) { btn.textContent = '✓ ' + btn.textContent; CT.success(msg); };
+        var failed = function (btn) { return function (err) { btn.disabled = false; CT.error('Réglage refusé : ' + err.message); }; };
+        var acts = [];
+        if (m.kind === 'low_score' && m.score != null) {
+            // Juste sous le score de ce geste (arrondi, pas d'erreur de flottant).
+            var target = Math.max(0.05, (Math.round(m.score * 100) - 1) / 100);
+            if (target < m.score) {
+                acts.push({text: 'Baisser le seuil à ' + CT.pct(target), run: function (btn) {
+                    var g = groupOf();
+                    var cur = g && g.threshold != null ? g.threshold : (m.threshold != null ? m.threshold : 0.5);
+                    if (!g || target >= cur) {   // deja plus bas (autre correction) : rien a baisser
+                        btn.disabled = true;
+                        CT.toast('Le seuil du groupe est déjà à ' + CT.pct(cur) + ' ou moins.');
+                        return;
+                    }
+                    var apply = function () {
+                        btn.disabled = true;
+                        CT.updateGroup(src, m.slug, {threshold: target})
+                            .then(function () { done(btn, 'Seuil du groupe « ' + g.name + ' » : ' + CT.pct(target)); })
+                            .catch(failed(btn));
+                    };
+                    // Forte baisse sur un seul geste (porte, choc) : confirmer.
+                    if (cur - target > 0.1) {
+                        CT.dialog('Baisser le seuil de « ' + g.name + ' » de ' + CT.pct(cur) + ' à ' + CT.pct(target) +
+                                  ' ? Tous les sons du groupe déclencheront plus facilement (risque de fausses détections).',
+                                  {okLabel: 'Baisser'}).then(function (ok) { if (ok) apply(); });
+                    } else {
+                        apply();
+                    }
+                }});
+            }
+        }
+        if (m.kind === 'margin' && m.rival && !(groupOf().sound_whitelist || {})[m.rival]) {
+            acts.push({text: 'Cocher « ' + CT.soundLabel(m.rival) + ' » dans le groupe', run: function (btn) {
+                btn.disabled = true;
+                CT.setGroupSound(src, m.slug, m.rival, true)
+                    .then(function () { done(btn, '« ' + CT.soundLabel(m.rival) + ' » coché dans « ' + groupOf().name + ' »'); })
+                    .catch(failed(btn));
+            }});
+        }
+        acts.push({text: 'Ouvrir les réglages du groupe', run: function () { CT.openSourceSettings(src.domId, m.slug); }});
+        return acts;
     }
 
     // ---- Journal : detections et « presque », filtres par type et source -------

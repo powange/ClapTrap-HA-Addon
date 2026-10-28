@@ -299,6 +299,7 @@
             '<p class="hint">Sons reconnus sur cet extrait' + legend + '</p>' + timeline(d.timeline) + '</div>';
     }
 
+    var SLOW_ANALYSIS_MS = 300;   // analyse YAMNet lente : signalee sur la carte
     function field(label, control, forId) {
         return '<div class="field"><label class="field-label"' + (forId ? ' for="' + forId + '"' : '') + '>' + label + '</label>' + control + '</div>';
     }
@@ -326,7 +327,7 @@
                 '<div class="menu-list" role="menu" hidden>' +
                     '<button type="button" role="menuitem" data-action="test">Tester le son</button>' +
                     '<button type="button" role="menuitem" data-action="open-settings">Réglages de la source</button>' +
-                    '<button type="button" role="menuitem" data-action="calibrate">Calibrer…</button>' +
+                    '<button type="button" role="menuitem" data-action="calibrate">Calibrer cette source…</button>' +
                     '<button type="button" role="menuitem" class="danger" data-action="delete">Supprimer…</button>' +
                 '</div></div>' +
             '</header>' +
@@ -446,12 +447,12 @@
                 // trop charge) et coupures du flux, seulement s'il y en a.
                 var ds = CT.state.status.running ? ((CT.state.status.source_stats || {})[src.sourceId] || {}) : {};
                 var parts = [];
-                // Duree d'analyse YAMNet (performance) : toujours visible pendant
-                // la detection, le reste seulement s'il y a eu un probleme.
-                if (ds.analyse_ms != null) parts.push('Analyse : ' + String(ds.analyse_ms).replace('.', ',') + ' ms en moyenne' +
-                    (ds.analyse_max_ms != null ? ' (max ' + String(ds.analyse_max_ms).replace('.', ',') + ' ms)' : '') +
-                    (ds.analyses_centrees ? ' · ' + ds.analyses_centrees + ' analyse(s) centrée(s) sur un clap' +
-                        (ds.analyses ? ' sur ' + ds.analyses + ' depuis le démarrage' : '') : ''));
+                // Problemes seulement : la duree d'analyse ne s'affiche que si
+                // elle approche le rythme des analyses (0,5 s) ; les chiffres
+                // complets restent dans Home Assistant (capteurs de diagnostic).
+                if (ds.analyse_ms != null && ds.analyse_ms >= SLOW_ANALYSIS_MS) {
+                    parts.push('Analyse lente : ' + String(ds.analyse_ms).replace('.', ',') + ' ms en moyenne (processeur chargé)');
+                }
                 var late = (ds.analyses_sautees || 0) + (ds.blocs_perdus || 0);
                 if (late) parts.push(late + ' analyse(s) ou bloc(s) perdu(s) : processeur trop chargé');
                 if (ds.coupures) parts.push(ds.coupures + ' coupure(s) du flux depuis le démarrage');

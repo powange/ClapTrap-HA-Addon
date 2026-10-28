@@ -52,7 +52,7 @@
         body.innerHTML =
             '<p>Vous allez jouer plusieurs fois chaque bruit à reconnaître, puis le bruit de fond normal de la pièce. ' +
             'ClapTrap en déduit le gain de la source et, pour chaque groupe, les sons à cocher, le seuil et le mode de comptage. ' +
-            'Pendant le calibrage, la source ne déclenche rien.</p>' +
+            'Pendant le calibrage, la source ne déclenche rien.</p>' + CT.calibrationOrder('source') +
             '<fieldset class="field"><legend class="field-label">Bruits à calibrer</legend>' +
             groups.map(function (g) {
                 var n = (g.ha_entities && g.ha_entities.length) ? Math.min.apply(null, g.ha_entities) : 1;

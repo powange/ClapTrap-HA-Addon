@@ -88,8 +88,8 @@ def start(zone=None):
         groups = candidates(settings)
         group = next((g for g in groups if zone is None or (g['zone'] or '').casefold() == str(zone).casefold()), None)
         if group is None:
-            raise calibration.CalibrationError('aucun groupe d\'au moins deux sources actives' if not groups
-                                               else f'groupe « {zone} » introuvable ou avec moins de deux sources actives')
+            raise calibration.CalibrationError('il faut au moins deux sources actives (dans une même zone)' if not groups
+                                               else f'zone « {zone} » introuvable ou avec moins de deux sources actives')
         if _session is not None:
             _finish(_session)
         calibration.stop_quietly()   # un calibrage a la fois (sourdines)

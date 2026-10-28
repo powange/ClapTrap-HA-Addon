@@ -168,7 +168,7 @@ groupe, sur aucune source.
 
 ## Calibrer une source
 
-Menu **⋯** de la carte › **Calibrer…** : un assistant règle la source à partir
+Menu **⋯** de la carte › **Calibrer cette source…** : un assistant règle la source à partir
 de vos propres bruits.
 
 1. Cochez les groupes à calibrer, ou saisissez le nom d'un nouveau bruit
@@ -222,8 +222,10 @@ bip du lave-linge, le carillon de la porte), **Apprendre un son…** l'apprend
 4. **Enregistrer le son** : il apparaît comme un son de plus, **« Appris :
    <nom> »**, à cocher dans un groupe comme n'importe quel son (seuil conseillé
    50 à 60 %, comptage, mode alerte, sons ignorés), sur toutes les sources.
-   Si vous changez ensuite la réduction du bruit de fond de la source,
-   apprenez le son à nouveau.
+   L'assistant propose aussitôt de le cocher dans un groupe de la source
+   écoutée (**Cocher dans ce groupe**, ou **Plus tard**). Si vous changez
+   ensuite la réduction du bruit de fond de la source, apprenez le son à
+   nouveau.
 
 **Réapprendre** (à côté de chaque son appris) refait les prises (bruit de
 fond et exemples) sans supprimer le son. Le nom ne change pas, donc les
@@ -603,13 +605,14 @@ son propre bruit de fond, déclenche ses entités ; les autres sont notées
 de retard sur un micro : allongez l'attente si un clap se déclenche encore
 deux fois. Les alertes ne sont pas concernées.
 
-**Groupes de sources** : sans groupe, toutes les sources se départagent
-entre elles. Avec **Ajouter un groupe**, vous réunissez les sources qui
-peuvent entendre le même geste (par exemple le micro et la caméra du salon,
-ou deux caméras d'un même étage). Seules les sources d'un même groupe se
-départagent, et une source n'appartient qu'à un groupe. Une source hors de
-tout groupe déclenche toujours, sans attente. Elle garde aussi la décision
-rapide d'un groupe « 1 clap ». Commande MQTT : `set_rooms` avec
+**Zones** (groupes de sources, à ne pas confondre avec les groupes de sons
+d'une source) : sans zone, toutes les sources se départagent entre elles.
+Avec **Ajouter une zone**, vous réunissez les sources qui peuvent entendre
+le même geste (par exemple le micro et la caméra du salon, ou deux caméras
+d'un même étage). Seules les sources d'une même zone se départagent, et une
+source n'appartient qu'à une zone. Une source hors de toute zone déclenche
+toujours, sans attente. Elle garde aussi la décision rapide d'un groupe
+« 1 clap ». Commande MQTT : `set_rooms` avec
 `zones: [{name, sources: [source_id]}]`.
 
 **Correction par source** : la force d'un clap se mesure par rapport au
@@ -620,7 +623,7 @@ gagne à tort. La correction multiplie la force des claps de cette source
 dans l'arbitrage. Elle se règle à la main pour chaque source, ou avec
 **Calibrer l'arbitrage…** :
 
-1. Choisissez les sources à départager (un groupe, ou toutes sans groupe).
+1. Choisissez les sources à départager (une zone, ou toutes sans zone).
 2. Pour chaque source, deux fois : placez-vous dans sa pièce, cliquez sur
    **Enregistrer** et faites 3 claps. Toutes les sources écoutent en même
    temps et ne déclenchent rien pendant le calibrage. Une prise où la source
@@ -904,8 +907,9 @@ reconnu (essai avec le vrai modèle : un bip noté 0,59 au bord et 0,89 au
 centre). À chaque nouveau pic, ClapTrap ajoute donc une analyse dont la
 fenêtre est centrée sur le pic, au plus une toutes les 0,4 s. Si le
 processeur est en retard, elle est sautée sans faire sauter une analyse
-régulière. Leur nombre s'affiche avec la durée des analyses sur la carte de
-la source.
+régulière. La durée des analyses est publiée dans Home Assistant (capteur
+« Durée d'analyse » de la source) ; la carte la signale quand elle devient
+lente (processeur chargé).
 
 **Journal** (onglet Écoute) : les détections et les gestes qui ont failli
 déclencher sont réunis dans une seule liste, dans l'ordre des gestes, du
@@ -921,7 +925,9 @@ possible sur les détections d'avant. Un fichier illisible est mis de côté
 
 **Comprendre un clap raté** : le filtre **Presque déclenchés** du journal
 liste les gestes qui ont failli déclencher. Chacun est donné avec sa raison
-et une piste de réglage :
+et une piste de réglage, souvent applicable en un clic (**Baisser le seuil
+à … %**, **Cocher « … » dans le groupe**, **Ouvrir les réglages du
+groupe**) :
 - **pic de clap sans son reconnu**, avec le meilleur score du groupe et son
   seuil → baisser le seuil, ou cocher le son que YAMNet entend ;
 - **son reconnu sans pic assez fort**, avec la force mesurée et le minimum
