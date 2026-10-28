@@ -332,6 +332,24 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // Onglet reglages : 5, 6, 17
   $('#tab-settings').click(); await tick(3);
   ok('5. réglages avancés affichés', $('#adv-delay').value !== '' && !$('#panel-settings').hidden);
+  const settingsTips = ['adv-delay-tip', 'adv-cooldown-tip', 'adv-ratio-tip', 'shape-tip', 'count-calibrate-tip',
+                        'rooms-window-tip', 'rooms-zones-tip', 'rooms-weights-tip', 'ha-cleanup-tip'];
+  const visibleHints = [...$('#panel-settings').querySelectorAll('.hint')].map(h => h.textContent).join(' ');
+  ok('5. réglages : explications des options en infobulles', settingsTips.every(id => {
+       const t = d.getElementById(id), b = t && t.parentNode.querySelector('.info-tip-btn');
+       return t && t.getAttribute('role') === 'tooltip' && b && b.getAttribute('aria-describedby') === id && t.textContent.trim().length > 20;
+     }) && !/Durée pendant laquelle|Filtre les rebonds|plus fort que le bruit ambiant|bref et aigu|Mesure votre bruit de fond|Plus long = plus fiable|Sans groupe, toutes les sources|multiplie la force|Retire les entités ClapTrap/.test(visibleHints) &&
+     ['adv-delay', 'adv-cooldown', 'adv-ratio', 'rooms-window', 'ha-cleanup'].every(id => $('#' + id).getAttribute('aria-describedby') === id + '-tip') &&
+     $('#shape-toggle').getAttribute('aria-describedby') === 'shape-tip' &&
+     /sauvegarde complète/.test(visibleHints));   // avertissement d'Exporter : reste visible
+  d.querySelector('#adv-delay-tip').parentNode.querySelector('.info-tip-btn').click(); await tick();
+  ok('5. réglages : infobulle ouverte au toucher (script commun)', d.getElementById('adv-delay-tip').parentNode.classList.contains('is-open'));
+  d.body.click(); await tick();
+  const shapeBefore = $('#shape-toggle').checked;
+  d.getElementById('shape-tip').parentNode.querySelector('.info-tip-btn').click(); await tick();
+  ok('5. réglages : l\'icône de « Vérifier la forme des claps » n\'actionne pas l\'interrupteur', $('#shape-toggle').checked === shapeBefore &&
+     d.getElementById('shape-tip').parentNode.classList.contains('is-open'));
+  d.body.click(); await tick();
   change($('#adv-ratio'), '4'); await tick();
   ok('5. réglage avancé enregistré', lastCall('PUT', '/api/settings/advanced')[2].peak_ratio === 4);
   const advPuts = calls.filter(c => c[1] === '/api/settings/advanced').length;

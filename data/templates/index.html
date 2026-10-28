@@ -1,3 +1,7 @@
+{#- Icone d'information : MEME balisage que CT.infoTip (core.js : a modifier ensemble), texte du bloc appelant. -#}
+{%- macro info_tip(id, label) -%}
+<span class="info-tip"><button type="button" class="info-tip-btn" aria-label="{{ label }}" aria-describedby="{{ id }}" aria-expanded="false">i</button><span class="info-tip-text" role="tooltip" id="{{ id }}">{{ caller() }}</span></span>
+{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -144,29 +148,29 @@
                     <div class="form-grid">
                         <div class="field">
                             <label class="field-label" for="adv-delay">Fenêtre multi-clap (s)</label>
-                            <input class="input" type="number" id="adv-delay" min="0.1" max="10" step="0.1" required>
-                            <p class="hint">Durée pendant laquelle les claps consécutifs sont comptés ensemble : 3 claps en 1,5 s = « 3 claps ».</p>
+                            <div class="with-tip"><input class="input" type="number" id="adv-delay" min="0.1" max="10" step="0.1" required aria-describedby="adv-delay-tip">
+                                {%- call info_tip('adv-delay-tip', 'Explication de la fenêtre multi-clap') %}Durée pendant laquelle les claps consécutifs sont comptés ensemble : 3 claps en 1,5 s = « 3 claps ».{% endcall %}</div>
                         </div>
                         <div class="field">
                             <label class="field-label" for="adv-cooldown">Écart minimal entre deux claps (s)</label>
-                            <input class="input" type="number" id="adv-cooldown" min="0" max="2" step="0.01" required>
-                            <p class="hint">Filtre les rebonds d'un même clap. Baissez-le si des claps rapides ne sont pas comptés.</p>
+                            <div class="with-tip"><input class="input" type="number" id="adv-cooldown" min="0" max="2" step="0.01" required aria-describedby="adv-cooldown-tip">
+                                {%- call info_tip('adv-cooldown-tip', 'Explication de l\'écart minimal entre deux claps') %}Filtre les rebonds d'un même clap. Baissez-le si des claps rapides ne sont pas comptés.{% endcall %}</div>
                         </div>
                         <div class="field">
                             <label class="field-label" for="adv-ratio">Force minimale d'un clap (× bruit ambiant)</label>
-                            <input class="input" type="number" id="adv-ratio" min="1" max="50" step="0.5" required>
-                            <p class="hint">Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs.</p>
+                            <div class="with-tip"><input class="input" type="number" id="adv-ratio" min="1" max="50" step="0.5" required aria-describedby="adv-ratio-tip">
+                                {%- call info_tip('adv-ratio-tip', 'Explication de la force minimale d\'un clap') %}Un clap n'est compté que s'il est ce nombre de fois plus fort que le bruit ambiant. Baissez pour un micro faible, montez contre les faux positifs.{% endcall %}</div>
                         </div>
                     </div>
-                    <label class="switch-inline"><input type="checkbox" role="switch" id="shape-toggle"> Vérifier la forme des claps</label>
-                    <p class="hint">Pour les groupes qui ne cochent que des sons de clap (applaudissement, mains, claquement de doigts) :
+                    <div class="with-tip"><label class="switch-inline"><input type="checkbox" role="switch" id="shape-toggle" aria-describedby="shape-tip"> Vérifier la forme des claps</label>
+                        {%- call info_tip('shape-tip', 'Explication de la vérification de la forme des claps') %}Pour les groupes qui ne cochent que des sons de clap (applaudissement, mains, claquement de doigts) :
                        un pic n'est compté que s'il est bref et aigu comme un clap. Une porte, un coup sourd ou une voix ne comptent
-                       plus. Les pics écartés apparaissent dans « Presque déclenchés ».</p>
+                       plus. Les pics écartés apparaissent dans le journal (filtre « Presque déclenchés »).{% endcall %}</div>
                     <div class="button-row">
-                        <button type="button" class="btn btn-primary" id="count-calibrate">Calibrer le comptage…</button>
+                        <div class="with-tip"><button type="button" class="btn btn-primary" id="count-calibrate" aria-describedby="count-calibrate-tip">Calibrer le comptage…</button>
+                            {%- call info_tip('count-calibrate-tip', 'Explication du calibrage du comptage') %}Mesure votre bruit de fond, la force de vos claps et la durée de vos gestes, puis propose ces trois réglages.{% endcall %}</div>
                         <button type="button" class="btn btn-ghost" id="adv-defaults">Rétablir les valeurs par défaut</button>
                     </div>
-                    <p class="hint">« Calibrer le comptage » mesure votre bruit de fond, la force de vos claps et la durée de vos gestes, puis propose ces trois réglages.</p>
                 </section>
 
                 <section class="card" id="rooms" aria-labelledby="rooms-title">
@@ -177,24 +181,24 @@
                     <label class="switch-inline"><input type="checkbox" role="switch" id="rooms-toggle"> Seule la source la plus proche déclenche</label>
                     <div class="field">
                         <label class="field-label" for="rooms-window">Attente avant de choisir (s)</label>
-                        <input class="input" type="number" id="rooms-window" min="0.3" max="3" step="0.1">
-                        <p class="hint">Les claps attendent ce temps que les autres sources les entendent : une caméra a souvent
-                           1 à 2 s de retard sur un micro. Plus long = plus fiable, mais réaction plus lente.</p>
+                        <div class="with-tip"><input class="input" type="number" id="rooms-window" min="0.3" max="3" step="0.1" aria-describedby="rooms-window-tip">
+                            {%- call info_tip('rooms-window-tip', 'Explication de l\'attente avant de choisir') %}Les claps attendent ce temps que les autres sources les entendent : une caméra a souvent
+                           1 à 2 s de retard sur un micro. Plus long = plus fiable, mais réaction plus lente.{% endcall %}</div>
                     </div>
                     <div class="field" id="rooms-zones-field">
-                        <h3 class="field-label">Groupes de sources</h3>
-                        <p class="hint">Sans groupe, toutes les sources se départagent entre elles. Avec des groupes, seules les
+                        <div class="with-tip"><h3 class="field-label">Groupes de sources</h3>
+                            {%- call info_tip('rooms-zones-tip', 'Explication des groupes de sources') %}Sans groupe, toutes les sources se départagent entre elles. Avec des groupes, seules les
                            sources d'un même groupe se départagent (par exemple le micro et la caméra du salon) ; une source hors
-                           de tout groupe déclenche toujours.</p>
+                           de tout groupe déclenche toujours.{% endcall %}</div>
                         <div class="zones" id="rooms-zones"></div>
                         <button type="button" class="btn btn-ghost" id="rooms-zone-add">Ajouter un groupe</button>
                     </div>
                     <div class="field" id="rooms-weights-field">
-                        <h3 class="field-label">Correction par source</h3>
-                        <p class="hint">La force d'un clap se mesure par rapport au bruit de fond de chaque source. Une caméra
+                        <div class="with-tip"><h3 class="field-label">Correction par source</h3>
+                            {%- call info_tip('rooms-weights-tip', 'Explication de la correction par source') %}La force d'un clap se mesure par rapport au bruit de fond de chaque source. Une caméra
                            qui réduit elle-même son bruit entend alors le clap d'une autre pièce comme s'il était tout proche,
                            et gagne à tort. La correction multiplie la force de ses claps (× 0,3 : trois fois moins fort).
-                           « Calibrer l'arbitrage » la mesure pour vous.</p>
+                           « Calibrer l'arbitrage » la mesure pour vous.{% endcall %}</div>
                         <div class="weights" id="rooms-weights"></div>
                         <button type="button" class="btn btn-primary" id="room-calibrate">Calibrer l'arbitrage…</button>
                     </div>
@@ -223,8 +227,8 @@
                     <p class="hint">Chaque groupe de sons crée des entités <code>binary_sensor.claptrap_…</code> (appareil « ClapTrap »),
                        qui passent à « activé » pendant 2 s à chaque détection. Elles sont « indisponibles » tant que leur source n'écoute
                        pas (détection arrêtée, source désactivée, flux absent). L'événement <code>claptrap_clap</code> est aussi émis.</p>
-                    <button type="button" class="btn btn-ghost" id="ha-cleanup">Supprimer les entités orphelines</button>
-                    <p class="hint">Retire les entités ClapTrap qui ne correspondent plus à aucune source.</p>
+                    <div class="with-tip with-tip-fill"><button type="button" class="btn btn-ghost" id="ha-cleanup" aria-describedby="ha-cleanup-tip">Supprimer les entités orphelines</button>
+                        {%- call info_tip('ha-cleanup-tip', 'Explication de la suppression des entités orphelines') %}Retire les entités ClapTrap qui ne correspondent plus à aucune source.{% endcall %}</div>
                 </section>
 
                 <section class="card" aria-labelledby="cfg-title">

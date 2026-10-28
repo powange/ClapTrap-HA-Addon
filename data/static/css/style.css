@@ -561,7 +561,8 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 /* Icone d'information (CT.infoTip) : texte au survol, au focus et au toucher. */
 .with-tip { display: flex; align-items: center; gap: 2px; }
 .with-tip > .input { flex: 1 1 auto; min-width: 0; }
-.with-tip > label { min-width: 0; }   /* texte et menu se resserrent sur un ecran etroit */
+.with-tip > label { min-width: 0; }
+.with-tip-fill > .btn { flex: 1 1 auto; }   /* bouton de carte pleine largeur, icone a cote */   /* texte et menu se resserrent sur un ecran etroit */
 .info-tip { position: relative; display: inline-flex; flex: none; align-items: center; margin-left: 4px; }
 .info-tip-btn {
     position: relative;   /* cercle (::before) centre sur la lettre */
@@ -591,6 +592,7 @@ details.field[open] > summary::before { transform: rotate(90deg); }
 @media (pointer: coarse) {
     .chip, .check, .btn-link, .chip-remove, .toast-close, .switch-inline { min-height: 44px; }
     .chip-remove, .toast-close { min-width: 44px; }
+    .info-tip-btn { width: 44px; height: 44px; }   /* icone d'information : cible tactile, cercle inchange */
 }
 
 /* Requete en cours (bouton de detection, interrupteur d'une source) :

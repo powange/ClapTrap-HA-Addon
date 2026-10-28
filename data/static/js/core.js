@@ -635,10 +635,10 @@
     }
     // Echap masque aussi une bulle affichee au survol ou au focus, jusqu'a
     // ce que la souris ou le focus en sorte.
+    var hoveredTip = null;   // suivi par mouseover / mouseleave (pas de recherche a chaque defilement)
     function shownTip() {
         var a = document.activeElement;
-        return (a && a.classList && a.classList.contains('info-tip-btn') ? a.parentNode : null) ||
-            CT.$$('.info-tip').filter(function (t) { return t.matches(':hover'); })[0] || null;
+        return (a && a.classList && a.classList.contains('info-tip-btn') ? a.parentNode : null) || hoveredTip;
     }
     // Bulle au-dessus de l'icone (en dessous faute de place), alignee sur
     // elle puis ramenee dans l'ecran (barre de defilement exclue).
@@ -664,13 +664,19 @@
     ['mouseover', 'focusin'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
             var t = e.target.closest && e.target.closest('.info-tip');
-            if (t && !t.contains(e.relatedTarget)) placeTip(t);
+            if (t && !t.contains(e.relatedTarget)) {
+                if (ev === 'mouseover') hoveredTip = t;
+                placeTip(t);
+            }
         }, true);
     });
     ['mouseleave', 'focusout'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
             var t = e.target.closest && e.target.closest('.info-tip');
-            if (t && !t.contains(e.relatedTarget)) t.classList.remove('is-dismissed');
+            if (t && !t.contains(e.relatedTarget)) {
+                t.classList.remove('is-dismissed');
+                if (ev === 'mouseleave' && hoveredTip === t) hoveredTip = null;
+            }
         }, true);
     });
     document.addEventListener('click', function (e) {

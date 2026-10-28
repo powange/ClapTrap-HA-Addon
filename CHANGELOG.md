@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.115.0
+
+### Onglet Réglages : explications en infobulles
+
+- Les textes d'explication des options de l'onglet Réglages passent dans
+  une icône d'information placée à côté de chaque option : fenêtre
+  multi-clap, écart minimal entre deux claps, force minimale d'un clap,
+  vérification de la forme des claps, calibrage du comptage, attente avant
+  de choisir, groupes de sources, correction par source et suppression des
+  entités orphelines.
+- Restent visibles : l'introduction de chaque section, qui ne se rattache à
+  aucune option, et l'avertissement d'« Exporter » (la sauvegarde contient
+  les mots de passe des caméras).
+
 ## 6.114.1
 
 ### Icônes d'information mieux placées
