@@ -455,7 +455,9 @@
         var sel = null;
         // Reperes stables uniquement (data-*, id) : la premiere classe CSS
         // (« .input ») designait parfois un autre champ du groupe.
-        ['data-role', 'data-field', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
+        // data-tab avant data-action : les entrees du menu des reglages ont
+        // toutes data-action="settings-tab".
+        ['data-role', 'data-field', 'data-tab', 'data-action', 'data-copy', 'data-label', 'data-clap', 'data-group-action'].some(function (attr) {
             if (a.hasAttribute(attr)) { sel = '[' + attr + '="' + CT.cssEscape(a.getAttribute(attr)) + '"]'; return true; }
             return false;
         });
