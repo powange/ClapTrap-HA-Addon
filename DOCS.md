@@ -100,6 +100,22 @@ Sur chaque carte, l'état de la source est affiché : « À l'écoute »,
 « Connectée », « Flux perdu, reconnexion… », « Aucun paquet reçu » (VBAN :
 rien reçu depuis 10 s)…
 
+**Réglages de la source** (bouton sur la carte) : une fenêtre large, avec un
+menu des rubriques à gauche (en onglets défilants en haut sur téléphone). Le
+niveau sonore reste visible en haut de toutes les rubriques.
+- **Connexion** : nom, adresse du flux et transport TCP (caméra), flux reçu
+  (VBAN), périphérique (micro).
+- **Traitement** : format audio reçu, gain (ou volume du micro), réduction du
+  bruit de fond, force minimale d'un clap, **Tester le son** et **Enregistrer
+  5 s**.
+- **Un lien par groupe de sons** : les réglages de ce groupe seulement.
+  **+ Nouveau groupe** en crée un, qui s'ouvre aussitôt.
+- **Webhook** : adresse appelée à chaque détection, et son test.
+
+Les réglages s'enregistrent au fil des modifications. Un lien vers un groupe
+(« Choisir les sons » sur la carte, « Ouvrir les réglages du groupe » dans le
+journal) ouvre directement sa rubrique.
+
 ## Groupes de sons
 
 Chaque source a un ou plusieurs **groupes de sons**. Un groupe réunit les

@@ -314,16 +314,63 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
 
 /* Reglages de la source */
 .source-settings-open { align-self: flex-start; }
-dialog.source-settings { border: 0; max-width: 640px; width: calc(100% - 32px); margin: auto; }
+/* Fenetre large : menu des rubriques a gauche, rubrique a droite. Hauteur
+   fixe (pas de saut d'une rubrique a l'autre) ; seule la rubrique defile, le
+   bandeau (titre, fermer, VU-metre) reste visible. */
+dialog.source-settings {
+    border: 0; margin: auto; padding: 0; gap: 0; overflow: hidden;
+    width: calc(100% - 32px); max-width: 1040px;
+    height: min(880px, calc(100vh - 32px)); height: min(880px, calc(100dvh - 32px));
+}
+dialog.source-settings[open] { display: flex; flex-direction: column; }
 dialog.source-settings:not([open]) { display: none; }
 dialog.source-settings::backdrop { background: rgba(0, 0, 0, 0.5); }
-.settings-body { display: flex; flex-direction: column; gap: 16px; }
-/* Bandeau colle en haut de la fenetre (titre, fermer, VU-metre) : la fenetre
-   defile avec un padding de 20 px, d'ou les marges negatives. */
 .settings-top {
-    position: sticky; top: -20px; z-index: 2; margin: -20px -20px 0; padding: 20px 20px 12px;
-    display: flex; flex-direction: column; gap: 12px;
+    flex: none; padding: 16px 20px 12px; display: flex; flex-direction: column; gap: 12px;
     background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.settings-body { flex: 1; min-height: 0; display: flex; }
+.settings-layout { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.settings-nav {
+    flex: 0 0 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+    padding: 12px 8px; border-right: 1px solid var(--line); background: var(--surface-2);
+}
+.settings-nav-label {
+    margin: 12px 10px 4px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-3);
+}
+.settings-tab {
+    display: block; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left;
+    border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-2);
+    font: 0.9rem var(--font); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.settings-tab:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
+.settings-tab[aria-current="true"] {
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); font-weight: 600;
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+.settings-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-tab-group { padding-left: 20px; }
+.settings-tab-add { color: var(--accent); padding-left: 20px; }
+.settings-panels { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 24px 24px; }
+.settings-panel { display: flex; flex-direction: column; gap: 16px; }
+.settings-panel-title { margin: 0; font-size: 1.05rem; }
+.group-card.is-other { display: none; }   /* rubrique d'un groupe : les autres masques */
+/* Telephone : rubriques en onglets defilants au-dessus, fenetre plein ecran. */
+@media (max-width: 720px) {
+    dialog.source-settings { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; margin: 0; border-radius: 0; }
+    .settings-layout { flex-direction: column; }
+    .settings-nav {
+        flex: none; flex-direction: row; overflow-x: auto; overflow-y: hidden; gap: 4px;
+        padding: 8px; border-right: 0; border-bottom: 1px solid var(--line); scroll-snap-type: x proximity;
+        scrollbar-width: none;   /* rangee defilee du doigt : pas de barre */
+    }
+    .settings-nav::-webkit-scrollbar { display: none; }
+    .settings-nav-label { display: none; }
+    .settings-tab { width: auto; flex: none; padding: 8px 12px; scroll-snap-align: start; max-width: 60vw; }
+    .settings-tab-group, .settings-tab-add { padding-left: 12px; }
+    .settings-tab[aria-current="true"] { box-shadow: inset 0 -3px 0 var(--accent); }
+    .settings-panels { padding: 16px; }
 }
 .field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .field-label { font-weight: 600; font-size: 0.85rem; color: var(--ink); padding: 0; }

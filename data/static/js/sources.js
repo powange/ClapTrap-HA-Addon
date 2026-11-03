@@ -55,41 +55,43 @@
             '<span class="muted">' + SPARK_SECONDS + ' dernières secondes</span></div></div>';
     }
 
+    // Contenu de la fenetre de reglages, en rubriques (menu a gauche) :
+    // Connexion, Traitement, un groupe de sons par entree, Webhook.
     function settingsHtml(src) {
-        var d = src.data, html = '';
+        var d = src.data, conn = '', proc = '';
         if (src.kind === 'mic') {
             var devices = CT.state.devices || [];
             var opts = CT.deviceOptions(d.audio_source);
             var vol = d.volume != null ? d.volume : 100;
-            html += field('Périphérique', '<select class="input" data-field="device" id="' + src.domId + '-device">' + opts + '</select>' +
-                (devices.length ? '' : '<p class="hint">Aucun micro détecté par Home Assistant (Paramètres › Système › Matériel).</p>'), src.domId + '-device') +
-                '<div class="field"><div class="field-row"><label for="' + src.domId + '-volume">Volume du micro <strong data-out="volume">' + vol + ' %</strong></label>' +
+            conn += field('Périphérique', '<select class="input" data-field="device" id="' + src.domId + '-device">' + opts + '</select>' +
+                (devices.length ? '' : '<p class="hint">Aucun micro détecté par Home Assistant (Paramètres › Système › Matériel).</p>'), src.domId + '-device');
+            proc += '<div class="field"><div class="field-row"><label for="' + src.domId + '-volume">Volume du micro <strong data-out="volume">' + vol + ' %</strong></label>' +
                 '<label class="switch-inline"><input type="checkbox" role="switch" data-field="auto_volume"' + (d.auto_volume ? ' checked' : '') + '> Automatique</label></div>' +
                 '<input type="range" id="' + src.domId + '-volume" data-field="volume" min="0" max="150" step="5" value="' + vol + '"' + (d.auto_volume ? ' disabled' : '') + '>' +
                 '<p class="hint">Le volume automatique ajuste le micro pour garder un bon niveau.</p></div>';
         } else if (src.kind === 'rtsp') {
             var gain = d.gain != null ? d.gain : 10;
             var shown = maskUrl(d.url || ''), hidden = shown !== (d.url || '');
-            html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
+            conn += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
                 field('Adresse du flux', '<div class="input-group"><input type="text" class="input" data-field="url" data-secret="1" id="' + src.domId + '-url" value="' + esc(shown) + '"' +
                     (hidden ? ' readonly' : '') + ' placeholder="rtsp://camera:554/stream" spellcheck="false" autocomplete="off">' +
                     (hidden ? '<button type="button" class="btn btn-ghost" data-action="reveal-url" aria-pressed="false">Afficher le mot de passe</button>' : '') + '</div>' +
                     '<p class="hint">Le mot de passe est masqué à l\'écran (« Afficher le mot de passe » pour modifier l\'adresse). Il n\'apparaît jamais dans les journaux ; la sauvegarde « Exporter » le contient.</p>', src.domId + '-url') +
                 '<div class="field">' + CT.withTip('<label class="switch-inline"><input type="checkbox" role="switch" data-field="rtsp_tcp" aria-describedby="' + src.domId + '-tcp-tip"' + (d.rtsp_tcp ? ' checked' : '') +
                     '> Transport TCP</label>', CT.infoTip(src.domId + '-tcp-tip', 'Plus fiable en Wi-Fi ou si le son se coupe (paquets perdus) ; ' +
-                    'certaines caméras ne le gèrent pas.', 'Explication du transport TCP')) + '</div>' +
-                '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
+                    'certaines caméras ne le gèrent pas.', 'Explication du transport TCP')) + '</div>';
+            proc += '<div class="field" data-role="audio-format">' + audioFormatHtml(src) + '</div>' +
                 gainField(src, gain, 100);
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
-            html += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
+            conn += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
                 '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(window.vbanPort || d.port || 6980)) +
                 ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p>' +
-                '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>' +
-                gainField(src, d.gain != null ? d.gain : 1, 100);
+                '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>';
+            proc += gainField(src, d.gain != null ? d.gain : 1, 100);
         }
         var nr = d.noise_reduction || 0;
-        html += field('Réduction du bruit de fond', CT.withTip(
+        proc += field('Réduction du bruit de fond', CT.withTip(
             '<select class="input" data-field="noise_reduction" id="' + src.domId + '-nr" aria-describedby="' + src.domId + '-nr-tip">' +
             CT.NR_NAMES.map(function (label, level) {
                 return '<option value="' + level + '"' + (level === nr ? ' selected' : '') + '>' + label + '</option>';
@@ -98,28 +100,127 @@
                 'Le comptage des claps n\'est pas touché. Comparez avec « Enregistrer ' + RECORD_SECONDS + ' s » : ' +
                 'une réduction trop forte peut aussi effacer des sons faibles.', 'Explication de la réduction du bruit de fond')),
             src.domId + '-nr');
-        html += field('Force minimale d\'un clap', CT.withTip(peakRatioSelect(src, d),
+        proc += field('Force minimale d\'un clap', CT.withTip(peakRatioSelect(src, d),
             CT.infoTip(src.domId + '-ratio-tip', 'Combien de fois plus fort que le bruit ambiant un pic doit être pour compter. ' +
                 'Plus haut pour une source bruyante ou très sensible (claps comptés en trop), plus bas pour une source lointaine ' +
                 '(claps manqués). Avec une valeur propre, « Calibrer le comptage » sur cette source la règle elle (et non la valeur globale).',
                 'Explication de la force minimale d\'un clap')),
             src.domId + '-ratio');
-        html += '<div class="field"><span class="field-label">Niveau sonore</span>' +
+        proc += '<div class="field"><span class="field-label">Niveau sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="test">Tester le son</button>' +
             '<p class="hint" data-role="test-hint"></p></div>' +   // texte : renderSourceStatuses
             '<div class="field"><span class="field-label">Extrait sonore</span>' +
             '<button type="button" class="btn btn-ghost" data-action="record">Enregistrer ' + RECORD_SECONDS + ' s</button>' +
             '<p class="hint" data-role="record-hint"></p><div class="record-result" data-role="record-result">' +
             recordingHtml(src) + '</div></div>';
-        html += '<div class="field"><span class="field-label">Groupes de sons</span>' +
-            '<p class="hint">Chaque groupe a son propre seuil, ses entités Home Assistant et sa liste de sons. Un son ne peut être actif que dans un seul groupe d\'une même source.</p>' +
-            '<div class="groups-manage" data-role="groups"></div>' +
-            '<button type="button" class="btn btn-ghost" data-action="add-group">Nouveau groupe</button></div>';
-        html += field('Webhook (facultatif)',
+        var groupsPanel = '<p class="hint">Chaque groupe a son propre seuil, ses entités Home Assistant et sa liste de sons. ' +
+            'Un son ne peut être actif que dans un seul groupe d\'une même source.</p>' +
+            '<div class="groups-manage" data-role="groups"></div>';
+        var hook = field('Webhook (facultatif)',
             '<div class="input-group"><input type="url" class="input" data-field="webhook_url" id="' + src.domId + '-webhook" value="' + esc(d.webhook_url || '') + '" placeholder="http://homeassistant:8123/api/webhook/…" spellcheck="false">' +
             '<button type="button" class="btn btn-ghost" data-action="test-webhook">Tester</button></div>' +
             '<p class="hint">Appelé à chaque détection, en plus des entités Home Assistant.</p>', src.domId + '-webhook');
-        return html;
+        var panel = function (key, title, body) {
+            return '<section class="settings-panel" data-panel="' + key + '" id="' + src.domId + '-panel-' + key + '"' +
+                ' role="region" aria-label="' + esc(title || 'Groupe de sons') + '"' + (key === 'connexion' ? '' : ' hidden') + '>' +
+                (title ? '<h3 class="settings-panel-title">' + title + '</h3>' : '') + body + '</section>';
+        };
+        return '<div class="settings-layout">' +
+            '<nav class="settings-nav" data-role="settings-nav" aria-label="Rubriques des réglages">' + settingsNavItems(src, 'connexion') + '</nav>' +
+            '<div class="settings-panels" data-role="settings-panels">' +
+            panel('connexion', 'Connexion', conn) + panel('traitement', 'Traitement', proc) +
+            panel('groups', '', groupsPanel) + panel('webhook', 'Webhook', hook) + '</div></div>';
+    }
+
+    // Menu des rubriques : Connexion, Traitement, un lien par groupe, « Nouveau
+    // groupe » (action), Webhook. Entree choisie : aria-current. `current` :
+    // rubrique choisie.
+    function settingsNavItems(src, current) {
+        var item = function (key, label, extra) {
+            return '<button type="button" class="settings-tab' + (extra || '') + '" data-action="settings-tab" data-tab="' + esc(key) + '"' +
+                (key === current ? ' aria-current="true"' : '') + '>' + esc(label) + '</button>';
+        };
+        var groups = (src.data.sound_groups || []).filter(function (g) { return g && g.slug; });
+        return item('connexion', 'Connexion') + item('traitement', 'Traitement') +
+            '<span class="settings-nav-label" aria-hidden="true">Groupes de sons</span>' +
+            groups.map(function (g) {
+                return item('group:' + g.slug, (g.name || g.slug) + (g.enabled === false ? ' (désactivé)' : ''), ' settings-tab-group');
+            }).join('') +
+            '<button type="button" class="settings-tab settings-tab-add" data-action="add-group">+ Nouveau groupe</button>' +
+            item('webhook', 'Webhook');
+    }
+
+    function settingsTabOf(card) {
+        return (CT.state.settingsTab = CT.state.settingsTab || {})[card.id] || 'connexion';
+    }
+
+    // Etat de la rubrique applique (rendu passif : ni defilement ni focus) :
+    // son panneau, et pour un groupe ce groupe seulement. Groupe disparu
+    // (supprime) : retour a Connexion. Rend la rubrique effective.
+    function applySettingsTab(card, key) {
+        var src = CT.sourceByDomId(card.id);
+        var nav = card.querySelector('[data-role="settings-nav"]');
+        if (!src || !nav) return key;
+        var slug = key.indexOf('group:') === 0 ? key.slice(6) : null;
+        var group = slug && (src.data.sound_groups || []).filter(function (g) { return g && g.slug === slug; })[0];
+        if (slug && !group) { key = 'connexion'; slug = null; }
+        (CT.state.settingsTab = CT.state.settingsTab || {})[card.id] = key;
+        var panelKey = slug ? 'groups' : key;
+        CT.$$('.settings-panel', card).forEach(function (p) { p.hidden = p.getAttribute('data-panel') !== panelKey; });
+        var gp = card.querySelector('[data-panel="groups"]');
+        if (gp && group) gp.setAttribute('aria-label', 'Groupe de sons « ' + (group.name || group.slug) + ' »');
+        CT.$$('.group-card', card).forEach(function (g) { g.classList.toggle('is-other', g.getAttribute('data-slug') !== slug); });
+        CT.$$('[data-action="settings-tab"]', nav).forEach(function (t) {
+            if (t.getAttribute('data-tab') === key) t.setAttribute('aria-current', 'true');
+            else t.removeAttribute('aria-current');
+        });
+        return key;
+    }
+
+    // Changement de rubrique demande (clic, fleches, groupe cree) : rubrique
+    // affichee depuis son debut, entree visible dans la rangee (telephone).
+    function selectSettingsTab(card, key, focusTab) {
+        key = applySettingsTab(card, key);
+        var panels = card.querySelector('[data-role="settings-panels"]');
+        if (panels) panels.scrollTop = 0;
+        var cur = card.querySelector('[data-role="settings-nav"] [aria-current="true"]');
+        if (!cur) return;
+        if (focusTab) cur.focus();
+        if (cur.scrollIntoView && window.matchMedia && window.matchMedia('(max-width: 720px)').matches) {
+            cur.scrollIntoView({block: 'nearest', inline: 'nearest'});
+        }
+    }
+
+    // Menu refait (groupes ajoutes, renommes, supprimes) en gardant la rubrique.
+    function renderSettingsNav(card, src) {
+        var nav = card.querySelector('[data-role="settings-nav"]');
+        if (!nav) return;
+        nav.innerHTML = settingsNavItems(src, settingsTabOf(card));
+        applySettingsTab(card, settingsTabOf(card));
+    }
+    // Apres un rendu des groupes : menu a jour, seulement fenetre ouverte (il
+    // est refait a l'ouverture).
+    CT.onGroupsRendered = function (card, src) {
+        var dlg = card.querySelector('dialog.source-settings');
+        if (dlg && dlg.open) renderSettingsNav(card, src);
+    };
+    // Groupe cree : sa rubrique s'ouvre.
+    CT.showSettingsGroup = function (domId, slug) {
+        var card = document.getElementById(domId);
+        if (card) selectSettingsTab(card, 'group:' + slug, false);
+    };
+
+    // Fleches (haut/bas, gauche/droite sur telephone), Debut/Fin : rubrique voisine.
+    function onSettingsNavKey(card, e) {
+        var keys = {ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, Home: 'first', End: 'last'};
+        var nav = e.target.closest && e.target.closest('[data-role="settings-nav"]');
+        if (!nav || !(e.key in keys) || !e.target.matches('[data-action="settings-tab"]')) return;
+        var tabs = CT.$$('[data-action="settings-tab"]', nav);
+        var i = tabs.indexOf(e.target);
+        var k = keys[e.key];
+        var next = k === 'first' ? tabs[0] : k === 'last' ? tabs[tabs.length - 1] : tabs[(i + k + tabs.length) % tabs.length];
+        e.preventDefault();
+        selectSettingsTab(card, next.getAttribute('data-tab'), true);
     }
     // ---- Format audio recu d'une camera ---------------------------------------
     // Annonce par ffmpeg a chaque connexion (detection ou test du son). Une
@@ -520,6 +621,7 @@
             else if (e.key === 'Tab') { closeMenu(); }
         });
 
+        card.addEventListener('keydown', function (e) { onSettingsNavKey(card, e); });
         card.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-action]');
             if (!btn || !card.contains(btn)) return;
@@ -546,6 +648,7 @@
                 if (reveal) urlInput.focus();
             }
             else if (action === 'add-group' && CT.addGroup) { CT.addGroup(src); }
+            else if (action === 'settings-tab') { selectSettingsTab(card, btn.getAttribute('data-tab'), false); }
         });
 
         var toggle = card.querySelector('[data-action="toggle"]');
@@ -722,6 +825,11 @@
     function openSettings(card, src, rerender, groupSlug) {
         var dlg = card.querySelector('dialog.source-settings');
         if (!dlg) return;
+        if (!rerender && !dlg.open) {
+            // Nouvelle ouverture : Connexion, ou le groupe demande (avant le
+            // rendu des groupes, qui refait le menu).
+            (CT.state.settingsTab = CT.state.settingsTab || {})[card.id] = groupSlug ? 'group:' + groupSlug : 'connexion';
+        }
         if (!rerender && CT.resetChipOrder && !dlg.open) {
             // Nouvel affichage : nouveau tri, applique tout de suite (sinon il se
             // faisait au premier clic et la pastille cochee se deplacait).
@@ -730,6 +838,11 @@
         }
         if (dlg.open) return focusGroup(dlg, groupSlug);
         if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+        if (!rerender) {
+            renderSettingsNav(card, src);
+            var panels = card.querySelector('[data-role="settings-panels"]');
+            if (panels) panels.scrollTop = 0;
+        }
         CT.state.openPanels[card.id] = true;
         // Messages au premier plan, lisibles et annonces (le reste de la page
         // est inerte pendant la fenetre).
@@ -774,7 +887,8 @@
     function focusGroup(dlg, groupSlug) {
         var group = groupSlug && dlg.querySelector('.group-card[data-slug="' + CT.cssEscape(groupSlug) + '"]');
         if (!group) return;
-        if (group.scrollIntoView) group.scrollIntoView({block: 'start'});
+        var card = dlg.closest('.source-card');
+        if (card) selectSettingsTab(card, 'group:' + groupSlug, false);
         var target = group.querySelector('[data-role="auto-add"]');
         if (target) target.focus();
     }

@@ -174,6 +174,39 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 11 : micro
   $('#src-mic [data-action="open-settings"]').click(); await tick();
   ok('+  réglages de la source dans une fenêtre', $('#src-mic dialog.source-settings').open === true);
+  const micDlg = $('#src-mic dialog.source-settings');
+  const tabs = () => [...micDlg.querySelectorAll('[data-action="settings-tab"]')];
+  const panelShown = key => !micDlg.querySelector('[data-panel="' + key + '"]').hidden;
+  ok('+  réglages : menu des rubriques (Connexion, Traitement, groupes, Nouveau groupe, Webhook)',
+     tabs().map(t => t.getAttribute('data-tab'))[0] === 'connexion' && tabs()[1].getAttribute('data-tab') === 'traitement' &&
+     tabs().some(t => t.getAttribute('data-tab') === 'group:clap') && tabs().slice(-1)[0].getAttribute('data-tab') === 'webhook' &&
+     !!micDlg.querySelector('.settings-nav [data-action="add-group"]') && !!micDlg.querySelector('nav[aria-label="Rubriques des réglages"]'));
+  ok('+  réglages : s\'ouvrent sur Connexion (périphérique du micro)', panelShown('connexion') && !panelShown('traitement') &&
+     !!micDlg.querySelector('[data-panel="connexion"] [data-field="device"]') && !!micDlg.querySelector('[data-panel="traitement"] [data-field="volume"]'));
+  micDlg.querySelector('[data-tab="traitement"]').click(); await tick();
+  ok('+  réglages : Traitement (volume, réduction du bruit, force minimale, test, extrait)', panelShown('traitement') && !panelShown('connexion') &&
+     ['noise_reduction', 'peak_ratio'].every(f => micDlg.querySelector('[data-panel="traitement"] [data-field="' + f + '"]')) &&
+     !!micDlg.querySelector('[data-panel="traitement"] [data-action="test"]') && !!micDlg.querySelector('[data-panel="traitement"] [data-action="record"]') &&
+     micDlg.querySelector('[data-tab="traitement"]').getAttribute('aria-current') === 'true');
+  micDlg.querySelector('[data-tab="group:clap"]').click(); await tick();
+  ok('+  réglages : un groupe par rubrique (les autres masqués)', panelShown('groups') &&
+     !micDlg.querySelector('.group-card[data-slug="clap"]').classList.contains('is-other') &&
+     [...micDlg.querySelectorAll('.group-card')].filter(g => !g.classList.contains('is-other')).length === 1);
+  micDlg.querySelector('[data-tab="group:clap"]').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); await tick();
+  ok('+  réglages : flèches pour passer d\'une rubrique à l\'autre', d.activeElement.getAttribute('data-action') === 'settings-tab' &&
+     d.activeElement.getAttribute('data-tab') !== 'group:clap' && d.activeElement.getAttribute('aria-current') === 'true');
+  micDlg.querySelector('[data-tab="group:clap"]').click(); await tick();
+  const panelsEl = micDlg.querySelector('[data-role="settings-panels"]');
+  panelsEl.scrollTop = 120;
+  w.CT.renderGroupsManage($('#src-mic'), w.CT.sourceByDomId('src-mic')); await tick();
+  ok('+  réglages : un rendu des groupes garde la rubrique, sa position et le focus', panelsEl.scrollTop === 120 &&
+     micDlg.querySelector('[data-tab="group:clap"]').getAttribute('aria-current') === 'true');
+  micDlg.querySelector('[data-tab="group:clap"]').focus();
+  w.CT.renderGroupsManage($('#src-mic'), w.CT.sourceByDomId('src-mic')); await tick();
+  ok('+  réglages : focus gardé sur l\'entrée du menu', d.activeElement.getAttribute('data-tab') === 'group:clap');
+  micDlg.querySelector('[data-tab="webhook"]').click(); await tick();
+  ok('+  réglages : Webhook', panelShown('webhook') && !!micDlg.querySelector('[data-panel="webhook"] [data-field="webhook_url"]'));
+  micDlg.querySelector('[data-tab="connexion"]').click(); await tick();
   change($('#src-mic [data-field="device"]'), 'dev:x'); await tick(3);
   ok('11. choix du micro (device seul)', JSON.stringify(lastCall('PATCH', '/api/sources/mic/mic')[2]) === JSON.stringify({ device: { index: 5, name: 'A|B', pulse_name: 'x' } }));
   // --- 6.71 : micro designe par son nom (la liste peut changer entre affichage et choix)
@@ -636,7 +669,8 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   ok('+  barre d\'état : groupe sans son', /groupes? sans son/.test($('#status-detail').textContent));
   $('#src-mic [data-action="choose-sounds"]').click(); await tick();
   ok('+  « Choisir les sons » ouvre le groupe dans les réglages',
-     $('#src-mic dialog.source-settings').open && d.activeElement.closest('.group-card').getAttribute('data-slug') === 'vide');
+     $('#src-mic dialog.source-settings').open && d.activeElement.closest('.group-card').getAttribute('data-slug') === 'vide' &&
+     $('#src-mic [data-tab="group:vide"]').getAttribute('aria-current') === 'true' && !$('#src-mic [data-panel="groups"]').hidden);
   const order = () => $$('#src-mic .group-card[data-slug="clap"] .chip input').map(i => i.getAttribute('data-label')).join(',');
   const chipsBefore = order();
   change($('#src-mic .group-card[data-slug="clap"] .chip input[data-label="Water"]'), true); await tick(2);
@@ -1147,6 +1181,19 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
      /injoignable/.test($('#bp-list').textContent) && $$('#bp-list a[href*="blueprint_import"]').length === 3 && !!$('[data-bp-retry]'));
   w.__bpError = null;
   $('#tab-listen').click(); await tick();
+  // Capture visuelle (developpement) : UI_DUMP=<dossier> ecrit la fenetre de
+  // reglages d'une camera, rubriques Connexion et Traitement.
+  if (process.env.UI_DUMP) {
+    const fs = require('fs');
+    const cam = $$('.source-card').find(c => c.id.startsWith('src-rtsp'));
+    cam.querySelector('[data-action="open-settings"]').click(); await tick(2);
+    const dlg = cam.querySelector('dialog.source-settings');
+    fs.writeFileSync(process.env.UI_DUMP + '/connexion.html', dlg.outerHTML);
+    dlg.querySelector('[data-tab="traitement"]').click(); await tick();
+    fs.writeFileSync(process.env.UI_DUMP + '/traitement.html', dlg.outerHTML);
+    const g = dlg.querySelector('[data-tab^="group:"]');
+    if (g) { g.click(); await tick(); fs.writeFileSync(process.env.UI_DUMP + '/groupe.html', dlg.outerHTML); }
+  }
   ok('JS : aucune erreur', errors.length === 0);
   results.forEach(r => console.log(r.join(' ')));
   if (errors.length) console.log(errors);

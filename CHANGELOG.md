@@ -1,5 +1,27 @@
 # Changelog
 
+## 6.121.0
+
+### Réglages d'une source : une fenêtre en rubriques
+
+- La fenêtre « Réglages de la source » (onglet Écoute) est bien plus large
+  et organisée en rubriques, avec un menu à gauche :
+  - **Connexion** : nom, adresse du flux et transport TCP (caméra), flux
+    reçu (VBAN), périphérique (micro) ;
+  - **Traitement** : format audio reçu, gain ou volume du micro, réduction
+    du bruit de fond, force minimale d'un clap, « Tester le son » et
+    « Enregistrer 5 s » ;
+  - **un lien par groupe de sons**, qui n'affiche que ce groupe, et
+    **+ Nouveau groupe** (le groupe créé s'ouvre aussitôt) ;
+  - **Webhook**.
+- Le titre et le niveau sonore restent visibles en haut de toutes les
+  rubriques ; seule la rubrique défile. Elle s'ouvre sur « Connexion », ou
+  directement sur le groupe demandé (« Choisir les sons », « Ouvrir les
+  réglages du groupe » depuis le journal).
+- Sur téléphone, la fenêtre occupe tout l'écran et les rubriques deviennent
+  des onglets défilants en haut. Au clavier, les flèches passent d'une
+  rubrique à l'autre.
+
 ## 6.120.0
 
 ### Interface plus claire

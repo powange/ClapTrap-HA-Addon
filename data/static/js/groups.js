@@ -132,6 +132,8 @@
         bindGroups(box, src, groups);
         // Reappliquer la recherche en cours (cocher un son l'effacait).
         CT.$$('.sound-search', box).forEach(function (input) { if (input.value) filterChips(input); });
+        // Menu des rubriques (un lien par groupe) et groupe affiche.
+        if (CT.onGroupsRendered) CT.onGroupsRendered(card, src);
     }
 
     // Sons connus (les 521 classes de YAMNet, chargees une fois) correspondant
@@ -430,6 +432,7 @@
             .then(function (d) { return refreshGroups(src).then(function () { return d; }); })
             .then(function (d) {
                 var skipped = (d && d.skipped_sounds) || [];
+                if (d && d.group && d.group.slug && CT.showSettingsGroup) CT.showSettingsGroup(src.domId, d.group.slug);
                 CT.success('Groupe « ' + ((d && d.group && d.group.name) || label) + ' » créé' +
                            (skipped.length ? ' (déjà dans un autre groupe, non cochés : ' + skipped.map(CT.soundLabel).join(', ') + ')' : ''));
             })
