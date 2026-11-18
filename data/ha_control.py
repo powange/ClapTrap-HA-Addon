@@ -70,7 +70,7 @@ ACTIONS = {
     'add_vban': '{name, ip, port?(port d\'écoute de l\'add-on, informatif), stream_name?, enabled?} : ajoute un flux VBAN.',
     'add_microphone': '{device?: {name, index, pulse_name}, enabled?} : ajoute le micro.',
     'update_source': '{source, name?, url?, enabled?, gain?, device?, volume?, auto_volume?, '
-                     'rtsp_tcp?(caméra), peak_ratio?(1-50, null : réglage global)}.',
+                     'rtsp_tcp?(caméra), peak_ratio?(1-50, null : réglage global), ip?, stream_name?(VBAN)}.',
     'delete_source': '{source} : supprime une source et ses entités.',
     'add_group': '{source, name?, preset?, threshold?(0,05-1), ha_entities?([1-4])} : ajoute un groupe de sons ; '
                  'preset : claps, doigts, toc, sifflement, fumee, verre, bebe, aboiement, sonnette, alarme.',
@@ -746,7 +746,8 @@ def _api_or_raise(method, path, body=None):
 # Sans webhook_url : tout client du broker pourrait faire envoyer par
 # l'add-on (reseau de l'hote) une requete a chaque clap vers l'adresse de son
 # choix. Elle se regle dans l'interface.
-_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp', 'peak_ratio')
+_SOURCE_FIELDS = ('name', 'url', 'enabled', 'gain', 'device', 'volume', 'auto_volume', 'rtsp_tcp', 'peak_ratio',
+                  'ip', 'stream_name')
 _GROUP_FIELDS = ('name', 'threshold', 'ha_entities', 'enabled', 'auto_add_sounds', 'count_mode',
                  'alert_confirm', 'device_class', 'margin')
 

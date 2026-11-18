@@ -103,8 +103,11 @@ rien reçu depuis 10 s)…
 **Réglages de la source** (bouton sur la carte) : une fenêtre large, avec un
 menu des rubriques à gauche (en onglets défilants en haut sur téléphone). Le
 niveau sonore reste visible en haut de toutes les rubriques.
-- **Connexion** : nom, adresse du flux et transport TCP (caméra), flux reçu
-  (VBAN), périphérique (micro).
+- **Connexion** : nom, adresse du flux et transport TCP (caméra), adresse IP
+  de l'émetteur et nom du flux (VBAN, modifiables si l'appareil change
+  d'adresse : groupes, entités et historique sont gardés), périphérique
+  (micro). Le port d'écoute VBAN est commun à tous les flux (option de
+  l'add-on).
 - **Traitement** : format audio reçu, gain (ou volume du micro), réduction du
   bruit de fond, force minimale d'un clap, **Tester le son** et **Enregistrer
   5 s**.
@@ -889,7 +892,9 @@ audio n'est pas pris en charge (liste dans « Ajouter une source »). Choisissez
 AAC ou G.711 dans les réglages audio de la caméra si elle le permet, et
 signalez le codec dans une issue pour qu'il soit ajouté.
 
-**Un flux VBAN affiche « Aucun paquet reçu »** : vérifiez que l'émetteur
+**Un flux VBAN affiche « Aucun paquet reçu »** : si l'appareil a changé
+d'adresse IP (bail DHCP), corrigez-la dans les réglages de la source
+(rubrique Connexion). Sinon, vérifiez que l'émetteur
 diffuse vers l'IP de Home Assistant, sur le port d'écoute (6980, ou l'option
 `vban_port`), et que le nom du flux est
 identique (le journal signale un flux reçu de la bonne IP sous un autre nom).

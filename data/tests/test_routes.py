@@ -63,6 +63,43 @@ def test_vban_add_rename_and_delete_by_id(client, settings_dir, monkeypatch):
     assert client.delete(f'/api/vban/{vid}').status_code == 404
 
 
+def test_vban_address_and_stream_can_be_changed(client, settings_dir, monkeypatch):
+    """Emetteur qui change d'adresse IP ou de nom de flux : rattrape sur la
+    source (groupes, entites et identifiant gardes), detection relancee."""
+    import routes.sources as rs
+    applied = []
+    monkeypatch.setattr(rs, '_sync_and_apply', lambda: applied.append('restart'))
+    monkeypatch.setattr(rs, '_apply_live', lambda: applied.append('live'))
+    a = client.post('/api/vban/save', json={'name': 'Atom', 'ip': '10.0.0.5', 'stream_name': 'Atom'}).json['source']
+    b = client.post('/api/vban/save', json={'name': 'PC', 'ip': '10.0.0.9', 'stream_name': 'Stream1'}).json['source']
+    applied.clear()
+    r = client.patch(f"/api/sources/vban/{a['id']}", json={'ip': ' 10.0.0.42 '})
+    assert r.status_code == 200 and r.json['source']['ip'] == '10.0.0.42' and applied == ['restart']
+    v = next(x for x in settings_dir.load_settings()['saved_vban_sources'] if x['id'] == a['id'])
+    assert (v['ip'], v['stream_name'], v['entity_key'], v['sound_groups']) == \
+        ('10.0.0.42', 'Atom', a['entity_key'], a['sound_groups'])
+    assert client.patch(f"/api/sources/vban/{a['id']}", json={'stream_name': 'Atom2'}).json['source']['stream_name'] == 'Atom2'
+    assert client.patch(f"/api/sources/vban/{a['id']}", json={'ip': '300.1.1.1'}).status_code == 400
+    r = client.patch(f"/api/sources/vban/{a['id']}", json={'ip': '10.0.0.9', 'stream_name': 'Stream1'})
+    assert r.status_code == 400 and 'autre source' in r.json['error']               # flux deja pris
+    applied.clear()
+    assert client.patch(f"/api/sources/vban/{b['id']}", json={'ip': '10.0.0.9'}).status_code == 200
+    assert applied == []                                                             # meme adresse : pas de relance
+    # Adresse et activation dans la meme requete : la relance n'est pas annulee
+    applied.clear()
+    assert client.patch(f"/api/sources/vban/{a['id']}", json={'ip': '10.0.0.43', 'enabled': True}).status_code == 200
+    assert applied == ['restart']
+    # Nom du flux : 16 caracteres au plus (en-tete VBAN)
+    r = client.patch(f"/api/sources/vban/{a['id']}", json={'stream_name': 'NomDeFluxBienTropLong'})
+    assert r.status_code == 400 and '16 caractères' in r.json['error']
+    # Multicast : un groupe est reconnu par son seul nom de flux
+    m = client.post('/api/vban/save', json={'name': 'Groupe', 'ip': '239.255.0.1', 'stream_name': 'Mc'}).json['source']
+    assert m['ip'] == '239.255.0.1'
+    client.patch(f"/api/sources/vban/{b['id']}", json={'stream_name': 'Mc'})
+    r = client.patch(f"/api/sources/vban/{b['id']}", json={'ip': '239.255.0.2'})
+    assert r.status_code == 400 and 'multicast' in r.json['error']
+
+
 def test_groups_crud(client, settings_dir):
     settings_dir.save_settings({'microphone': {'configured': True, 'sound_groups': [
         {'slug': 'clap', 'name': 'Clap', 'sound_whitelist': {'Clapping': True, 'Knock': False}, 'ha_entities': [1]}]}})
