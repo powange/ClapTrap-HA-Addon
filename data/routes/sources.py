@@ -7,7 +7,7 @@ import threading
 import uuid
 
 from settings_manager import (load_settings, modify_settings, SettingsSaveError, with_default_groups,
-                              to_bool, to_number, to_clap_counts, to_webhook, to_name, normalize_rtsp_url,
+                              to_bool, to_number, to_clap_counts, to_webhook, to_name, to_ip, normalize_rtsp_url,
                               MAX_NR_LEVEL, GLOBAL_LIMITS, MIN_THRESHOLD)
 from audio_utils import get_audio_input_devices
 from vban_manager import get_vban_detector, listen_port
@@ -374,6 +374,41 @@ def delete_rtsp_stream(stream_id):
 
 # --- VBAN --------------------------------------------------------------------
 
+VBAN_STREAM_MAX = 16   # nom du flux dans l'en-tete des paquets VBAN
+
+
+def _to_stream_name(value):
+    """Nom du flux VBAN : 16 caracteres au plus (en-tete des paquets) ; plus
+    long, il ne correspondrait jamais a un flux recu."""
+    name = to_name(value, 'stream_name')
+    if len(name) > VBAN_STREAM_MAX:
+        raise ApiError(f'nom du flux : {VBAN_STREAM_MAX} caractères au plus (limite du protocole VBAN)')
+    return name
+
+
+def _stream_of(src):
+    return src.get('stream_name') or src.get('name')
+
+
+def _check_stream_free(sources, ip, stream, own=None):
+    """Le listener route les paquets par (IP, nom du flux), et un groupe
+    multicast par son seul nom : deux sources sur le meme flux se voleraient
+    les paquets."""
+    import ipaddress
+    mcast = ipaddress.ip_address(ip).is_multicast
+    for o in sources:
+        if o is own or _stream_of(o) != stream:
+            continue
+        if o.get('ip') == ip:
+            raise ApiError('Ce flux VBAN (même IP, même nom de flux) est déjà utilisé par une autre source')
+        try:
+            other_mcast = ipaddress.ip_address(o.get('ip') or '').is_multicast
+        except ValueError:
+            other_mcast = False
+        if mcast and other_mcast:
+            raise ApiError(f'nom de flux « {stream} » déjà utilisé par un autre flux multicast')
+
+
 @sources_bp.route('/api/vban/save', methods=['POST'])
 def save_vban_source():
     source = _json()
@@ -384,15 +419,14 @@ def save_vban_source():
     name = to_name(source['name'])
     if not name:
         raise ApiError('Nom requis pour la source VBAN')
-    from settings_manager import to_ip
-    ip = to_ip(str(source['ip']))
+    ip = to_ip(source['ip'])
     new_source = {
         'id': str(uuid.uuid4()),
         'name': name,
         'ip': ip,
         'port': to_number(source['port'], 'port', 1, 65535, integer=True),
         # Nom du flux VBAN tel qu'emis par l'emetteur (routage des paquets).
-        'stream_name': to_name(source.get('stream_name') or name),
+        'stream_name': _to_stream_name(source.get('stream_name') or name),
         'webhook_url': to_webhook(source.get('webhook_url', '')),
         'enabled': to_bool(source.get('enabled', True), 'enabled'),
     }
@@ -406,10 +440,7 @@ def save_vban_source():
             raise ApiError(f'{MAX_SOURCES} flux VBAN au plus')
         if any(s.get('ip') == ip and s.get('name') == name for s in lst):
             raise ApiError('Cette source VBAN existe déjà')
-        # Le listener route les paquets par (IP, nom du flux) : deux sources
-        # sur le meme flux se voleraient les paquets.
-        if any(s.get('ip') == ip and (s.get('stream_name') or s.get('name')) == new_source['stream_name'] for s in lst):
-            raise ApiError('Ce flux VBAN (même IP, même nom de flux) est déjà ajouté')
+        _check_stream_free(lst, ip, new_source['stream_name'])
         lst.append(new_source)
         _check_entity_collision(settings)
 
@@ -439,11 +470,22 @@ def _update_vban(vban_id, source):
         restart = False
         if 'name' in source:
             s['name'] = to_name(source['name'])
+        if 'ip' in source or 'stream_name' in source:
+            # Emetteur qui a change d'adresse ou de nom de flux : rattrape sans
+            # supprimer la source (groupes, entites et historique gardes).
+            old = (s.get('ip'), _stream_of(s))
+            ip = to_ip(source['ip']) if 'ip' in source else old[0]
+            stream = _to_stream_name(source['stream_name']) if 'stream_name' in source else old[1]
+            _check_stream_free(settings.get('saved_vban_sources') or [], ip, stream, own=s)
+            # Relance seulement si elle ecoute (une source desactivee repart
+            # avec la nouvelle adresse a son activation).
+            restart = (ip, stream) != old and bool(s.get('enabled'))
+            s['ip'], s['stream_name'] = ip, stream
         if 'webhook_url' in source:
             s['webhook_url'] = to_webhook(source['webhook_url'])
         if 'enabled' in source:
             new_enabled = to_bool(source['enabled'], 'enabled')
-            restart = new_enabled != s.get('enabled')
+            restart = restart or new_enabled != s.get('enabled')   # sans annuler la relance d'une nouvelle adresse
             s['enabled'] = new_enabled
         if 'gain' in source:
             s['gain'] = to_number(source['gain'], 'gain', 0, 100, integer=True)
@@ -1024,9 +1066,10 @@ _PATCH_FIELDS = {
     # champs de source equivalents etaient acceptes sans aucun effet.
     'mic': {'device', 'volume', 'auto_volume', 'webhook_url', 'enabled', 'noise_reduction', 'peak_ratio'},
     'rtsp': {'url', 'name', 'webhook_url', 'enabled', 'gain', 'rtsp_tcp', 'noise_reduction', 'peak_ratio'},
-    # VBAN : `name` n'est que le nom affiche ; le routage utilise stream_name
-    # et les entity_id la cle fixee a la creation.
-    'vban': {'name', 'webhook_url', 'enabled', 'gain', 'noise_reduction', 'peak_ratio'},
+    # VBAN : `name` n'est que le nom affiche ; le routage utilise l'IP et
+    # stream_name (modifiables : emetteur qui change d'adresse), les entity_id
+    # la cle fixee a la creation.
+    'vban': {'name', 'ip', 'stream_name', 'webhook_url', 'enabled', 'gain', 'noise_reduction', 'peak_ratio'},
 }
 
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 6.122.0
+
+### Flux VBAN : adresse IP et nom du flux modifiables
+
+- Dans les réglages d'un flux VBAN (rubrique Connexion), l'**adresse IP de
+  l'émetteur** et le **nom du flux** se modifient directement. Un appareil
+  qui a changé d'adresse (bail DHCP) se rattrape sans supprimer la source :
+  groupes, entités Home Assistant et historique sont gardés. La source est
+  relancée sur la nouvelle adresse.
+- Une adresse invalide est refusée, tout comme un flux (IP et nom) déjà
+  utilisé par une autre source, ou un nom déjà pris par un autre flux
+  multicast (un groupe multicast est reconnu par son seul nom). Le nom du
+  flux fait 16 caractères au plus, la limite du protocole VBAN : un nom plus
+  long ne correspondrait jamais à aucun paquet reçu.
+- Le **port d'écoute** est affiché à côté. Il est commun à tous les flux :
+  il se change avec l'option « Port d'écoute VBAN » de l'add-on.
+- API et MQTT : `PATCH /api/sources/vban/<id>` et la commande
+  `update_source` acceptent `ip` et `stream_name`.
+
 ## 6.121.0
 
 ### Réglages d'une source : une fenêtre en rubriques

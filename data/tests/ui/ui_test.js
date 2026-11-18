@@ -252,7 +252,12 @@ const lastCall = (m, u) => calls.filter(c => c[0] === m && (typeof u === 'string
   // 13 : vban
   const vb = $$('.source-card').find(c => c.id.startsWith('src-vban'));
   ok('10. badge multicast VBAN', /multicast/.test(vb.textContent));
-  ok('10. port d\'écoute réel affiché sur la carte VBAN', /:6981/.test(vb.textContent));
+  ok('10. port d\'écoute réel affiché dans les réglages VBAN', /Port d'écoute\s*6981/.test(vb.textContent));
+  const vbIp = vb.querySelector('[data-field="ip"]'), vbStream = vb.querySelector('[data-field="stream_name"]');
+  ok('+  VBAN : adresse IP et nom du flux modifiables (rubrique Connexion)', !!vbIp && !!vbStream &&
+     !!vb.querySelector('[data-panel="connexion"] [data-field="ip"]') && vbIp.value !== '');
+  vbIp.value = '10.0.0.77'; change(vbIp); await tick(3);
+  ok('+  VBAN : nouvelle adresse IP enregistrée', JSON.stringify(lastCall('PATCH', /\/api\/sources\/vban\//)[2]) === '{"ip":"10.0.0.77"}');
   change(vb.querySelector('[data-field="gain"]'), '4'); await wait(650);   // enregistre 600 ms apres le dernier changement
   ok('13. gain VBAN (ip/nom)', lastCall('PATCH', /\/api\/sources\/vban\/vb-1$/)[2].gain === 4);
   vb.querySelector('[data-action="test"]').click(); await tick();

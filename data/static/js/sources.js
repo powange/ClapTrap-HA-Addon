@@ -85,9 +85,17 @@
         } else {
             var mcast = /^2(2[4-9]|3\d)\./.test(d.ip || '');
             conn += field('Nom', '<input type="text" class="input" data-field="name" id="' + src.domId + '-name" value="' + esc(d.name || '') + '">', src.domId + '-name') +
-                '<div class="field"><span class="field-label">Flux reçu</span><p class="mono">' + esc(d.stream_name || d.name) + ' · ' + esc(d.ip) + ':' + esc(String(window.vbanPort || d.port || 6980)) +
-                ' <span class="pill">' + (mcast ? 'multicast' : 'unicast') + '</span></p>' +
-                '<p class="hint">Nom du flux et adresse de l\'émetteur (Voicemeeter) : pour les changer, supprimez la source et ajoutez-la de nouveau. Le nom ci-dessus ne sert qu\'à l\'affichage.</p></div>';
+                field('Adresse IP de l\'émetteur', '<input type="text" class="input mono" data-field="ip" id="' + src.domId + '-ip" value="' + esc(d.ip || '') + '"' +
+                    ' spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="192.168.1.10 ou 239.255.0.1">' +
+                    '<p class="hint">' + (mcast ? 'Groupe multicast' : 'Unicast') + '. Si l\'appareil a changé d\'adresse, corrigez-la ici : ' +
+                    'groupes, entités et historique sont gardés.</p>', src.domId + '-ip') +
+                field('Nom du flux', '<input type="text" class="input mono" data-field="stream_name" maxlength="16" id="' + src.domId + '-stream" value="' +
+                    esc(d.stream_name || d.name || '') + '" spellcheck="false" autocomplete="off">' +
+                    '<p class="hint">Tel que configuré dans l\'émetteur (Voicemeeter…), à la casse près. Le nom ci-dessus ne sert qu\'à l\'affichage.</p>',
+                    src.domId + '-stream') +
+                '<div class="field"><span class="field-label">Port d\'écoute</span><p class="mono">' + esc(String(window.vbanPort || d.port || 6980)) + '</p>' +
+                '<p class="hint">Commun à tous les flux VBAN : réglez l\'émetteur sur ce port. Pour en changer, option « Port d\'écoute VBAN » ' +
+                'de l\'add-on (onglet Configuration), puis redémarrage.</p></div>';
             proc += gainField(src, d.gain != null ? d.gain : 1, 100);
         }
         var nr = d.noise_reduction || 0;
@@ -763,7 +771,7 @@
                 // Valeur envoyee : une valeur plus recente (flèches pendant la
                 // requete) n'est ni prise pour deja enregistree ni ecrasee.
                 var sent = input.type === 'checkbox' ? String(input.checked) : input.value;
-                var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device', 'rtsp_tcp'].indexOf(name) !== -1);
+                var mayRestart = name === 'auto_volume' || (src.enabled && ['url', 'device', 'rtsp_tcp', 'ip', 'stream_name'].indexOf(name) !== -1);
                 var fieldId = input.id;
                 return CT.withRestart(CT.patchSource(src, body), mayRestart).then(function (d) {
                     input.dataset.prev = sent;
@@ -775,7 +783,7 @@
                         var vol = card.querySelector('[data-field="volume"]');
                         if (vol) vol.disabled = input.checked;
                     }
-                    if (['name', 'url', 'device'].indexOf(name) !== -1) {
+                    if (['name', 'url', 'device', 'ip', 'stream_name'].indexOf(name) !== -1) {
                         return CT.refresh().then(function () { CT.markSaved(document.getElementById(fieldId) || input); });
                     }
                     CT.markSaved(input);
